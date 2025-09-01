@@ -209,6 +209,7 @@ const testConfig = {
             readline: require.resolve("readline-browserify"),
             process: require.resolve("process/browser"),
             timers: require.resolve("timers-browserify"),
+            child_process: false,
         },
     },
     module: {

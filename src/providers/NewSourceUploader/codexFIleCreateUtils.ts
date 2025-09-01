@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { NotebookPreview } from "@types";
 import { CodexCellTypes } from "../../../types/enums";
-import { createStandardizedFilename } from "../../utils/bookNameUtils";
+import { createStandardizedFilename, isBiblicalImporterType } from "../../utils/bookNameUtils";
 
 export function checkCancellation(token?: vscode.CancellationToken): void {
     if (token?.isCancellationRequested) {
@@ -13,27 +13,26 @@ export async function writeNotebook(uri: vscode.Uri, notebook: NotebookPreview):
     // Don't use createCodexNotebook since it opens the document
     // Instead, directly serialize the notebook data
     const cells = notebook.cells.map((cell) => ({
-        kind: cell.kind,
-        value: cell.value,
-        languageId: cell.languageId || "scripture",
+        // need to ensure we spread in incoming metadata while also ensuring critical metadata is otherwise included
         metadata: {
             type: cell.metadata?.type || CodexCellTypes.TEXT,
             id: cell.metadata?.id,
             data: cell.metadata?.data || {},
             edits: cell.metadata?.edits || [],
+            ...cell.metadata,
         },
+        ...cell,
     }));
 
     const serializedData = JSON.stringify(
         {
             cells,
             metadata: {
-                ...notebook.metadata,
                 textDirection: notebook.metadata.textDirection || "ltr",
-                navigation: notebook.metadata.navigation || [],
                 videoUrl: notebook.metadata.videoUrl || "",
                 lineNumbersEnabled: notebook.metadata.lineNumbersEnabled ?? true,
                 lineNumbersEnabledSource: notebook.metadata.lineNumbersEnabledSource || "global",
+                ...notebook.metadata,
             },
         },
         null,
@@ -74,9 +73,15 @@ export async function createNoteBookPair({
             throw new Error("Notebook name is required");
         }
 
-        // Create standardized filenames using USFM codes
-        const sourceFilename = await createStandardizedFilename(sourceNotebook.name, ".source");
-        const codexFilename = await createStandardizedFilename(codexNotebook.name, ".codex");
+        // Determine if this is biblical content based on the importer type
+        const importerType = sourceNotebook.metadata?.corpusMarker || '';
+        const isBiblical = isBiblicalImporterType(importerType);
+
+        console.log(`[CODEX FILE CREATE] Importer type: "${importerType}", Biblical: ${isBiblical}`);
+
+        // Create standardized filenames - only use USFM codes for biblical content
+        const sourceFilename = await createStandardizedFilename(sourceNotebook.name, ".source", isBiblical);
+        const codexFilename = await createStandardizedFilename(codexNotebook.name, ".codex", isBiblical);
 
         // Create final URIs with standardized filenames
         const sourceUri = vscode.Uri.joinPath(
@@ -106,8 +111,14 @@ export async function createNoteBookPair({
             vscode.Uri.joinPath(workspaceFolder.uri, "files", "target")
         );
 
+        console.log(`[CODEX FILE CREATE] Writing notebooks for "${sourceNotebook.name}"`);
+        console.log(`[CODEX FILE CREATE] - Source: ${sourceUri.fsPath}`);
+        console.log(`[CODEX FILE CREATE] - Codex: ${codexUri.fsPath}`);
+
         await writeNotebook(sourceUri, sourceNotebook);
         await writeNotebook(codexUri, codexNotebook);
+
+        console.log(`[CODEX FILE CREATE] Successfully wrote notebook pair for "${sourceNotebook.name}"`);
 
         notebookResults.push({ sourceUri, codexUri, notebook: sourceNotebook });
     }

@@ -38,7 +38,7 @@ export interface CellListProps {
     currentProcessingCellId?: string; // Currently processing cell ID
     cellsInAutocompleteQueue?: string[]; // Cells queued for autocompletion
     successfulCompletions?: Set<string>; // Cells that completed successfully
-    audioAttachments?: { [cellId: string]: boolean }; // Cells that have audio attachments
+    audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" }; // Cells that have audio attachments
     isSaving?: boolean;
     saveError?: boolean; // Whether there was a save error/timeout
     saveRetryCount?: number; // Number of save retry attempts
@@ -527,6 +527,48 @@ const CellList: React.FC<CellListProps> = ({
         ]
     );
 
+    // expose to children via window
+    (window as any).openCellById = openCellById;
+
+    // Force-open variant used by toolbar icons (saves first if needed)
+    const openCellByIdForce = useCallback(
+        (cellId: string) => {
+            const cellToOpen = workingTranslationUnits.find(
+                (unit) => unit.cellMarkers[0] === cellId
+            );
+            if (!cellToOpen) return;
+
+            // Save current edits if needed
+            if (unsavedChanges) {
+                try {
+                    handleSaveHtml();
+                } catch {}
+            }
+
+            const documentUri =
+                (vscode.getState() as any)?.documentUri || window.location.search.substring(1);
+
+            setContentBeingUpdated({
+                cellMarkers: cellToOpen.cellMarkers,
+                cellContent: cellToOpen.cellContent,
+                cellChanged: true,
+                cellLabel: cellToOpen.cellLabel,
+                timestamps: cellToOpen.timestamps,
+                uri: documentUri,
+            } as EditorCellContent);
+
+            vscode.postMessage({
+                command: "setCurrentIdToGlobalState",
+                content: {
+                    currentLineId: cellToOpen.cellMarkers[0],
+                },
+            } as EditorPostMessages);
+        },
+        [workingTranslationUnits, setContentBeingUpdated, vscode, unsavedChanges, handleSaveHtml]
+    );
+
+    (window as any).openCellByIdForce = openCellByIdForce;
+
     const renderCellGroup = useCallback(
         (group: typeof workingTranslationUnits, startIndex: number) => (
             <span
@@ -579,7 +621,7 @@ const CellList: React.FC<CellListProps> = ({
                                 handleCellTranslation={handleCellTranslation}
                                 handleCellClick={openCellById}
                                 cellDisplayMode={cellDisplayMode}
-                                audioAttachments={audioAttachments}
+                                audioAttachments={audioAttachments as any}
                                 footnoteOffset={calculateFootnoteOffset(startIndex + index)}
                                 isCorrectionEditorMode={isCorrectionEditorMode}
                                 translationUnits={workingTranslationUnits}
@@ -614,6 +656,7 @@ const CellList: React.FC<CellListProps> = ({
             openCellById,
             currentUsername,
             requiredValidations,
+            lineNumbersEnabled,
         ]
     );
 
@@ -708,185 +751,50 @@ const CellList: React.FC<CellListProps> = ({
                         workingTranslationUnits[i],
                         workingTranslationUnits
                     );
-                    const cellIdForTranslation = cellMarkers[0];
-                    const isInProcess = isCellInTranslationProcess(cellIdForTranslation);
-                    const translationState = getCellTranslationState(cellIdForTranslation);
 
-                    const emptyCellDisplay =
-                        cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL ? (
-                            <div
-                                style={{
-                                    display: "flex",
-                                    flexDirection: "row",
-                                    alignItems: "center",
-                                    justifyContent: "flex-start",
-                                    gap: "0.25rem",
-                                    padding: "4px 4px 4px 12px",
-                                    width: "calc(100% - 20px)",
-
-                                    boxSizing: "border-box",
-                                    ...getEmptyCellTranslationStyle(
-                                        translationState as CellTranslationState,
-                                        successfulCompletions.size > 0
-                                    ),
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        gridArea: "buttons",
-                                        display: "flex",
-                                        alignItems: "flex-start",
-                                    }}
-                                >
-                                    <AnimatedReveal
-                                        mode="swap"
-                                        button={
-                                            !isSourceText && (
-                                                <div style={{ flexShrink: 0 }}>
-                                                    <Button
-                                                        variant="ghost"
-                                                        style={{
-                                                            height: "16px",
-                                                            width: "16px",
-                                                            padding: 0,
-                                                            display: "flex",
-                                                            alignItems: "center",
-                                                            justifyContent: "center",
-                                                        }}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            e.preventDefault();
-                                                        }}
-                                                    >
-                                                        <i
-                                                            className="codicon codicon-dash"
-                                                            style={{
-                                                                fontSize: "12px",
-                                                                color: "var(--vscode-descriptionForeground)",
-                                                                fontWeight: "bold",
-                                                            }}
-                                                        ></i>
-                                                    </Button>
-                                                </div>
-                                            )
-                                        }
-                                        content={
-                                            <Button
-                                                variant="ghost"
-                                                aria-label="Translate"
-                                                onClick={() =>
-                                                    handleCellTranslation(cellMarkers[0])
-                                                }
-                                                style={{
-                                                    height: "16px",
-                                                    width: "16px",
-                                                    padding: 0,
-                                                    display: "flex",
-                                                    alignItems: "center",
-                                                    justifyContent: "center",
-                                                    position: "relative",
-                                                }}
-                                                disabled={isInProcess}
-                                                title={
-                                                    isInProcess
-                                                        ? "Translation in progress"
-                                                        : "Translate this cell using AI"
-                                                }
-                                            >
-                                                <i
-                                                    className={`codicon ${
-                                                        isInProcess
-                                                            ? "codicon-loading codicon-modifier-spin"
-                                                            : "codicon-sparkle"
-                                                    }`}
-                                                    style={{ fontSize: "12px" }}
-                                                ></i>
-                                            </Button>
-                                        }
-                                    />
-                                </div>
-                                {/* start the wrappable flexbox */}
-                                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem" }}>
-                                    <div style={{ minWidth: 0 }}>
-                                        {(cellLabel || generatedCellLabel) && (
-                                            <span className="cell-label-text text-primary">
-                                                {/* ? Does this cell label even get used? */}
-                                                {cellLabel || generatedCellLabel}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div style={{ minWidth: 0 }}>
-                                        <div
-                                            style={{
-                                                display: "flex",
-                                                alignItems: "center",
-                                                justifyContent: "space-between",
-                                            }}
-                                        >
-                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                <EmptyCellDisplay
-                                                    key={`${cellMarkers.join(" ")}:empty`}
-                                                    cellMarkers={cellMarkers}
-                                                    cellLabel={""}
-                                                    setContentBeingUpdated={setContentBeingUpdated}
-                                                    textDirection={textDirection}
-                                                    vscode={vscode}
-                                                    openCellById={openCellById}
-                                                    fontSize={fontSize}
-                                                />
-                                            </div>
-                                            <div style={{ flexShrink: 0, marginLeft: "0.5rem" }}>
-                                                <CommentsBadge
-                                                    cellId={cellMarkers[0]}
-                                                    unresolvedCount={
-                                                        cellCommentsCount.get(cellMarkers[0]) || 0
-                                                    }
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        ) : (
-                            <Button
-                                style={{
-                                    height: "15px",
-                                    padding: "2px",
-                                    marginTop:
-                                        fontSize > 14
-                                            ? fontSize <= 18
-                                                ? "2px"
-                                                : fontSize <= 22
-                                                ? "4px"
-                                                : fontSize <= 26
-                                                ? "6px"
-                                                : "8px"
-                                            : "0px",
-                                    marginBottom:
-                                        fontSize > 14
-                                            ? fontSize <= 18
-                                                ? "2px"
-                                                : fontSize <= 22
-                                                ? "4px"
-                                                : fontSize <= 26
-                                                ? "6px"
-                                                : "8px"
-                                            : "0px",
-                                    ...getEmptyCellTranslationStyle(
-                                        translationState as CellTranslationState,
-                                        successfulCompletions.size > 0
-                                    ),
-                                }}
-                                onClick={() => openCellById(cellMarkers[0])}
-                            >
-                                <i
-                                    className="codicon codicon-plus"
-                                    style={{ fontSize: "12px" }}
-                                ></i>
-                            </Button>
-                        );
-
-                    result.push(emptyCellDisplay);
+                    // Render using the same component as non-empty cells for perfect alignment
+                    result.push(
+                        <span
+                            key={`${cellMarkers[0]}:${i}`}
+                            style={{
+                                display:
+                                    cellDisplayMode === CELL_DISPLAY_MODES.INLINE
+                                        ? "inline"
+                                        : "block",
+                                verticalAlign: "middle",
+                                backgroundColor: "transparent",
+                                opacity: workingTranslationUnits[i].merged ? 0.5 : 1,
+                            }}
+                        >
+                            <CellContentDisplay
+                                cell={workingTranslationUnits[i]}
+                                lineNumber={generatedCellLabel}
+                                label={cellLabel}
+                                lineNumbersEnabled={lineNumbersEnabled}
+                                key={`cell-${cellMarkers[0]}:empty`}
+                                vscode={vscode}
+                                textDirection={textDirection}
+                                isSourceText={isSourceText}
+                                hasDuplicateId={false}
+                                alertColorCode={alertColorCodes[cellMarkers[0]]}
+                                highlightedCellId={highlightedCellId}
+                                scrollSyncEnabled={scrollSyncEnabled}
+                                isInTranslationProcess={isCellInTranslationProcess(cellMarkers[0])}
+                                translationState={getCellTranslationState(cellMarkers[0])}
+                                allTranslationsComplete={successfulCompletions.size > 0}
+                                handleCellTranslation={handleCellTranslation}
+                                handleCellClick={openCellById}
+                                cellDisplayMode={cellDisplayMode}
+                                audioAttachments={audioAttachments as any}
+                                footnoteOffset={calculateFootnoteOffset(i)}
+                                isCorrectionEditorMode={isCorrectionEditorMode}
+                                translationUnits={workingTranslationUnits}
+                                unresolvedCommentsCount={cellCommentsCount.get(cellMarkers[0]) || 0}
+                                currentUsername={currentUsername || undefined}
+                                requiredValidations={requiredValidations}
+                            />
+                        </span>
+                    );
                     emptyCellsRendered++;
                 }
                 groupStartIndex = i + 1;
@@ -902,27 +810,21 @@ const CellList: React.FC<CellListProps> = ({
         return result;
     }, [
         workingTranslationUnits,
-        contentBeingUpdated,
         isSourceText,
+        isCorrectionEditorMode,
+        contentBeingUpdated,
+        generateCellLabel,
+        spellCheckResponse,
+        setContentBeingUpdated,
         handleCloseEditor,
         handleSaveHtml,
-        renderCellGroup,
-        setContentBeingUpdated,
         textDirection,
-        vscode,
-        spellCheckResponse,
         openCellById,
-        cellDisplayMode,
-        generateCellLabel,
-        handleCellTranslation,
-        isCellInTranslationProcess,
-        getCellTranslationState,
-        successfulCompletions,
-        calculateFootnoteOffset,
-        isCorrectionEditorMode,
-        cellCommentsCount,
         isSaving,
-        fontSize,
+        saveError,
+        saveRetryCount,
+        calculateFootnoteOffset,
+        renderCellGroup,
     ]);
 
     // Fetch comments count for all visible cells

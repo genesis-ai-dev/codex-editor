@@ -10,6 +10,7 @@ import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
 import { EditHistory, ValidationEntry } from "../../../../types/index.d";
 import { EditMapUtils } from "../../../utils/editMapUtils";
+import { normalizeAttachmentUrl } from "@/utils/pathUtils";
 
 const DEBUG_MODE = false;
 function debugLog(...args: any[]): void {
@@ -1062,7 +1063,11 @@ function mergeAttachments(
     // Add all our attachments
     if (ourAttachments) {
         Object.entries(ourAttachments).forEach(([id, attachment]) => {
-            merged[id] = { ...attachment };
+            const normalized = { ...attachment };
+            if (typeof normalized.url === "string") {
+                normalized.url = normalizeAttachmentUrl(normalized.url);
+            }
+            merged[id] = normalized;
         });
     }
 
@@ -1071,14 +1076,22 @@ function mergeAttachments(
         Object.entries(theirAttachments).forEach(([id, theirAttachment]) => {
             if (!merged[id]) {
                 // New attachment from their side
-                merged[id] = { ...theirAttachment };
+                const normalized = { ...theirAttachment };
+                if (typeof normalized.url === "string") {
+                    normalized.url = normalizeAttachmentUrl(normalized.url);
+                }
+                merged[id] = normalized;
             } else {
                 // Conflict: same attachment ID exists in both versions
                 const ourAttachment = merged[id];
 
                 // Use the version with the later updatedAt timestamp
                 if (theirAttachment.updatedAt > ourAttachment.updatedAt) {
-                    merged[id] = { ...theirAttachment };
+                    const normalized = { ...theirAttachment };
+                    if (typeof normalized.url === "string") {
+                        normalized.url = normalizeAttachmentUrl(normalized.url);
+                    }
+                    merged[id] = normalized;
                     debugLog(`Using their version of attachment ${id} (newer timestamp)`);
                 } else {
                     debugLog(`Keeping our version of attachment ${id} (newer timestamp)`);

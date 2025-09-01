@@ -391,7 +391,7 @@ ChapterNavigationHeaderProps) {
     };
 
     return (
-        <div className="flex flex-row p-2">
+        <div className="flex flex-row p-2 max-w-full overflow-hidden">
             <div className="flex items-center justify-start">
                 {isSourceText ? (
                     <>
@@ -422,7 +422,7 @@ ChapterNavigationHeaderProps) {
                 )}
             </div>
 
-            <div className="flex items-center justify-center flex-grow-[2] space-x-2">
+            <div className="flex items-center justify-center flex-grow-[2] space-x-2 min-w-0">
                 <Button
                     variant="outline"
                     onClick={() => {
@@ -465,21 +465,43 @@ ChapterNavigationHeaderProps) {
 
                 <div
                     ref={chapterTitleRef}
-                    className="chapter-title-container"
+                    className="chapter-title-container flex items-center min-w-0 max-w-xs cursor-pointer"
                     onClick={() => {
                         if (!unsavedChanges) {
                             setShowChapterSelector(!showChapterSelector);
                         }
                     }}
                 >
-                    <h1 className="text-2xl flex items-center m-0">
-                        {getDisplayTitle()}
-                        {subsections.length > 0 &&
-                            ` (${subsections[currentSubsectionIndex]?.label || ""})`}
+                    <h1 className="text-2xl flex items-center m-0 min-w-0">
+                        <span className="truncate">
+                            {(() => {
+                                const fullTitle = getDisplayTitle();
+                                const lastSpaceIndex = Math.max(
+                                    fullTitle.lastIndexOf('\u00A0'), 
+                                    fullTitle.lastIndexOf(' ')
+                                );
+                                return lastSpaceIndex > 0 ? fullTitle.substring(0, lastSpaceIndex) : fullTitle;
+                            })()}
+                        </span>
+                        <span className="flex-shrink-0 ml-1">
+                            {(() => {
+                                const fullTitle = getDisplayTitle();
+                                const lastSpaceIndex = Math.max(
+                                    fullTitle.lastIndexOf('\u00A0'), 
+                                    fullTitle.lastIndexOf(' ')
+                                );
+                                return lastSpaceIndex > 0 ? fullTitle.substring(lastSpaceIndex + 1) : "";
+                            })()}
+                        </span>
+                        {subsections.length > 0 && (
+                            <span className="flex-shrink-0 ml-1">
+                                ({subsections[currentSubsectionIndex]?.label || ""})
+                            </span>
+                        )}
                         <i
                             className={`codicon ${
                                 showChapterSelector ? "codicon-chevron-up" : "codicon-chevron-down"
-                            }`}
+                            } ml-1 flex-shrink-0`}
                         />
                     </h1>
                 </div>
@@ -614,7 +636,7 @@ ChapterNavigationHeaderProps) {
                 )}
             </div>
 
-            <div className="flex items-center justify-end flex-1 space-x-2">
+            <div className="flex items-center justify-end flex-1 space-x-2 min-w-0">
                 {/* {getFileStatusButton()} // FIXME: we want to show the file status, but it needs to load immediately, and it needs to be more reliable. - test this and also think through UX */}
                 {/* Show left sidebar toggle only when editor is not leftmost
                 

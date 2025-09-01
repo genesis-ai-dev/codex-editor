@@ -22,7 +22,15 @@ export class AutomatedTestingProvider extends BaseWebviewProvider {
     }
 
     protected async handleMessage(message: any): Promise<void> {
+        console.log('[AutomatedTestingProvider] Received message:', JSON.stringify(message, null, 2));
         switch (message.command) {
+            case "testConnection": {
+                console.log('[AutomatedTestingProvider] Test connection received!');
+                if (this._view) {
+                    this._view.webview.postMessage({ command: "testConnectionResponse", data: { success: true } });
+                }
+                break;
+            }
             case "runTest": {
                 const { cellIds, count = 10, onlyValidated = false } = message.data || {};
                 try {
@@ -45,15 +53,17 @@ export class AutomatedTestingProvider extends BaseWebviewProvider {
                 break;
             }
             case "getHistory": {
+                console.log('[AutomatedTestingProvider] Processing getHistory command');
                 try {
                     const history = await vscode.commands.executeCommand(
                         "codex-testing.getTestHistory"
                     );
+                    console.log('[AutomatedTestingProvider] History data received:', JSON.stringify(history, null, 2));
                     if (this._view) {
                         this._view.webview.postMessage({ command: "historyData", data: history });
                     }
                 } catch (e) {
-                    console.error("Failed to load history:", e);
+                    console.error('[AutomatedTestingProvider] Failed to load history:', e);
                     if (this._view) {
                         this._view.webview.postMessage({ command: "historyData", data: [] });
                     }
@@ -108,6 +118,33 @@ export class AutomatedTestingProvider extends BaseWebviewProvider {
                     console.error("Failed to reapply config:", e);
                     if (this._view) {
                         this._view.webview.postMessage({ command: "configReapplied", data: { ok: false } });
+                    }
+                }
+                break;
+            }
+            case "deleteTest": {
+                console.log('[AutomatedTestingProvider] Processing deleteTest command');
+                const { path } = message.data || {};
+                console.log('[AutomatedTestingProvider] Delete path:', path);
+                if (!path) {
+                    console.error('[AutomatedTestingProvider] No path provided for deleteTest');
+                    return;
+                }
+                try {
+                    console.log('[AutomatedTestingProvider] Executing codex-testing.deleteTest command with path:', path);
+                    const success = await vscode.commands.executeCommand(
+                        "codex-testing.deleteTest",
+                        path
+                    );
+                    console.log('[AutomatedTestingProvider] Delete command result:', success);
+                    if (this._view) {
+                        console.log('[AutomatedTestingProvider] Sending testDeleted response:', { success });
+                        this._view.webview.postMessage({ command: "testDeleted", data: { success } });
+                    }
+                } catch (e) {
+                    console.error('[AutomatedTestingProvider] Failed to delete test:', e);
+                    if (this._view) {
+                        this._view.webview.postMessage({ command: "testDeleted", data: { success: false } });
                     }
                 }
                 break;

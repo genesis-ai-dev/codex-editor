@@ -1,13 +1,12 @@
 import * as vscode from "vscode";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { createNoteBookPair } from "./codexFIleCreateUtils";
-import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteConfirmationMessage, OverwriteResponseMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
+import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteResponseMessage, WriteNotebooksWithAttachmentsMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
 import { ProcessedNotebook } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/common";
 import { NotebookPreview, CustomNotebookMetadata } from "../../../types";
 import { CodexCell } from "../../utils/codexNotebookUtils";
 import { CodexCellTypes } from "../../../types/enums";
 import { importBookNamesFromXmlContent } from "../../bookNameSettings/bookNameSettings";
-import { TranslationImportTransaction } from "../../transactions/TranslationImportTransaction";
 import { createStandardizedFilename } from "../../utils/bookNameUtils";
 
 const DEBUG_NEW_SOURCE_UPLOADER_PROVIDER = false;
@@ -46,7 +45,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             try {
                 if (message.command === "webviewReady") {
                     // Webview is ready, send current project inventory
-                    console.log("Webview ready, sending project inventory...");
                     const inventory = await this.fetchProjectInventory();
 
                     webviewPanel.webview.postMessage({
@@ -55,6 +53,9 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     });
                 } else if (message.command === "writeNotebooks") {
                     await this.handleWriteNotebooks(message as WriteNotebooksMessage, token, webviewPanel);
+                } else if (message.command === "writeNotebooksWithAttachments") {
+                    await this.handleWriteNotebooksWithAttachments(message as WriteNotebooksWithAttachmentsMessage, token, webviewPanel);
+                    // Success and inventory update handled inside
 
                     // Success notification and inventory update are now handled in handleWriteNotebooks
                 } else if (message.command === "overwriteResponse") {
@@ -116,7 +117,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 } else if (message.command === "fetchFileDetails") {
                     // Fetch detailed information about a specific file
                     const { filePath } = message;
-                    console.log(`[NEW SOURCE UPLOADER] Fetching details for file: ${filePath}`);
 
                     try {
                         const fileDetails = await this.fetchFileDetails(filePath);
@@ -139,7 +139,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 } else if (message.command === "fetchTargetFile") {
                     // Fetch target file content for translation imports
                     const { sourceFilePath } = message;
-                    console.log(`[NEW SOURCE UPLOADER] Fetching target file for source: ${sourceFilePath}`);
 
                     try {
                         const targetFilePath = sourceFilePath
@@ -166,12 +165,11 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     }
                 } else if (message.command === "startTranslating") {
                     // Handle start translating - same as Welcome View's "Open Translation File"
-                    console.log("[NEW SOURCE UPLOADER] Opening navigation and closing window");
 
                     try {
                         // Focus the navigation view (same as Welcome View's handleOpenTranslationFile)
                         await vscode.commands.executeCommand("codex-editor.navigation.focus");
-                        
+
                         // Close the current webview panel
                         webviewPanel.dispose();
                     } catch (error) {
@@ -207,8 +205,12 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             metadata: {
                 id: processedCell.id,
                 type: CodexCellTypes.TEXT,
-                data: processedCell.metadata || {},
+                data: processedCell.metadata?.data || processedCell.metadata || {},
                 edits: [],
+                // Spread any additional metadata from the processed cell
+                ...(processedCell.metadata && typeof processedCell.metadata === 'object'
+                    ? processedCell.metadata
+                    : {})
             }
         }));
 
@@ -221,7 +223,18 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             sourceCreatedAt: processedNotebook.metadata.createdAt,
             corpusMarker: processedNotebook.metadata.importerType,
             textDirection: "ltr",
-        };
+            ...(processedNotebook.metadata.videoUrl && { videoUrl: processedNotebook.metadata.videoUrl }),
+            // Preserve document structure metadata and other custom fields
+            ...(processedNotebook.metadata.documentStructure && {
+                documentStructure: processedNotebook.metadata.documentStructure
+            }),
+            ...(processedNotebook.metadata.wordCount && {
+                wordCount: processedNotebook.metadata.wordCount
+            }),
+            ...(processedNotebook.metadata.mammothMessages && {
+                mammothMessages: processedNotebook.metadata.mammothMessages
+            }),
+        } as any; // Cast to any to allow custom fields
 
         return {
             name: processedNotebook.name,
@@ -275,22 +288,47 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         token: vscode.CancellationToken,
         webviewPanel: vscode.WebviewPanel
     ): Promise<void> {
-        // Debug logging
-        console.log("Received notebook pairs:", message.notebookPairs.length);
-        console.log("First pair source cells:", message.notebookPairs[0]?.source.cells.length);
-        console.log("First pair source cells preview:", message.notebookPairs[0]?.source.cells.slice(0, 2));
+        // Save original files if provided in metadata
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (workspaceFolder) {
+            for (const pair of message.notebookPairs) {
+                if (pair.source.metadata?.originalFileData) {
+                    // Save the original file in attachments
+                    const originalFileName = pair.source.metadata.originalFileName || 'document.docx';
+                    const originalsDir = vscode.Uri.joinPath(
+                        workspaceFolder.uri,
+                        '.project',
+                        'attachments',
+                        'originals'
+                    );
+                    await vscode.workspace.fs.createDirectory(originalsDir);
+
+                    const originalFileUri = vscode.Uri.joinPath(originalsDir, originalFileName);
+                    const fileData = pair.source.metadata.originalFileData;
+
+                    // Convert ArrayBuffer to Uint8Array if needed
+                    const buffer = fileData instanceof ArrayBuffer
+                        ? new Uint8Array(fileData)
+                        : Buffer.from(fileData);
+
+                    await vscode.workspace.fs.writeFile(originalFileUri, buffer);
+                }
+            }
+        }
 
         // Convert ProcessedNotebooks to NotebookPreview format
         const sourceNotebooks = message.notebookPairs.map(pair =>
             this.convertToNotebookPreview(pair.source)
         );
-        const codexNotebooks = message.notebookPairs.map(pair =>
-            this.convertToNotebookPreview(pair.codex)
-        );
-
-        // Debug logging after conversion
-        console.log("Converted source notebooks cells:", sourceNotebooks[0]?.cells.length);
-        console.log("Converted source cells preview:", sourceNotebooks[0]?.cells.slice(0, 2));
+        const codexNotebooks = message.notebookPairs.map(pair => {
+            // For codex notebooks, remove the original file data to avoid duplication
+            const codexPair = { ...pair.codex };
+            if (codexPair.metadata?.originalFileData) {
+                codexPair.metadata = { ...codexPair.metadata };
+                delete codexPair.metadata.originalFileData;
+            }
+            return this.convertToNotebookPreview(codexPair);
+        });
 
         // Create the notebook pairs
         const createdFiles = await createNoteBookPair({
@@ -338,12 +376,212 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         }
     }
 
+    /**
+     * Writes notebooks and persists provided attachments to .project/attachments/{files,pointers}/{DOC}/
+     * Assumes the incoming notebookPairs already have per-cell attachments populated in metadata
+     */
+    private async handleWriteNotebooksWithAttachments(
+        message: WriteNotebooksWithAttachmentsMessage,
+        token: vscode.CancellationToken,
+        webviewPanel: vscode.WebviewPanel
+    ): Promise<void> {
+        // Reuse conflict checks from handleWriteNotebooks
+        const conflicts = await this.checkForFileConflicts(message.notebookPairs.map(pair => pair.source));
+        if (conflicts.length > 0) {
+            const filesList = conflicts.map(conflict => {
+                const parts = [] as string[];
+                if (conflict.sourceExists) parts.push("source file");
+                if (conflict.targetExists) parts.push("target file");
+                if (conflict.hasTranslations) parts.push("with translations");
+                return `• ${conflict.name} (${parts.join(", ")})`;
+            }).join("\n");
+
+            const action = await vscode.window.showWarningMessage(
+                `The following files already exist and will be overwritten:\n\n${filesList}\n\nThis will permanently delete any existing translations for this file. Do you want to continue?`,
+                { modal: true },
+                "Overwrite Files",
+                "Abort Import"
+            );
+            if (action !== "Overwrite Files") {
+                webviewPanel.webview.postMessage({
+                    command: "notification",
+                    type: "info",
+                    message: "Import cancelled by user"
+                });
+                return;
+            }
+        }
+
+        // 1) Convert to NotebookPreview and write notebooks
+        const sourceNotebooks = message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.source));
+        const codexNotebooks = message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.codex));
+
+        await createNoteBookPair({ token, sourceNotebooks, codexNotebooks });
+
+        // 2) Write video files separately (only once per video)
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            throw new Error("No workspace folder found");
+        }
+
+        if (message.metadata?.videoFiles && Array.isArray(message.metadata.videoFiles)) {
+            for (const videoFile of message.metadata.videoFiles) {
+                const videoPath = vscode.Uri.joinPath(workspaceFolder.uri, videoFile.path);
+                const videoDir = vscode.Uri.joinPath(videoPath, '..');
+                await vscode.workspace.fs.createDirectory(videoDir);
+
+                const base64 = videoFile.dataBase64.includes(",") ?
+                    videoFile.dataBase64.split(",")[1] : videoFile.dataBase64;
+                const buffer = Buffer.from(base64, "base64");
+                await vscode.workspace.fs.writeFile(videoPath, buffer);
+            }
+        }
+
+        // 3) Persist audio attachments (extract from video if needed)
+
+        // Import audio extraction utility
+        const { processMediaAttachment } = await import("../../utils/audioExtractor");
+
+        // Show progress with VS Code information message
+        const totalAttachments = message.attachments.length;
+        let processedAttachments = 0;
+
+        // Track the full media data for reuse across segments
+        const mediaDataCache = new Map<string, Buffer>();
+
+        if (totalAttachments > 0) {
+            // Send initial progress to webview
+            webviewPanel.webview.postMessage({
+                command: "attachmentProgress",
+                current: 0,
+                total: totalAttachments,
+                message: "Processing media attachments..."
+            });
+
+            // Use VS Code progress API for native progress indication
+            const progressOptions = {
+                location: vscode.ProgressLocation.Notification,
+                title: "Importing Media Attachments",
+                cancellable: false
+            };
+
+            await vscode.window.withProgress(progressOptions, async (progress) => {
+                progress.report({ increment: 0, message: "Preparing media attachments..." });
+
+                // Process attachments in smaller batches to avoid blocking
+                const batchSize = 3;
+                for (let i = 0; i < message.attachments.length; i += batchSize) {
+                    const batch = message.attachments.slice(i, i + batchSize);
+
+                    // Process batch in parallel
+                    await Promise.all(batch.map(async (attachment) => {
+                        const { cellId, attachmentId, fileName, dataBase64, sourceFileId, isFromVideo } = attachment as any;
+                        const docSegment = (cellId || "").split(" ")[0] || "UNKNOWN";
+                        const filesDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "attachments", "files", docSegment);
+                        const pointersDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "attachments", "pointers", docSegment);
+                        await vscode.workspace.fs.createDirectory(filesDir);
+                        await vscode.workspace.fs.createDirectory(pointersDir);
+
+                        let audioBuffer: Buffer;
+
+                        // Handle segments with actual data
+                        if (dataBase64) {
+                            console.log(`Processing ${isFromVideo ? 'video' : 'audio'} file: ${fileName}`);
+
+                            // For video files, cache the original video data before processing
+                            if (isFromVideo && !sourceFileId && attachment.dataBase64) {
+                                const baseId = attachmentId.replace(/-seg\d+$/, '');
+                                const base64 = attachment.dataBase64.includes(",")
+                                    ? attachment.dataBase64.split(",")[1]
+                                    : attachment.dataBase64;
+                                const videoBuffer = Buffer.from(base64, "base64");
+                                mediaDataCache.set(baseId, videoBuffer);
+                            }
+
+                            // Process the media (extract audio if from video, or use pre-segmented audio)
+                            audioBuffer = await processMediaAttachment(attachment, isFromVideo || false);
+
+                            // Write the audio file
+                            const filesPath = vscode.Uri.joinPath(filesDir, fileName);
+                            const pointersPath = vscode.Uri.joinPath(pointersDir, fileName);
+                            await vscode.workspace.fs.writeFile(filesPath, audioBuffer);
+                            await vscode.workspace.fs.writeFile(pointersPath, audioBuffer);
+                        } else if (sourceFileId) {
+                            // Subsequent video segments - reuse the cached video data and extract audio segment
+                            const baseId = sourceFileId.replace(/-seg\d+$/, '');
+                            const cachedVideo = mediaDataCache.get(baseId);
+
+                            if (cachedVideo) {
+                                console.log(`Writing video segment ${fileName} using cached video data`);
+                                // Create a temporary attachment with the cached video data and timing info
+                                const tempAttachment = {
+                                    ...attachment,
+                                    dataBase64: `data:video/mp4;base64,${cachedVideo.toString('base64')}`
+                                };
+                                // Extract the specific time range from the video
+                                const processedAudio = await processMediaAttachment(tempAttachment, true);
+                                const filesPath = vscode.Uri.joinPath(filesDir, fileName);
+                                const pointersPath = vscode.Uri.joinPath(pointersDir, fileName);
+                                await vscode.workspace.fs.writeFile(filesPath, processedAudio);
+                                await vscode.workspace.fs.writeFile(pointersPath, processedAudio);
+                            } else {
+                                console.warn(`No cached video data found for ${sourceFileId}`);
+                            }
+                        }
+
+                        // Update progress
+                        processedAttachments++;
+
+                        progress.report({
+                            increment: 100 / totalAttachments,
+                            message: `Processing ${fileName}... (${processedAttachments}/${totalAttachments})`
+                        });
+
+                        // Send progress to webview
+                        webviewPanel.webview.postMessage({
+                            command: "attachmentProgress",
+                            current: processedAttachments,
+                            total: totalAttachments,
+                            message: `Processing ${fileName}...`
+                        });
+                    }));
+
+                    // Small delay between batches to prevent blocking
+                    if (i + batchSize < message.attachments.length) {
+                        await new Promise(resolve => setTimeout(resolve, 10));
+                    }
+                }
+
+                progress.report({ message: "Finalizing import..." });
+            });
+        }
+
+        // 4) Write success + inventory
+        const count = message.notebookPairs.length;
+        const notebooksText = count === 1 ? "notebook" : "notebooks";
+        const firstNotebookName = message.notebookPairs[0]?.source.name || "unknown";
+        vscode.window.showInformationMessage(
+            count === 1
+                ? `Successfully imported "${firstNotebookName}"!`
+                : `Successfully imported ${count} ${notebooksText}!`
+        );
+        // Send final progress completion message
+        webviewPanel.webview.postMessage({
+            command: "attachmentProgress",
+            current: totalAttachments,
+            total: totalAttachments,
+            message: "Import complete!"
+        });
+
+        webviewPanel.webview.postMessage({ command: "notification", type: "success", message: "Notebooks and attachments created successfully!" });
+        const inventory = await this.fetchProjectInventory();
+        webviewPanel.webview.postMessage({ command: "projectInventory", inventory });
+    }
+
     private async handleWriteTranslation(
         message: WriteTranslationMessage,
         token: vscode.CancellationToken
     ): Promise<void> {
-        console.log("Handling translation import:", message);
-
         try {
             // The aligned content is already provided by the plugin's custom alignment algorithm
             // We just need to merge it into the existing target notebook
@@ -475,9 +713,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             vscode.window.showInformationMessage(
                 `Translation imported: ${insertedCount} translations, ${paratextCount} paratext cells, ${childCellCount} child cells, ${skippedCount} skipped.`
             );
-
-            console.log("Translation import completed successfully");
-
         } catch (error) {
             console.error("Error in translation import:", error);
             throw error;
@@ -803,7 +1038,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         return getWebviewHtml(webview, this.context, {
             title: "Source File Importer",
             scriptPath: ["NewSourceUploader", "index.js"],
-            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; img-src data: https:; connect-src https: http:;`,
+            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; img-src data: https:; connect-src https: http:; media-src blob: data:;`,
             inlineStyles: "#root { height: 100vh; width: 100vw; overflow-y: auto; }",
             customScript: "window.vscodeApi = acquireVsCodeApi();"
         });

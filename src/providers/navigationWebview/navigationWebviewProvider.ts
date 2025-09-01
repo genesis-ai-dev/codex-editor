@@ -345,7 +345,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
                     // Confirm with user before proceeding
                     const confirmed = await vscode.window.showWarningMessage(
-                        `Are you sure you want to rename corpus "${corpusLabel}" to "${newCorpusName}"? This will update all files in this corpus.`,
+                        `Are you sure you want to rename group "${corpusLabel}" to "${newCorpusName}"? This will update all files in this group.`,
                         { modal: true },
                         "Rename"
                     );

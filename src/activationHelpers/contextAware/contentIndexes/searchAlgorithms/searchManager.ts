@@ -131,14 +131,23 @@ export class SearchManager {
 
         // For FTS5 algorithm, use the word overlap filtering method to maintain current behavior
         const algorithm = this.getCurrentAlgorithm();
+        const algorithmName = algorithm.getName();
+        console.log(`[SearchManager] Using algorithm: ${algorithmName} for query: "${query}" (limit: ${k}, onlyValidated: ${onlyValidated})`);
+        
         if (algorithm instanceof FTS5SearchAlgorithm) {
-            return await algorithm.searchWithWordOverlapFilter(query, options);
+            console.log(`[SearchManager] Using FTS5 searchWithWordOverlapFilter method`);
+            const results = await algorithm.searchWithWordOverlapFilter(query, options);
+            console.log(`[SearchManager] FTS5 search returned ${results.length} results`);
+            return results;
         } else {
+            console.log(`[SearchManager] Using standard search for algorithm: ${algorithmName}`);
             // For other algorithms, use standard search
-            return await this.searchTranslationPairs(query, {
+            const results = await this.searchTranslationPairs(query, {
                 ...options,
                 limit: initialLimit // Let the algorithm handle its own filtering
             });
+            console.log(`[SearchManager] Standard search returned ${results.length} results`);
+            return results;
         }
     }
 }

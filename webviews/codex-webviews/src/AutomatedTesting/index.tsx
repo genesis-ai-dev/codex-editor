@@ -4,6 +4,8 @@ import { AutomatedTestingView } from "./AutomatedTestingView";
 
 declare global { interface Window { acquireVsCodeApi: any; } }
 const vscode = window.acquireVsCodeApi?.();
+console.log('[AutomatedTesting] VSCode API available:', !!vscode);
+console.log('[AutomatedTesting] acquireVsCodeApi function available:', !!window.acquireVsCodeApi);
 
 function App() {
   const [ready, setReady] = useState(false);

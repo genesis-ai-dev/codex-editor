@@ -1,0 +1,236 @@
+name: Generate and Send Release Notes
+
+on:
+    # Only handle GitHub's create event (branch/tag) and manual dispatch
+    create:
+
+    # Allow manual run for testing
+    workflow_dispatch:
+        inputs:
+            version:
+                description: "Version to generate notes for (defaults to created tag)"
+                required: false
+                type: string
+
+permissions:
+    contents: write
+    pull-requests: read
+
+jobs:
+    release-notes:
+        # Run only when a tag is created (or manual dispatch)
+        if: ${{ github.event_name == 'create' && github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' }}
+        runs-on: ubuntu-latest
+        steps:
+            - name: Prepare repository (without external actions)
+              id: prep
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # GitHub's built-in token - no manual setup needed!
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  REPO="${GITHUB_REPOSITORY}"
+                  mkdir -p repo
+                  cd repo
+                  git init -q
+                  git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+                  git fetch -q --tags --prune origin
+                  # Ensure the commit for this workflow run is available
+                  git fetch -q origin "${GITHUB_SHA}"
+                  git checkout -q "${GITHUB_SHA}"
+
+            - name: Determine version and previous tag
+              id: version
+              shell: bash
+              working-directory: repo
+              run: |
+                  set -euo pipefail
+                  if [ -n "${{ github.event.inputs.version || '' }}" ]; then
+                    VERSION="${{ github.event.inputs.version }}"
+                  else
+                    VERSION="${GITHUB_REF#refs/tags/}"
+                  fi
+
+                  # Ensure numeric-only tags (no 'v' prefix)
+                  if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                    echo "Tag '$VERSION' is not numeric SemVer; skipping." >&2
+                    echo "skip=true" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+
+                  # Find previous numeric tag for comparison
+                  PREV_TAG=$(git tag --sort=-version:refname | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sed -n '2p' || true)
+                  if [ -z "$PREV_TAG" ]; then
+                    PREV_TAG=$(git rev-list --max-parents=0 HEAD)
+                  fi
+
+                  echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+                  echo "previous=$PREV_TAG" >> "$GITHUB_OUTPUT"
+                  # Resolve the commit pointed to by the version tag
+                  if git rev-parse "$VERSION" >/dev/null 2>&1; then
+                    CURR_COMMIT=$(git rev-list -n 1 "$VERSION")
+                  else
+                    CURR_COMMIT="$GITHUB_SHA"
+                  fi
+                  echo "current_commit=$CURR_COMMIT" >> "$GITHUB_OUTPUT"
+
+            - name: Stop if non-numeric tag
+              if: steps.version.outputs.skip == 'true'
+              run: echo "Non-numeric tag detected; workflow skipped."
+
+            - name: Collect Raw Commit Messages
+              id: commits
+              if: steps.version.outputs.skip != 'true'
+              shell: bash
+              working-directory: repo
+              run: |
+                  set -euo pipefail
+                  PREV="${{ steps.version.outputs.previous }}"
+                  CURR="${{ steps.version.outputs.current_commit }}"
+                  RANGE="$PREV..$CURR"
+                  if ! git rev-parse "$PREV" >/dev/null 2>&1; then
+                    RANGE="$PREV"
+                  fi
+
+                  # Get a clean list of commit messages, excluding merges and version bumps
+                  COMMIT_LIST=$(git log "$RANGE" --no-merges --pretty=format:"%s" \
+                    --grep='bump\|version\|release' --invert-grep | head -100)
+
+                  if [ -z "$COMMIT_LIST" ]; then
+                    echo "No new user-facing commits found. Using a default message."
+                    COMMIT_LIST="Routine maintenance and dependency updates."
+                  fi
+                  
+                  printf '%s' "$COMMIT_LIST" > commits.txt
+                  echo "Collected raw commit messages."
+
+            - name: Summarize with Google Gemini
+              id: notes
+              if: steps.version.outputs.skip != 'true'
+              shell: bash
+              working-directory: repo
+              env:
+                  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+              run: |
+                  set -euo pipefail
+                  VERSION="${{ steps.version.outputs.version }}"
+                  COMMIT_LIST=$(cat commits.txt)
+
+                  # Create a concise prompt to amalgamate and summarize, staying within Discord limits
+                  {
+                    printf '%s\n' "You are a user-friendly release-notes summarizer for Codex Editor."
+                    printf '%s\n' "Goal: Succinctly summarize what changed for users in v${VERSION}. Barely mention or omit backend-only or implementation details unless they directly affect user experience. Simpler is better."
+                    printf '%s\n' ""
+                    printf '%s\n' "Output format (exactly):"
+                    printf '%s\n' ""
+                    printf '%s\n' "🚀 New Features"
+                    printf '%s\n' "- bullets"
+                    printf '%s\n' ""
+                    printf '%s\n' "🐛 Bug Fixes"
+                    printf '%s\n' "- bullets"
+                    printf '%s\n' ""
+                    printf '%s\n' "🔧 Improvements"
+                    printf '%s\n' "- bullets"
+                    printf '%s\n' ""
+                    printf '%s\n' "Rules:"
+                    printf '%s\n' "- Max 5 bullets per section; omit empty sections."
+                    printf '%s\n' "- Each bullet ≤ 140 characters."
+                    printf '%s\n' "- Entire output ≤ 1900 characters."
+                    printf '%s\n' "- No greetings/thanks, no horizontal rules like '---', no extra headings."
+                    printf '%s\n' "- No commit hashes, branch names, or internal jargon; focus on user-facing benefits."
+                    printf '%s\n' "- Output only Markdown text in the format above."
+                    printf '%s\n' ""
+                    printf '%s\n' "Source commit subjects:"
+                    printf '%s\n' "$COMMIT_LIST"
+                  } > prompt.txt
+
+                  # Safely construct the JSON payload using jq, reading the prompt from a file
+                  # to avoid shell argument length limits.
+                  API_PAYLOAD=$(jq -n --rawfile prompt prompt.txt \
+                    '{contents: [{parts: [{text: $prompt}]}]}')
+
+                  # Select model (override with secret/env GEMINI_MODEL if desired)
+                  MODEL="${GEMINI_MODEL:-gemini-2.5-flash}"
+                  echo "Using Gemini model: $MODEL"
+
+                  # Call the Gemini API
+                  RESPONSE_JSON=$(curl -sS -X POST \
+                    -H "Content-Type: application/json" \
+                    -H "X-goog-api-key: ${GEMINI_API_KEY}" \
+                    -d "$API_PAYLOAD" \
+                    --max-time 30 --retry 2 --retry-delay 5 \
+                    "https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent")
+
+                  # Check for curl errors
+                  if [ $? -ne 0 ]; then
+                    echo "Error: curl command failed to connect to the Gemini API." >&2
+                    exit 1
+                  fi
+
+                  # If model not found, try a fallback model once
+                  if echo "$RESPONSE_JSON" | jq -e '.error.status=="NOT_FOUND"' >/dev/null 2>&1; then
+                    echo "Model $MODEL not found on this API version. Trying fallback model gemini-2.5-pro..." >&2
+                    MODEL="gemini-2.5-pro"
+                    RESPONSE_JSON=$(curl -sS -X POST \
+                      -H "Content-Type: application/json" \
+                      -H "X-goog-api-key: ${GEMINI_API_KEY}" \
+                      -d "$API_PAYLOAD" \
+                      --max-time 30 --retry 2 --retry-delay 5 \
+                      "https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent")
+                  fi
+
+                  # Try to extract text by concatenating all parts' text fields
+                  NOTES_BODY=$(echo "$RESPONSE_JSON" | jq -r '[.candidates[0].content.parts[]? | .text // empty] | join("")')
+
+                  if [ -z "$NOTES_BODY" ] || [ "$NOTES_BODY" = "null" ]; then
+                    echo "Error: Gemini API did not return a valid response or the response was empty." >&2
+                    echo "Prompt feedback (if any):" >&2
+                    echo "$RESPONSE_JSON" | jq -r '.promptFeedback // empty' >&2 || true
+                    echo "Candidate safety ratings (if any):" >&2
+                    echo "$RESPONSE_JSON" | jq -r '.candidates[0].safetyRatings // empty' >&2 || true
+                    echo "Full API Response for debugging:" >&2
+                    echo "$RESPONSE_JSON" >&2
+                    echo "Falling back to raw commit list."
+                    {
+                      echo "### AI Summary Failed: Raw Commit Log for v${VERSION}"
+                      echo
+                      cat commits.txt
+                    } > NOTES.md
+                  else
+                    # Sanitize: remove '---' separators and trim length
+                    SANITIZED=$(printf '%s' "$NOTES_BODY" | sed '/^---$/d')
+                    LEN=$(printf '%s' "$SANITIZED" | wc -m | tr -d ' ')
+                    if [ "$LEN" -gt 1900 ]; then
+                      SANITIZED=$(printf '%s' "$SANITIZED" | head -c 1900)
+                      SANITIZED="$(printf '%s\n...(truncated)' "$SANITIZED")"
+                    fi
+                    printf '%s' "$SANITIZED" > NOTES.md
+                  fi
+
+                  echo "Generated release notes (AI or fallback)."
+
+            - name: Send to n8n webhook (Discord)
+              if: steps.version.outputs.skip != 'true'
+              env:
+                  N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
+              shell: bash
+              working-directory: repo
+              run: |
+                  set -euo pipefail
+                  if [ -z "${N8N_WEBHOOK_URL:-}" ]; then
+                    echo "N8N_WEBHOOK_URL is not set; cannot send release notes." >&2
+                    exit 1
+                  fi
+
+                  VERSION="${{ steps.version.outputs.version }}"
+                  
+                  # Ensure proper JSON escaping by using jq to read the file
+                  PAYLOAD=$(jq -n \
+                    --arg version "$VERSION" \
+                    --rawfile notes NOTES.md \
+                    '{version:$version, notes:$notes}')
+
+                  # The n8n Discord node reads $json.version and $json.notes
+                  curl -sS -X POST -H 'Content-Type: application/json' -d "$PAYLOAD" "$N8N_WEBHOOK_URL"
+                  echo "Sent release notes for v$VERSION to n8n."
+

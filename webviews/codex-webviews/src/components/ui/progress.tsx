@@ -18,8 +18,8 @@ function Progress({
             <ProgressPrimitive.Root
                 data-slot="progress"
                 className={cn(
-                    "bg-primary/20 relative w-full overflow-hidden rounded-full",
-                    showPercentage ? "h-6" : "h-2",
+                    "bg-primary/20 relative w-full overflow-hidden rounded-sm",
+                    showPercentage ? "h-2" : "h-1",
                     className
                 )}
                 {...props}
@@ -42,11 +42,11 @@ function Progress({
                 </ProgressPrimitive.Indicator>
             </ProgressPrimitive.Root>
             {showPercentage && (
-                <div className="flex items-center mt-1 gap-2">
+                <div className="flex items-center mt-0.5 gap-2">
                     {/* Secondary value on the left */}
                     {secondaryValue > 0 ? (
                         <span
-                            className="text-xs font-medium"
+                            className="text-[10px] font-medium"
                             style={{ color: "var(--vscode-editorWarning-foreground)" }}
                         >
                             {Math.floor(secondaryValue || 0)}%
@@ -55,7 +55,7 @@ function Progress({
                         <span></span>
                     )}
                     {/* Primary value on the right */}
-                    <span className="text-xs font-medium text-primary">
+                    <span className="text-[10px] font-medium text-primary">
                         {Math.floor(value || 0)}%
                     </span>
                 </div>

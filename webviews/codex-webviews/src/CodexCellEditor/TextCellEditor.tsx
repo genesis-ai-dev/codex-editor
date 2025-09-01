@@ -216,14 +216,51 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [backtranslationProgress, setBacktranslationProgress] = useState(0);
     const [activeTab, setActiveTab] = useState<
         "source" | "backtranslation" | "footnotes" | "audio" | "timestamps"
-    >("source");
+    >(() => {
+        try {
+            const id = cellMarkers[0];
+            if (sessionStorage.getItem(`start-audio-recording-${id}`)) {
+                return "audio";
+            }
+            const stored = sessionStorage.getItem("preferred-editor-tab");
+            if (
+                stored === "source" ||
+                stored === "backtranslation" ||
+                stored === "footnotes" ||
+                stored === "audio" ||
+                stored === "timestamps"
+            ) {
+                return stored as
+                    | "source"
+                    | "backtranslation"
+                    | "footnotes"
+                    | "timestamps"
+                    | "audio";
+            }
+        } catch {}
+        return "source";
+    });
 
     // Load preferred tab from provider on mount
     useEffect(() => {
         const handlePreferredTab = (event: MessageEvent) => {
             if (event.data && event.data.type === "preferredEditorTab") {
+                // If this open was specifically forced to audio for recording, ignore
+                try {
+                    const id = cellMarkers[0];
+                    if (sessionStorage.getItem(`start-audio-recording-${id}`)) {
+                        return;
+                    }
+                } catch {}
                 const preferred = event.data.tab as typeof activeTab;
                 setActiveTab(preferred);
+                try {
+                    sessionStorage.setItem("preferred-editor-tab", preferred);
+                } catch {}
+                if (preferred === "audio") {
+                    setTimeout(centerEditor, 50);
+                    setTimeout(centerEditor, 250);
+                }
             }
         };
         window.addEventListener("message", handlePreferredTab);
@@ -244,12 +281,24 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // Audio-related state
     const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
+    // While awaiting provider response, avoid showing "No audio attached" to prevent flicker
+    const [audioFetchPending, setAudioFetchPending] = useState<boolean>(true);
     const [isRecording, setIsRecording] = useState(false);
     const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
     const [recordingStatus, setRecordingStatus] = useState<string>("");
     const audioChunksRef = useRef<Blob[]>([]);
     const [confirmingDiscard, setConfirmingDiscard] = useState(false);
-    const [showRecorder, setShowRecorder] = useState(false);
+    const [showRecorder, setShowRecorder] = useState(() => {
+        try {
+            const id = cellMarkers[0];
+            return !!sessionStorage.getItem(`start-audio-recording-${id}`);
+        } catch {
+            return false;
+        }
+    });
+    const [isAudioLoading, setIsAudioLoading] = useState(false);
+    const [hasAudioHistory, setHasAudioHistory] = useState<boolean>(false);
+    const [audioHistoryCount, setAudioHistoryCount] = useState<number>(0);
 
     // Transcription state
     const [isTranscribing, setIsTranscribing] = useState(false);
@@ -261,6 +310,17 @@ const CellEditor: React.FC<CellEditorProps> = ({
         language?: string;
     } | null>(null);
     const transcriptionClientRef = useRef<WhisperTranscriptionClient | null>(null);
+
+    // Helper to center the editor within the scroll container after layout settles
+    const centerEditor = useCallback(() => {
+        const el = cellEditorRef.current;
+        if (!el) return;
+        const scrollOnce = () => el.scrollIntoView({ behavior: "smooth", block: "center" });
+        // Do a few passes to account for async content height changes
+        requestAnimationFrame(scrollOnce);
+        setTimeout(scrollOnce, 150);
+        setTimeout(scrollOnce, 350);
+    }, []);
 
     // Effect to always derive audioUrl from audioBlob
     useEffect(() => {
@@ -281,16 +341,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 showFlashingBorder,
                 cellEditorRef,
             });
-            cellEditorRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+            centerEditor();
         }
-    }, [showFlashingBorder]);
+    }, [showFlashingBorder, centerEditor]);
 
     useEffect(() => {
         if (contentToScrollTo && contentToScrollTo === cellMarkers[0] && cellEditorRef.current) {
             debug("Scrolling to content", { contentToScrollTo, cellMarkers });
-            cellEditorRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+            centerEditor();
         }
-    }, [contentToScrollTo]);
+    }, [contentToScrollTo, centerEditor]);
 
     const [editableLabel, setEditableLabel] = useState(cellLabel || "");
     const [similarCells, setSimilarCells] = useState<SimilarCell[]>([]);
@@ -658,6 +718,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
             // Update the editor content
             setEditorContent(text);
+
+            // Ensure the editor block scrolls fully into view when opened programmatically
+            requestAnimationFrame(() => {
+                if (cellEditorRef.current) {
+                    cellEditorRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+                }
+            });
         },
         [unsavedChanges, handleSaveHtml, openCellById, setContentBeingUpdated, setEditorContent]
     );
@@ -1074,6 +1141,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     // Preload audio when audio tab is accessed
     const preloadAudioForTab = useCallback(() => {
+        setAudioFetchPending(true);
+        // Don't set loading until we know there is audio to load
         const messageContent: EditorPostMessages = {
             command: "requestAudioForCell",
             content: { cellId: cellMarkers[0] },
@@ -1086,7 +1155,29 @@ const CellEditor: React.FC<CellEditorProps> = ({
         // Don't try to load from session storage or cell data directly
         // Just request audio attachments from the provider which will send proper base64 data
         preloadAudioForTab();
-    }, [preloadAudioForTab]);
+        // Also request audio history to determine if History button should be shown
+        window.vscodeApi.postMessage({
+            command: "getAudioHistory",
+            content: { cellId: cellMarkers[0] },
+        });
+        // If requested by list view, auto-record
+        try {
+            const autoRecord = sessionStorage.getItem(`start-audio-recording-${cellMarkers[0]}`);
+            if (autoRecord) {
+                setActiveTab("audio");
+                setShowRecorder(true);
+                setTimeout(() => {
+                    startRecording();
+                    sessionStorage.removeItem(`start-audio-recording-${cellMarkers[0]}`);
+                }, 300);
+            }
+        } catch {}
+    }, [preloadAudioForTab, cellMarkers]);
+
+    // When switching to a new cell, ensure the editor is fully visible
+    useEffect(() => {
+        centerEditor();
+    }, [cellMarkers, centerEditor]);
 
     // Handle audio data response
     useEffect(() => {
@@ -1095,12 +1186,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
             // Handle audio attachments list - request fresh audio data when attachments change
             if (message.type === "providerSendsAudioAttachments") {
-                // When attachments change (e.g., selection from history), request updated audio data
-                const messageContent: EditorPostMessages = {
-                    command: "requestAudioForCell",
-                    content: { cellId: cellMarkers[0] },
-                };
-                window.vscodeApi.postMessage(messageContent);
+                const attachments = message.attachments || [];
+                // If we already have audio loaded or loading, ignore attachment updates
+                if (audioBlob || isAudioLoading) {
+                    return;
+                }
+
+                if (attachments.length > 0) {
+                    // We have audio; show loading and request data only if not already requested
+                    setIsAudioLoading(true);
+                    const messageContent: EditorPostMessages = {
+                        command: "requestAudioForCell",
+                        content: { cellId: cellMarkers[0] },
+                    };
+                    window.vscodeApi.postMessage(messageContent);
+                } else {
+                    // No attachments: settle UI quietly without toggling recorder mode state
+                    setIsAudioLoading(false);
+                    setAudioFetchPending(false);
+                }
             }
 
             // Handle specific audio data
@@ -1110,13 +1214,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
             ) {
                 if (message.content.audioData) {
                     try {
-                        // Convert base64 to blob to avoid CSP issues
+                        // Show loading only when there is actual audio to fetch
+                        setIsAudioLoading(true);
                         const base64Response = await fetch(message.content.audioData);
                         const blob = await base64Response.blob();
-                        setAudioBlob(blob); // This will trigger the effect above to set audioUrl
+                        setAudioBlob(blob);
                         setRecordingStatus("Audio loaded");
-
-                        // Check for existing transcription in the audio attachment metadata
+                        setIsAudioLoading(false);
+                        setAudioFetchPending(false);
+                        setTimeout(centerEditor, 50);
+                        setTimeout(centerEditor, 250);
                         if (message.content.transcription) {
                             setSavedTranscription({
                                 content: message.content.transcription.content,
@@ -1124,8 +1231,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 language: message.content.transcription.language,
                             });
                         }
-
-                        // Store the audio ID
                         if (message.content.audioId) {
                             sessionStorage.setItem(
                                 `audio-id-${cellMarkers[0]}`,
@@ -1135,7 +1240,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     } catch (error) {
                         console.error("Error converting audio data to blob:", error);
                         setRecordingStatus("Error loading audio");
+                        setIsAudioLoading(false);
                     }
+                } else {
+                    // No audio — present recorder immediately
+                    setIsAudioLoading(false);
+                    setAudioFetchPending(false);
+                    setActiveTab("audio");
+                    setShowRecorder(true);
                 }
             }
 
@@ -1151,6 +1263,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         `Error saving audio: ${message.content.error || "Unknown error"}`
                     );
                 }
+                // Refresh audio history after save
+                window.vscodeApi.postMessage({
+                    command: "getAudioHistory",
+                    content: { cellId: cellMarkers[0] },
+                });
             }
 
             // Handle delete confirmation
@@ -1165,11 +1282,44 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         `Error deleting audio: ${message.content.error || "Unknown error"}`
                     );
                 }
+                // Refresh audio history after delete
+                window.vscodeApi.postMessage({
+                    command: "getAudioHistory",
+                    content: { cellId: cellMarkers[0] },
+                });
+            }
+            // Handle restore confirmation
+            if (
+                message.type === "audioAttachmentRestored" &&
+                message.content.cellId === cellMarkers[0]
+            ) {
+                // Refresh audio history after restore
+                window.vscodeApi.postMessage({
+                    command: "getAudioHistory",
+                    content: { cellId: cellMarkers[0] },
+                });
             }
         };
 
         window.addEventListener("message", handleAudioResponse);
         return () => window.removeEventListener("message", handleAudioResponse);
+    }, [cellMarkers]);
+
+    // Listen for audio history responses and update hasAudioHistory
+    useEffect(() => {
+        const handleHistoryResponse = (event: MessageEvent) => {
+            const message = event.data;
+            if (
+                message.type === "audioHistoryReceived" &&
+                message.content.cellId === cellMarkers[0]
+            ) {
+                const history = message.content.audioHistory || [];
+                setHasAudioHistory(history.length > 0);
+                setAudioHistoryCount(history.length);
+            }
+        };
+        window.addEventListener("message", handleHistoryResponse);
+        return () => window.removeEventListener("message", handleHistoryResponse);
     }, [cellMarkers]);
 
     // Clean up media recorder and stream on unmount
@@ -1918,19 +2068,52 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         <div className="content-section space-y-6">
                             <h3 className="text-lg font-medium">Audio Recording</h3>
 
-                            {showRecorder ||
-                            !audioUrl ||
-                            !(
+                            {isAudioLoading ? (
+                                <div className="bg-[var(--vscode-editor-background)] p-3 rounded-md border border-[var(--vscode-panel-border)] text-center text-[var(--vscode-descriptionForeground)]">
+                                    Loading audio...
+                                </div>
+                            ) : audioFetchPending ? (
+                                // While awaiting provider response, keep a calm, neutral placeholder (no loading text)
+                                <div className="space-y-4">
+                                    {!audioUrl && (
+                                        <p className="text-center text-muted-foreground">
+                                            No audio attached to this cell yet.
+                                        </p>
+                                    )}
+                                    <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                                        <div className="flex items-center gap-2 mt-4">
+                                            <Button
+                                                onClick={isRecording ? stopRecording : startRecording}
+                                                variant={isRecording ? "secondary" : "default"}
+                                                className={isRecording ? "animate-pulse" : ""}
+                                                style={{ flex: 2 }}
+                                            >
+                                                {isRecording ? (
+                                                    <>
+                                                        <Square className="mr-2 h-4 w-4" />
+                                                        Stop Recording
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <CircleDotDashed className="mr-2 h-4 w-4" />
+                                                        Start Recording
+                                                    </>
+                                                )}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : showRecorder || !audioUrl || !(
                                 audioUrl.startsWith("blob:") ||
                                 audioUrl.startsWith("data:") ||
                                 audioUrl.startsWith("http")
                             ) ? (
                                 <div className="space-y-4">
-                                    <p className="text-center text-muted-foreground">
-                                        {audioUrl
-                                            ? "Record or upload a new file to replace the current audio."
-                                            : "No audio attached to this cell yet."}
-                                    </p>
+                                    {!audioUrl && (
+                                        <p className="text-center text-muted-foreground">
+                                            No audio attached to this cell yet.
+                                        </p>
+                                    )}
                                     <div className="flex flex-col sm:flex-row gap-3 justify-center">
                                         <div className="flex items-center gap-2 mt-4">
                                             <Button
@@ -1968,6 +2151,49 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     </span>
                                                 </Button>
                                             </label>
+
+                                            {hasAudioHistory && (
+                                                <TooltipProvider>
+                                                    <Tooltip>
+                                                        <TooltipTrigger asChild>
+                                                            <Button
+                                                                onClick={() => setShowAudioHistory(true)}
+                                                                variant="default"
+                                                                className="font-semibold"
+                                                                style={{
+                                                                    backgroundColor: "var(--vscode-button-background)",
+                                                                    color: "var(--vscode-button-foreground)",
+                                                                    border: "1px solid var(--vscode-button-border)",
+                                                                }}
+                                                            >
+                                                                <History className="mr-2 h-4 w-4" />
+                                                                History
+                                                                {audioHistoryCount > 0 && (
+                                                                    <span
+                                                                        className="ml-2 inline-flex items-center justify-center rounded-full"
+                                                                        style={{
+                                                                            minWidth: "1.5rem",
+                                                                            height: "1.25rem",
+                                                                            padding: "0 6px",
+                                                                            backgroundColor: "var(--vscode-badge-background)",
+                                                                            color: "var(--vscode-badge-foreground)",
+                                                                            border: "1px solid var(--vscode-panel-border)",
+                                                                            fontSize: "0.75rem",
+                                                                            fontWeight: 700,
+                                                                            lineHeight: 1,
+                                                                        }}
+                                                                    >
+                                                                        {audioHistoryCount}
+                                                                    </span>
+                                                                )}
+                                                            </Button>
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>
+                                                            <p>View all previous recordings for this cell</p>
+                                                        </TooltipContent>
+                                                    </Tooltip>
+                                                </TooltipProvider>
+                                            )}
                                         </div>
                                         {audioUrl && !isRecording && (
                                             <Button
@@ -1975,13 +2201,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 onClick={() => setShowRecorder(false)}
                                             >
                                                 <ArrowLeft className="mr-2 h-4 w-4" />
+                                                Back
                                             </Button>
                                         )}
                                     </div>
                                 </div>
                             ) : (
                                 <div className="space-y-4">
-                                    {/* New Waveform Component with integrated transcription */}
                                     <AudioWaveformWithTranscription
                                         audioUrl={audioUrl || ""}
                                         audioBlob={audioBlob}
@@ -1990,75 +2216,41 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         transcriptionProgress={transcriptionProgress}
                                         onTranscribe={handleTranscribeAudio}
                                         onInsertTranscription={handleInsertTranscription}
+                                        onRequestRemove={() => setConfirmingDiscard(true)}
+                                        onShowHistory={() => setShowAudioHistory(true)}
+                                        onShowRecorder={() => setShowRecorder(true)}
                                         disabled={!audioBlob}
                                     />
 
-                                    {/* Action buttons */}
-                                    <div className="flex flex-wrap gap-2">
-                                        {confirmingDiscard ? (
-                                            <>
-                                                <Button
-                                                    onClick={() => {
-                                                        discardAudio();
-                                                        setConfirmingDiscard(false);
-                                                    }}
-                                                    variant="destructive"
-                                                    size="sm"
-                                                >
-                                                    <Check className="mr-2 h-4 w-4" />
-                                                    Confirm
-                                                </Button>
-                                                <Button
-                                                    onClick={() => setConfirmingDiscard(false)}
-                                                    variant="outline"
-                                                    size="sm"
-                                                >
-                                                    <X className="mr-2 h-4 w-4" />
-                                                    Cancel
-                                                </Button>
-                                            </>
-                                        ) : (
-                                            <div className="flex flex-wrap gap-2 w-full">
-                                                <Button
-                                                    onClick={() => setConfirmingDiscard(true)}
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="w-full"
-                                                >
-                                                    <Trash2 className="h-4 w-4" />
-                                                    <span className="inline ml-2">
-                                                        Remove Audio
-                                                    </span>
-                                                </Button>
-                                                <Button
-                                                    onClick={() => setShowAudioHistory(true)}
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="w-full"
-                                                >
-                                                    <History className="h-4 w-4" />
-                                                    <span className="inline ml-2">History</span>
-                                                </Button>
-                                                <Button
-                                                    onClick={() => setShowRecorder(true)}
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className={cn("w-full")}
-                                                >
-                                                    <>
-                                                        <Mic className="h-4 w-4" />
-                                                        <span className="inline ml-2">
-                                                            Re-record / Upload New
-                                                        </span>
-                                                    </>
-                                                </Button>
-                                            </div>
-                                        )}
-                                    </div>
+                                    {confirmingDiscard && (
+                                        <div className="flex flex-wrap items-center justify-center gap-2 mt-2 p-3 bg-[var(--vscode-editor-background)] border border-[var(--vscode-panel-border)] rounded-md">
+                                            <p className="text-sm text-[var(--vscode-foreground)] mr-4">
+                                                Are you sure you want to remove this audio?
+                                            </p>
+                                            <Button
+                                                onClick={() => {
+                                                    discardAudio();
+                                                    setConfirmingDiscard(false);
+                                                }}
+                                                variant="destructive"
+                                                size="sm"
+                                                className="h-8 px-2"
+                                            >
+                                                <Check className="mr-2 h-4 w-4" />
+                                                Confirm
+                                            </Button>
+                                            <Button
+                                                onClick={() => setConfirmingDiscard(false)}
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-8 px-2"
+                                            >
+                                                <X className="mr-2 h-4 w-4" />
+                                                Cancel
+                                            </Button>
+                                        </div>
+                                    )}
 
-                                    {/* Debug native audio player removed */}
-
-                                    {/* Status messages */}
                                     {transcriptionStatus && (
                                         <p className="text-sm text-center text-muted-foreground">
                                             {transcriptionStatus}

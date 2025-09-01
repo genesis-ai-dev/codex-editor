@@ -6,6 +6,11 @@ import { SearchManager } from "../searchAlgorithms";
 
 type IndexType = SQLiteIndexManager;
 
+const DEBUG_SEARCH = false;
+const debug = (message: string, ...args: any[]) => {
+    DEBUG_SEARCH && debug(`[Search] ${message}`, ...args);
+};
+
 export function searchTargetCellsByQuery(
     translationPairsIndex: IndexType,
     query: string,
@@ -172,27 +177,57 @@ export async function getTranslationPairsFromSourceCellQuery(
     k: number = 5,
     onlyValidated: boolean = false
 ): Promise<TranslationPair[]> {
-    // Prefer SearchManager abstraction to support algorithm selection and filtering
-    try {
-        const manager = new SearchManager(translationPairsIndex);
-        return await manager.getTranslationPairsFromSourceCellQuery(query, k, onlyValidated);
-    } catch (error) {
-        console.warn("[getTranslationPairsFromSourceCellQuery] SearchManager failed, falling back to legacy path:", error);
+    debug(`[getTranslationPairsFromSourceCellQuery] Entry point - query: "${query}", k: ${k}, onlyValidated: ${onlyValidated}`);
+
+    // Check if index is properly initialized
+    if (!translationPairsIndex) {
+        console.error(`[getTranslationPairsFromSourceCellQuery] Translation pairs index is null/undefined!`);
+        return [];
     }
 
-    // Legacy fallback
+    // Quick database health check
+    if (translationPairsIndex instanceof SQLiteIndexManager) {
+        try {
+            // Try a simple query to check if database is responsive
+            const testResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation('', 5, false, false);
+            debug(`[getTranslationPairsFromSourceCellQuery] Database health check: ${testResults.length} total pairs available`);
+
+            if (testResults.length > 0) {
+                debug(`[getTranslationPairsFromSourceCellQuery] Sample database contents:`);
+                testResults.slice(0, 2).forEach((result, index) => {
+                    debug(`  ${index + 1}. Cell: ${result.cellId || result.cell_id}`);
+                    debug(`     Source: "${(result.sourceContent || result.source_content || '').substring(0, 100)}..."`);
+                    debug(`     Target: "${(result.targetContent || result.target_content || '').substring(0, 100)}..."`);
+                });
+            } else {
+                console.error(`[getTranslationPairsFromSourceCellQuery] ⚠️  DATABASE IS EMPTY - This explains why no examples are found!`);
+            }
+        } catch (error) {
+            console.error(`[getTranslationPairsFromSourceCellQuery] Database health check failed:`, error);
+        }
+    }
+
+    // Use direct legacy method for more reliable results
+    // SearchManager algorithm switching can be re-enabled once configuration issues are resolved
+    debug(`[getTranslationPairsFromSourceCellQuery] Using direct SQLite search method`);
+
+    // Direct SQLite search
     const initialLimit = Math.max(k * 6, 30);
     let results: any[] = [];
 
     if (translationPairsIndex instanceof SQLiteIndexManager) {
+        debug(`[getTranslationPairsFromSourceCellQuery] Using SQLite searchCompleteTranslationPairsWithValidation with limit: ${initialLimit}`);
         results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(query, initialLimit, false, onlyValidated);
+        debug(`[getTranslationPairsFromSourceCellQuery] SQLite search returned ${results.length} raw results`);
     } else {
         console.warn("[getTranslationPairsFromSourceCellQuery] Non-SQLite index detected, no fallback available");
         return [];
     }
 
     if (results.length === 0 && translationPairsIndex instanceof SQLiteIndexManager) {
+        debug(`[getTranslationPairsFromSourceCellQuery] No results for specific query, trying empty query fallback`);
         results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation('', Math.max(k * 2, 10), false, onlyValidated);
+        debug(`[getTranslationPairsFromSourceCellQuery] Empty query fallback returned ${results.length} results`);
     }
 
     const translationPairs: TranslationPair[] = [];
@@ -203,26 +238,47 @@ export async function getTranslationPairsFromSourceCellQuery(
         if (seenCellIds.has(cellId)) continue;
         seenCellIds.add(cellId);
 
+        debug(`[getTranslationPairsFromSourceCellQuery] Processing raw result for cellId: ${cellId}`);
+        debug(`[getTranslationPairsFromSourceCellQuery] - sourceContent: "${(searchResult.sourceContent || '').substring(0, 50)}..."`);
+        debug(`[getTranslationPairsFromSourceCellQuery] - targetContent: "${(searchResult.targetContent || '').substring(0, 50)}..."`);
+
         if (searchResult.sourceContent && searchResult.targetContent) {
             if (searchResult.sourceContent.trim() && searchResult.targetContent.trim()) {
+                debug(`[getTranslationPairsFromSourceCellQuery] ✅ Adding direct result for ${cellId}`);
                 translationPairs.push({
                     cellId,
                     sourceCell: { cellId, content: searchResult.sourceContent, uri: searchResult.uri || "", line: searchResult.line || 0 },
                     targetCell: { cellId, content: searchResult.targetContent, uri: searchResult.uri || "", line: searchResult.line || 0 },
                 });
+            } else {
+                debug(`[getTranslationPairsFromSourceCellQuery] ❌ Skipping ${cellId} - empty content after trim`);
             }
         } else {
+            debug(`[getTranslationPairsFromSourceCellQuery] 🔄 Fetching translation pair for ${cellId}`);
             const translationPair = await translationPairsIndex.getTranslationPair(cellId);
             if (translationPair && translationPair.sourceContent.trim() && translationPair.targetContent.trim()) {
+                debug(`[getTranslationPairsFromSourceCellQuery] ✅ Adding fetched result for ${cellId}`);
                 translationPairs.push({
                     cellId,
                     sourceCell: { cellId, content: translationPair.sourceContent, uri: translationPair.uri || "", line: translationPair.line || 0 },
                     targetCell: { cellId, content: translationPair.targetContent, uri: translationPair.uri || "", line: translationPair.line || 0 },
                 });
+            } else {
+                debug(`[getTranslationPairsFromSourceCellQuery] ❌ Skipping ${cellId} - no valid translation pair found`);
             }
         }
 
         if (translationPairs.length >= initialLimit) break;
+    }
+
+    debug(`[getTranslationPairsFromSourceCellQuery] Legacy path final result: ${translationPairs.length} translation pairs`);
+
+    if (translationPairs.length === 0) {
+        console.warn(`[getTranslationPairsFromSourceCellQuery] LEGACY FALLBACK ALSO RETURNED ZERO RESULTS!`);
+        console.warn(`[getTranslationPairsFromSourceCellQuery] This suggests either:`);
+        console.warn(`[getTranslationPairsFromSourceCellQuery] 1. Database has no data`);
+        console.warn(`[getTranslationPairsFromSourceCellQuery] 2. Search query is not finding matches`);
+        console.warn(`[getTranslationPairsFromSourceCellQuery] 3. Word overlap filtering is too strict`);
     }
 
     return translationPairs;

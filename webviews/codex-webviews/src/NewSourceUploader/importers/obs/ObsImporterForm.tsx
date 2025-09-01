@@ -450,7 +450,8 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = (props) => {
                                 </div>
                                 <p className="text-xs text-muted-foreground">
                                     Upload individual story markdown files or zip archives
-                                    containing multiple stories.
+                                    containing multiple stories. Images in markdown files will be
+                                    automatically converted for display in the editor.
                                 </p>
                             </div>
 

@@ -156,11 +156,6 @@
                 "category": "Codex Debug"
             },
             {
-                "command": "codex-project-manager.openNewSourceUpload",
-                "title": "Open New Source Uploader",
-                "category": "Codex"
-            },
-            {
                 "command": "codex-editor-extension.JOSH_COMMAND",
                 "title": "JOSH_COMMAND"
             },
@@ -702,6 +697,15 @@
                         "default": 30,
                         "description": "The number of sample translation pairs to show the Copilot."
                     },
+                    "codex-editor-extension.fewShotExampleFormat": {
+                        "type": "string",
+                        "default": "source-and-target",
+                        "description": "Format for few-shot examples shown to the AI. 'source-and-target' shows both source and target text, 'target-only' shows only target translations.",
+                        "enum": [
+                            "source-and-target",
+                            "target-only"
+                        ]
+                    },
                     "codex-editor-extension.contextSize": {
                         "type": "string",
                         "default": "medium",
@@ -915,6 +919,9 @@
         "test": "node ./out/test/runTest.js",
         "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
         "build:webviews": "cd webviews/codex-webviews && pnpm run build:all && cd ../..",
+        "test:webviews": "cd webviews/codex-webviews && pnpm run test",
+        "test:webviews:watch": "cd webviews/codex-webviews && pnpm run test:watch",
+        "test:webviews:ui": "cd webviews/codex-webviews && pnpm run test:ui",
         "smart-watch": "cd webviews/codex-webviews && pnpm run smart-watch",
         "wdio": "wdio run ./wdio.conf.ts"
     },
