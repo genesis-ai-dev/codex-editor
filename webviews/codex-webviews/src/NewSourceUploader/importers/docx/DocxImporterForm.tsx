@@ -18,7 +18,7 @@ import { AlignmentPreview } from "../../components/AlignmentPreview";
 import { AlignedCell, CellAligner, sequentialCellAligner } from "../../types/plugin";
 
 export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
-    const { onCancel, wizardContext, onTranslationComplete, alignContent } = props;
+    const { onComplete, onCancel, wizardContext, onTranslationComplete, alignContent } = props;
 
     // Check if this is a translation import
     const isTranslationImport =
@@ -134,9 +134,14 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                 }
             } else {
                 // For source imports, complete normally
-                setTimeout(async () => {
+                setTimeout(() => {
                     try {
-                        await handleImportCompletion(finalResult, props);
+                        if (onComplete) {
+                            console.log("[DOCX IMPORTER] Calling onComplete with notebook pair");
+                            onComplete(finalResult);
+                        } else {
+                            throw new Error("onComplete callback not provided for source import");
+                        }
                     } catch (err) {
                         setError(err instanceof Error ? err.message : "Failed to complete import");
                     }

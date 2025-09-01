@@ -205,9 +205,12 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             metadata: {
                 id: processedCell.id,
                 type: CodexCellTypes.TEXT,
-                data: processedCell.metadata || {},
+                data: processedCell.metadata?.data || processedCell.metadata || {},
                 edits: [],
-                ...processedCell.metadata
+                // Spread any additional metadata from the processed cell
+                ...(processedCell.metadata && typeof processedCell.metadata === 'object'
+                    ? processedCell.metadata
+                    : {})
             }
         }));
 
@@ -221,7 +224,17 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             corpusMarker: processedNotebook.metadata.importerType,
             textDirection: "ltr",
             ...(processedNotebook.metadata.videoUrl && { videoUrl: processedNotebook.metadata.videoUrl }),
-        };
+            // Preserve document structure metadata and other custom fields
+            ...(processedNotebook.metadata.documentStructure && {
+                documentStructure: processedNotebook.metadata.documentStructure
+            }),
+            ...(processedNotebook.metadata.wordCount && {
+                wordCount: processedNotebook.metadata.wordCount
+            }),
+            ...(processedNotebook.metadata.mammothMessages && {
+                mammothMessages: processedNotebook.metadata.mammothMessages
+            }),
+        } as any; // Cast to any to allow custom fields
 
         return {
             name: processedNotebook.name,
@@ -275,13 +288,47 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         token: vscode.CancellationToken,
         webviewPanel: vscode.WebviewPanel
     ): Promise<void> {
+        // Save original files if provided in metadata
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (workspaceFolder) {
+            for (const pair of message.notebookPairs) {
+                if (pair.source.metadata?.originalFileData) {
+                    // Save the original file in attachments
+                    const originalFileName = pair.source.metadata.originalFileName || 'document.docx';
+                    const originalsDir = vscode.Uri.joinPath(
+                        workspaceFolder.uri,
+                        '.project',
+                        'attachments',
+                        'originals'
+                    );
+                    await vscode.workspace.fs.createDirectory(originalsDir);
+
+                    const originalFileUri = vscode.Uri.joinPath(originalsDir, originalFileName);
+                    const fileData = pair.source.metadata.originalFileData;
+
+                    // Convert ArrayBuffer to Uint8Array if needed
+                    const buffer = fileData instanceof ArrayBuffer
+                        ? new Uint8Array(fileData)
+                        : Buffer.from(fileData);
+
+                    await vscode.workspace.fs.writeFile(originalFileUri, buffer);
+                }
+            }
+        }
+
         // Convert ProcessedNotebooks to NotebookPreview format
         const sourceNotebooks = message.notebookPairs.map(pair =>
             this.convertToNotebookPreview(pair.source)
         );
-        const codexNotebooks = message.notebookPairs.map(pair =>
-            this.convertToNotebookPreview(pair.codex)
-        );
+        const codexNotebooks = message.notebookPairs.map(pair => {
+            // For codex notebooks, remove the original file data to avoid duplication
+            const codexPair = { ...pair.codex };
+            if (codexPair.metadata?.originalFileData) {
+                codexPair.metadata = { ...codexPair.metadata };
+                delete codexPair.metadata.originalFileData;
+            }
+            return this.convertToNotebookPreview(codexPair);
+        });
 
         // Create the notebook pairs
         const createdFiles = await createNoteBookPair({
