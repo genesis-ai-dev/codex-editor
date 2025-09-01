@@ -1,13 +1,15 @@
+import { CodexCellDocument } from './../../../providers/codexCellEditorProvider/codexDocument';
 import * as vscode from "vscode";
 import * as path from "path";
 import { ConflictResolutionStrategy, ConflictFile, SmartEdit } from "./types";
 import { determineStrategy } from "./strategies";
 import { getAuthApi } from "../../../extension";
-import { NotebookCommentThread, NotebookComment } from "../../../../types";
+import { NotebookCommentThread, NotebookComment, CustomNotebookCellData } from "../../../../types";
 import { CommentsMigrator } from "../../../utils/commentsMigrationUtils";
 import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
 import { EditHistory, ValidationEntry } from "../../../../types/index.d";
+import { EditMapUtils } from "../../../utils/editMapUtils";
 
 const DEBUG_MODE = false;
 function debugLog(...args: any[]): void {
@@ -280,6 +282,69 @@ export async function resolveConflictFile(
 }
 
 /**
+ * Helper function to check if content contains old format edits that need migration
+ */
+function needsEditHistoryMigration(content: string): boolean {
+    try {
+        const notebook = JSON.parse(content);
+        const cells: CodexCell[] = notebook.cells || [];
+
+        for (const cell of cells) {
+            if (cell.metadata?.edits && cell.metadata.edits.length > 0) {
+                for (const edit of cell.metadata.edits) {
+                    // Check if this is an old format edit (has cellValue but no editMap)
+                    if ((edit as any).cellValue !== undefined && !edit.editMap) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    } catch (error) {
+        debugLog("Error checking for migration need:", error);
+        return false;
+    }
+}
+
+/**
+ * Helper function to migrate old format edits to new format in-place
+ */
+function migrateEditHistoryInContent(content: string): string {
+    try {
+        const notebook = JSON.parse(content);
+        const cells: CodexCell[] = notebook.cells || [];
+        let hasChanges = false;
+
+        for (const cell of cells) {
+            if (cell.metadata?.edits && cell.metadata.edits.length > 0) {
+                for (const edit of cell.metadata.edits as any) {
+                    // Check if this is an old format edit (has cellValue but no editMap)
+                    if (edit.cellValue !== undefined && !edit.editMap) {
+                        // Migrate old format to new format
+                        edit.value = edit.cellValue; // Move cellValue to value
+                        edit.editMap = ["value"]; // Set editMap to point to value
+                        delete edit.cellValue; // Remove old property
+                        hasChanges = true;
+
+                        debugLog(`Migrated edit in cell ${cell.metadata.id}: converted cellValue to value with editMap`);
+                    }
+                }
+            }
+        }
+
+        if (hasChanges) {
+            debugLog("Edit history migration completed for content");
+            return JSON.stringify(notebook, null, 2);
+        }
+
+        return content;
+    } catch (error) {
+        debugLog("Error migrating edit history in content:", error);
+        return content;
+    }
+}
+
+/**
  * Custom merge resolution for Codex files
  * Merges cells from two versions of a notebook, preserving edit history and metadata
  *
@@ -299,7 +364,8 @@ export async function resolveCodexCustomMerge(
 ): Promise<string> {
     debugLog({ ourContent: ourContent.slice(0, 1000), theirContent: theirContent.slice(0, 1000) });
     debugLog("Starting resolveCodexCustomMerge");
-    debugLog("Parsing notebook content");
+
+    // Check if content needs migration and migrate if necessary
     if (!ourContent) {
         debugLog("No our content, returning their content");
         return theirContent;
@@ -308,17 +374,36 @@ export async function resolveCodexCustomMerge(
         debugLog("No their content, returning our content");
         return ourContent;
     }
-    const ourNotebook = JSON.parse(ourContent);
-    const theirNotebook = JSON.parse(theirContent);
-    const ourCells: CodexCell[] = ourNotebook.cells;
-    const theirCells: CodexCell[] = theirNotebook.cells;
+
+    // Migrate content if needed
+    let migratedOurContent = ourContent;
+    let migratedTheirContent = theirContent;
+
+    const ourNeedsMigration = needsEditHistoryMigration(ourContent);
+    const theirNeedsMigration = needsEditHistoryMigration(theirContent);
+
+    if (ourNeedsMigration) {
+        debugLog("Migrating our content edit history format");
+        migratedOurContent = migrateEditHistoryInContent(ourContent);
+    }
+
+    if (theirNeedsMigration) {
+        debugLog("Migrating their content edit history format");
+        migratedTheirContent = migrateEditHistoryInContent(theirContent);
+    }
+
+    debugLog("Parsing notebook content");
+    const ourNotebook = JSON.parse(migratedOurContent);
+    const theirNotebook = JSON.parse(migratedTheirContent);
+    const ourCells: CustomNotebookCellData[] = ourNotebook.cells;
+    const theirCells: CustomNotebookCellData[] = theirNotebook.cells;
 
     debugLog(
         `Processing ${ourCells.length} cells from our version and ${theirCells.length} cells from their version`
     );
 
     // Map to track cells by ID for quick lookup
-    const theirCellsMap = new Map<string, CodexCell>(); // FIXME: this causes unknown cells to show up at the end of the notebook because we are making a mpa not array
+    const theirCellsMap = new Map<string, CustomNotebookCellData>(); // FIXME: this causes unknown cells to show up at the end of the notebook because we are making a mpa not array
     theirCells.forEach((cell) => {
         if (cell.metadata?.id) {
             theirCellsMap.set(cell.metadata.id, cell);
@@ -326,7 +411,7 @@ export async function resolveCodexCustomMerge(
         }
     });
 
-    const resultCells: CodexCell[] = [];
+    const resultCells: CustomNotebookCellData[] = [];
 
     // Process our cells in order
     ourCells.forEach((ourCell) => {
@@ -347,12 +432,13 @@ export async function resolveCodexCustomMerge(
 
             debugLog(`Combined ${mergedEdits.length} edits for cell ${cellId}`);
 
-            // Remove duplicates based on timestamp and cellValue, while merging validatedBy entries
+            // Remove duplicates based on timestamp, editMap and value, while merging validatedBy entries
             const editMap = new Map<string, EditHistory>();
 
-            // First pass: Group edits by timestamp and cellValue
+            // First pass: Group edits by timestamp, editMap and value
             mergedEdits.forEach((edit) => {
-                const key = `${edit.timestamp}:${edit.cellValue}`;
+                const editMapKey = edit.editMap.join('.');
+                const key = `${edit.timestamp}:${editMapKey}:${edit.value}`;
                 if (!editMap.has(key)) {
                     editMap.set(key, edit);
                 } else {
@@ -461,14 +547,14 @@ export async function resolveCodexCustomMerge(
 
             //! get the last time we set our current cell value
             const ourEditsThatMatchCurrentValue = ourCell.metadata?.edits
-                ?.filter((edit) => edit.cellValue === ourCell?.value)
+                ?.filter((edit) => EditMapUtils.isValue(edit.editMap) && edit.value === ourCell?.value)
                 .sort((a, b) => a.timestamp - b.timestamp);
             const editThatBelongsToOurCellValue =
                 ourEditsThatMatchCurrentValue?.[ourEditsThatMatchCurrentValue.length - 1];
 
             //! get the last time they set our current cell value
             const theirEditsThatMatchCurrentValue = theirCell.metadata?.edits
-                ?.filter((theirEdit) => theirEdit.cellValue === theirCell?.value)
+                ?.filter((theirEdit) => EditMapUtils.isValue(theirEdit.editMap) && theirEdit.value === theirCell?.value)
                 .sort((a, b) => a.timestamp - b.timestamp);
             const editThatBelongsToTheirCellValue =
                 theirEditsThatMatchCurrentValue?.[theirEditsThatMatchCurrentValue.length - 1];
@@ -486,7 +572,7 @@ export async function resolveCodexCustomMerge(
             // We default our own but if ours is an empty string we use their cell value
             const fallbackValue = ourCell.value || theirCell.value;
             // Ensure the latest edit is in the history
-            let finalValue = mostRecentOfTheirAndOurEdits?.cellValue ?? fallbackValue; // Nullish coalescing to keep empty strings from being overwritten
+            let finalValue = mostRecentOfTheirAndOurEdits?.value ?? fallbackValue; // Nullish coalescing to keep empty strings from being overwritten
             if (
                 (ourCell.metadata?.edits?.length || 0) === 0 &&
                 (theirCell.metadata?.edits?.length || 0) > 0
@@ -569,9 +655,9 @@ export async function resolveCodexCustomMerge(
             );
 
             // Create merged cell with combined history
-            const mergedCell: CodexCell = {
+            const mergedCell = {
                 ...ourCell,
-                value: finalValue,
+                value: finalValue as string,
                 metadata: {
                     ...{ ...theirCell.metadata, ...ourCell.metadata, }, // Fixme: this needs to be triangulated based on the last common commit
                     data: { ...theirCell.metadata?.data, ...ourCell.metadata?.data, },

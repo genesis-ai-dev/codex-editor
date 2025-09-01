@@ -11,7 +11,9 @@ import {
     Timestamps,
     CustomNotebookMetadata,
     ValidationEntry,
+    EditMapValueType,
 } from "../../../types";
+import { EditMapUtils } from "../../utils/editMapUtils";
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { getAuthApi } from "@/extension";
 import { randomUUID } from "crypto";
@@ -280,7 +282,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 : [];
 
         cellToUpdate.metadata.edits.push({
-            cellValue: newContent,
+            editMap: EditMapUtils.value(),
+            value: newContent, // TypeScript infers: string
             timestamp: currentTimestamp,
             type: editType,
             author: this._author,
@@ -563,7 +566,56 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
-        cellToUpdate.metadata.data = timestamps;
+        cellToUpdate.metadata.data = {
+            ...cellToUpdate.metadata.data,
+            ...timestamps,
+        };
+
+        // Add edit to cell's edit history
+        if (!cellToUpdate.metadata.edits) {
+            cellToUpdate.metadata.edits = [];
+        }
+        const currentTimestamp = Date.now();
+        
+        // Only add edit if startTime is different from current value
+        if (timestamps.startTime !== undefined && timestamps.startTime !== cellToUpdate.metadata.data?.startTime) {
+            const startTimeEditMap = EditMapUtils.dataStartTime();
+            cellToUpdate.metadata.edits.push({
+                editMap: startTimeEditMap,
+                value: timestamps.startTime,
+                timestamp: currentTimestamp,
+                type: EditType.USER_EDIT,
+                author: this._author,
+                validatedBy: [
+                    {
+                        username: this._author,
+                        creationTimestamp: currentTimestamp,
+                        updatedTimestamp: currentTimestamp,
+                        isDeleted: false,
+                    },
+                ],
+            });
+        }
+        
+        // Only add edit if endTime is different from current value
+        if (timestamps.endTime !== undefined && timestamps.endTime !== cellToUpdate.metadata.data?.endTime) {
+            const endTimeEditMap = EditMapUtils.dataEndTime();
+            cellToUpdate.metadata.edits.push({
+                editMap: endTimeEditMap,
+                value: timestamps.endTime,
+                timestamp: currentTimestamp,
+                type: EditType.USER_EDIT,
+                author: this._author,
+                validatedBy: [
+                    {
+                        username: this._author,
+                        creationTimestamp: currentTimestamp,
+                        updatedTimestamp: currentTimestamp,
+                        isDeleted: false,
+                    },
+                ],
+            });
+        }
 
         // Record the edit
         this._edits.push({
@@ -738,6 +790,27 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // Update cell label in memory
         cellToUpdate.metadata.cellLabel = newLabel;
 
+        // Add edit to cell's edit history
+        if (!cellToUpdate.metadata.edits) {
+            cellToUpdate.metadata.edits = [];
+        }
+        const currentTimestamp = Date.now();
+        cellToUpdate.metadata.edits.push({
+            editMap: EditMapUtils.cellLabel(),
+            value: newLabel, // TypeScript infers: string
+            timestamp: currentTimestamp,
+            type: EditType.USER_EDIT,
+            author: this._author,
+            validatedBy: [
+                {
+                    username: this._author,
+                    creationTimestamp: currentTimestamp,
+                    updatedTimestamp: currentTimestamp,
+                    isDeleted: false,
+                },
+            ],
+        });
+
         // Record the edit
         this._edits.push({
             type: "updateCellLabel",
@@ -780,18 +853,20 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // repair the edit history by adding an llm generation wit hauthor unknown, and then a user edit with validation
             cellToUpdate.metadata.edits = [
                 {
+                    editMap: EditMapUtils.value(),
+                    value: cellToUpdate.value,
                     author: "unknown",
                     validatedBy: [],
                     timestamp: Date.now(),
                     type: EditType.LLM_GENERATION,
-                    cellValue: cellToUpdate.value,
                 },
                 {
+                    editMap: EditMapUtils.value(),
+                    value: cellToUpdate.value,
                     author: this._author,
                     validatedBy: [],
                     timestamp: Date.now(),
                     type: EditType.USER_EDIT,
-                    cellValue: cellToUpdate.value,
                 },
             ];
         }

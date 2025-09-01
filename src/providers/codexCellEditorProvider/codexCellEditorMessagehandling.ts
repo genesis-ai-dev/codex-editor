@@ -4,6 +4,7 @@ import { safePostMessageToPanel } from "../../utils/webviewUtils";
 // Use type-only import to break circular dependency
 import type { CodexCellEditorProvider } from "./codexCellEditorProvider";
 import { GlobalMessage, EditorPostMessages, EditHistory, CodexNotebookAsJSONData } from "../../../types";
+import { EditMapUtils } from "../../utils/editMapUtils";
 import { EditType } from "../../../types/enums";
 import {
     QuillCellContent,
@@ -1363,7 +1364,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // 1. Concatenate content and create second edit
             const mergedContent = previousContent + "<span>&nbsp;</span>" + currentContent;
             const mergeEdit: EditHistory = {
-                cellValue: mergedContent,
+                editMap: EditMapUtils.value(),
+                value: mergedContent,
                 timestamp: timestamp + 1,
                 type: EditType.USER_EDIT,
                 author: currentUser,

@@ -141,6 +141,149 @@ export async function temporaryMigrationScript_checkMatthewNotebook() {
     }
 }
 
+export const migration_editHistoryFormat = async (context?: vscode.ExtensionContext) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        // Check if migration has already been run
+        const migrationKey = "editHistoryFormatMigrationCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        let hasMigrationRun = false;
+
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch (e) {
+            // Setting might not be registered yet; fall back to workspaceState
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
+
+        if (hasMigrationRun) {
+            console.log("Edit history format migration already completed, skipping");
+            return;
+        }
+
+        console.log("Running edit history format migration...");
+
+        const workspaceFolder = workspaceFolders[0];
+
+        // Find all codex and source files
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+
+        const allFiles = [...codexFiles, ...sourceFiles];
+
+        if (allFiles.length === 0) {
+            console.log("No codex or source files found, skipping migration");
+            return;
+        }
+
+        let processedFiles = 0;
+        let migratedFiles = 0;
+
+        // Process files with progress
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Migrating edit history format",
+                cancellable: false
+            },
+            async (progress) => {
+                for (let i = 0; i < allFiles.length; i++) {
+                    const file = allFiles[i];
+                    progress.report({
+                        message: `Processing ${path.basename(file.fsPath)}`,
+                        increment: (100 / allFiles.length)
+                    });
+
+                    try {
+                        const wasMigrated = await migrateEditHistoryForFile(file);
+                        processedFiles++;
+                        if (wasMigrated) {
+                            migratedFiles++;
+                        }
+                    } catch (error) {
+                        console.error(`Error processing ${file.fsPath}:`, error);
+                    }
+                }
+            }
+        );
+
+        // Mark migration as completed
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch (e) {
+            // If configuration key is not registered, fall back to workspaceState
+            await context?.workspaceState.update(migrationKey, true);
+        }
+
+        console.log(`Edit history format migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        if (migratedFiles > 0) {
+            vscode.window.showInformationMessage(
+                `Edit history format migration complete: ${migratedFiles} files updated`
+            );
+        }
+
+    } catch (error) {
+        console.error("Error running edit history format migration:", error);
+    }
+};
+
+async function migrateEditHistoryForFile(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        // Read the file content
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells = notebookData.cells || [];
+        let hasChanges = false;
+
+        // Check and migrate each cell's edit history
+        for (const cell of cells) {
+            if (cell.metadata?.edits && cell.metadata.edits.length > 0) {
+                for (const edit of cell.metadata.edits as any) {
+                    // Check if this is an old format edit (has cellValue but no editMap)
+                    if (edit.cellValue !== undefined && !edit.editMap) {
+                        // Migrate old format to new format
+                        edit.value = edit.cellValue; // Move cellValue to value
+                        edit.editMap = ["value"]; // Set editMap to point to value
+                        delete edit.cellValue; // Remove old property
+                        hasChanges = true;
+
+                        console.log(`Migrated edit in cell ${cell.metadata.id}: converted cellValue to value with editMap`);
+                    }
+                }
+            }
+        }
+
+        // If any changes were made, save the file
+        if (hasChanges) {
+            const updatedContent = await serializer.serializeNotebook(
+                notebookData,
+                new vscode.CancellationTokenSource().token
+            );
+            await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+            return true;
+        }
+
+        return false;
+
+    } catch (error) {
+        console.error(`Error migrating edit history for ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
+
 export const migration_lineNumbersSettings = async (context?: vscode.ExtensionContext) => {
     try {
         const workspaceFolders = vscode.workspace.workspaceFolders;

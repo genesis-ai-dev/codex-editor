@@ -1002,7 +1002,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         );
 
         const deleteDatabaseAndReindexCommand = vscode.commands.registerCommand(
-            "codex-editor-extension.deleteDatabaseAndReindex",
+            "codex-editor-extension.deleteDatabaseAndTriggerReindex",
             async () => {
                 try {
                     if (translationPairsIndex instanceof SQLiteIndexManager) {

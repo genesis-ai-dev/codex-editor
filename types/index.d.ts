@@ -117,11 +117,14 @@ interface TranslationPair {
     edits?: EditHistory[]; // Make this optional as it might not always be present
 }
 
-interface EditHistoryItem {
-    cellValue: string;
+// Generic EditHistoryItem that infers value type from editMap
+interface EditHistoryItem<TEditMap extends readonly string[] = readonly string[]> {
+    editMap: TEditMap;
+    value: EditMapValueType<TEditMap>;
     timestamp: number;
     type: import("./enums").EditType;
     author?: string;
+    validatedBy?: ValidationEntry[];
 }
 
 // Relating to Smart Edits
@@ -1124,13 +1127,51 @@ interface ValidationEntry {
     isDeleted: boolean;
 }
 
-export type EditHistory = {
+// Utility type to extract value type for a given editMap
+type EditMapValueType<T extends readonly string[]> =
+    // Check for exact tuple matches
+    T extends readonly ["value"] ? string
+    : T extends readonly ["metadata", "cellLabel"] ? string
+    : T extends readonly ["metadata", "data"] ? CodexData
+    : T extends readonly ["metadata", "data", "deleted"] ? boolean
+    : T extends readonly ["metadata", "data", "startTime"] ? number
+    : T extends readonly ["metadata", "data", "endTime"] ? number
+    : T extends readonly ["metadata", "data", "book"] ? string
+    : T extends readonly ["metadata", "data", "chapter"] ? string
+    : T extends readonly ["metadata", "data", "verse"] ? string
+    : T extends readonly ["metadata", "data", "merged"] ? boolean
+    : T extends readonly ["metadata", "selectedAudioId"] ? string
+    : T extends readonly ["metadata", "selectionTimestamp"] ? number
+    // Fallback for unmatched paths
+    : string | number | boolean | object;
+
+// Conditional type for EditHistory that infers value type based on editMap
+type EditHistoryBase = {
     author: string;
-    cellValue: string;
     timestamp: number;
     type: import("./enums").EditType;
     validatedBy?: ValidationEntry[];
 };
+
+export type EditHistory<TEditMap extends readonly string[] = readonly string[]> = EditHistoryBase & {
+    editMap: TEditMap;
+    value: EditMapValueType<TEditMap>;
+};
+
+// Legacy alias for backward compatibility
+export type EditHistoryMutable = EditHistory;
+
+// Utility type for creating type-safe edits
+export type EditFor<TEditMap extends readonly string[]> = {
+    editMap: TEditMap;
+    value: EditMapValueType<TEditMap>;
+    author: string;
+    timestamp: number;
+    type: import("./enums").EditType;
+    validatedBy?: ValidationEntry[];
+};
+
+
 
 type CodexData = Timestamps & {
     // [key: string]: any; this makes it very hard to type the data

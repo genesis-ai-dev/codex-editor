@@ -35,7 +35,7 @@ import path from "path";
 const DEBUG_MODE = false;
 function debug(...args: any[]) {
     if (DEBUG_MODE) {
-        debug("[CodexCellEditorProvider]", ...args);
+        console.log("[CodexCellEditorProvider]", ...args);
     }
 }
 
@@ -659,7 +659,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         document: CodexCellDocument,
         cancellation: vscode.CancellationToken
     ): Promise<void> {
-        debug("Saving custom document:", document.uri.toString());
+        debug("Saving custom document:", document.uri.toString(),);
 
         try {
             // Set status to syncing
