@@ -3034,9 +3034,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             if (this.mediaRefreshTimer) {
                 clearTimeout(this.mediaRefreshTimer);
             }
+            // In Node typings, setTimeout returns NodeJS.Timeout; in browser it may be number.
+            // Cast to any to satisfy mixed environments for tests/build.
             this.mediaRefreshTimer = setTimeout(() => {
                 this.refreshAudioAttachmentsForAllWebviews();
-            }, 500); // 500ms debounce
+            }, 500) as any; // 500ms debounce
         };
 
         this.mediaFileWatcher.onDidCreate(debouncedRefresh);

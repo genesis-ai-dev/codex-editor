@@ -1498,7 +1498,13 @@ async function exportCodexContentAsXliff(
 
                                     // Get the corresponding source cell content
                                     const sourceCell = sourceCellsMap.get(cellId);
-                                    const sourceContent = sourceCell?.value.trim() || "";
+                                    let sourceContent = sourceCell?.value.trim() || "";
+
+                                    // Use original content from metadata if available (for structure preservation)
+                                    const metadata = sourceCell?.metadata as any;
+                                    if (metadata?.data?.originalContent) {
+                                        sourceContent = metadata.data.originalContent;
+                                    }
 
                                     chapters[chapterNum].verses[verseNum] = {
                                         source: sourceContent,

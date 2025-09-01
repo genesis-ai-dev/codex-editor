@@ -710,16 +710,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     wordBreak: "break-word",
                 }}
             >
-                <div
-                    className="cell-header flex justify-start items-start shrink-0 gap-[1px]"
-                >
+                <div className="cell-header flex justify-start items-start shrink-0 gap-[1px]">
                     {cellDisplayMode !== CELL_DISPLAY_MODES.INLINE && (
-                        <div
-                            className="cell-actions flex justify-start items-center"
-                        >
-                            <div
-                                className="action-button-container flex items-center gap-px"
-                            >
+                        <div className="cell-actions flex justify-start items-center">
+                            <div className="action-button-container flex items-center gap-px">
                                 <AnimatedReveal
                                     mode="reveal"
                                     button={
@@ -783,16 +777,16 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 )}
 
                                 {/* Audio Play Button */}
-                                {!isSourceText && audioAttachments && (
+                                {audioAttachments && (
                                     <AudioPlayButton
                                         cellId={cellIds[0]}
                                         vscode={vscode}
-                                        state={
-                                            (audioAttachments[cellIds[0]] as any) || "none"
-                                        }
+                                        state={(audioAttachments[cellIds[0]] as any) || "none"}
                                         onOpenCell={(id) => {
                                             // Use force variant to ensure editor opens even with unsaved state
-                                            const open = (window as any).openCellByIdForce || (window as any).openCellById;
+                                            const open =
+                                                (window as any).openCellByIdForce ||
+                                                (window as any).openCellById;
                                             if (typeof open === "function") open(id);
                                         }}
                                     />
@@ -862,9 +856,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 </div>
 
                 {/* Right side: wrappable label + content */}
-                <div
-                    className="flex flex-wrap items-baseline gap-[0.25rem] flex-1 min-w-0"
-                >
+                <div className="flex flex-wrap items-baseline gap-[0.25rem] flex-1 min-w-0">
                     {/* Cell label - shown after line number when present */}
                     {label && (
                         <div

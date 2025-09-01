@@ -6,13 +6,31 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { spawn } from 'child_process';
+// Load spawn lazily to avoid bundling 'child_process' in test/browser builds
+function getSpawn(): ((command: string, args?: readonly string[]) => any) | null {
+    try {
+        // Use eval to prevent webpack from statically analyzing this require
+        // eslint-disable-next-line no-eval
+        const req = eval('require') as any;
+        const cp = req('child_process');
+        return cp && cp.spawn ? cp.spawn : null;
+    } catch {
+        return null;
+    }
+}
 
 /**
  * Check if ffmpeg is available on the system
  */
 async function isFFmpegAvailable(): Promise<boolean> {
     return new Promise((resolve) => {
+        const spawn = getSpawn();
+        if (!spawn) {
+            // In environments without child_process (e.g., tests), report not available
+            resolve(false);
+            return;
+        }
+
         const ffmpeg = spawn('ffmpeg', ['-version']);
 
         // Set a timeout to avoid hanging
@@ -25,7 +43,7 @@ async function isFFmpegAvailable(): Promise<boolean> {
             clearTimeout(timeout);
             resolve(false);
         });
-        ffmpeg.on('exit', (code) => {
+        ffmpeg.on('exit', (code: number | null) => {
             clearTimeout(timeout);
             resolve(code === 0);
         });
@@ -41,6 +59,10 @@ async function extractAudioWithFFmpeg(
     endTime: number
 ): Promise<Buffer> {
     return new Promise((resolve, reject) => {
+        const spawn = getSpawn();
+        if (!spawn) {
+            return reject(new Error('child_process.spawn not available'));
+        }
         const tempDir = path.join(__dirname, '..', '..', '.temp');
         if (!fs.existsSync(tempDir)) {
             fs.mkdirSync(tempDir, { recursive: true });
@@ -73,18 +95,18 @@ async function extractAudioWithFFmpeg(
         const ffmpeg = spawn('ffmpeg', args);
 
         let stderr = '';
-        ffmpeg.stderr.on('data', (data) => {
+        ffmpeg.stderr.on('data', (data: Buffer) => {
             stderr += data.toString();
         });
 
-        ffmpeg.on('error', (error) => {
+        ffmpeg.on('error', (error: Error) => {
             // Clean up temp files
             try { fs.unlinkSync(tempVideoPath); } catch (e) { /* ignore cleanup errors */ }
             try { fs.unlinkSync(tempAudioPath); } catch (e) { /* ignore cleanup errors */ }
             reject(new Error(`FFmpeg error: ${error.message}`));
         });
 
-        ffmpeg.on('exit', (code) => {
+        ffmpeg.on('exit', (code: number | null) => {
             if (code === 0) {
                 try {
                     const audioBuffer = fs.readFileSync(tempAudioPath);
