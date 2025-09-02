@@ -1464,23 +1464,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 </TooltipContent>
                             </Tooltip>
                         </TooltipProvider>
-                        <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button
-                                        onClick={() => editorHandlesRef.current?.addFootnote()}
-                                        variant="ghost"
-                                        size="icon"
-                                        title="Add Footnote"
-                                    >
-                                        <NotebookPen className="h-4 w-4" />
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                    <p>Add Footnote</p>
-                                </TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
+                        {/* Removed footnote toolbar button to consolidate UX in Footnotes tab */}
                         {showAdvancedControls ? (
                             <div className="flex items-center gap-1">
                                 <AddParatextButton
@@ -1667,6 +1651,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             command: "setPreferredEditorTab",
                             content: { tab: tabValue },
                         });
+
+                        // Refresh selection when opening footnotes tab to avoid stale state
+                        if (tabValue === "footnotes") {
+                            try {
+                                const sel = editorHandlesRef.current?.getSelectionText?.() || "";
+                                (window as any).__codexFootnoteSelection = sel; // ephemeral cache if needed later
+                            } catch {}
+                        }
 
                         // Preload audio when audio tab is selected
                         if (tabValue === "audio") {
@@ -1863,6 +1855,31 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                     <TabsContent value="footnotes">
                         <div className="content-section">
+                            {/* Add Footnote action surfaced here with selection-aware hint - hide when already creating */}
+                            {!isEditingFootnoteInline && (
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="text-xs text-muted-foreground">
+                                        {(() => {
+                                            const sel = editorHandlesRef.current?.getSelectionText?.() || "";
+                                            return sel
+                                                ? `Selected: "${sel.slice(0, 40)}${sel.length > 40 ? "…" : ""}"`
+                                                : "Select text in the editor to attach a footnote (optional).";
+                                        })()}
+                                    </div>
+                                    <Button
+                                        size="sm"
+                                        onClick={() => editorHandlesRef.current?.addFootnote()}
+                                        disabled={!editorHandlesRef.current}
+                                    >
+                                        <NotebookPen className="mr-2 h-4 w-4" />
+                                        {(() => {
+                                            const sel = editorHandlesRef.current?.getSelectionText?.() || "";
+                                            return sel ? `Add footnote to selection` : `Add footnote`;
+                                        })()}
+                                    </Button>
+                                </div>
+                            )}
+
                             {footnotes.length > 0 ? (
                                 <div className="space-y-3">
                                     {footnotes.map((footnote, index) => (
@@ -1958,10 +1975,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             ) : (
                                 <div className="text-center p-8 text-muted-foreground">
                                     <p>No footnotes in this cell yet.</p>
-                                    <p className="mt-2 flex items-center justify-center gap-2">
-                                        Use the footnote button <NotebookPen className="h-4 w-4" />{" "}
-                                        in the editor toolbar to add footnotes.
-                                    </p>
+                                    <p className="mt-2">Use the button above to add one.</p>
                                 </div>
                             )}
                         </div>

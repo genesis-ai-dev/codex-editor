@@ -108,6 +108,7 @@ export interface EditorHandles {
     autocomplete: () => void;
     openLibrary: () => void;
     showEditHistory: () => void;
+    getSelectionText: () => string;
     addFootnote: () => void;
     editFootnote: (footnoteId: string, content: string) => void;
     updateContent: (content: string) => void;
@@ -1184,6 +1185,14 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             setEditHistoryForCell(props.editHistory);
             setShowHistoryModal(true);
         },
+        getSelectionText: () => {
+            if (!quillRef.current) return "";
+            const selection = quillRef.current.getSelection();
+            if (selection && selection.length > 0) {
+                return quillRef.current.getText(selection.index, selection.length).trim();
+            }
+            return "";
+        },
         addFootnote: () => {
             handleAddFootnote();
         },
@@ -1312,7 +1321,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                 fontSize: "0.9em",
                             }}
                         >
-                            {isCreatingNewFootnote ? "Add Footnote" : "Save Changes"}
+                            {isCreatingNewFootnote ? "Create Footnote" : "Save Changes"}
                         </button>
                     </div>
                 </div>
