@@ -1219,6 +1219,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         const base64Response = await fetch(message.content.audioData);
                         const blob = await base64Response.blob();
                         setAudioBlob(blob);
+                        // If recorder was showing because there was no audio previously,
+                        // switch to waveform automatically once audio is available
+                        setShowRecorder(false);
                         setRecordingStatus("Audio loaded");
                         setIsAudioLoading(false);
                         setAudioFetchPending(false);
@@ -1316,11 +1319,23 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 const history = message.content.audioHistory || [];
                 setHasAudioHistory(history.length > 0);
                 setAudioHistoryCount(history.length);
+
+                // If we just restored an audio (previously none loaded),
+                // auto-close history and request the current audio so the waveform appears
+                const hasAvailable = history.some((h: any) => !h.attachment?.isDeleted);
+                if (hasAvailable && !audioBlob) {
+                    setShowAudioHistory(false);
+                    const messageContent: EditorPostMessages = {
+                        command: "requestAudioForCell",
+                        content: { cellId: cellMarkers[0] }
+                    };
+                    window.vscodeApi.postMessage(messageContent);
+                }
             }
         };
         window.addEventListener("message", handleHistoryResponse);
         return () => window.removeEventListener("message", handleHistoryResponse);
-    }, [cellMarkers]);
+    }, [cellMarkers, audioBlob, showAudioHistory]);
 
     // Clean up media recorder and stream on unmount
     useEffect(() => {
