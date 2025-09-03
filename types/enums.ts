@@ -8,6 +8,7 @@ export enum EditType {
 export enum CodexCellTypes {
     TEXT = "text",
     PARATEXT = "paratext",
+    STYLE = "style",
 }
 export enum StartupFlowStates {
     LOGIN_REGISTER = "loginRegister",

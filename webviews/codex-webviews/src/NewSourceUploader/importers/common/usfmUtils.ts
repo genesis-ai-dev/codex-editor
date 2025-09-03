@@ -22,7 +22,7 @@ export const initializeUsfmGrammar = async () => { };
 export interface UsfmContent {
     id: string;
     content: string;
-    type: 'verse' | 'paratext';
+    type: 'verse' | 'paratext' | 'style';
     metadata: {
         bookCode?: string;
         bookName?: string;
@@ -208,10 +208,22 @@ export const processUsfmContent = async (
                 // Convert USFM to HTML with footnotes if needed
                 const { html: processedText } = convertUsfmToHtmlWithFootnotes(paratextContent);
 
+                // Determine if this is a style-only cell (no text content)
+                let cellType: UsfmContent['type'] = 'paratext';
+                try {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(htmlParatext || '', 'text/html');
+                    const el = doc.body.firstElementChild as HTMLElement | null;
+                    const textOnly = el ? (el.textContent || '').trim() : (htmlParatext || '').trim();
+                    if (!textOnly) cellType = 'style';
+                } catch {
+                    // ignore DOM parsing errors for style detection
+                }
+
                 usfmContent.push({
                     id: paratextId,
                     content: processedText.replace(paratextContent, htmlParatext),
-                    type: 'paratext',
+                    type: cellType,
                     metadata: {
                         bookCode,
                         bookName,
@@ -226,10 +238,22 @@ export const processUsfmContent = async (
                 const paratextId = `${bookCode} ${chapterNumber}:${Math.random().toString(36).slice(2, 10)}`;
                 const markerLine = String(content.marker).trim();
                 const htmlBlock = usfmBlockToHtml(markerLine);
+                // Determine if style-only (no inner text)
+                let cellType: UsfmContent['type'] = 'paratext';
+                try {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(htmlBlock, 'text/html');
+                    const el = doc.body.firstElementChild as HTMLElement | null;
+                    const textOnly = el ? (el.textContent || '').trim() : '';
+                    if (!textOnly) cellType = 'style';
+                } catch {
+                    // ignore DOM parsing errors for style detection
+                }
+
                 usfmContent.push({
                     id: paratextId,
                     content: htmlBlock,
-                    type: 'paratext',
+                    type: cellType,
                     metadata: {
                         bookCode,
                         bookName,
@@ -308,7 +332,7 @@ export const exportToUSFM = (processed: ProcessedUsfmBook): string => {
             const htmlContent = item.content ?? '';
             const inlineUsfm = htmlInlineToUsfm(htmlContent);
             lines.push(`\\v ${verseNum} ${inlineUsfm}`);
-        } else if (item.type === 'paratext') {
+        } else if (item.type === 'paratext' || item.type === 'style') {
             const content = (item.content ?? '').trim();
             if (content.length === 0) continue;
             // If content is an HTML block with data-tag, convert to USFM paragraph line
@@ -352,12 +376,15 @@ export const createNotebookPair = (
         },
     };
 
-    const codexCells = cells.map(sourceCell => ({
-        id: sourceCell.id,
-        content: '', // Empty for translation
-        images: sourceCell.images,
-        metadata: sourceCell.metadata,
-    }));
+    const codexCells = cells.map(sourceCell => {
+        const isStyleCell = sourceCell.metadata?.type === 'style';
+        return {
+            id: sourceCell.id,
+            content: isStyleCell ? sourceCell.content : '',
+            images: sourceCell.images,
+            metadata: sourceCell.metadata,
+        };
+    });
 
     const codexNotebook: ProcessedNotebook = {
         name: baseName,
