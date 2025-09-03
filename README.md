@@ -108,7 +108,7 @@ With the extension project open in VS Code, do the following:
 2. Run the command "Create Codex Notebook"
 3. Add and edit cells, and click the run button to invoke the controller
 
-## Run tests
+## Run tests 
 
 -   Open the debug viewlet (`Ctrl+Shift+D` or `Cmd+Shift+D` on Mac) and from the launch configuration dropdown pick `Extension Tests`.
 -   Press `F5` to run the tests in a new window with your extension loaded.
