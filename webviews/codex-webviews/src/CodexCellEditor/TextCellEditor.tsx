@@ -311,15 +311,40 @@ const CellEditor: React.FC<CellEditorProps> = ({
     } | null>(null);
     const transcriptionClientRef = useRef<WhisperTranscriptionClient | null>(null);
 
-    // Helper to center the editor within the scroll container after layout settles
+    // Helper to smoothly center the editor. Coalesces multiple calls and
+    // performs a single smooth scroll after layout settles.
+    const scrollTimeoutRef = useRef<number | null>(null);
+    const scrollRafRef = useRef<number | null>(null);
     const centerEditor = useCallback(() => {
         const el = cellEditorRef.current;
         if (!el) return;
-        const scrollOnce = () => el.scrollIntoView({ behavior: "smooth", block: "center" });
-        // Do a few passes to account for async content height changes
-        requestAnimationFrame(scrollOnce);
-        setTimeout(scrollOnce, 150);
-        setTimeout(scrollOnce, 350);
+
+        // Cancel any pending schedule to avoid jitter from duplicate calls
+        if (scrollTimeoutRef.current) {
+            clearTimeout(scrollTimeoutRef.current);
+            scrollTimeoutRef.current = null;
+        }
+        if (scrollRafRef.current) {
+            cancelAnimationFrame(scrollRafRef.current);
+            scrollRafRef.current = null;
+        }
+
+        // Wait a short time for layout changes (images, waveform, etc.) to settle
+        scrollTimeoutRef.current = window.setTimeout(() => {
+            scrollRafRef.current = requestAnimationFrame(() => {
+                el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+                scrollRafRef.current = null;
+            });
+            scrollTimeoutRef.current = null;
+        }, 120);
+    }, []);
+
+    // Cleanup any pending timers/frames on unmount
+    useEffect(() => {
+        return () => {
+            if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+            if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+        };
     }, []);
 
     // Effect to always derive audioUrl from audioBlob
@@ -1219,6 +1244,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         const base64Response = await fetch(message.content.audioData);
                         const blob = await base64Response.blob();
                         setAudioBlob(blob);
+                        // If recorder was showing because there was no audio previously,
+                        // switch to waveform automatically once audio is available
+                        setShowRecorder(false);
                         setRecordingStatus("Audio loaded");
                         setIsAudioLoading(false);
                         setAudioFetchPending(false);
@@ -1316,11 +1344,23 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 const history = message.content.audioHistory || [];
                 setHasAudioHistory(history.length > 0);
                 setAudioHistoryCount(history.length);
+
+                // If we just restored an audio (previously none loaded),
+                // auto-close history and request the current audio so the waveform appears
+                const hasAvailable = history.some((h: any) => !h.attachment?.isDeleted);
+                if (hasAvailable && !audioBlob) {
+                    setShowAudioHistory(false);
+                    const messageContent: EditorPostMessages = {
+                        command: "requestAudioForCell",
+                        content: { cellId: cellMarkers[0] }
+                    };
+                    window.vscodeApi.postMessage(messageContent);
+                }
             }
         };
         window.addEventListener("message", handleHistoryResponse);
         return () => window.removeEventListener("message", handleHistoryResponse);
-    }, [cellMarkers]);
+    }, [cellMarkers, audioBlob, showAudioHistory]);
 
     // Clean up media recorder and stream on unmount
     useEffect(() => {
