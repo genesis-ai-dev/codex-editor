@@ -37,6 +37,8 @@ import { Badge } from "../components/ui/badge";
 import { Progress } from "../components/ui/progress";
 import { Separator } from "../components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import "./TextCellEditor-overrides.css";
 import { Slider } from "../components/ui/slider";
 
@@ -215,7 +217,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [isGeneratingBacktranslation, setIsGeneratingBacktranslation] = useState(false);
     const [backtranslationProgress, setBacktranslationProgress] = useState(0);
     const [activeTab, setActiveTab] = useState<
-        "source" | "backtranslation" | "footnotes" | "audio" | "timestamps"
+        "source" | "footnotes" | "audio" | "timestamps"
     >(() => {
         try {
             const id = cellMarkers[0];
@@ -225,19 +227,19 @@ const CellEditor: React.FC<CellEditorProps> = ({
             const stored = sessionStorage.getItem("preferred-editor-tab");
             if (
                 stored === "source" ||
-                stored === "backtranslation" ||
                 stored === "footnotes" ||
                 stored === "audio" ||
                 stored === "timestamps"
             ) {
                 return stored as
                     | "source"
-                    | "backtranslation"
                     | "footnotes"
-                    | "timestamps"
-                    | "audio";
+                    | "audio"
+                    | "timestamps";
             }
-        } catch {}
+        } catch {
+            // no-op
+        }
         return "source";
     });
 
@@ -251,12 +253,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     if (sessionStorage.getItem(`start-audio-recording-${id}`)) {
                         return;
                     }
-                } catch {}
+                } catch {
+                    // no-op
+                }
                 const preferred = event.data.tab as typeof activeTab;
                 setActiveTab(preferred);
                 try {
                     sessionStorage.setItem("preferred-editor-tab", preferred);
-                } catch {}
+                } catch {
+                    // no-op
+                }
                 if (preferred === "audio") {
                     setTimeout(centerEditor, 50);
                     setTimeout(centerEditor, 250);
@@ -386,6 +392,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [isPinned, setIsPinned] = useState(false);
     const [showAdvancedControls, setShowAdvancedControls] = useState(false);
     const [unresolvedCommentsCount, setUnresolvedCommentsCount] = useState<number>(0);
+    const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+    const [showDiscardModal, setShowDiscardModal] = useState(false);
 
     const handleSaveCell = () => {
         handleSaveHtml();
@@ -893,13 +901,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
         };
     }, []);
 
-    // Smart tab switching - switch to an available tab if current becomes unavailable
-    useEffect(() => {
-        // If source tab is active but no source text, switch to backtranslation or footnotes
-        if (activeTab === "source" && !sourceText) {
-            setActiveTab("backtranslation");
-        }
-    }, [activeTab, sourceText]);
+    // Smart tab switching - currently, keep user on Source even if no source text
+    // (backtranslation tab was removed; no automatic switching needed)
 
     // Audio recording functions
     const startRecording = async () => {
@@ -1196,7 +1199,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     sessionStorage.removeItem(`start-audio-recording-${cellMarkers[0]}`);
                 }, 300);
             }
-        } catch {}
+        } catch {
+            // no-op
+        }
     }, [preloadAudioForTab, cellMarkers]);
 
     // When switching to a new cell, ensure the editor is fully visible
@@ -1379,9 +1384,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     return (
         <Card className="w-full max-w-4xl shadow-xl" style={{ direction: textDirection }}>
-            <CardHeader className="border-b p-4 flex flex-row flex-nowrap items-center justify-between">
-                <div className="flex flex-row flex-wrap items-center justify-between">
-                    <div className="flex items-center gap-2">
+            <CardHeader className="border-b p-4 flex flex-row flex-nowrap items-center justify-between gap-3">
+                <div className="flex flex-row flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 pr-3">
                         {isEditorControlsExpanded ? (
                             <X
                                 className="h-4 w-4 cursor-pointer"
@@ -1390,7 +1395,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 }
                             />
                         ) : (
-                            <div className="flex items-center gap-2 cursor-pointer">
+                            <div
+                                className="flex items-center gap-2 cursor-pointer"
+                                onClick={() => setIsEditorControlsExpanded(!isEditorControlsExpanded)}
+                                title="Edit cell label"
+                                role="button"
+                                aria-label="Edit cell label"
+                            >
                                 <div className="flex items-center gap-1">
                                     <span className="text-lg font-semibold">{cellMarkers[0]}</span>
                                     {editableLabel && (
@@ -1398,12 +1409,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             {editableLabel}
                                         </span>
                                     )}
-                                    <Pencil
-                                        onClick={() =>
-                                            setIsEditorControlsExpanded(!isEditorControlsExpanded)
-                                        }
-                                        className="h-4 w-4"
-                                    />
                                 </div>
                                 <CommentsBadge
                                     cellId={cellMarkers[0]}
@@ -1412,24 +1417,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             </div>
                         )}
                     </div>
-                    <div className="flex items-center gap-1">
-                        {/* <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button
-                                        onClick={() => editorHandlesRef.current?.openLibrary()}
-                                        variant="ghost"
-                                        size="icon"
-                                        title="Add All Words to Dictionary"
-                                    >
-                                        <Book className="h-4 w-4" />
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                    <p>Add All Words to Dictionary</p>
-                                </TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider> */}
+                    <div className="flex items-center gap-3 ml-auto pl-3 md:pl-4 flex-shrink-0" />
+                </div>
+                <div className="flex items-center gap-2">
+                    {/* Right-aligned utility buttons: AI, History, Settings */}
+                    <div className="flex items-center gap-2 mr-2">
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1464,112 +1456,146 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 </TooltipContent>
                             </Tooltip>
                         </TooltipProvider>
-                        {/* Removed footnote toolbar button to consolidate UX in Footnotes tab */}
-                        {showAdvancedControls ? (
-                            <div className="flex items-center gap-1">
-                                <AddParatextButton
-                                    cellId={cellMarkers[0]}
-                                    cellTimestamps={cellTimestamps}
-                                />
-                                {cellType !== CodexCellTypes.PARATEXT && !cellIsChild && (
-                                    <Button
-                                        onClick={makeChild}
-                                        variant="ghost"
-                                        size="icon"
-                                        title="Add Child Cell"
-                                    >
-                                        <ListOrdered className="h-4 w-4" />
-                                    </Button>
-                                )}
-                                {!sourceCellContent && (
-                                    <ConfirmationButton
-                                        icon="trash"
-                                        onClick={deleteCell}
-                                        disabled={cellHasContent}
-                                    />
-                                )}
+                        <Popover open={showAdvancedControls} onOpenChange={setShowAdvancedControls}>
+                            <PopoverTrigger asChild>
                                 <Button
-                                    onClick={handlePinCell}
                                     variant="ghost"
                                     size="icon"
-                                    title={
-                                        isPinned
-                                            ? "Unpin from Parallel View"
-                                            : "Pin in Parallel View"
-                                    }
-                                    className={isPinned ? "text-blue-500" : ""}
+                                    title="Advanced Controls"
                                 >
-                                    <Pin className="h-4 w-4" />
+                                    <Settings className="h-4 w-4" />
                                 </Button>
-                            </div>
+                            </PopoverTrigger>
+                            <PopoverContent align="end" className="w-auto p-2 space-x-1 space-y-0">
+                                <div className="flex items-center gap-1">
+                                    <AddParatextButton
+                                        cellId={cellMarkers[0]}
+                                        cellTimestamps={cellTimestamps}
+                                    />
+                                    {cellType !== CodexCellTypes.PARATEXT && !cellIsChild && (
+                                        <Button
+                                            onClick={makeChild}
+                                            variant="ghost"
+                                            size="icon"
+                                            title="Add Child Cell"
+                                        >
+                                            <ListOrdered className="h-4 w-4" />
+                                        </Button>
+                                    )}
+                                    {!sourceCellContent && (
+                                        <ConfirmationButton
+                                            icon="trash"
+                                            onClick={deleteCell}
+                                            disabled={cellHasContent}
+                                        />
+                                    )}
+                                    <Button
+                                        onClick={handlePinCell}
+                                        variant="ghost"
+                                        size="icon"
+                                        title={
+                                            isPinned ? "Unpin from Parallel View" : "Pin in Parallel View"
+                                        }
+                                        className={isPinned ? "text-blue-500" : ""}
+                                    >
+                                        <Pin className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            </PopoverContent>
+                        </Popover>
+                    </div>
+                    <div className="flex items-center gap-1">
+                        {showCloseConfirm && unsavedChanges ? (
+                            <>
+                                <Button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleSaveCell();
+                                        handleCloseEditor();
+                                        setShowCloseConfirm(false);
+                                    }}
+                                    variant="default"
+                                    size="icon"
+                                    title="Save & Close"
+                                    disabled={(isSaving && !saveError) || isEditingFootnoteInline}
+                                >
+                                    {isSaving && !saveError ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <Check className="h-4 w-4" />
+                                    )}
+                                </Button>
+                                <Button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setShowDiscardModal(true);
+                                    }}
+                                    variant="destructive"
+                                    size="icon"
+                                    title="Discard changes and close"
+                                >
+                                    <Trash2 className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setShowCloseConfirm(false);
+                                    }}
+                                    variant="ghost"
+                                    size="icon"
+                                    title="Cancel"
+                                >
+                                    <X className="h-4 w-4" />
+                                </Button>
+                            </>
                         ) : (
                             <Button
-                                onClick={() => setShowAdvancedControls(!showAdvancedControls)}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (unsavedChanges) {
+                                        setShowCloseConfirm(true);
+                                    } else {
+                                        handleCloseEditor();
+                                    }
+                                }}
                                 variant="ghost"
                                 size="icon"
-                                title="Show Advanced Controls"
+                                title="Close editor"
                             >
-                                <Settings className="h-4 w-4" />
+                                <X className="h-4 w-4" />
                             </Button>
                         )}
                     </div>
                 </div>
-                <div className="flex items-center gap-1">
-                    {unsavedChanges ? (
-                        <>
-                            <Button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleSaveCell();
-                                }}
-                                variant="default"
-                                size="icon"
-                                title={
-                                    isSaving
-                                        ? "Saving..."
-                                        : saveError
-                                        ? saveRetryCount >= 3
-                                            ? `Save failed after ${saveRetryCount} attempts - Click to retry (check connection)`
-                                            : `Save failed - Click to retry ${
-                                                  saveRetryCount > 0
-                                                      ? `(${saveRetryCount} attempts)`
-                                                      : ""
-                                              }`
-                                        : "Save changes"
-                                }
-                                disabled={(isSaving && !saveError) || isEditingFootnoteInline}
-                                className={cn(
-                                    saveError &&
-                                        "ring-2 ring-red-500 ring-offset-1 hover:ring-red-600"
-                                )}
-                            >
-                                {isSaving && !saveError ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                    <Check className={cn("h-4 w-4", saveError && "text-red-500")} />
-                                )}
-                            </Button>
-                            <ConfirmationButton
-                                icon="trash"
-                                onClick={handleCloseEditor}
-                                disabled={isSaving || isEditingFootnoteInline}
-                            />
-                        </>
-                    ) : (
+                {/* Advanced controls now appear in a popover; no inline layout shift */}
+            </CardHeader>
+
+            {/* Discard confirmation modal */}
+            <Dialog open={showDiscardModal} onOpenChange={setShowDiscardModal}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Discard changes?</DialogTitle>
+                    </DialogHeader>
+                    <div className="text-sm text-muted-foreground">
+                        This will close the editor and discard all unsaved changes.
+                    </div>
+                    <DialogFooter>
+                        <Button variant="secondary" onClick={() => setShowDiscardModal(false)}>
+                            Cancel
+                        </Button>
                         <Button
-                            onClick={(e) => {
-                                e.stopPropagation();
+                            variant="destructive"
+                            onClick={() => {
+                                setShowDiscardModal(false);
+                                setShowCloseConfirm(false);
                                 handleCloseEditor();
                             }}
-                            variant="ghost"
-                            size="icon"
-                            title="Close editor"
                         >
-                            <X className="h-4 w-4" />
+                            Discard
                         </Button>
-                    )}
-                </div>
-            </CardHeader>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <CardContent className="p-4 space-y-4">
                 {isEditorControlsExpanded && (
@@ -1640,7 +1666,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     onValueChange={(value) => {
                         const tabValue = value as
                             | "source"
-                            | "backtranslation"
                             | "footnotes"
                             | "timestamps"
                             | "audio";
@@ -1657,7 +1682,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             try {
                                 const sel = editorHandlesRef.current?.getSelectionText?.() || "";
                                 (window as any).__codexFootnoteSelection = sel; // ephemeral cache if needed later
-                            } catch {}
+                            } catch {
+                                // no-op
+                            }
                         }
 
                         // Preload audio when audio tab is selected
@@ -1673,20 +1700,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     >
                         <TabsTrigger value="source">
                             <FileCode className="mr-2 h-4 w-4" />
-
                             {!sourceText && (
                                 <span className="ml-2 h-2 w-2 rounded-full bg-gray-400" />
                             )}
-                        </TabsTrigger>
-                        <TabsTrigger value="backtranslation">
-                            <RotateCcw className="mr-2 h-4 w-4" />
                             {backtranslation && (
                                 <span
                                     className="ml-2 h-2 w-2 rounded-full bg-green-400"
                                     title="Backtranslation available"
                                 />
                             )}
-                            {!backtranslation && contentBeingUpdated.cellContent.trim() && (
+                            {!backtranslation && cellHasContent && (
                                 <span
                                     className="ml-2 h-2 w-2 rounded-full bg-yellow-400"
                                     title="Generate backtranslation"
@@ -1730,128 +1753,132 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     </TabsList>
 
                     <TabsContent value="source">
-                        <SourceTextDisplay
-                            content={sourceText || ""}
-                            footnoteOffset={footnoteOffset}
-                        />
-                    </TabsContent>
-
-                    <TabsContent value="backtranslation">
-                        <div className="content-section space-y-4">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    {backtranslation && !isEditingBacktranslation && (
-                                        <Button
-                                            onClick={() => setIsEditingBacktranslation(true)}
-                                            variant="ghost"
-                                            size="icon"
-                                            title="Edit Backtranslation"
-                                        >
-                                            <Pencil className="h-4 w-4" />
-                                        </Button>
-                                    )}
-                                    <Button
-                                        onClick={handleGenerateBacktranslation}
-                                        variant="ghost"
-                                        size="icon"
-                                        title="Generate Backtranslation"
-                                        disabled={
-                                            !contentBeingUpdated.cellContent.trim() ||
-                                            isGeneratingBacktranslation
-                                        }
-                                    >
-                                        {isGeneratingBacktranslation ? (
-                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                        ) : (
-                                            <RefreshCcw className="h-4 w-4" />
-                                        )}
-                                    </Button>
-                                </div>
+                        <div className="space-y-6">
+                            {/* Source Text */}
+                            <div>
+                                <h4 className="text-sm font-medium mb-2 text-muted-foreground">Source Text</h4>
+                                <SourceTextDisplay
+                                    content={sourceText || ""}
+                                    footnoteOffset={footnoteOffset}
+                                />
                             </div>
 
-                            {/* Loading indicator for backtranslation generation */}
-                            {isGeneratingBacktranslation && (
-                                <div className="space-y-3">
-                                    <div className="text-center">
-                                        <p className="text-sm text-muted-foreground mb-2">
-                                            Generating backtranslation...
-                                        </p>
-                                        <Progress
-                                            value={backtranslationProgress}
-                                            className="w-full"
-                                        />
-                                        <p className="text-xs text-muted-foreground mt-1">
-                                            {Math.round(backtranslationProgress)}%
-                                        </p>
+                            {/* Backtranslation Section */}
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-sm font-medium text-muted-foreground">Backtranslation</h4>
+                                    <div className="flex items-center gap-2">
+                                        {backtranslation && !isEditingBacktranslation && (
+                                            <Button
+                                                onClick={() => setIsEditingBacktranslation(true)}
+                                                variant="ghost"
+                                                size="icon"
+                                                title="Edit Backtranslation"
+                                            >
+                                                <Pencil className="h-4 w-4" />
+                                            </Button>
+                                        )}
+                                        <Button
+                                            onClick={handleGenerateBacktranslation}
+                                            variant="ghost"
+                                            size="icon"
+                                            title="Generate Backtranslation"
+                                            disabled={!cellHasContent || isGeneratingBacktranslation}
+                                        >
+                                            {isGeneratingBacktranslation ? (
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                            ) : (
+                                                <RefreshCcw className="h-4 w-4" />
+                                            )}
+                                        </Button>
                                     </div>
                                 </div>
-                            )}
 
-                            {!isGeneratingBacktranslation && backtranslation ? (
-                                <>
-                                    {isEditingBacktranslation ? (
-                                        <div className="space-y-3">
-                                            <Textarea
-                                                value={editedBacktranslation || ""}
-                                                onChange={(e) =>
-                                                    setEditedBacktranslation(e.target.value)
-                                                }
-                                                className="min-h-[150px]"
-                                                placeholder="Enter backtranslation text..."
+                                {/* Loading indicator for backtranslation generation */}
+                                {isGeneratingBacktranslation && (
+                                    <div className="space-y-3">
+                                        <div className="text-center">
+                                            <p className="text-sm text-muted-foreground mb-2">
+                                                Generating backtranslation...
+                                            </p>
+                                            <Progress
+                                                value={backtranslationProgress}
+                                                className="w-full"
                                             />
-                                            <div className="flex gap-2 justify-end">
-                                                <Button
-                                                    onClick={handleSaveBacktranslation}
-                                                    size="sm"
-                                                    title="Save Backtranslation"
-                                                >
-                                                    Save
-                                                </Button>
-                                                <Button
-                                                    onClick={() =>
-                                                        setIsEditingBacktranslation(false)
-                                                    }
-                                                    variant="secondary"
-                                                    size="sm"
-                                                    title="Cancel Editing"
-                                                >
-                                                    Cancel
-                                                </Button>
-                                            </div>
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                {Math.round(backtranslationProgress)}%
+                                            </p>
                                         </div>
-                                    ) : (
-                                        <div className="p-4 rounded-lg bg-muted">
-                                            <ReactMarkdown className="prose prose-sm max-w-none">
-                                                {backtranslation.backtranslation}
-                                            </ReactMarkdown>
-                                        </div>
-                                    )}
-                                </>
-                            ) : (
-                                !isGeneratingBacktranslation && (
-                                    <div className="text-center p-8 text-muted-foreground">
-                                        {contentBeingUpdated.cellContent.trim() ? (
-                                            <>
-                                                <p>No backtranslation available for this text.</p>
-                                                <p className="mt-2">
-                                                    Click the refresh button to generate a
-                                                    backtranslation.
-                                                </p>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <p>Add content to this cell first.</p>
-                                                <p className="mt-2">
-                                                    Backtranslation will be available once you have
-                                                    text to translate.
-                                                </p>
-                                            </>
-                                        )}
                                     </div>
-                                )
-                            )}
+                                )}
+
+                                {!isGeneratingBacktranslation && backtranslation ? (
+                                    <>
+                                        {isEditingBacktranslation ? (
+                                            <div className="space-y-3">
+                                                <Textarea
+                                                    value={editedBacktranslation || ""}
+                                                    onChange={(e) =>
+                                                        setEditedBacktranslation(e.target.value)
+                                                    }
+                                                    className="min-h-[150px]"
+                                                    placeholder="Enter backtranslation text..."
+                                                />
+                                                <div className="flex gap-2 justify-end">
+                                                    <Button
+                                                        onClick={handleSaveBacktranslation}
+                                                        size="sm"
+                                                        title="Save Backtranslation"
+                                                    >
+                                                        Save
+                                                    </Button>
+                                                    <Button
+                                                        onClick={() =>
+                                                            setIsEditingBacktranslation(false)
+                                                        }
+                                                        variant="secondary"
+                                                        size="sm"
+                                                        title="Cancel Editing"
+                                                    >
+                                                        Cancel
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="p-4 rounded-lg bg-muted">
+                                                <ReactMarkdown className="prose prose-sm max-w-none">
+                                                    {backtranslation.backtranslation}
+                                                </ReactMarkdown>
+                                            </div>
+                                        )}
+                                    </>
+                                ) : (
+                                    !isGeneratingBacktranslation && (
+                                        <div className="text-center p-6 text-muted-foreground bg-muted/50 rounded-lg">
+                                            {cellHasContent ? (
+                                                <>
+                                                    <p>No backtranslation available for this text.</p>
+                                                    <p className="mt-2">
+                                                        Click the refresh button to generate one.
+                                                    </p>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <p>Add content to this cell first.</p>
+                                                    <p className="mt-2">
+                                                        Backtranslation will be available once you have
+                                                        text to translate.
+                                                    </p>
+                                                </>
+                                            )}
+                                        </div>
+                                    )
+                                )}
+                            </div>
                         </div>
                     </TabsContent>
+
+
 
                     <TabsContent value="footnotes">
                         <div className="content-section">
