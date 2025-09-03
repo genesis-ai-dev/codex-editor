@@ -61,6 +61,7 @@ export const parseUsfmToJson = (usfm: string): RegexParsedUSFM => {
     const chapters: RegexUsfmChapter[] = [];
     const headerLines: string[] = [];
     let currentChapter: RegexUsfmChapter | null = null;
+    let lastVerseEntry: RegexUsfmChapterContent | null = null;
     let seenFirstChapter = false;
     const headerCollected: string[] = [];
 
@@ -71,6 +72,7 @@ export const parseUsfmToJson = (usfm: string): RegexParsedUSFM => {
             currentChapter = { chapterNumber, contents: [] };
             chapters.push(currentChapter);
             seenFirstChapter = true;
+            lastVerseEntry = null;
             continue;
         }
 
@@ -80,7 +82,9 @@ export const parseUsfmToJson = (usfm: string): RegexParsedUSFM => {
             const verseRaw = vMatch[1];
             const verseNumber = /^\d+$/i.test(verseRaw) ? parseInt(verseRaw, 10) : (verseRaw as unknown as number);
             const verseText = vMatch[2] ?? '';
-            currentChapter.contents.push({ verseNumber, verseText });
+            const entry: RegexUsfmChapterContent = { verseNumber, verseText };
+            currentChapter.contents.push(entry);
+            lastVerseEntry = entry;
             continue;
         }
 
@@ -94,12 +98,17 @@ export const parseUsfmToJson = (usfm: string): RegexParsedUSFM => {
         // Preserve other marker lines (paragraph-level, tables, section headings, etc.)
         if (currentChapter && line.startsWith('\\')) {
             currentChapter.contents.push({ marker: line });
+            lastVerseEntry = null;
             continue;
         }
 
         // Optionally capture plain text lines (no leading marker)
         if (currentChapter && !line.startsWith('\\') && line.trim().length > 0) {
-            currentChapter.contents.push({ text: line });
+            if (lastVerseEntry && typeof lastVerseEntry.verseText !== 'undefined') {
+                lastVerseEntry.verseText = `${lastVerseEntry.verseText} ${line}`.trim();
+            } else {
+                currentChapter.contents.push({ text: line });
+            }
         }
     }
 

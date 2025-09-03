@@ -13,6 +13,7 @@ import {
     convertUsfmToHtmlWithFootnotes
 } from '../../utils/usfmFootnoteExtractor';
 import { parseUsfmToJson as parseUsfmWithRegex } from './regexUsfmParser';
+import { convertUsfmInlineMarkersToHtml, usfmBlockToHtml, htmlInlineToUsfm, htmlBlockToUsfm } from './usfmHtmlMapper';
 import { validateFootnotes } from '../../utils/footnoteUtils';
 
 // Deprecated: dynamic import of usfm-grammar. Replaced by lightweight regex parser.
@@ -30,6 +31,8 @@ export interface UsfmContent {
         originalText?: string;
         fileName?: string;
         hasFootnotes?: boolean;
+        isChild?: boolean;
+        parentId?: string;
     };
 }
 
@@ -129,18 +132,20 @@ export const processUsfmContent = async (
 
         chapters.add(chapterNumber);
 
+        let seenFirstVerseInChapter = false;
         chapter.contents.forEach((content: any) => {
             if (content.verseNumber !== undefined && content.verseText !== undefined) {
                 // This is a verse - process it for footnotes
                 const verseId = `${bookCode} ${chapterNumber}:${content.verseNumber}`;
                 const verseText = content.verseText.trim();
+                const htmlVerse = convertUsfmInlineMarkersToHtml(verseText);
 
                 // Convert USFM to HTML with footnotes if needed
                 const { html: processedText } = convertUsfmToHtmlWithFootnotes(verseText);
 
                 usfmContent.push({
                     id: verseId,
-                    content: processedText,
+                    content: processedText.replace(verseText, htmlVerse),
                     type: 'verse',
                     metadata: {
                         bookCode,
@@ -152,17 +157,60 @@ export const processUsfmContent = async (
                         hasFootnotes: processedText.includes('footnote-marker'),
                     },
                 });
+
+                // Create child cells for milestone spans (e.g., qt, ts)
+                try {
+                    const milestoneTags = new Set(['qt', 'ts']);
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(`<div>${htmlVerse}</div>`, 'text/html');
+                    const container = doc.body.firstElementChild as HTMLElement | null;
+                    if (container) {
+                        const walker = (node: Node) => {
+                            if (node.nodeType === Node.ELEMENT_NODE) {
+                                const el = node as HTMLElement;
+                                const tag = el.getAttribute('data-tag');
+                                if (tag && milestoneTags.has(tag)) {
+                                    const childId = `${verseId}:${Math.random().toString(36).slice(2, 11)}`;
+                                    const innerHtml = el.innerHTML;
+                                    usfmContent.push({
+                                        id: childId,
+                                        content: innerHtml,
+                                        type: 'verse',
+                                        metadata: {
+                                            bookCode,
+                                            bookName,
+                                            chapter: chapterNumber,
+                                            verse: content.verseNumber,
+                                            originalText: innerHtml,
+                                            fileName,
+                                            hasFootnotes: false,
+                                            isChild: true,
+                                            parentId: verseId,
+                                        },
+                                    });
+                                }
+                                Array.from(el.childNodes).forEach(walker);
+                            }
+                        };
+                        Array.from(container.childNodes).forEach(walker);
+                    }
+                } catch {
+                    // ignore child extraction errors
+                }
+
+                seenFirstVerseInChapter = true;
             } else if (content.text && !content.marker) {
                 // This is paratext (content without specific markers)
-                const paratextId = createStandardCellId(fileName, chapterNumber, usfmContent.length + 1);
+                const paratextId = `${bookCode} ${chapterNumber}:${Math.random().toString(36).slice(2, 10)}`;
                 const paratextContent = content.text.trim();
+                const htmlParatext = paratextContent.length > 0 ? `<p data-tag="p">${convertUsfmInlineMarkersToHtml(paratextContent)}</p>` : paratextContent;
 
                 // Convert USFM to HTML with footnotes if needed
                 const { html: processedText } = convertUsfmToHtmlWithFootnotes(paratextContent);
 
                 usfmContent.push({
                     id: paratextId,
-                    content: processedText,
+                    content: processedText.replace(paratextContent, htmlParatext),
                     type: 'paratext',
                     metadata: {
                         bookCode,
@@ -175,11 +223,12 @@ export const processUsfmContent = async (
                 });
             } else if (content.marker) {
                 // Preserve raw marker lines as paratext for round-trip fidelity
-                const paratextId = createStandardCellId(fileName, chapterNumber, usfmContent.length + 1);
+                const paratextId = `${bookCode} ${chapterNumber}:${Math.random().toString(36).slice(2, 10)}`;
                 const markerLine = String(content.marker).trim();
+                const htmlBlock = usfmBlockToHtml(markerLine);
                 usfmContent.push({
                     id: paratextId,
-                    content: markerLine,
+                    content: htmlBlock,
                     type: 'paratext',
                     metadata: {
                         bookCode,
@@ -255,16 +304,20 @@ export const exportToUSFM = (processed: ProcessedUsfmBook): string => {
 
         if (item.type === 'verse' && typeof item.metadata.verse !== 'undefined') {
             const verseNum = item.metadata.verse;
-            const original = item.metadata.originalText ?? '';
-            lines.push(`\\v ${verseNum} ${original}`);
+            // Convert HTML content back to USFM inline
+            const htmlContent = item.content ?? '';
+            const inlineUsfm = htmlInlineToUsfm(htmlContent);
+            lines.push(`\\v ${verseNum} ${inlineUsfm}`);
         } else if (item.type === 'paratext') {
-            const text = (item.metadata.originalText ?? item.content ?? '').trim();
-            if (text.startsWith('\\')) {
-                // This is a preserved marker line
-                lines.push(text);
-            } else if (text.length > 0) {
-                // Plain text lines
-                lines.push(text);
+            const content = (item.content ?? '').trim();
+            if (content.length === 0) continue;
+            // If content is an HTML block with data-tag, convert to USFM paragraph line
+            if (content.startsWith('<')) {
+                lines.push(htmlBlockToUsfm(content));
+            } else {
+                // Fallback: treat as plain paragraph text
+                const inlineUsfm = htmlInlineToUsfm(content);
+                lines.push(`\\p ${inlineUsfm}`);
             }
         }
     }
