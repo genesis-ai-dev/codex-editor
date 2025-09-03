@@ -1,8 +1,8 @@
 import * as vscode from "vscode";
-import { NewSourceUploaderProvider } from "./NewSourceUploaderProvider";
+import { NewSourceUploaderProvider } from "../../providers/NewSourceUploader/NewSourceUploaderProvider";
 import { getWorkSpaceFolder } from "../../utils";
 
-export const registerNewSourceUploadCommands = (context: vscode.ExtensionContext) => {
+export const registerSourceUploaderProvider = (context: vscode.ExtensionContext) => {
     // Register the content provider first
     context.subscriptions.push(
         vscode.workspace.registerTextDocumentContentProvider("newSourceUploaderProvider-scheme", {

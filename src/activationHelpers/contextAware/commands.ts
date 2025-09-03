@@ -11,8 +11,8 @@ import {
 import { jumpToCellInNotebook } from "../../utils";
 import { setTargetFont } from "../../projectManager/projectInitializers";
 import { CodexExportFormat, exportCodexContent } from "../../exportHandler/exportHandler";
-import { DownloadBibleTransaction } from "../../transactions/DownloadBibleTransaction";
-import { getExtendedEbibleMetadataByLanguageNameOrCode } from "../../utils/ebible/ebibleCorpusUtils";
+
+
 import { createEditAnalysisProvider } from "../../providers/EditAnalysisView/EditAnalysisViewProvider";
 import { registerSyncCommands } from "../../projectManager/syncManager";
 import { MainMenuProvider } from "../../providers/mainMenu/mainMenuProvider";
@@ -238,60 +238,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
-    // Add to your command registration
-    const downloadSourceBibleCommand = vscode.commands.registerCommand(
-        "codex-editor-extension.downloadSourceBible",
-        async () => {
-            // Show quick pick UI only when called directly from command palette
-            const allEbibleBibles = getExtendedEbibleMetadataByLanguageNameOrCode();
-            const languages = Array.from(
-                new Set(allEbibleBibles.map((b) => b.languageName))
-            ).filter(Boolean) as string[];
 
-            const selectedLanguage = await vscode.window.showQuickPick(languages, {
-                placeHolder: "Select a language",
-            });
-
-            if (selectedLanguage) {
-                const biblesForLanguage = allEbibleBibles.filter(
-                    (b) => b.languageName === selectedLanguage
-                );
-                const bibleItems = biblesForLanguage.map((b) => ({
-                    label: b.shortTitle || b.title,
-                    description: `${(b.OTbooks || 0) + (b.NTbooks || 0)} books`,
-                    id: b.translationId,
-                }));
-
-                const selectedBible = await vscode.window.showQuickPick(
-                    bibleItems as vscode.QuickPickItem[],
-                    { placeHolder: "Select a Bible translation" }
-                );
-
-                if (selectedBible && "id" in selectedBible) {
-                    const ebibleMetadata = biblesForLanguage.find(
-                        (b) => b.translationId === selectedBible.id
-                    );
-                    const transaction = new DownloadBibleTransaction(false);
-
-                    try {
-                        await transaction.prepare();
-                        await vscode.window.withProgress(
-                            {
-                                location: vscode.ProgressLocation.Notification,
-                                title: "Downloading Bible",
-                                cancellable: true,
-                            },
-                            async (progress, token) => {
-                                await transaction.execute(progress, token);
-                            }
-                        );
-                    } catch (error) {
-                        vscode.window.showErrorMessage(`Failed to download Bible: ${error}`);
-                    }
-                }
-            }
-        }
-    );
 
 
 
@@ -427,7 +374,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         openSourceUploadCommand,
         uploadSourceFolderCommand,
         uploadTranslationFolderCommand,
-        downloadSourceBibleCommand,
+
         analyzeEditsCommand,
         navigateToMainMenuCommand,
         refreshAllWebviewsCommand,

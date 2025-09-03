@@ -1,5 +1,4 @@
 import { BiblePreview, PreviewContent } from "../../../../types";
-import { DownloadBibleTransaction } from "../../../../src/transactions/DownloadBibleTransaction";
 import * as vscode from "vscode";
 import { ConflictFile } from "../../../../src/projectManager/utils/merge/types";
 import { ResolvedFile } from "../../../../src/projectManager/utils/merge/resolvers";
@@ -119,7 +118,6 @@ export interface WorkflowState {
     };
     availableCodexFiles?: CodexFile[];
     bibleDownload?: BibleDownloadState;
-    currentTransaction?: DownloadBibleTransaction;
     previews: MultiPreviewItem[];
     selectedPreviewId?: string;
     translationAssociations: TranslationAssociation[];
