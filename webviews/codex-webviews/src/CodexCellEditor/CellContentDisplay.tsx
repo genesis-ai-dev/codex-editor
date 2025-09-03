@@ -157,7 +157,9 @@ const AudioPlayButton: React.FC<{
             if (state !== "available") {
                 try {
                     sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");
-                } catch {}
+                } catch (e) {
+                    void e;
+                }
                 vscode.postMessage({
                     command: "setPreferredEditorTab",
                     content: { tab: "audio" },
@@ -777,20 +779,37 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 )}
 
                                 {/* Audio Play Button */}
-                                {audioAttachments && (
-                                    <AudioPlayButton
-                                        cellId={cellIds[0]}
-                                        vscode={vscode}
-                                        state={(audioAttachments[cellIds[0]] as any) || "none"}
-                                        onOpenCell={(id) => {
-                                            // Use force variant to ensure editor opens even with unsaved state
-                                            const open =
-                                                (window as any).openCellByIdForce ||
-                                                (window as any).openCellById;
-                                            if (typeof open === "function") open(id);
-                                        }}
-                                    />
-                                )}
+                                {audioAttachments &&
+                                    (() => {
+                                        const rawState = audioAttachments[cellIds[0]] as any;
+                                        const audioState =
+                                            rawState === true
+                                                ? "available"
+                                                : rawState === false || rawState == null
+                                                ? "none"
+                                                : (rawState as
+                                                      | "available"
+                                                      | "deletedOnly"
+                                                      | "none");
+
+                                        // For source text: only show the play button if audio is available.
+                                        if (isSourceText && audioState !== "available") return null;
+
+                                        return (
+                                            <AudioPlayButton
+                                                cellId={cellIds[0]}
+                                                vscode={vscode}
+                                                state={audioState}
+                                                onOpenCell={(id) => {
+                                                    // Use force variant to ensure editor opens even with unsaved state
+                                                    const open =
+                                                        (window as any).openCellByIdForce ||
+                                                        (window as any).openCellById;
+                                                    if (typeof open === "function") open(id);
+                                                }}
+                                            />
+                                        );
+                                    })()}
 
                                 {/* Merge Button - only show in correction editor mode for source text */}
                                 {isSourceText &&
