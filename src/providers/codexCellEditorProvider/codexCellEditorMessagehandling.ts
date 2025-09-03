@@ -410,9 +410,19 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             sourceFileName
         );
 
-        await vscode.commands.executeCommand("codexNotebookTreeView.openSourceFile", {
-            sourceFileUri: sourceUri,
-        });
+        try {
+            await vscode.commands.executeCommand(
+                "vscode.openWith",
+                sourceUri,
+                "codex.cellEditor",
+                { viewColumn: vscode.ViewColumn.Beside }
+            );
+        } catch (error) {
+            console.error(`Failed to open source file: ${error}`);
+            vscode.window.showErrorMessage(
+                `Failed to open source file: ${sourceUri.toString()}`
+            );
+        }
         provider.postMessageToWebview(webviewPanel, {
             type: "jumpToSection",
             content: typedEvent.content.chapterNumber.toString(),

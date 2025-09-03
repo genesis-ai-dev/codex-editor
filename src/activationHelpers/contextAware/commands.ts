@@ -182,35 +182,6 @@ export async function registerCommands(context: vscode.ExtensionContext) {
     );
 
 
-
-    const openSourceUploadCommand = vscode.commands.registerCommand(
-        "codexNotebookTreeView.openSourceFile",
-        async (treeNode: Node & { sourceFileUri?: vscode.Uri; }) => {
-            if ("sourceFileUri" in treeNode && treeNode.sourceFileUri) {
-                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-                if (workspaceFolder) {
-                    try {
-                        await vscode.commands.executeCommand(
-                            "vscode.openWith",
-                            treeNode.sourceFileUri,
-                            "codex.cellEditor",
-                            { viewColumn: vscode.ViewColumn.Beside }
-                        );
-                    } catch (error) {
-                        console.error(`Failed to open source file: ${error}`);
-                        vscode.window.showErrorMessage(
-                            `Failed to open source file: ${JSON.stringify(treeNode)}`
-                        );
-                    }
-                } else {
-                    console.error(
-                        "No workspace folder found, aborting codexNotebookTreeView.openSourceFile."
-                    );
-                }
-            }
-        }
-    );
-
     const uploadSourceFolderCommand = vscode.commands.registerCommand(
         "codex-editor-extension.uploadSourceFolder",
         async (folderName: string) => {
@@ -371,7 +342,6 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         setEditorFontCommand,
         exportCodexContentCommand,
         updateProjectNotebooksToUseCellsForVerseContentCommand,
-        openSourceUploadCommand,
         uploadSourceFolderCommand,
         uploadTranslationFolderCommand,
 

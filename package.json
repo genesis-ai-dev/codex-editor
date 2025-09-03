@@ -364,11 +364,6 @@
                 "title": "Import Wiktionary"
             },
             {
-                "command": "nextGenCodexTreeView.openFile",
-                "title": "Open Codex File",
-                "icon": "$(book)"
-            },
-            {
                 "command": "frontier.showWordsView",
                 "title": "Frontier: View All Words",
                 "category": "Frontier"
