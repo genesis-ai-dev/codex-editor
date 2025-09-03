@@ -4,7 +4,6 @@ import {
     NotebookPair,
 } from '../../types/common';
 import {
-    createStandardCellId,
     createProcessedCell,
 } from '../../utils/workflowHelpers';
 import { getCorpusMarkerForBook } from '../../utils/corpusUtils';
@@ -22,7 +21,7 @@ export const initializeUsfmGrammar = async () => { };
 export interface UsfmContent {
     id: string;
     content: string;
-    type: 'verse' | 'paratext' | 'style';
+    type: 'text' | 'paratext' | 'style';
     metadata: {
         bookCode?: string;
         bookName?: string;
@@ -146,7 +145,7 @@ export const processUsfmContent = async (
                 usfmContent.push({
                     id: verseId,
                     content: processedText.replace(verseText, htmlVerse),
-                    type: 'verse',
+                    type: 'text',
                     metadata: {
                         bookCode,
                         bookName,
@@ -175,7 +174,7 @@ export const processUsfmContent = async (
                                     usfmContent.push({
                                         id: childId,
                                         content: innerHtml,
-                                        type: 'verse',
+                                        type: 'text',
                                         metadata: {
                                             bookCode,
                                             bookName,
@@ -209,7 +208,7 @@ export const processUsfmContent = async (
                 const { html: processedText } = convertUsfmToHtmlWithFootnotes(paratextContent);
 
                 // Determine if this is a style-only cell (no text content)
-                let cellType: UsfmContent['type'] = 'paratext';
+                let cellType: UsfmContent['type'] = 'text';
                 try {
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(htmlParatext || '', 'text/html');
@@ -239,7 +238,7 @@ export const processUsfmContent = async (
                 const markerLine = String(content.marker).trim();
                 const htmlBlock = usfmBlockToHtml(markerLine);
                 // Determine if style-only (no inner text)
-                let cellType: UsfmContent['type'] = 'paratext';
+                let cellType: UsfmContent['type'] = 'text';
                 try {
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(htmlBlock, 'text/html');
@@ -279,7 +278,7 @@ export const processUsfmContent = async (
             bookName: item.metadata.bookName,
             chapter: item.metadata.chapter,
             verse: item.metadata.verse,
-            cellLabel: item.type === 'verse' ? item.metadata.verse?.toString() : undefined,
+            cellLabel: item.metadata.verse !== undefined ? item.metadata.verse?.toString() : undefined,
             originalText: item.metadata.originalText,
             fileName: item.metadata.fileName,
         });
@@ -290,7 +289,7 @@ export const processUsfmContent = async (
         bookName,
         fileName,
         cells,
-        verseCount: usfmContent.filter(c => c.type === 'verse').length,
+        verseCount: usfmContent.filter(c => c.metadata.verse !== undefined).length,
         paratextCount: usfmContent.filter(c => c.type === 'paratext').length,
         chapters: Array.from(chapters).sort((a, b) => a - b),
         usfmContent,
@@ -326,13 +325,13 @@ export const exportToUSFM = (processed: ProcessedUsfmBook): string => {
             lines.push(`\\c ${currentChapter}`);
         }
 
-        if (item.type === 'verse' && typeof item.metadata.verse !== 'undefined') {
+        if (item.type === 'text' && typeof item.metadata.verse !== 'undefined') {
             const verseNum = item.metadata.verse;
             // Convert HTML content back to USFM inline
             const htmlContent = item.content ?? '';
             const inlineUsfm = htmlInlineToUsfm(htmlContent);
             lines.push(`\\v ${verseNum} ${inlineUsfm}`);
-        } else if (item.type === 'paratext' || item.type === 'style') {
+        } else if (item.type === 'text' || item.type === 'style') {
             const content = (item.content ?? '').trim();
             if (content.length === 0) continue;
             // If content is an HTML block with data-tag, convert to USFM paragraph line
