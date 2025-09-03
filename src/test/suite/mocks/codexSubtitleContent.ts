@@ -13,9 +13,19 @@ export const codexSubtitleContent = {
                 },
                 edits: [
                     {
-                        cellValue: "<span><em>Abba?</em></span>\n",
+                        editMap: ["value"],
+                        value: "<span><em>Abba?</em></span>\n",
                         timestamp: 1729017358383,
                         type: "user-edit",
+                        author: "test-user",
+                        validatedBy: [
+                            {
+                                username: "test-user",
+                                creationTimestamp: 1729017358383,
+                                updatedTimestamp: 1729017358383,
+                                isDeleted: false,
+                            },
+                        ],
                     },
                 ],
             },
@@ -29,14 +39,34 @@ export const codexSubtitleContent = {
                 type: "text",
                 edits: [
                     {
-                        cellValue: "<span>child&nbsp;</span>\n",
+                        editMap: ["value"],
+                        value: "<span>child&nbsp;</span>\n",
                         timestamp: 1729266809448,
                         type: "user-edit",
+                        author: "test-user",
+                        validatedBy: [
+                            {
+                                username: "test-user",
+                                creationTimestamp: 1729266809448,
+                                updatedTimestamp: 1729266809448,
+                                isDeleted: false,
+                            },
+                        ],
                     },
                     {
-                        cellValue: "<span>child&nbsp; this</span>\n",
+                        editMap: ["value"],
+                        value: "<span>child&nbsp; this</span>\n",
                         timestamp: 1729267042275,
                         type: "user-edit",
+                        author: "test-user",
+                        validatedBy: [
+                            {
+                                username: "test-user",
+                                creationTimestamp: 1729267042275,
+                                updatedTimestamp: 1729267042275,
+                                isDeleted: false,
+                            },
+                        ],
                     },
                 ],
                 data: {
@@ -58,10 +88,20 @@ export const codexSubtitleContent = {
                 },
                 edits: [
                     {
-                        cellValue:
+                        editMap: ["value"],
+                        value:
                             "<span>-You should be sleeping, little one.\n-I can't sleep.</span>\n",
                         timestamp: 1729017053729,
                         type: "user-edit",
+                        author: "test-user",
+                        validatedBy: [
+                            {
+                                username: "test-user",
+                                creationTimestamp: 1729017053729,
+                                updatedTimestamp: 1729017053729,
+                                isDeleted: false,
+                            },
+                        ],
                     },
                 ],
             },
@@ -79,9 +119,19 @@ export const codexSubtitleContent = {
                 },
                 edits: [
                     {
-                        cellValue: "<span>Sit down, sit down.</span>\n",
+                        editMap: ["value"],
+                        value: "<span>Sit down, sit down.</span>\n",
                         timestamp: 1729017050624,
                         type: "user-edit",
+                        author: "test-user",
+                        validatedBy: [
+                            {
+                                username: "test-user",
+                                creationTimestamp: 1729017050624,
+                                updatedTimestamp: 1729017050624,
+                                isDeleted: false,
+                            },
+                        ],
                     },
                 ],
             },
@@ -99,9 +149,19 @@ export const codexSubtitleContent = {
                 },
                 edits: [
                     {
-                        cellValue: "<span>-Is your head hurting you again?\n-No.</span>\n",
+                        editMap: "value",
+                        value: "<span>-Is your head hurting you again?\n-No.</span>\n",
                         timestamp: 1729017048176,
                         type: "user-edit",
+                        author: "test-user",
+                        validatedBy: [
+                            {
+                                username: "test-user",
+                                creationTimestamp: 1729017048176,
+                                updatedTimestamp: 1729017048176,
+                                isDeleted: false,
+                            },
+                        ],
                     },
                 ],
             },
@@ -119,9 +179,19 @@ export const codexSubtitleContent = {
                 },
                 edits: [
                     {
-                        cellValue: "<span>I know. You were thinking\nof the big new star.</span>\n",
+                        editMap: "value",
+                        value: "<span>I know. You were thinking\nof the big new star.</span>\n",
                         timestamp: 1729017045445,
                         type: "user-edit",
+                        author: "test-user",
+                        validatedBy: [
+                            {
+                                username: "test-user",
+                                creationTimestamp: 1729017045445,
+                                updatedTimestamp: 1729017045445,
+                                isDeleted: false,
+                            },
+                        ],
                     },
                 ],
             },

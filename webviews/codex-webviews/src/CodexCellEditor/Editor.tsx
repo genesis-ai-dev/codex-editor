@@ -14,6 +14,8 @@ import registerQuillSpellChecker, {
     QuillSpellChecker,
 } from "./react-quill-spellcheck";
 import { EditHistory, EditorPostMessages, SpellCheckResponse } from "../../../../types";
+import { EditMapUtils, isValueEdit } from "../../../../src/utils/editMapUtils";
+
 import "./Editor.css"; // Editor styles including footnote selection
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import ReactPlayer from "react-player";
@@ -106,6 +108,7 @@ export interface EditorHandles {
     autocomplete: () => void;
     openLibrary: () => void;
     showEditHistory: () => void;
+    getSelectionText: () => string;
     addFootnote: () => void;
     editFootnote: (footnoteId: string, content: string) => void;
     updateContent: (content: string) => void;
@@ -1182,6 +1185,14 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             setEditHistoryForCell(props.editHistory);
             setShowHistoryModal(true);
         },
+        getSelectionText: () => {
+            if (!quillRef.current) return "";
+            const selection = quillRef.current.getSelection();
+            if (selection && selection.length > 0) {
+                return quillRef.current.getText(selection.index, selection.length).trim();
+            }
+            return "";
+        },
         addFootnote: () => {
             handleAddFootnote();
         },
@@ -1310,7 +1321,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                 fontSize: "0.9em",
                             }}
                         >
-                            {isCreatingNewFootnote ? "Add Footnote" : "Save Changes"}
+                            {isCreatingNewFootnote ? "Create Footnote" : "Save Changes"}
                         </button>
                     </div>
                 </div>
@@ -1452,6 +1463,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                         {editHistoryForCell && editHistoryForCell.length > 0 ? (
                             [...editHistoryForCell]
+                                .filter(isValueEdit) // Only show content edits - TypeScript now knows these have string values
                                 .reverse()
                                 // Filter out llm-generation entries that have the same content as the next user-edit
                                 .filter((entry, index, array) => {
@@ -1459,21 +1471,24 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                     return !(
                                         entry.type === "llm-generation" &&
                                         nextEntry?.type === "user-edit" &&
-                                        entry.cellValue === nextEntry.cellValue
+                                        entry.value === nextEntry.value
                                     );
                                 })
                                 .map((entry, index, array) => {
                                     const previousEntry = array[index + 1];
                                     const diffHtml = previousEntry
-                                        ? generateDiffHtml(previousEntry.cellValue, entry.cellValue)
-                                        : stripHtmlAndDecode(entry.cellValue);
+                                        ? generateDiffHtml(
+                                              previousEntry.value as string,
+                                              entry.value as string
+                                          )
+                                        : stripHtmlAndDecode(entry.value as string);
 
                                     // Check if this is the most recent entry that matches the initial value
                                     const isCurrentVersion =
-                                        entry.cellValue === props.initialValue &&
+                                        entry.value === props.initialValue &&
                                         !array
                                             .slice(0, index)
-                                            .some((e) => e.cellValue === props.initialValue);
+                                            .some((e) => e.value === props.initialValue);
 
                                     return (
                                         <div
@@ -1527,7 +1542,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                                                 if (quillRef.current) {
                                                                     // When selecting a version, use the original HTML
                                                                     quillRef.current.root.innerHTML =
-                                                                        entry.cellValue;
+                                                                        entry.value as string; // TypeScript now knows this is string
                                                                     setShowHistoryModal(false);
                                                                     // Trigger the text-change event to update state
                                                                     quillRef.current.update();

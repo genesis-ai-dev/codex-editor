@@ -157,7 +157,9 @@ const AudioPlayButton: React.FC<{
             if (state !== "available") {
                 try {
                     sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");
-                } catch {}
+                } catch (e) {
+                    void e;
+                }
                 vscode.postMessage({
                     command: "setPreferredEditorTab",
                     content: { tab: "audio" },
@@ -696,7 +698,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     ...getBorderStyle(),
                     display: "flex",
                     alignItems: "flex-start",
-                    gap: "0.0625rem",
+                    gap: isSourceText ? "0.25rem" : "0.0625rem",
                     padding: "0.25rem",
                     cursor: isSourceText && !isCorrectionEditorMode ? "default" : "pointer",
                     border: "1px solid transparent",
@@ -710,16 +712,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     wordBreak: "break-word",
                 }}
             >
-                <div
-                    className="cell-header flex justify-start items-start shrink-0 gap-[1px]"
-                >
+                <div className="cell-header flex justify-start items-start shrink-0 gap-[1px]">
                     {cellDisplayMode !== CELL_DISPLAY_MODES.INLINE && (
-                        <div
-                            className="cell-actions flex justify-start items-center"
-                        >
-                            <div
-                                className="action-button-container flex items-center gap-px"
-                            >
+                        <div className="cell-actions flex justify-start items-center">
+                            <div className="action-button-container flex items-center gap-px">
                                 <AnimatedReveal
                                     mode="reveal"
                                     button={
@@ -768,10 +764,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 />
                                 {lineNumber && lineNumbersEnabled && (
                                     <div
-                                        className="cell-line-number whitespace-nowrap text-right mr-0 w-[1.6ch]"
+                                        className="cell-line-number whitespace-nowrap text-right mr-[0.25rem]"
                                         style={{
                                             fontWeight: 500,
                                             lineHeight: 1.2,
+                                            width: isSourceText ? "3ch" : "1.6ch",
                                             color: "var(--vscode-descriptionForeground)",
                                             fontSize: "0.9em",
                                         }}
@@ -782,20 +779,37 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 )}
 
                                 {/* Audio Play Button */}
-                                {!isSourceText && audioAttachments && (
-                                    <AudioPlayButton
-                                        cellId={cellIds[0]}
-                                        vscode={vscode}
-                                        state={
-                                            (audioAttachments[cellIds[0]] as any) || "none"
-                                        }
-                                        onOpenCell={(id) => {
-                                            // Use force variant to ensure editor opens even with unsaved state
-                                            const open = (window as any).openCellByIdForce || (window as any).openCellById;
-                                            if (typeof open === "function") open(id);
-                                        }}
-                                    />
-                                )}
+                                {audioAttachments &&
+                                    (() => {
+                                        const rawState = audioAttachments[cellIds[0]] as any;
+                                        const audioState =
+                                            rawState === true
+                                                ? "available"
+                                                : rawState === false || rawState == null
+                                                ? "none"
+                                                : (rawState as
+                                                      | "available"
+                                                      | "deletedOnly"
+                                                      | "none");
+
+                                        // For source text: only show the play button if audio is available.
+                                        if (isSourceText && audioState !== "available") return null;
+
+                                        return (
+                                            <AudioPlayButton
+                                                cellId={cellIds[0]}
+                                                vscode={vscode}
+                                                state={audioState}
+                                                onOpenCell={(id) => {
+                                                    // Use force variant to ensure editor opens even with unsaved state
+                                                    const open =
+                                                        (window as any).openCellByIdForce ||
+                                                        (window as any).openCellById;
+                                                    if (typeof open === "function") open(id);
+                                                }}
+                                            />
+                                        );
+                                    })()}
 
                                 {/* Merge Button - only show in correction editor mode for source text */}
                                 {isSourceText &&
@@ -861,13 +875,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 </div>
 
                 {/* Right side: wrappable label + content */}
-                <div
-                    className="flex flex-wrap items-baseline gap-[0.25rem] flex-1 min-w-0"
-                >
+                <div className="flex flex-wrap items-baseline gap-[0.25rem] flex-1 min-w-0">
                     {/* Cell label - shown after line number when present */}
                     {label && (
                         <div
-                            className="cell-label-text text-primary inline-block text-right mr-0 min-w-[2.25ch]"
+                            className="cell-label-text text-primary inline-block text-right min-w-[2.5ch] relative -top-[2px]"
                             style={{
                                 fontWeight:
                                     cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL

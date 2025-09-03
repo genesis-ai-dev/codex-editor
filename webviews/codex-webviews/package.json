@@ -5,6 +5,9 @@
     "type": "module",
     "scripts": {
         "dev": "vite",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "test:ui": "vitest --ui",
         "build:StartupFlow": "cross-env APP_NAME=StartupFlow vite build",
         "build:ParallelView": "cross-env APP_NAME=ParallelView vite build",
         "build:CodexCellEditor": "cross-env APP_NAME=CodexCellEditor vite build",
@@ -99,7 +102,6 @@
         "remark-stringify": "^11.0.0",
         "stream-browserify": "^3.0.0",
         "tailwind-merge": "^3.3.0",
-        "usfm-grammar": "^2.3.1",
         "util": "^0.12.5",
         "uuid": "^9.0.1",
         "webvtt-parser": "^2.2.0",
@@ -109,6 +111,8 @@
         "@babel/plugin-transform-private-property-in-object": "^7.16.7",
         "@tailwindcss/postcss": "^4.1.7",
         "@tailwindcss/vite": "^4.1.7",
+        "@testing-library/jest-dom": "^6.6.3",
+        "@testing-library/react": "^16.0.0",
         "@types/diff": "^5.2.1",
         "@types/dompurify": "^3.0.5",
         "@types/lodash": "^4.17.7",
@@ -133,6 +137,7 @@
         "eslint-config-react-app": "^7.0.1",
         "eslint-plugin-react-hooks": "^4.6.0",
         "eslint-plugin-react-refresh": "^0.4.5",
+        "jsdom": "^25.0.0",
         "nodemon": "^3.0.2",
         "postcss": "^8.5.3",
         "prettier": "^2.3.1",
@@ -140,6 +145,7 @@
         "tw-animate-css": "^1.3.4",
         "typescript": "^5.2.2",
         "vite": "^5.4.19",
-        "vite-plugin-eslint": "^1.8.1"
+        "vite-plugin-eslint": "^1.8.1",
+        "vitest": "^2.0.5"
     }
 }

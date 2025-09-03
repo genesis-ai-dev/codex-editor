@@ -919,6 +919,9 @@
         "test": "node ./out/test/runTest.js",
         "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
         "build:webviews": "cd webviews/codex-webviews && pnpm run build:all && cd ../..",
+        "test:webviews": "cd webviews/codex-webviews && pnpm run test",
+        "test:webviews:watch": "cd webviews/codex-webviews && pnpm run test:watch",
+        "test:webviews:ui": "cd webviews/codex-webviews && pnpm run test:ui",
         "smart-watch": "cd webviews/codex-webviews && pnpm run smart-watch",
         "wdio": "wdio run ./wdio.conf.ts"
     },

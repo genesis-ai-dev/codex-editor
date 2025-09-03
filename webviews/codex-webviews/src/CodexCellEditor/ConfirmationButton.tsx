@@ -6,26 +6,31 @@ interface ConfirmationButtonProps {
     onClick: () => void;
     disabled?: boolean;
     icon: string;
+    onStateChange?: (open: boolean) => void;
 }
 
 const ConfirmationButton: React.FC<ConfirmationButtonProps> = ({
     onClick,
     disabled = false,
     icon,
+    onStateChange,
 }) => {
     const [showConfirmation, setShowConfirmation] = useState(false);
 
     const handleInitialClick = () => {
         setShowConfirmation(true);
+        onStateChange?.(true);
     };
 
     const handleConfirm = () => {
         onClick();
         setShowConfirmation(false);
+        onStateChange?.(false);
     };
 
     const handleCancel = () => {
         setShowConfirmation(false);
+        onStateChange?.(false);
     };
 
     const getIcon = () => {

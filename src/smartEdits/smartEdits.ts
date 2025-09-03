@@ -6,6 +6,7 @@ import {
     SavedSuggestions,
     EditHistoryEntry,
 } from "../../types";
+import { EditMapUtils, isValueEdit, filterEditsByPath } from "../utils/editMapUtils";
 import * as vscode from "vscode";
 import { diffWords } from "diff";
 import { ICEEdits } from "./iceEdits";
@@ -60,7 +61,7 @@ export class SmartEdits {
     private teachFile: vscode.Uri;
     private lastProcessedCellId: string | null = null;
     private lastSuggestions: SmartSuggestion[] = [];
-    private editHistory: { [key: string]: EditHistoryEntry[] } = {};
+    private editHistory: { [key: string]: EditHistoryEntry[]; } = {};
     private iceEdits: ICEEdits;
 
     constructor(workspaceUri: vscode.Uri) {
@@ -182,7 +183,7 @@ export class SmartEdits {
         try {
             const fileContent = await vscode.workspace.fs.readFile(this.smartEditsPath);
             const fileString = fileContent.toString();
-            const savedEdits: { [key: string]: SavedSuggestions } = fileString
+            const savedEdits: { [key: string]: SavedSuggestions; } = fileString
                 ? JSON.parse(fileString)
                 : {};
             const result = savedEdits[cellId] || null;
@@ -217,7 +218,7 @@ export class SmartEdits {
         try {
             const fileContent = await vscode.workspace.fs.readFile(this.smartEditsPath);
             const fileString = fileContent.toString();
-            const savedEdits: { [key: string]: SavedSuggestions } = fileString
+            const savedEdits: { [key: string]: SavedSuggestions; } = fileString
                 ? JSON.parse(fileString)
                 : {};
 
@@ -288,7 +289,7 @@ export class SmartEdits {
     ): Promise<void> {
         if (suggestions.length === 0) return;
         try {
-            let savedEdits: { [key: string]: SavedSuggestions } = {};
+            let savedEdits: { [key: string]: SavedSuggestions; } = {};
 
             try {
                 const fileContent = await vscode.workspace.fs.readFile(this.smartEditsPath);
@@ -395,13 +396,15 @@ export class SmartEdits {
     private formatSimilarTexts(similarTexts: SmartEditContext[]): string {
         const formattedTexts = similarTexts
             .map((context) => {
-                const edits = context.edits;
-                if (edits.length === 0) return "";
+                // Alternative: Using the generic filter utility
+                const valueEdits = filterEditsByPath(context.edits, ["value"] as const);
+                if (valueEdits.length === 0) return "";
 
-                const firstEdit = this.stripHtml(edits[0].cellValue);
-                const lastEdit = this.stripHtml(edits[edits.length - 1].cellValue);
+                // TypeScript knows these are value edits with string values
+                const firstEdit = this.stripHtml(valueEdits[0].value as string);
+                const lastEdit = this.stripHtml(valueEdits[valueEdits.length - 1].value as string);
 
-                if (edits.length === 1 || firstEdit === lastEdit) return "";
+                if (valueEdits.length === 1 || firstEdit === lastEdit) return "";
 
                 const diff = this.generateDiff(firstEdit, lastEdit);
                 return `"${context.cellId}": {
@@ -453,11 +456,11 @@ export class SmartEdits {
         const historyString =
             history.length > 0
                 ? `\nRecent edit history for this cell:\n${history
-                      .map(
-                          (entry) =>
-                              `Before: ${entry.before}\nAfter: ${entry.after}\nTimestamp: ${new Date(entry.timestamp).toISOString()}`
-                      )
-                      .join("\n\n")}`
+                    .map(
+                        (entry) =>
+                            `Before: ${entry.before}\nAfter: ${entry.after}\nTimestamp: ${new Date(entry.timestamp).toISOString()}`
+                    )
+                    .join("\n\n")}`
                 : "";
 
         return `Similar Texts:\n${similarTextsString}\n${historyString}\n\nEdit the following text based on the patterns you've seen in similar texts and recent edits, always return the json format specified. Do not suggest edits that are merely HTML changes. Focus on meaningful content modifications.\nText: ${text}`;
@@ -473,7 +476,7 @@ export class SmartEdits {
     }
 
     private async readAllMemories(): Promise<{
-        [cellId: string]: { content: string; times_used: number };
+        [cellId: string]: { content: string; times_used: number; };
     }> {
         try {
             const fileContent = await vscode.workspace.fs.readFile(this.teachFile);

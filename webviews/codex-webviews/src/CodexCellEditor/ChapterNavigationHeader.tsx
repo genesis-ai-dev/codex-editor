@@ -12,6 +12,7 @@ import {
     type CustomNotebookMetadata,
     type EditorPostMessages,
 } from "../../../../types";
+import { EditMapUtils } from "../../../../src/utils/editMapUtils";
 import { WebviewApi } from "vscode-webview";
 import { type FileStatus, type EditorPosition, type Subsection } from "../lib/types";
 import {
@@ -376,7 +377,11 @@ ChapterNavigationHeaderProps) {
                     cell.editHistory
                         ?.slice()
                         .reverse()
-                        .find((edit) => edit.cellValue === cell.cellContent)?.validatedBy || [];
+                        .find(
+                            (edit) =>
+                                EditMapUtils.isValue(edit.editMap) &&
+                                edit.value === cell.cellContent
+                        )?.validatedBy || [];
                 return validatedBy.filter((v) => !v.isDeleted).length >= minimumValidationsRequired;
             });
             isFullyValidated = validatedCells.length === validCells.length;

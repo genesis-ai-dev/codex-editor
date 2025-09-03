@@ -6,6 +6,7 @@
  */
 
 import { FootnoteReference } from './footnoteUtils';
+import { convertUsfmInlineMarkersToHtml } from '../importers/common/usfmHtmlMapper';
 
 export interface UsfmFootnote {
     id: string;
@@ -69,47 +70,25 @@ const parseUsfmFootnoteContent = (content: string, index: number): {
     processedContent: string;
     reference?: string;
 } => {
-    let processedContent = content.trim();
+    let working = content.trim();
     let reference: string | undefined;
 
-    // Handle footnote reference marker \fr
-    const referenceMatch = processedContent.match(/\\fr\s+([^\\]+)/);
-    if (referenceMatch) {
-        reference = referenceMatch[1].trim();
-        processedContent = processedContent.replace(/\\fr\s+[^\\]+/g, '');
+    // Extract \fr reference (optional), remove from working string
+    const refMatch = working.match(/\\fr\s+([^\\]+)/);
+    if (refMatch) {
+        reference = refMatch[1].trim();
+        working = working.replace(/\\fr\s+[^\\]+/g, '');
     }
 
-    // Handle footnote text marker \ft
-    processedContent = processedContent.replace(/\\ft\s+/g, '');
+    // Remove \ft tokens; remaining content becomes the footnote text body
+    working = working.replace(/\\ft\s+/g, '');
 
-    // Handle footnote keyword \fk (make bold)
-    processedContent = processedContent.replace(/\\fk\s+([^\\]+?)(?=\\|\s*$)/g, '<strong>$1</strong>');
+    // Convert USFM inline markers within footnote to HTML with data-tag (supports + markers)
+    const innerHtml = convertUsfmInlineMarkersToHtml(working);
 
-    // Handle footnote quotation \fq (make italic)
-    processedContent = processedContent.replace(/\\fq\s+([^\\]+?)(?=\\|\s*$)/g, '<em>$1</em>');
-
-    // Handle footnote alternate translation \fqa
-    processedContent = processedContent.replace(/\\fqa\s+([^\\]+?)(?=\\|\s*$)/g, '<span class="footnote-alt">$1</span>');
-
-    // Handle footnote label \fl
-    processedContent = processedContent.replace(/\\fl\s+([^\\]+?)(?=\\|\s*$)/g, '<span class="footnote-label">$1</span>');
-
-    // Handle footnote paragraph \fp (add line break)
-    processedContent = processedContent.replace(/\\fp\s*/g, '<br>');
-
-    // Handle footnote verse marker \fv
-    processedContent = processedContent.replace(/\\fv\s+([^\\]+?)(?=\\|\s*$)/g, '<span class="footnote-verse">$1</span>');
-
-    // Clean up any remaining backslashes and normalize whitespace
-    processedContent = processedContent
-        .replace(/\\[a-z]+\*?\s*/g, '') // Remove any remaining markers
-        .replace(/\s+/g, ' ')
-        .trim();
-
-    // If we have a reference, prepend it
-    if (reference) {
-        processedContent = `<span class="footnote-reference">${reference}</span> ${processedContent}`;
-    }
+    // Compose processed content with explicit data-tag wrappers for reference and text
+    const refHtml = reference ? `<span data-tag="fr">${reference}</span> ` : '';
+    const processedContent = `${refHtml}<span data-tag="ft">${innerHtml}</span>`;
 
     return {
         processedContent,

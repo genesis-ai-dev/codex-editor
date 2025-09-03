@@ -29,6 +29,14 @@ import { processMammothFootnotes } from '../../utils/mammothFootnoteHandler';
 import { extractFootnotesFromMammothMarkdown } from '../../utils/mammothMarkdownFootnoteExtractor';
 import { integrateFootnotesBeforeCellSplit } from '../../utils/footnoteIntegration';
 import { cleanIntegrateFootnotes } from '../../utils/cleanFootnoteIntegration';
+import {
+    SegmentMetadata,
+    DocumentStructureMetadata,
+    OffsetTracker,
+    buildStructureTree,
+    generateChecksum,
+    serializeDocumentStructure,
+} from '../../utils/documentStructurePreserver';
 
 const SUPPORTED_EXTENSIONS = ['docx'];
 
@@ -240,11 +248,44 @@ export const parseFile = async (
 
         onProgress?.(createProgress('Processing Images', 'Processing embedded images...', 80));
 
-        // Process each segment into cells
+        // Track offsets and structure for each segment
+        const offsetTracker = new OffsetTracker();
+        const segmentToIdMap = new Map<string, string>();
+
+        // Store the original raw content from mammoth before segmentation
+        const originalRawHtml = result.value;
+
+        // Process each segment into cells with structure tracking
         const cells = await Promise.all(
             htmlSegments.map(async (segment, index) => {
                 const cellId = createStandardCellId(file.name, 1, index + 1);
-                const cell = createProcessedCell(cellId, segment);
+
+                // Find the position of this segment in the original HTML
+                const segmentStart = originalRawHtml.indexOf(segment);
+                const segmentEnd = segmentStart + segment.length;
+
+                // Record segment metadata
+                offsetTracker.recordSegment(cellId, segment, {
+                    structuralPath: `segment[${index}]`,
+                    parentContext: {
+                        tagName: 'body',
+                        attributes: {}
+                    }
+                });
+
+                segmentToIdMap.set(segment, cellId);
+
+                // Create cell with enhanced metadata including structure data
+                const cell = createProcessedCell(cellId, segment, {
+                    data: {
+                        originalOffset: {
+                            start: segmentStart,
+                            end: segmentEnd
+                        },
+                        originalContent: segment,
+                        segmentIndex: index
+                    }
+                });
 
                 // Extract and process images from this cell
                 const images = await extractImagesFromHtml(segment);
@@ -256,6 +297,48 @@ export const parseFile = async (
 
         onProgress?.(createProgress('Creating Notebooks', 'Creating source and codex notebooks...', 90));
 
+        // Generate file hash for integrity checking (reuse the arrayBuffer we already have)
+        const fileHash = await generateChecksum(new Uint8Array(arrayBuffer).toString());
+
+        // Parse the HTML structure for the structure tree
+        const parser = new XMLParser({
+            ignoreAttributes: false,
+            attributeNamePrefix: "@_",
+            textNodeName: "#text",
+            parseAttributeValue: true,
+            trimValues: true,
+            preserveOrder: true,
+            allowBooleanAttributes: true,
+            parseTagValue: false,
+            processEntities: true,
+        });
+
+        let parsedStructure = [];
+        try {
+            // Parse the original HTML for structure preservation
+            const wrappedHtml = `<root>${originalRawHtml}</root>`;
+            parsedStructure = parser.parse(wrappedHtml);
+        } catch (error) {
+            console.warn('Could not parse HTML for structure tree, using simplified structure', error);
+            // Fall back to a simplified structure based on segments
+            parsedStructure = [];
+        }
+
+        // Prepare document structure metadata
+        const structureMetadata: DocumentStructureMetadata = {
+            originalFileRef: `attachments/originals/${file.name}`,
+            originalMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            originalFileHash: fileHash,
+            importedAt: new Date().toISOString(),
+            documentMetadata: {
+                title: file.name,
+                modifiedDate: new Date(file.lastModified).toISOString()
+            },
+            segments: offsetTracker.getSegments(),
+            structureTree: buildStructureTree(parsedStructure, segmentToIdMap),
+            preservationFormatVersion: '1.0.0'
+        };
+
         // Create notebook pair directly
         const baseName = file.name.replace(/\.[^/.]+$/, '');
         const sourceNotebook = {
@@ -264,10 +347,12 @@ export const parseFile = async (
             metadata: {
                 id: `source-${Date.now()}`,
                 originalFileName: file.name,
+                originalFileData: arrayBuffer, // Store original file to be saved in attachments
                 importerType: 'docx',
                 createdAt: new Date().toISOString(),
                 wordCount: countWordsInHtml(htmlContent),
                 mammothMessages: result.messages,
+                documentStructure: serializeDocumentStructure(structureMetadata),
             },
         };
 
@@ -277,7 +362,10 @@ export const parseFile = async (
                 ? sourceCell.images.map(img => `<img src="${img.src}"${img.alt ? ` alt="${img.alt}"` : ''} />`).join('\n')
                 : '', // Empty for translation, preserve images
             images: sourceCell.images,
-            metadata: sourceCell.metadata,
+            metadata: {
+                ...sourceCell.metadata,
+                // Preserve the data field that contains structure info
+            },
         }));
 
         const codexNotebook = {
@@ -286,6 +374,8 @@ export const parseFile = async (
             metadata: {
                 ...sourceNotebook.metadata,
                 id: `codex-${Date.now()}`,
+                // Don't duplicate the original file data in codex
+                originalFileData: undefined,
             },
         };
 
@@ -293,6 +383,12 @@ export const parseFile = async (
             source: sourceNotebook,
             codex: codexNotebook,
         };
+
+        // Log structure preservation info
+        console.log(`[DOCX IMPORTER] Created notebook pair for "${baseName}"`);
+        console.log(`[DOCX IMPORTER] - ${cells.length} cells processed`);
+        console.log(`[DOCX IMPORTER] - Original file data: ${sourceNotebook.metadata.originalFileData ? 'preserved' : 'missing'}`);
+        console.log(`[DOCX IMPORTER] - Document structure: ${sourceNotebook.metadata.documentStructure ? 'preserved' : 'missing'}`);
 
         onProgress?.(createProgress('Complete', 'DOCX processing complete', 100));
 

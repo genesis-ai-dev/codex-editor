@@ -134,20 +134,48 @@ export async function getBookDisplayName(usfmCode: string): Promise<string> {
 }
 
 /**
+ * Determine if an importer type represents biblical content
+ */
+export function isBiblicalImporterType(importerType: string): boolean {
+    const biblicalImporters = [
+        'usfm',
+        'paratext',
+        'ebible-download',
+        'macula-bible',
+        'obs'
+    ];
+    return biblicalImporters.includes(importerType);
+}
+
+/**
  * Create a standardized filename using USFM code
  */
-export async function createStandardizedFilename(bookName: string, extension: ".source" | ".codex"): Promise<string> {
-    const usfmCode = await getUsfmCodeFromBookName(bookName);
-    if (!usfmCode) {
-        // If we can't find a USFM code, sanitize the book name for filename use
-        const sanitized = bookName
-            .replace(/[^\w\s-]/g, '') // Remove special characters
-            .replace(/\s+/g, '-')     // Replace spaces with hyphens
-            .substring(0, 50);        // Limit length
-        console.warn(`Using sanitized name ${sanitized} instead of USFM code for ${bookName}`);
-        return `${sanitized}${extension}`;
+export async function createStandardizedFilename(
+    bookName: string,
+    extension: ".source" | ".codex",
+    isBiblicalContent: boolean = true
+): Promise<string> {
+    // Only attempt USFM code detection for biblical content
+    if (isBiblicalContent) {
+        const usfmCode = await getUsfmCodeFromBookName(bookName);
+        if (usfmCode) {
+            return `${usfmCode}${extension}`;
+        }
     }
-    return `${usfmCode}${extension}`;
+
+    // If not biblical content or no USFM code found, sanitize the book name for filename use
+    const sanitized = bookName
+        .replace(/[^\w\s-]/g, '') // Remove special characters
+        .replace(/\s+/g, '-')     // Replace spaces with hyphens
+        .substring(0, 50);        // Limit length
+
+    if (isBiblicalContent) {
+        console.warn(`Using sanitized name ${sanitized} instead of USFM code for ${bookName}`);
+    } else {
+        console.log(`Using sanitized filename ${sanitized} for non-biblical content: ${bookName}`);
+    }
+
+    return `${sanitized}${extension}`;
 }
 
 /**

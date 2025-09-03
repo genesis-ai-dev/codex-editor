@@ -13,8 +13,18 @@ import {
     validateFileExtension,
 } from '../../utils/workflowHelpers';
 import { processImageData } from '../../utils/imageProcessor';
+import JSZip from 'jszip';
 
 const SUPPORTED_EXTENSIONS = ['md', 'zip'];
+
+/**
+ * Checks if a file path represents an image file
+ */
+const isImageFile = (filePath: string): boolean => {
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'];
+    const lowerPath = filePath.toLowerCase();
+    return imageExtensions.some(ext => lowerPath.endsWith(ext));
+};
 
 // OBS Repository configuration
 const OBS_REPO_CONFIG = {
@@ -64,8 +74,13 @@ const validateFile = async (file: File): Promise<FileValidationResult> => {
         warnings.push('File name does not clearly indicate Open Bible Stories content');
     }
 
-    // Check file size (warn if > 50MB for zip, > 5MB for single md)
-    const maxSize = fileName.endsWith('.zip') ? 50 * 1024 * 1024 : 5 * 1024 * 1024;
+    // For ZIP files, be more permissive - they might contain OBS content
+    if (fileName.endsWith('.zip')) {
+        warnings.push('ZIP file will be scanned for OBS markdown files and images');
+    }
+
+    // Check file size (warn if > 100MB for zip, > 10MB for single md)
+    const maxSize = fileName.endsWith('.zip') ? 100 * 1024 * 1024 : 10 * 1024 * 1024;
     if (file.size > maxSize) {
         warnings.push('Large files may take longer to process');
     }
@@ -418,7 +433,25 @@ const parseObsMarkdown = async (
         if (segment.images.length > 0) {
             for (const img of segment.images) {
                 const imageCellId = `${documentId} ${sectionId}:${cellCounter}`;
-                const imageHtml = `<img src="${img.src}" alt="${img.alt || ''}" title="${img.title || ''}" class="obs-image" />`;
+
+                // Process the image data
+                let processedImage: ProcessedImage;
+                try {
+                    processedImage = await processImageData(img.src, {
+                        alt: img.alt,
+                        title: img.title,
+                    });
+                } catch (error) {
+                    console.warn(`Failed to process image ${img.src}:`, error);
+                    // Create a fallback processed image
+                    processedImage = {
+                        src: img.src,
+                        alt: img.alt,
+                        title: img.title,
+                    };
+                }
+
+                const imageHtml = `<img src="${processedImage.src}" alt="${img.alt || ''}" title="${img.title || ''}" class="obs-image" />`;
                 const imageCell = createProcessedCell(imageCellId, imageHtml, {
                     storyNumber: obsStory.storyNumber,
                     storyTitle: obsStory.title,
@@ -431,20 +464,10 @@ const parseObsMarkdown = async (
                     cellLabel: cellCounter.toString(),
                     imageAlt: img.alt,
                     imageTitle: img.title,
-                    imageSrc: img.src,
+                    originalImageSrc: img.src,
                 });
 
-                // Process the image data
-                try {
-                    const processedImage = await processImageData(img.src, {
-                        alt: img.alt,
-                        title: img.title,
-                    });
-                    imageCell.images = [processedImage];
-                } catch (error) {
-                    console.warn(`Failed to process image ${img.src}:`, error);
-                }
-
+                imageCell.images = [processedImage];
                 cells.push(imageCell);
                 cellCounter++;
             }
@@ -516,17 +539,284 @@ const parseObsZip = async (
     file: File,
     onProgress?: ProgressCallback
 ): Promise<ImportResult> => {
-    // For now, return an error since we'd need a zip parsing library
-    // In a real implementation, you could:
-    // 1. Extract zip contents using a library like jszip
-    // 2. Find all .md files in the content/ directory
-    // 3. Process each markdown file
-    // 4. Combine into a single large notebook or multiple story notebooks
+    try {
+        onProgress?.(createProgress('Extracting Archive', 'Extracting ZIP file contents...', 10));
 
-    return {
-        success: false,
-        error: 'Zip file processing not yet implemented. Please use "Download from Repository" option instead.',
-    };
+        const zip = new JSZip();
+        const zipContent = await zip.loadAsync(file);
+
+        // Find all markdown files in the zip
+        const markdownFiles: { name: string; content: string; images: Map<string, ArrayBuffer>; }[] = [];
+        const imageFiles = new Map<string, ArrayBuffer>();
+
+        onProgress?.(createProgress('Scanning Files', 'Scanning for OBS content...', 20));
+
+        // First pass: collect all image files
+        for (const [relativePath, zipFile] of Object.entries(zipContent.files)) {
+            if (!zipFile.dir && isImageFile(relativePath)) {
+                const imageData = await zipFile.async('arraybuffer');
+                imageFiles.set(relativePath, imageData);
+            }
+        }
+
+        // Second pass: collect markdown files and associate images
+        for (const [relativePath, zipFile] of Object.entries(zipContent.files)) {
+            if (!zipFile.dir && relativePath.toLowerCase().endsWith('.md')) {
+                // Skip system files and focus on story files
+                if (relativePath.includes('__MACOSX') || relativePath.startsWith('.')) {
+                    continue;
+                }
+
+                const content = await zipFile.async('text');
+                const fileName = relativePath.split('/').pop() || relativePath;
+
+                // Create a map of images that might be referenced in this markdown file
+                const relatedImages = new Map<string, ArrayBuffer>();
+                const basePath = relativePath.substring(0, relativePath.lastIndexOf('/') + 1);
+
+                // Look for images in the same directory or common image directories
+                for (const [imagePath, imageData] of imageFiles) {
+                    if (imagePath.startsWith(basePath) ||
+                        imagePath.includes('images/') ||
+                        imagePath.includes('img/') ||
+                        imagePath.includes(fileName.replace('.md', ''))) {
+                        relatedImages.set(imagePath, imageData);
+                    }
+                }
+
+                markdownFiles.push({
+                    name: fileName,
+                    content,
+                    images: relatedImages,
+                });
+            }
+        }
+
+        if (markdownFiles.length === 0) {
+            throw new Error('No markdown files found in the ZIP archive');
+        }
+
+        onProgress?.(createProgress('Processing Stories', `Processing ${markdownFiles.length} story files...`, 40));
+
+        // Process all markdown files
+        const sourceNotebooks: any[] = [];
+        const codexNotebooks: any[] = [];
+        const storyMetadata: any[] = [];
+
+        for (let i = 0; i < markdownFiles.length; i++) {
+            const markdownFile = markdownFiles[i];
+
+            onProgress?.(createProgress(
+                'Processing Stories',
+                `Processing ${markdownFile.name} (${i + 1}/${markdownFiles.length})...`,
+                40 + Math.round((i / markdownFiles.length) * 40)
+            ));
+
+            const obsStory = parseObsMarkdownContent(markdownFile.content, markdownFile.name);
+
+            // Process story segments into cells, handling local images
+            const cells: any[] = [];
+            let cellCounter = 1;
+            const documentId = `OBS${obsStory.storyNumber.toString().padStart(2, '0')}`;
+            const sectionId = '1';
+
+            for (const [segmentIndex, segment] of obsStory.segments.entries()) {
+                // Create text cell if there's text content
+                if (segment.text && segment.text.trim()) {
+                    const textCellId = `${documentId} ${sectionId}:${cellCounter}`;
+                    const textOnlyHtml = `<p class="obs-text">${segment.text}</p>`;
+                    const textCell = createProcessedCell(textCellId, textOnlyHtml, {
+                        storyNumber: obsStory.storyNumber,
+                        storyTitle: obsStory.title,
+                        segmentType: 'text',
+                        segmentIndex,
+                        originalText: segment.text,
+                        fileName: markdownFile.name,
+                        documentId,
+                        sectionId,
+                        cellIndex: cellCounter,
+                        cellLabel: cellCounter.toString(),
+                    });
+                    cells.push(textCell);
+                    cellCounter++;
+                }
+
+                // Create separate cells for each image, processing local images
+                if (segment.images.length > 0) {
+                    for (const img of segment.images) {
+                        const imageCellId = `${documentId} ${sectionId}:${cellCounter}`;
+
+                        // Try to find the image in our local files
+                        let processedImage: ProcessedImage | null = null;
+                        let imageFound = false;
+
+                        // Look for the image in the related images
+                        for (const [imagePath, imageData] of markdownFile.images) {
+                            const imageName = imagePath.split('/').pop() || '';
+                            const imgSrcName = img.src.split('/').pop() || '';
+
+                            if (imageName === imgSrcName || imagePath.endsWith(img.src)) {
+                                // Process the local image data
+                                try {
+                                    processedImage = await processImageData(imageData, {
+                                        alt: img.alt,
+                                        title: img.title,
+                                    });
+                                    imageFound = true;
+                                    break;
+                                } catch (error) {
+                                    console.warn(`Failed to process local image ${imagePath}:`, error);
+                                }
+                            }
+                        }
+
+                        // If not found locally, try to process as URL (for repository images)
+                        if (!imageFound || !processedImage) {
+                            try {
+                                processedImage = await processImageData(img.src, {
+                                    alt: img.alt,
+                                    title: img.title,
+                                });
+                            } catch (error) {
+                                console.warn(`Failed to process image ${img.src}:`, error);
+                                // Create a fallback processed image
+                                processedImage = {
+                                    src: img.src,
+                                    alt: img.alt,
+                                    title: img.title,
+                                };
+                            }
+                        }
+
+                        // Ensure we have a processed image
+                        if (!processedImage) {
+                            processedImage = {
+                                src: img.src,
+                                alt: img.alt,
+                                title: img.title,
+                            };
+                        }
+
+                        const imageCell = createProcessedCell(imageCellId, `<img src="${processedImage.src}" alt="${img.alt || ''}" title="${img.title || ''}" class="obs-image" />`, {
+                            storyNumber: obsStory.storyNumber,
+                            storyTitle: obsStory.title,
+                            segmentType: 'image',
+                            segmentIndex,
+                            fileName: markdownFile.name,
+                            documentId,
+                            sectionId,
+                            cellIndex: cellCounter,
+                            cellLabel: cellCounter.toString(),
+                            imageAlt: img.alt,
+                            imageTitle: img.title,
+                            originalImageSrc: img.src,
+                        });
+
+                        imageCell.images = [processedImage];
+                        cells.push(imageCell);
+                        cellCounter++;
+                    }
+                }
+            }
+
+            // Create individual story notebooks
+            const storyName = obsStory.title || `Story ${obsStory.storyNumber}`;
+
+            // Create matching codex cells
+            const codexCells = cells.map(cell => {
+                if (cell.metadata.segmentType === 'image') {
+                    // Images carry over to codex unchanged
+                    return { ...cell };
+                } else {
+                    // Text cells become empty in codex (for translation)
+                    return createProcessedCell(cell.id, '', {
+                        ...cell.metadata,
+                        originalContent: cell.content,
+                    });
+                }
+            });
+
+            // Create source notebook
+            const sourceNotebook: ProcessedNotebook = {
+                name: storyName,
+                cells,
+                metadata: {
+                    id: `obs-${obsStory.storyNumber.toString().padStart(2, '0')}-source`,
+                    originalFileName: markdownFile.name,
+                    importerType: 'obs-story',
+                    createdAt: new Date().toISOString(),
+                    storyNumber: obsStory.storyNumber,
+                    storyTitle: obsStory.title,
+                    segmentCount: cells.length,
+                    imageCount: cells.filter(cell => cell.metadata.segmentType === 'image').length,
+                    sourceReference: obsStory.sourceReference,
+                    fileName: markdownFile.name,
+                    parentCollection: 'Open Bible Stories',
+                }
+            };
+
+            // Create codex notebook
+            const codexNotebook: ProcessedNotebook = {
+                name: storyName,
+                cells: codexCells,
+                metadata: {
+                    id: `obs-${obsStory.storyNumber.toString().padStart(2, '0')}-codex`,
+                    originalFileName: markdownFile.name,
+                    importerType: 'obs-story',
+                    createdAt: new Date().toISOString(),
+                    storyNumber: obsStory.storyNumber,
+                    storyTitle: obsStory.title,
+                    segmentCount: codexCells.length,
+                    imageCount: codexCells.filter(cell => cell.metadata.segmentType === 'image').length,
+                    sourceReference: obsStory.sourceReference,
+                    fileName: markdownFile.name,
+                    parentCollection: 'Open Bible Stories',
+                }
+            };
+
+            sourceNotebooks.push(sourceNotebook);
+            codexNotebooks.push(codexNotebook);
+
+            storyMetadata.push({
+                storyNumber: obsStory.storyNumber,
+                storyTitle: obsStory.title,
+                fileName: markdownFile.name,
+                segmentCount: cells.length,
+                imageCount: obsStory.segments.reduce((count, seg) => count + seg.images.length, 0),
+            });
+        }
+
+        onProgress?.(createProgress('Creating Notebooks', 'Creating OBS notebooks...', 90));
+
+        // Convert individual notebooks to NotebookPair format
+        const notebookPairs = sourceNotebooks.map((sourceNotebook, index) => ({
+            source: sourceNotebook,
+            codex: codexNotebooks[index],
+        }));
+
+        onProgress?.(createProgress('Complete', 'ZIP processing complete', 100));
+
+        return {
+            success: true,
+            notebookPairs,
+            metadata: {
+                source: 'zip-file',
+                fileName: file.name,
+                totalStories: markdownFiles.length,
+                totalSegments: storyMetadata.reduce((count, story) => count + story.segmentCount, 0),
+                totalImages: storyMetadata.reduce((count, story) => count + story.imageCount, 0),
+                stories: storyMetadata,
+            },
+        };
+
+    } catch (error) {
+        onProgress?.(createProgress('Error', 'Failed to process ZIP file', 0));
+
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error occurred while processing ZIP file',
+        };
+    }
 };
 
 /**
@@ -563,14 +853,16 @@ const parseObsMarkdownContent = (content: string, fileName: string): ObsStory =>
             continue;
         }
 
-        // Extract image
-        if (line.startsWith('![OBS Image]')) {
-            const imageMatch = line.match(/!\[OBS Image\]\(([^)]+)\)/);
-            if (imageMatch) {
+        // Extract image - handle various markdown image patterns
+        if (line.includes('![') && line.includes('](')) {
+            const imageMatches = line.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g);
+            for (const match of imageMatches) {
+                const altText = match[1] || 'OBS Image';
+                const imageSrc = match[2];
                 currentImages.push({
-                    src: imageMatch[1],
-                    alt: 'OBS Image',
-                    title: `Story ${storyNumber}`,
+                    src: imageSrc,
+                    alt: altText,
+                    title: altText.includes('OBS') ? `Story ${storyNumber}` : altText,
                 });
             }
             continue;

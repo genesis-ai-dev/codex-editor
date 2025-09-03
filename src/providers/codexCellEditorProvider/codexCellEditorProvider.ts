@@ -35,7 +35,7 @@ import path from "path";
 const DEBUG_MODE = false;
 function debug(...args: any[]) {
     if (DEBUG_MODE) {
-        debug("[CodexCellEditorProvider]", ...args);
+        console.log("[CodexCellEditorProvider]", ...args);
     }
 }
 
@@ -659,7 +659,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         document: CodexCellDocument,
         cancellation: vscode.CancellationToken
     ): Promise<void> {
-        debug("Saving custom document:", document.uri.toString());
+        debug("Saving custom document:", document.uri.toString(),);
 
         try {
             // Set status to syncing
@@ -3034,9 +3034,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             if (this.mediaRefreshTimer) {
                 clearTimeout(this.mediaRefreshTimer);
             }
+            // In Node typings, setTimeout returns NodeJS.Timeout; in browser it may be number.
+            // Cast to any to satisfy mixed environments for tests/build.
             this.mediaRefreshTimer = setTimeout(() => {
                 this.refreshAudioAttachmentsForAllWebviews();
-            }, 500); // 500ms debounce
+            }, 500) as any; // 500ms debounce
         };
 
         this.mediaFileWatcher.onDidCreate(debouncedRefresh);

@@ -1,4 +1,5 @@
-import { QuillCellContent } from "types";
+import { QuillCellContent } from "../types";
+import { EditMapUtils } from "../src/utils/editMapUtils";
 
 export const removeHtmlTags = (content: string) => {
     if (!content) return '';
@@ -8,21 +9,21 @@ export const removeHtmlTags = (content: string) => {
         if (typeof document !== 'undefined') {
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = content;
-            
+
             // Remove footnote elements completely
             const footnotes = tempDiv.querySelectorAll('sup.footnote-marker, sup[data-footnote], sup');
             footnotes.forEach(footnote => footnote.remove());
-            
+
             // Remove spell check markup
             const spellCheckElements = tempDiv.querySelectorAll('.spell-check-error, .spell-check-suggestion, [class*="spell-check"]');
             spellCheckElements.forEach(el => el.remove());
-            
+
             // Replace paragraph end tags with spaces to preserve word boundaries
             tempDiv.innerHTML = tempDiv.innerHTML.replace(/<\/p>/gi, ' ');
-            
+
             // Get clean text content
             const textContent = tempDiv.textContent || tempDiv.innerText || '';
-            
+
             return textContent
                 .replace(/\s+/g, ' ') // Normalize whitespace
                 .trim();
@@ -30,7 +31,7 @@ export const removeHtmlTags = (content: string) => {
     } catch (error) {
         console.warn('DOM parsing failed in removeHtmlTags, using fallback:', error);
     }
-    
+
     // Fallback for server-side or when DOM parsing fails
     return content
         .replace(/<sup[^>]*class=["']footnote-marker["'][^>]*>[\s\S]*?<\/sup>/gi, '') // Remove footnotes
@@ -54,7 +55,7 @@ export const getCellValueData = (cell: QuillCellContent) => {
     const latestEditThatMatchesCellValue = editHistory
         .slice()
         .reverse()
-        .find((edit) => edit.cellValue === cell.cellContent);
+        .find((edit) => EditMapUtils.isValue(edit.editMap) && edit.value === cell.cellContent);
 
     return {
         cellId: cell.cellMarkers?.[0] || "",

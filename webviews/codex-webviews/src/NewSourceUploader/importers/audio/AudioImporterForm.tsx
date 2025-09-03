@@ -47,6 +47,103 @@ function generateAttachmentId(): string {
     return `audio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
+async function extractAudioSegment(file: File, startTime: number, endTime?: number): Promise<Blob> {
+    try {
+        // Create audio context
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+
+        // Read file as array buffer
+        const arrayBuffer = await file.arrayBuffer();
+
+        // Decode audio data
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+        // Calculate segment duration
+        const duration =
+            endTime && isFinite(endTime)
+                ? Math.min(endTime - startTime, audioBuffer.duration - startTime)
+                : audioBuffer.duration - startTime;
+
+        if (duration <= 0) {
+            throw new Error("Invalid segment duration");
+        }
+
+        // Create offline context for the segment
+        const offlineContext = new OfflineAudioContext(
+            audioBuffer.numberOfChannels,
+            Math.ceil(duration * audioBuffer.sampleRate),
+            audioBuffer.sampleRate
+        );
+
+        // Create buffer source
+        const source = offlineContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(offlineContext.destination);
+
+        // Start playback from the segment start time
+        source.start(0, startTime, duration);
+
+        // Render the segment
+        const renderedBuffer = await offlineContext.startRendering();
+
+        // Convert to WAV format
+        return audioBufferToWav(renderedBuffer);
+    } catch (error) {
+        console.error("Error extracting audio segment:", error);
+        throw error;
+    }
+}
+
+// Convert AudioBuffer to WAV Blob
+function audioBufferToWav(buffer: AudioBuffer): Blob {
+    const numOfChan = buffer.numberOfChannels;
+    const length = buffer.length * numOfChan * 2;
+    const sampleRate = buffer.sampleRate;
+    const wavBuffer = new ArrayBuffer(44 + length);
+    const view = new DataView(wavBuffer);
+
+    // Write WAV header
+    writeString(view, 0, "RIFF");
+    view.setUint32(4, 36 + length, true);
+    writeString(view, 8, "WAVE");
+    writeString(view, 12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numOfChan, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2 * numOfChan, true);
+    view.setUint16(32, numOfChan * 2, true);
+    view.setUint16(34, 16, true);
+    writeString(view, 36, "data");
+    view.setUint32(40, length, true);
+
+    // Write audio data
+    const offset = 44;
+    const channels = [];
+    for (let i = 0; i < numOfChan; i++) {
+        channels.push(buffer.getChannelData(i));
+    }
+
+    for (let i = 0; i < buffer.length; i++) {
+        for (let channel = 0; channel < numOfChan; channel++) {
+            const sample = Math.max(-1, Math.min(1, channels[channel][i]));
+            view.setInt16(
+                offset + (i * numOfChan + channel) * 2,
+                sample < 0 ? sample * 0x8000 : sample * 0x7fff,
+                true
+            );
+        }
+    }
+
+    return new Blob([wavBuffer], { type: "audio/wav" });
+}
+
+function writeString(view: DataView, offset: number, string: string) {
+    for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+    }
+}
+
 function toTimestampDataUrl(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -315,14 +412,15 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
 
                 const segs = validSegs;
 
-                // Get file data (video files will be processed by backend)
-                let fileDataUrl = fileDataMap.get(row.file.name);
-                if (!fileDataUrl) {
-                    console.log(
-                        `Reading ${row.isVideo ? "video" : "audio"} file data for ${row.name}...`
-                    );
-                    fileDataUrl = await toTimestampDataUrl(row.file);
-                    fileDataMap.set(row.file.name, fileDataUrl);
+                // For video files, we still need to send the whole file for backend processing
+                let fileDataUrl: string | undefined;
+                if (row.isVideo) {
+                    fileDataUrl = fileDataMap.get(row.file.name);
+                    if (!fileDataUrl) {
+                        console.log(`Reading video file data for ${row.name}...`);
+                        fileDataUrl = await toTimestampDataUrl(row.file);
+                        fileDataMap.set(row.file.name, fileDataUrl);
+                    }
                 }
 
                 // For both video and audio: Create attachments with timing metadata
@@ -336,26 +434,67 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                     // Backend will handle audio extraction for video files
                     const fileName = row.isVideo
                         ? `${segmentAttachmentId}.webm` // Backend will extract to webm
-                        : `${segmentAttachmentId}.${row.file.name.split(".").pop() || "wav"}`;
+                        : `${segmentAttachmentId}.wav`; // We're creating WAV segments
 
-                    allAttachments.push({
-                        cellId,
-                        attachmentId: segmentAttachmentId,
-                        fileName,
-                        mime: row.isVideo ? "audio/webm" : row.file.type || "audio/wav",
-                        ...(cellIndex === 1
-                            ? {
-                                  dataBase64: fileDataUrl, // Video data for backend extraction, or audio data
-                                  startTime: seg.startSec,
-                                  endTime: seg.endSec,
-                                  isFromVideo: row.isVideo, // Backend will extract audio if true
-                              }
-                            : {
-                                  sourceFileId: baseAttachmentId,
-                                  startTime: seg.startSec,
-                                  endTime: seg.endSec,
-                              }),
-                    });
+                    console.log(
+                        `Processing segment ${cellIndex}/${segs.length} for ${row.name}: ${seg.startSec}s - ${seg.endSec}s`
+                    );
+
+                    // For audio files, extract the actual segment
+                    if (!row.isVideo) {
+                        try {
+                            console.log(
+                                `Extracting audio segment ${cellIndex} from ${row.name}...`
+                            );
+                            const segmentBlob = await extractAudioSegment(
+                                row.file,
+                                seg.startSec,
+                                seg.endSec
+                            );
+                            const segmentDataUrl = await new Promise<string>((resolve, reject) => {
+                                const reader = new FileReader();
+                                reader.onload = () => resolve(String(reader.result));
+                                reader.onerror = reject;
+                                reader.readAsDataURL(segmentBlob);
+                            });
+
+                            allAttachments.push({
+                                cellId,
+                                attachmentId: segmentAttachmentId,
+                                fileName,
+                                mime: "audio/wav", // We're converting all segments to WAV
+                                dataBase64: segmentDataUrl,
+                                startTime: 0, // The segment is already cut, so it starts at 0
+                                endTime: Number.NaN, // And plays to the end
+                            });
+                        } catch (error) {
+                            console.error(
+                                `Failed to extract segment ${cellIndex} from ${row.name}:`,
+                                error
+                            );
+                            throw error;
+                        }
+                    } else {
+                        // For video files, send the whole file with timing metadata
+                        allAttachments.push({
+                            cellId,
+                            attachmentId: segmentAttachmentId,
+                            fileName,
+                            mime: "audio/webm",
+                            ...(cellIndex === 1
+                                ? {
+                                      dataBase64: fileDataUrl, // Video data for backend extraction
+                                      startTime: seg.startSec,
+                                      endTime: seg.endSec,
+                                      isFromVideo: true,
+                                  }
+                                : {
+                                      sourceFileId: baseAttachmentId,
+                                      startTime: seg.startSec,
+                                      endTime: seg.endSec,
+                                  }),
+                        });
+                    }
 
                     const url = `.project/attachments/files/${docId}/${fileName}`;
                     populateCellObjects(
@@ -364,7 +503,8 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                         seg,
                         segmentAttachmentId,
                         url,
-                        codexCells
+                        codexCells,
+                        !row.isVideo // isPreSegmented
                     );
                 }
             }
@@ -458,26 +598,67 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                     // Backend will handle audio extraction for video files
                     const fileName = row.isVideo
                         ? `${segmentAttachmentId}.webm` // Backend will extract to webm
-                        : `${segmentAttachmentId}.${row.file.name.split(".").pop() || "wav"}`;
+                        : `${segmentAttachmentId}.wav`; // We're creating WAV segments
 
-                    allAttachments.push({
-                        cellId,
-                        attachmentId: segmentAttachmentId,
-                        fileName,
-                        mime: row.isVideo ? "audio/webm" : row.file.type || "audio/wav",
-                        ...(cellIndex === 1
-                            ? {
-                                  dataBase64: fileDataUrl, // Video data for backend extraction, or audio data
-                                  startTime: seg.startSec,
-                                  endTime: seg.endSec,
-                                  isFromVideo: row.isVideo, // Backend will extract audio if true
-                              }
-                            : {
-                                  sourceFileId: baseAttachmentId,
-                                  startTime: seg.startSec,
-                                  endTime: seg.endSec,
-                              }),
-                    });
+                    console.log(
+                        `Processing segment ${cellIndex}/${segs.length} for ${row.name}: ${seg.startSec}s - ${seg.endSec}s`
+                    );
+
+                    // For audio files, extract the actual segment
+                    if (!row.isVideo) {
+                        try {
+                            console.log(
+                                `Extracting audio segment ${cellIndex} from ${row.name}...`
+                            );
+                            const segmentBlob = await extractAudioSegment(
+                                row.file,
+                                seg.startSec,
+                                seg.endSec
+                            );
+                            const segmentDataUrl = await new Promise<string>((resolve, reject) => {
+                                const reader = new FileReader();
+                                reader.onload = () => resolve(String(reader.result));
+                                reader.onerror = reject;
+                                reader.readAsDataURL(segmentBlob);
+                            });
+
+                            allAttachments.push({
+                                cellId,
+                                attachmentId: segmentAttachmentId,
+                                fileName,
+                                mime: "audio/wav", // We're converting all segments to WAV
+                                dataBase64: segmentDataUrl,
+                                startTime: 0, // The segment is already cut, so it starts at 0
+                                endTime: Number.NaN, // And plays to the end
+                            });
+                        } catch (error) {
+                            console.error(
+                                `Failed to extract segment ${cellIndex} from ${row.name}:`,
+                                error
+                            );
+                            throw error;
+                        }
+                    } else {
+                        // For video files, send the whole file with timing metadata
+                        allAttachments.push({
+                            cellId,
+                            attachmentId: segmentAttachmentId,
+                            fileName,
+                            mime: "audio/webm",
+                            ...(cellIndex === 1
+                                ? {
+                                      dataBase64: fileDataUrl, // Video data for backend extraction
+                                      startTime: seg.startSec,
+                                      endTime: seg.endSec,
+                                      isFromVideo: true,
+                                  }
+                                : {
+                                      sourceFileId: baseAttachmentId,
+                                      startTime: seg.startSec,
+                                      endTime: seg.endSec,
+                                  }),
+                        });
+                    }
 
                     const url = `.project/attachments/files/${fileDocId}/${fileName}`;
                     populateCellObjects(
@@ -486,7 +667,8 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                         seg,
                         segmentAttachmentId,
                         url,
-                        codexCells
+                        codexCells,
+                        !row.isVideo // isPreSegmented
                     );
                 }
 
@@ -545,8 +727,12 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
             seg: { startSec: number; endSec: number },
             segmentAttachmentId: string,
             url: string,
-            codexCells: any[]
+            codexCells: any[],
+            isPreSegmented: boolean
         ) {
+            // For pre-segmented audio, the timing in cell metadata should reflect the original timing
+            // but the attachment timing should be 0 since the file is already cut
+
             sourceCells.push({
                 kind: 2,
                 value: "",
@@ -563,8 +749,8 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                             createdAt: Date.now(),
                             updatedAt: Date.now(),
                             isDeleted: false,
-                            startTime: seg.startSec,
-                            endTime: seg.endSec,
+                            startTime: isPreSegmented ? 0 : seg.startSec,
+                            endTime: isPreSegmented ? Number.NaN : seg.endSec,
                         },
                     },
                     selectedAudioId: segmentAttachmentId,

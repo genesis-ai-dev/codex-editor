@@ -4,6 +4,7 @@ import { safePostMessageToPanel } from "../../utils/webviewUtils";
 // Use type-only import to break circular dependency
 import type { CodexCellEditorProvider } from "./codexCellEditorProvider";
 import { GlobalMessage, EditorPostMessages, EditHistory, CodexNotebookAsJSONData } from "../../../types";
+import { EditMapUtils } from "../../utils/editMapUtils";
 import { EditType } from "../../../types/enums";
 import {
     QuillCellContent,
@@ -876,9 +877,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
                 }
             }
-        } catch {
-            // Ignore JSON parsing errors - continue with empty audioCells
-        }
+        } catch (err) { console.warn('Failed to parse notebook cells for audio status', err); }
 
         // Mark available where we found on-disk non-deleted attachments
         for (const cellId of Object.keys(audioAttachments)) {
@@ -900,9 +899,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     }
                 }
             }
-        } catch {
-            // Ignore JSON parsing errors - continue with current audioCells state
-        }
+        } catch (err) { console.warn('Failed to parse attachments for deleted-only status', err); }
         provider.postMessageToWebview(webviewPanel, {
             type: "providerSendsAudioAttachments",
             attachments: audioCells as any,
@@ -1120,9 +1117,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
                 }
             }
-        } catch {
-            // Ignore JSON parsing errors - continue with empty audioCells
-        }
+        } catch (err) { console.warn('Failed to initialize audio cell statuses', err); }
         for (const cellId of Object.keys(updatedAudioAttachments)) {
             audioCells[cellId] = "available";
         }
@@ -1138,9 +1133,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     if (hasDeletedAudio) audioCells[id] = "deletedOnly";
                 }
             }
-        } catch {
-            // Ignore JSON parsing errors - continue with current audioCells state
-        }
+        } catch (err) { console.warn('Failed to compute deleted-only audio cells', err); }
 
         provider.postMessageToWebview(webviewPanel, {
             type: "providerSendsAudioAttachments",
@@ -1178,9 +1171,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
                 }
             }
-        } catch {
-            // Ignore JSON parsing errors - continue with empty audioCells
-        }
+        } catch (err) { console.warn('Failed to initialize audio cells after save', err); }
         for (const cellId of Object.keys(updatedAudioAttachments)) {
             audioCells[cellId] = "available";
         }
@@ -1196,9 +1187,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     if (hasDeletedAudio) audioCells[id] = "deletedOnly";
                 }
             }
-        } catch {
-            // Ignore JSON parsing errors - continue with current audioCells state
-        }
+        } catch (err) { console.warn('Failed to compute deleted-only cells after save', err); }
 
         provider.postMessageToWebview(webviewPanel, {
             type: "providerSendsAudioAttachments",
@@ -1445,7 +1434,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // 1. Concatenate content and create second edit
             const mergedContent = previousContent + "<span>&nbsp;</span>" + currentContent;
             const mergeEdit: EditHistory = {
-                cellValue: mergedContent,
+                editMap: EditMapUtils.value(),
+                value: mergedContent,
                 timestamp: timestamp + 1,
                 type: EditType.USER_EDIT,
                 author: currentUser,
