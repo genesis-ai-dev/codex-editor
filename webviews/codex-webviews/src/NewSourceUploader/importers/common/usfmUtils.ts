@@ -12,23 +12,11 @@ import {
     extractUsfmFootnotes,
     convertUsfmToHtmlWithFootnotes
 } from '../../utils/usfmFootnoteExtractor';
+import { parseUsfmToJson as parseUsfmWithRegex } from './regexUsfmParser';
 import { validateFootnotes } from '../../utils/footnoteUtils';
 
-// Dynamic import to handle usfm-grammar in browser environment
-let USFMParser: any;
-let LEVEL: any;
-
-export const initializeUsfmGrammar = async () => {
-    if (!USFMParser) {
-        try {
-            const grammar = await import('usfm-grammar');
-            USFMParser = grammar.USFMParser;
-            LEVEL = grammar.LEVEL;
-        } catch (error) {
-            throw new Error('Failed to load USFM grammar library');
-        }
-    }
-};
+// Deprecated: dynamic import of usfm-grammar. Replaced by lightweight regex parser.
+export const initializeUsfmGrammar = async () => { };
 
 export interface UsfmContent {
     id: string;
@@ -41,6 +29,7 @@ export interface UsfmContent {
         verse?: number;
         originalText?: string;
         fileName?: string;
+        hasFootnotes?: boolean;
     };
 }
 
@@ -55,6 +44,8 @@ export interface ProcessedUsfmBook {
     usfmContent: UsfmContent[];
     footnoteCount: number;
     footnotes: any[];
+    headerLines?: string[];
+    rawHeader?: string;
 }
 
 /**
@@ -94,11 +85,8 @@ export const processUsfmContent = async (
     fileName: string,
     bookNames: Record<string, string> = {}
 ): Promise<ProcessedUsfmBook> => {
-    await initializeUsfmGrammar();
-
-    // Parse USFM using relaxed mode for better compatibility
-    const relaxedUsfmParser = new USFMParser(content, LEVEL.RELAXED);
-    const jsonOutput = relaxedUsfmParser.toJSON();
+    // Parse USFM using custom lightweight regex parser
+    const jsonOutput = parseUsfmWithRegex(content);
 
     // Extract book information
     const bookCode = jsonOutput.book?.bookCode?.toUpperCase();
@@ -145,7 +133,7 @@ export const processUsfmContent = async (
             if (content.verseNumber !== undefined && content.verseText !== undefined) {
                 // This is a verse - process it for footnotes
                 const verseId = `${bookCode} ${chapterNumber}:${content.verseNumber}`;
-                let verseText = content.verseText.trim();
+                const verseText = content.verseText.trim();
 
                 // Convert USFM to HTML with footnotes if needed
                 const { html: processedText } = convertUsfmToHtmlWithFootnotes(verseText);
@@ -167,7 +155,7 @@ export const processUsfmContent = async (
             } else if (content.text && !content.marker) {
                 // This is paratext (content without specific markers)
                 const paratextId = createStandardCellId(fileName, chapterNumber, usfmContent.length + 1);
-                let paratextContent = content.text.trim();
+                const paratextContent = content.text.trim();
 
                 // Convert USFM to HTML with footnotes if needed
                 const { html: processedText } = convertUsfmToHtmlWithFootnotes(paratextContent);
@@ -183,6 +171,23 @@ export const processUsfmContent = async (
                         originalText: paratextContent,
                         fileName,
                         hasFootnotes: processedText.includes('footnote-marker'),
+                    },
+                });
+            } else if (content.marker) {
+                // Preserve raw marker lines as paratext for round-trip fidelity
+                const paratextId = createStandardCellId(fileName, chapterNumber, usfmContent.length + 1);
+                const markerLine = String(content.marker).trim();
+                usfmContent.push({
+                    id: paratextId,
+                    content: markerLine,
+                    type: 'paratext',
+                    metadata: {
+                        bookCode,
+                        bookName,
+                        chapter: chapterNumber,
+                        originalText: markerLine,
+                        fileName,
+                        hasFootnotes: false,
                     },
                 });
             }
@@ -218,7 +223,53 @@ export const processUsfmContent = async (
         usfmContent,
         footnoteCount: footnotes.length,
         footnotes,
+        headerLines: jsonOutput.headerLines,
+        rawHeader: (jsonOutput as any).rawHeader,
     };
+};
+
+/**
+ * Reconstruct USFM text from processed content (codex notebook intermediate).
+ * Preserves order, adds chapter markers where chapter changes, and preserves
+ * marker lines that were captured as paratext content.
+ */
+export const exportToUSFM = (processed: ProcessedUsfmBook): string => {
+    const lines: string[] = [];
+    const bookCode = processed.bookCode.toUpperCase();
+    if (processed.rawHeader && processed.rawHeader.length > 0) {
+        lines.push(processed.rawHeader);
+    } else if (processed.headerLines && processed.headerLines.length > 0) {
+        for (const h of processed.headerLines) lines.push(h);
+    } else {
+        lines.push(`\\id ${bookCode}`);
+        lines.push('\\usfm 3.0');
+    }
+
+    let currentChapter: number | null = null;
+    for (const item of processed.usfmContent) {
+        const ch = item.metadata.chapter;
+        if (typeof ch === 'number' && ch !== currentChapter) {
+            currentChapter = ch;
+            lines.push(`\\c ${currentChapter}`);
+        }
+
+        if (item.type === 'verse' && typeof item.metadata.verse !== 'undefined') {
+            const verseNum = item.metadata.verse;
+            const original = item.metadata.originalText ?? '';
+            lines.push(`\\v ${verseNum} ${original}`);
+        } else if (item.type === 'paratext') {
+            const text = (item.metadata.originalText ?? item.content ?? '').trim();
+            if (text.startsWith('\\')) {
+                // This is a preserved marker line
+                lines.push(text);
+            } else if (text.length > 0) {
+                // Plain text lines
+                lines.push(text);
+            }
+        }
+    }
+
+    return lines.join('\n');
 };
 
 /**

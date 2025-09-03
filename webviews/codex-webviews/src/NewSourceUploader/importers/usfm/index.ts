@@ -65,6 +65,7 @@ export const parseFile = async (file: File, onProgress?: ProgressCallback): Prom
         onProgress?.(createProgress('Reading File', 'Reading USFM file...', 10));
 
         const content = await file.text();
+        console.log("Ryder", {content});
 
         onProgress?.(createProgress('Parsing USFM', 'Parsing USFM content...', 30));
 

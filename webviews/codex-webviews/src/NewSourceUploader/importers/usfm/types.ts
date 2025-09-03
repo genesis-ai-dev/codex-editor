@@ -1,5 +1,5 @@
-// Type declarations for usfm-grammar library
-declare module 'usfm-grammar' {
+// Type declarations for usfm-grammar-web library
+declare module 'usfm-grammar-web' {
     export interface ParsedUSFM {
         book: {
             bookCode: string;
@@ -18,6 +18,8 @@ declare module 'usfm-grammar' {
     export class USFMParser {
         constructor(input: string, level: any);
         toJSON(): ParsedUSFM;
+        toTSV(): any; // TODO: what types are these?
+        toXML(): any; // TODO: what types are these?
     }
 
     export const LEVEL: {
