@@ -65,7 +65,6 @@ import {
     MessageCircle,
     Loader2,
     Volume2,
-    TypeIcon,
     Pin,
     Copy,
     Square,
@@ -1562,7 +1561,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     }`}
                     ref={cellEditorRef}
                 >
-                    <TypeIcon className="h-5 w-5 mt-2 text-muted-foreground flex-shrink-0" />
                     <div className="flex-1">
                         <Editor
                             currentLineId={cellMarkers[0]}
