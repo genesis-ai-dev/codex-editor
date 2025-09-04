@@ -12,3 +12,155 @@ sup.footnote-marker {
     font-size: smaller;
     top: -0.2em;
 }
+
+/*
+    Quill editor rounded corners and visual integration
+    - Apply rounded corners to the toolbar (top) and editor container (bottom)
+    - Use overflow hidden on wrapper to ensure consistent clipping
+    - Normalize borders so the seam between toolbar and editor looks clean
+*/
+.quill-editor-container,
+.quill-editor {
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+/* Toolbar rounding (top corners) */
+.quill-editor-container .ql-toolbar.ql-snow,
+.quill-editor .ql-toolbar.ql-snow {
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    /* Remove double border at seam; the editor container adds the top border */
+    border-bottom: 0;
+    background-color: var(--vscode-editorWidget-background);
+    padding: 4px 6px;
+}
+
+/* Editor area rounding (bottom corners) */
+.quill-editor-container .ql-container.ql-snow,
+.quill-editor .ql-container.ql-snow {
+    border-bottom-left-radius: 6px;
+    border-bottom-right-radius: 6px;
+    border-top: 1px solid var(--vscode-widget-border);
+    background-color: var(--vscode-editor-background);
+}
+
+/* Ensure border colors match VS Code theme */
+.quill-editor-container .ql-toolbar.ql-snow,
+.quill-editor-container .ql-container.ql-snow,
+.quill-editor .ql-toolbar.ql-snow,
+.quill-editor .ql-container.ql-snow {
+    border-color: var(--vscode-widget-border);
+}
+
+/* Toolbar content layout */
+.quill-editor-container .ql-toolbar .ql-formats,
+.quill-editor .ql-toolbar .ql-formats {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-right: 8px;
+}
+
+/* Toolbar buttons */
+.quill-editor-container .ql-toolbar button,
+.quill-editor .ql-toolbar button,
+.quill-editor-container .ql-toolbar .ql-picker-label,
+.quill-editor .ql-toolbar .ql-picker-label {
+    border: none;
+    border-radius: 6px;
+    padding: 2px 6px;
+    height: 26px;
+    line-height: 22px;
+    color: var(--vscode-editor-foreground);
+    background: transparent;
+    cursor: pointer;
+}
+
+/* Hover and focus states */
+.quill-editor-container .ql-toolbar button:hover,
+.quill-editor .ql-toolbar button:hover,
+.quill-editor-container .ql-toolbar .ql-picker-label:hover,
+.quill-editor .ql-toolbar .ql-picker-label:hover {
+    background: var(--vscode-list-hoverBackground);
+}
+
+.quill-editor-container .ql-toolbar button:focus,
+.quill-editor .ql-toolbar button:focus,
+.quill-editor-container .ql-toolbar .ql-picker-label:focus,
+.quill-editor .ql-toolbar .ql-picker-label:focus {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: 0;
+}
+
+/* Active/selected state */
+.quill-editor-container .ql-toolbar .ql-active,
+.quill-editor .ql-toolbar .ql-active {
+    background: var(--vscode-editor-selectionBackground);
+    color: var(--vscode-editor-selectionForeground);
+}
+
+/* Quill icon colors (SVG strokes/fills) */
+.quill-editor-container .ql-snow .ql-stroke,
+.quill-editor .ql-snow .ql-stroke {
+    stroke: var(--vscode-editor-foreground);
+}
+.quill-editor-container .ql-snow .ql-fill,
+.quill-editor .ql-snow .ql-fill {
+    fill: var(--vscode-editor-foreground);
+}
+.quill-editor-container .ql-toolbar .ql-active .ql-stroke,
+.quill-editor .ql-toolbar .ql-active .ql-stroke {
+    stroke: var(--vscode-editor-selectionForeground);
+}
+.quill-editor-container .ql-toolbar .ql-active .ql-fill,
+.quill-editor .ql-toolbar .ql-active .ql-fill {
+    fill: var(--vscode-editor-selectionForeground);
+}
+
+/* Pickers (header, size, etc.) */
+.quill-editor-container .ql-picker,
+.quill-editor .ql-picker {
+    color: var(--vscode-editor-foreground);
+}
+.quill-editor-container .ql-picker-label::before,
+.quill-editor .ql-picker-label::before {
+    color: var(--vscode-editor-foreground);
+}
+.quill-editor-container .ql-picker-options,
+.quill-editor .ql-picker-options {
+    background: var(--vscode-editorWidget-background);
+    border: 1px solid var(--vscode-widget-border);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    padding: 4px;
+}
+.quill-editor-container .ql-picker-options .ql-picker-item,
+.quill-editor .ql-picker-options .ql-picker-item {
+    color: var(--vscode-editor-foreground);
+    border-radius: 4px;
+    padding: 2px 6px;
+}
+.quill-editor-container .ql-picker-options .ql-picker-item:hover,
+.quill-editor .ql-picker-options .ql-picker-item:hover {
+    background: var(--vscode-list-hoverBackground);
+}
+
+/* (Removed custom header pill; using native header dropdown) */
+
+/* Link tooltip styling */
+.quill-editor-container .ql-tooltip,
+.quill-editor .ql-tooltip {
+    background: var(--vscode-editorWidget-background);
+    border: 1px solid var(--vscode-widget-border);
+    color: var(--vscode-editor-foreground);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+.quill-editor-container .ql-tooltip input,
+.quill-editor .ql-tooltip input {
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 4px;
+}

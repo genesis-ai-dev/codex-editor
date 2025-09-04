@@ -217,32 +217,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [editedBacktranslation, setEditedBacktranslation] = useState<string | null>(null);
     const [isGeneratingBacktranslation, setIsGeneratingBacktranslation] = useState(false);
     const [backtranslationProgress, setBacktranslationProgress] = useState(0);
-    const [activeTab, setActiveTab] = useState<
-        "source" | "footnotes" | "audio" | "timestamps"
-    >(() => {
-        try {
-            const id = cellMarkers[0];
-            if (sessionStorage.getItem(`start-audio-recording-${id}`)) {
-                return "audio";
-            }
-            const stored = sessionStorage.getItem("preferred-editor-tab");
-            if (
-                stored === "source" ||
-                stored === "footnotes" ||
-                stored === "audio" ||
-                stored === "timestamps"
-            ) {
-                return stored as
-                    | "source"
-                    | "footnotes"
-                    | "audio"
-                    | "timestamps";
-            }
-        } catch {
-            // no-op
-        }
-        return "source";
-    });
+    const [activeTab, setActiveTab] = useState<"" | "source" | "footnotes" | "audio" | "timestamps">(() => "");
 
     // Load preferred tab from provider on mount
     useEffect(() => {
@@ -825,6 +800,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
             } catch {
                 // no-op
             }
+            // Keep collapsed when no tab has been chosen yet
+            if (!activeTab) {
+                return;
+            }
             const preferred = event.data.tab as typeof activeTab;
             setActiveTab(preferred);
             try {
@@ -837,7 +816,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 setTimeout(centerEditor, 250);
             }
         }
-    }, [cellMarkers, centerEditor]);
+    }, [cellMarkers, centerEditor, activeTab]);
 
     // Listen for storeFootnote messages
     useMessageHandler("textCellEditor-footnoteStored", (event: MessageEvent) => {
@@ -1153,10 +1132,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
             content: { cellId: cellMarkers[0] },
         });
         // If requested by list view, auto-record
+        // Do not auto-open any tab. If auto-recording was requested, start in background without changing tabs.
         try {
             const autoRecord = sessionStorage.getItem(`start-audio-recording-${cellMarkers[0]}`);
             if (autoRecord) {
-                setActiveTab("audio");
                 setShowRecorder(true);
                 setTimeout(() => {
                     startRecording();
@@ -1239,10 +1218,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     setIsAudioLoading(false);
                 }
             } else {
-                // No audio — present recorder immediately
+                // No audio — prepare recorder but do not switch tabs automatically
                 setIsAudioLoading(false);
                 setAudioFetchPending(false);
-                setActiveTab("audio");
                 setShowRecorder(true);
             }
         }
@@ -1616,8 +1594,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 </div>
 
                 <Tabs
-                    defaultValue={activeTab}
-                    value={activeTab}
+                    value={activeTab || "__none__"}
                     onValueChange={(value) => {
                         const tabValue = value as
                             | "source"
@@ -1707,6 +1684,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         )}
                     </TabsList>
 
+                    {activeTab === "source" && (
                     <TabsContent value="source">
                         <div className="space-y-6">
                             {/* Source Text */}
@@ -1832,9 +1810,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             </div>
                         </div>
                     </TabsContent>
+                    )}
 
 
 
+                    {activeTab === "footnotes" && (
                     <TabsContent value="footnotes">
                         <div className="content-section">
                             {/* Add Footnote action surfaced here with selection-aware hint - hide when already creating */}
@@ -1962,7 +1942,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             )}
                         </div>
                     </TabsContent>
+                    )}
 
+                    {activeTab === "timestamps" && (
                     <TabsContent value="timestamps">
                         <div className="content-section space-y-4">
                             <h3 className="text-lg font-medium">Timestamps</h3>
@@ -2099,7 +2081,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             )}
                         </div>
                     </TabsContent>
+                    )}
 
+                    {activeTab === "audio" && (
                     <TabsContent value="audio">
                         <div className="content-section space-y-6">
                             <h3 className="text-lg font-medium">Audio Recording</h3>
@@ -2307,6 +2291,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             )}
                         </div>
                     </TabsContent>
+                    )}
                 </Tabs>
             </CardContent>
 
