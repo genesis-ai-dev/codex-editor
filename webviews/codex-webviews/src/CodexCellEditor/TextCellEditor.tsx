@@ -38,7 +38,13 @@ import { Badge } from "../components/ui/badge";
 import { Progress } from "../components/ui/progress";
 import { Separator } from "../components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import {
+    Dialog,
+    DialogContent,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "../components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import "./TextCellEditor-overrides.css";
 import { Slider } from "../components/ui/slider";
@@ -217,32 +223,28 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [editedBacktranslation, setEditedBacktranslation] = useState<string | null>(null);
     const [isGeneratingBacktranslation, setIsGeneratingBacktranslation] = useState(false);
     const [backtranslationProgress, setBacktranslationProgress] = useState(0);
-    const [activeTab, setActiveTab] = useState<
-        "source" | "footnotes" | "audio" | "timestamps"
-    >(() => {
-        try {
-            const id = cellMarkers[0];
-            if (sessionStorage.getItem(`start-audio-recording-${id}`)) {
-                return "audio";
+    const [activeTab, setActiveTab] = useState<"source" | "footnotes" | "audio" | "timestamps">(
+        () => {
+            try {
+                const id = cellMarkers[0];
+                if (sessionStorage.getItem(`start-audio-recording-${id}`)) {
+                    return "audio";
+                }
+                const stored = sessionStorage.getItem("preferred-editor-tab");
+                if (
+                    stored === "source" ||
+                    stored === "footnotes" ||
+                    stored === "audio" ||
+                    stored === "timestamps"
+                ) {
+                    return stored as "source" | "footnotes" | "audio" | "timestamps";
+                }
+            } catch {
+                // no-op
             }
-            const stored = sessionStorage.getItem("preferred-editor-tab");
-            if (
-                stored === "source" ||
-                stored === "footnotes" ||
-                stored === "audio" ||
-                stored === "timestamps"
-            ) {
-                return stored as
-                    | "source"
-                    | "footnotes"
-                    | "audio"
-                    | "timestamps";
-            }
-        } catch {
-            // no-op
+            return "source";
         }
-        return "source";
-    });
+    );
 
     // Load preferred tab from provider on mount
     useEffect(() => {
@@ -404,14 +406,18 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // Comments count now handled by CellList.tsx batched requests
 
     // Handle comments count response
-    useMessageHandler("textCellEditor-commentsResponse", (event: MessageEvent) => {
-        if (
-            event.data.type === "commentsForCell" &&
-            event.data.content.cellId === cellMarkers[0]
-        ) {
-            setUnresolvedCommentsCount(event.data.content.unresolvedCount);
-        }
-    }, [cellMarkers]);
+    useMessageHandler(
+        "textCellEditor-commentsResponse",
+        (event: MessageEvent) => {
+            if (
+                event.data.type === "commentsForCell" &&
+                event.data.content.cellId === cellMarkers[0]
+            ) {
+                setUnresolvedCommentsCount(event.data.content.unresolvedCount);
+            }
+        },
+        [cellMarkers]
+    );
 
     const handleLabelChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setEditableLabel(e.target.value);
@@ -441,12 +447,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
         handleLabelBlur();
     };
 
-    useMessageHandler("textCellEditor-similarCellsResponse", (event: MessageEvent) => {
-        const message = event.data;
-        if (message.type === "providerSendsSimilarCellIdsResponse") {
-            setSimilarCells(message.content);
-        }
-    }, []);
+    useMessageHandler(
+        "textCellEditor-similarCellsResponse",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "providerSendsSimilarCellIdsResponse") {
+                setSimilarCells(message.content);
+            }
+        },
+        []
+    );
 
     const makeChild = () => {
         const parentCellId = cellMarkers[0];
@@ -576,12 +586,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
     }, [cellMarkers, cellType, cellIsChild]);
 
     // Add effect to handle source text response
-    useMessageHandler("textCellEditor-sourceTextResponse", (event: MessageEvent) => {
-        const message = event.data;
-        if (message.type === "providerSendsSourceText") {
-            setSourceText(message.content);
-        }
-    }, []);
+    useMessageHandler(
+        "textCellEditor-sourceTextResponse",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "providerSendsSourceText") {
+                setSourceText(message.content);
+            }
+        },
+        []
+    );
 
     // Pseudo progress bar for backtranslation generation
     useEffect(() => {
@@ -604,27 +618,31 @@ const CellEditor: React.FC<CellEditorProps> = ({
         };
     }, [isGeneratingBacktranslation, backtranslationProgress]);
 
-    useMessageHandler("textCellEditor-backtranslationResponse", (event: MessageEvent) => {
-        const message = event.data;
-        if (
-            message.type === "providerSendsBacktranslation" ||
-            message.type === "providerSendsExistingBacktranslation" ||
-            message.type === "providerSendsUpdatedBacktranslation" ||
-            message.type === "providerConfirmsBacktranslationSet"
-        ) {
-            setBacktranslation(message.content || null);
-            setEditedBacktranslation(message.content?.backtranslation || null);
+    useMessageHandler(
+        "textCellEditor-backtranslationResponse",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (
+                message.type === "providerSendsBacktranslation" ||
+                message.type === "providerSendsExistingBacktranslation" ||
+                message.type === "providerSendsUpdatedBacktranslation" ||
+                message.type === "providerConfirmsBacktranslationSet"
+            ) {
+                setBacktranslation(message.content || null);
+                setEditedBacktranslation(message.content?.backtranslation || null);
 
-            // Complete the progress bar and reset loading state
-            if (isGeneratingBacktranslation) {
-                setBacktranslationProgress(100);
-                setTimeout(() => {
-                    setIsGeneratingBacktranslation(false);
-                    setBacktranslationProgress(0);
-                }, 500); // Brief delay to show completion
+                // Complete the progress bar and reset loading state
+                if (isGeneratingBacktranslation) {
+                    setBacktranslationProgress(100);
+                    setTimeout(() => {
+                        setIsGeneratingBacktranslation(false);
+                        setBacktranslationProgress(0);
+                    }, 500); // Brief delay to show completion
+                }
             }
-        }
-    }, [isGeneratingBacktranslation]);
+        },
+        [isGeneratingBacktranslation]
+    );
 
     useEffect(() => {
         // Fetch existing backtranslation when component mounts
@@ -706,12 +724,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
         [unsavedChanges, handleSaveHtml, openCellById, setContentBeingUpdated, setEditorContent]
     );
 
-    useMessageHandler("textCellEditor-openCellById", (event: MessageEvent) => {
-        const message = event.data;
-        if (message.type === "openCellById") {
-            handleOpenCellById(message.cellId, message.text);
-        }
-    }, [handleOpenCellById]);
+    useMessageHandler(
+        "textCellEditor-openCellById",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "openCellById") {
+                handleOpenCellById(message.cellId, message.text);
+            }
+        },
+        [handleOpenCellById]
+    );
 
     // Add effect to initialize footnotes from the document
     useEffect(() => {
@@ -734,9 +756,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 console.error("Error parsing stored footnotes:", e);
             }
         }
-
     }, [cellMarkers, cell?.data?.footnotes]);
-
 
     // Function to parse footnotes from cell content with debouncing to prevent race conditions
     const parseFootnotesFromContent = useCallback(() => {
@@ -814,56 +834,64 @@ const CellEditor: React.FC<CellEditorProps> = ({
     }, []);
 
     // Message handlers using centralized dispatcher
-    useMessageHandler("textCellEditor-preferredTab", (event: MessageEvent) => {
-        if (event.data && event.data.type === "preferredEditorTab") {
-            // If this open was specifically forced to audio for recording, ignore
-            try {
-                const id = cellMarkers[0];
-                if (sessionStorage.getItem(`start-audio-recording-${id}`)) {
-                    return;
+    useMessageHandler(
+        "textCellEditor-preferredTab",
+        (event: MessageEvent) => {
+            if (event.data && event.data.type === "preferredEditorTab") {
+                // If this open was specifically forced to audio for recording, ignore
+                try {
+                    const id = cellMarkers[0];
+                    if (sessionStorage.getItem(`start-audio-recording-${id}`)) {
+                        return;
+                    }
+                } catch {
+                    // no-op
                 }
-            } catch {
-                // no-op
+                const preferred = event.data.tab as typeof activeTab;
+                setActiveTab(preferred);
+                try {
+                    sessionStorage.setItem("preferred-editor-tab", preferred);
+                } catch {
+                    // no-op
+                }
+                if (preferred === "audio") {
+                    setTimeout(centerEditor, 50);
+                    setTimeout(centerEditor, 250);
+                }
             }
-            const preferred = event.data.tab as typeof activeTab;
-            setActiveTab(preferred);
-            try {
-                sessionStorage.setItem("preferred-editor-tab", preferred);
-            } catch {
-                // no-op
-            }
-            if (preferred === "audio") {
-                setTimeout(centerEditor, 50);
-                setTimeout(centerEditor, 250);
-            }
-        }
-    }, [cellMarkers, centerEditor]);
+        },
+        [cellMarkers, centerEditor]
+    );
 
     // Listen for storeFootnote messages
-    useMessageHandler("textCellEditor-footnoteStored", (event: MessageEvent) => {
-        if (
-            event.data.type === "footnoteStored" &&
-            event.data.content.cellId === cellMarkers[0]
-        ) {
-            const newFootnote = {
-                id: event.data.content.footnoteId,
-                content: event.data.content.content,
-            };
+    useMessageHandler(
+        "textCellEditor-footnoteStored",
+        (event: MessageEvent) => {
+            if (
+                event.data.type === "footnoteStored" &&
+                event.data.content.cellId === cellMarkers[0]
+            ) {
+                const newFootnote = {
+                    id: event.data.content.footnoteId,
+                    content: event.data.content.content,
+                };
 
-            setFootnotes((prev) => {
-                // Check if footnote with this ID already exists
-                const exists = prev.some((fn) => fn.id === newFootnote.id);
-                const updatedFootnotes = exists
-                    ? prev.map((fn) => (fn.id === newFootnote.id ? newFootnote : fn))
-                    : [...prev, newFootnote];
+                setFootnotes((prev) => {
+                    // Check if footnote with this ID already exists
+                    const exists = prev.some((fn) => fn.id === newFootnote.id);
+                    const updatedFootnotes = exists
+                        ? prev.map((fn) => (fn.id === newFootnote.id ? newFootnote : fn))
+                        : [...prev, newFootnote];
 
-                // Re-parse to ensure correct chronological ordering (debounced)
-                parseFootnotesFromContent();
+                    // Re-parse to ensure correct chronological ordering (debounced)
+                    parseFootnotesFromContent();
 
-                return updatedFootnotes;
-            });
-        }
-    }, [cellMarkers, parseFootnotesFromContent]);
+                    return updatedFootnotes;
+                });
+            }
+        },
+        [cellMarkers, parseFootnotesFromContent]
+    );
 
     // Smart tab switching - currently, keep user on Source even if no source text
     // (backtranslation tab was removed; no automatic switching needed)
@@ -876,8 +904,34 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
 
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const recorder = new MediaRecorder(stream);
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    // Request high-quality capture suitable for later WAV conversion
+                    sampleRate: 48000,
+                    sampleSize: 24, // May be ignored by some browsers; best-effort
+                    channelCount: 1,
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false,
+                },
+            });
+
+            const mediaRecorderOptions: MediaRecorderOptions = {};
+            try {
+                if (typeof MediaRecorder !== "undefined") {
+                    if (MediaRecorder.isTypeSupported?.("audio/webm;codecs=opus")) {
+                        mediaRecorderOptions.mimeType = "audio/webm;codecs=opus";
+                    } else if (MediaRecorder.isTypeSupported?.("audio/webm")) {
+                        mediaRecorderOptions.mimeType = "audio/webm";
+                    }
+                }
+            } catch {
+                // no-op, fall back to default mimeType
+            }
+            // Increase bitrate for higher quality Opus encoding
+            mediaRecorderOptions.audioBitsPerSecond = 256000; // 256 kbps
+
+            const recorder = new MediaRecorder(stream, mediaRecorderOptions);
 
             audioChunksRef.current = [];
 
@@ -894,6 +948,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
             recorder.onstop = () => {
                 setIsRecording(false);
+                // Keep Blob type simple to avoid downstream extension parsing issues
                 const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
                 setAudioBlob(blob);
 
@@ -1174,153 +1229,161 @@ const CellEditor: React.FC<CellEditorProps> = ({
     }, [cellMarkers, centerEditor]);
 
     // Handle audio data response
-    useMessageHandler("textCellEditor-audioResponse", async (event: MessageEvent) => {
-        const message = event.data;
+    useMessageHandler(
+        "textCellEditor-audioResponse",
+        async (event: MessageEvent) => {
+            const message = event.data;
 
-        // Handle audio attachments list - request fresh audio data when attachments change
-        if (message.type === "providerSendsAudioAttachments") {
-            const attachments = message.attachments || [];
-            // If we already have audio loaded or loading, ignore attachment updates
-            if (audioBlob || isAudioLoading) {
-                return;
-            }
+            // Handle audio attachments list - request fresh audio data when attachments change
+            if (message.type === "providerSendsAudioAttachments") {
+                const attachments = message.attachments || [];
+                // If we already have audio loaded or loading, ignore attachment updates
+                if (audioBlob || isAudioLoading) {
+                    return;
+                }
 
-            if (attachments.length > 0) {
-                // We have audio; show loading and request data only if not already requested
-                setIsAudioLoading(true);
-                const messageContent: EditorPostMessages = {
-                    command: "requestAudioForCell",
-                    content: { cellId: cellMarkers[0] },
-                };
-                window.vscodeApi.postMessage(messageContent);
-            } else {
-                // No attachments: settle UI quietly without toggling recorder mode state
-                setIsAudioLoading(false);
-                setAudioFetchPending(false);
-            }
-        }
-
-        // Handle specific audio data
-        if (
-            message.type === "providerSendsAudioData" &&
-            message.content.cellId === cellMarkers[0]
-        ) {
-            if (message.content.audioData) {
-                try {
-                    // Show loading only when there is actual audio to fetch
+                if (attachments.length > 0) {
+                    // We have audio; show loading and request data only if not already requested
                     setIsAudioLoading(true);
-                    const base64Response = await fetch(message.content.audioData);
-                    const blob = await base64Response.blob();
-                    setAudioBlob(blob);
-                    // If recorder was showing because there was no audio previously,
-                    // switch to waveform automatically once audio is available
-                    setShowRecorder(false);
-                    setRecordingStatus("Audio loaded");
+                    const messageContent: EditorPostMessages = {
+                        command: "requestAudioForCell",
+                        content: { cellId: cellMarkers[0] },
+                    };
+                    window.vscodeApi.postMessage(messageContent);
+                } else {
+                    // No attachments: settle UI quietly without toggling recorder mode state
                     setIsAudioLoading(false);
                     setAudioFetchPending(false);
-                    setTimeout(centerEditor, 50);
-                    setTimeout(centerEditor, 250);
-                    if (message.content.transcription) {
-                        setSavedTranscription({
-                            content: message.content.transcription.content,
-                            timestamp: message.content.transcription.timestamp,
-                            language: message.content.transcription.language,
-                        });
-                    }
-                    if (message.content.audioId) {
-                        sessionStorage.setItem(
-                            `audio-id-${cellMarkers[0]}`,
-                            message.content.audioId
-                        );
-                    }
-                } catch (error) {
-                    console.error("Error converting audio data to blob:", error);
-                    setRecordingStatus("Error loading audio");
-                    setIsAudioLoading(false);
                 }
-            } else {
-                // No audio — present recorder immediately
-                setIsAudioLoading(false);
-                setAudioFetchPending(false);
-                setActiveTab("audio");
-                setShowRecorder(true);
             }
-        }
 
-        // Handle save confirmation
-        if (
-            message.type === "audioAttachmentSaved" &&
-            message.content.cellId === cellMarkers[0]
-        ) {
-            if (message.content.success) {
-                setRecordingStatus("Audio saved successfully");
-            } else {
-                setRecordingStatus(
-                    `Error saving audio: ${message.content.error || "Unknown error"}`
-                );
+            // Handle specific audio data
+            if (
+                message.type === "providerSendsAudioData" &&
+                message.content.cellId === cellMarkers[0]
+            ) {
+                if (message.content.audioData) {
+                    try {
+                        // Show loading only when there is actual audio to fetch
+                        setIsAudioLoading(true);
+                        const base64Response = await fetch(message.content.audioData);
+                        const blob = await base64Response.blob();
+                        setAudioBlob(blob);
+                        // If recorder was showing because there was no audio previously,
+                        // switch to waveform automatically once audio is available
+                        setShowRecorder(false);
+                        setRecordingStatus("Audio loaded");
+                        setIsAudioLoading(false);
+                        setAudioFetchPending(false);
+                        setTimeout(centerEditor, 50);
+                        setTimeout(centerEditor, 250);
+                        if (message.content.transcription) {
+                            setSavedTranscription({
+                                content: message.content.transcription.content,
+                                timestamp: message.content.transcription.timestamp,
+                                language: message.content.transcription.language,
+                            });
+                        }
+                        if (message.content.audioId) {
+                            sessionStorage.setItem(
+                                `audio-id-${cellMarkers[0]}`,
+                                message.content.audioId
+                            );
+                        }
+                    } catch (error) {
+                        console.error("Error converting audio data to blob:", error);
+                        setRecordingStatus("Error loading audio");
+                        setIsAudioLoading(false);
+                    }
+                } else {
+                    // No audio — present recorder immediately
+                    setIsAudioLoading(false);
+                    setAudioFetchPending(false);
+                    setActiveTab("audio");
+                    setShowRecorder(true);
+                }
             }
-            // Refresh audio history after save
-            window.vscodeApi.postMessage({
-                command: "getAudioHistory",
-                content: { cellId: cellMarkers[0] },
-            });
-        }
 
-        // Handle delete confirmation
-        if (
-            message.type === "audioAttachmentDeleted" &&
-            message.content.cellId === cellMarkers[0]
-        ) {
-            if (message.content.success) {
-                setRecordingStatus("Audio deleted");
-            } else {
-                setRecordingStatus(
-                    `Error deleting audio: ${message.content.error || "Unknown error"}`
-                );
+            // Handle save confirmation
+            if (
+                message.type === "audioAttachmentSaved" &&
+                message.content.cellId === cellMarkers[0]
+            ) {
+                if (message.content.success) {
+                    setRecordingStatus("Audio saved successfully");
+                } else {
+                    setRecordingStatus(
+                        `Error saving audio: ${message.content.error || "Unknown error"}`
+                    );
+                }
+                // Refresh audio history after save
+                window.vscodeApi.postMessage({
+                    command: "getAudioHistory",
+                    content: { cellId: cellMarkers[0] },
+                });
             }
-            // Refresh audio history after delete
-            window.vscodeApi.postMessage({
-                command: "getAudioHistory",
-                content: { cellId: cellMarkers[0] },
-            });
-        }
-        // Handle restore confirmation
-        if (
-            message.type === "audioAttachmentRestored" &&
-            message.content.cellId === cellMarkers[0]
-        ) {
-            // Refresh audio history after restore
-            window.vscodeApi.postMessage({
-                command: "getAudioHistory",
-                content: { cellId: cellMarkers[0] },
-            });
-        }
-    }, [cellMarkers, audioBlob, isAudioLoading, centerEditor]);
+
+            // Handle delete confirmation
+            if (
+                message.type === "audioAttachmentDeleted" &&
+                message.content.cellId === cellMarkers[0]
+            ) {
+                if (message.content.success) {
+                    setRecordingStatus("Audio deleted");
+                } else {
+                    setRecordingStatus(
+                        `Error deleting audio: ${message.content.error || "Unknown error"}`
+                    );
+                }
+                // Refresh audio history after delete
+                window.vscodeApi.postMessage({
+                    command: "getAudioHistory",
+                    content: { cellId: cellMarkers[0] },
+                });
+            }
+            // Handle restore confirmation
+            if (
+                message.type === "audioAttachmentRestored" &&
+                message.content.cellId === cellMarkers[0]
+            ) {
+                // Refresh audio history after restore
+                window.vscodeApi.postMessage({
+                    command: "getAudioHistory",
+                    content: { cellId: cellMarkers[0] },
+                });
+            }
+        },
+        [cellMarkers, audioBlob, isAudioLoading, centerEditor]
+    );
 
     // Listen for audio history responses and update hasAudioHistory
-    useMessageHandler("textCellEditor-audioHistoryResponse", (event: MessageEvent) => {
-        const message = event.data;
-        if (
-            message.type === "audioHistoryReceived" &&
-            message.content.cellId === cellMarkers[0]
-        ) {
-            const history = message.content.audioHistory || [];
-            setHasAudioHistory(history.length > 0);
-            setAudioHistoryCount(history.length);
+    useMessageHandler(
+        "textCellEditor-audioHistoryResponse",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (
+                message.type === "audioHistoryReceived" &&
+                message.content.cellId === cellMarkers[0]
+            ) {
+                const history = message.content.audioHistory || [];
+                setHasAudioHistory(history.length > 0);
+                setAudioHistoryCount(history.length);
 
-            // If we just restored an audio (previously none loaded),
-            // auto-close history and request the current audio so the waveform appears
-            const hasAvailable = history.some((h: any) => !h.attachment?.isDeleted);
-            if (hasAvailable && !audioBlob) {
-                setShowAudioHistory(false);
-                const messageContent: EditorPostMessages = {
-                    command: "requestAudioForCell",
-                    content: { cellId: cellMarkers[0] }
-                };
-                window.vscodeApi.postMessage(messageContent);
+                // If we just restored an audio (previously none loaded),
+                // auto-close history and request the current audio so the waveform appears
+                const hasAvailable = history.some((h: any) => !h.attachment?.isDeleted);
+                if (hasAvailable && !audioBlob) {
+                    setShowAudioHistory(false);
+                    const messageContent: EditorPostMessages = {
+                        command: "requestAudioForCell",
+                        content: { cellId: cellMarkers[0] },
+                    };
+                    window.vscodeApi.postMessage(messageContent);
+                }
             }
-        }
-    }, [cellMarkers, audioBlob, showAudioHistory]);
+        },
+        [cellMarkers, audioBlob, showAudioHistory]
+    );
 
     // Clean up media recorder and stream on unmount
     useEffect(() => {
@@ -1352,7 +1415,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         ) : (
                             <div
                                 className="flex items-center gap-2 cursor-pointer"
-                                onClick={() => setIsEditorControlsExpanded(!isEditorControlsExpanded)}
+                                onClick={() =>
+                                    setIsEditorControlsExpanded(!isEditorControlsExpanded)
+                                }
                                 title="Edit cell label"
                                 role="button"
                                 aria-label="Edit cell label"
@@ -1413,11 +1478,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         </TooltipProvider>
                         <Popover open={showAdvancedControls} onOpenChange={setShowAdvancedControls}>
                             <PopoverTrigger asChild>
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    title="Advanced Controls"
-                                >
+                                <Button variant="ghost" size="icon" title="Advanced Controls">
                                     <Settings className="h-4 w-4" />
                                 </Button>
                             </PopoverTrigger>
@@ -1449,7 +1510,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         variant="ghost"
                                         size="icon"
                                         title={
-                                            isPinned ? "Unpin from Parallel View" : "Pin in Parallel View"
+                                            isPinned
+                                                ? "Unpin from Parallel View"
+                                                : "Pin in Parallel View"
                                         }
                                         className={isPinned ? "text-blue-500" : ""}
                                     >
@@ -1619,11 +1682,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     defaultValue={activeTab}
                     value={activeTab}
                     onValueChange={(value) => {
-                        const tabValue = value as
-                            | "source"
-                            | "footnotes"
-                            | "timestamps"
-                            | "audio";
+                        const tabValue = value as "source" | "footnotes" | "timestamps" | "audio";
 
                         setActiveTab(tabValue);
                         // Persist preferred tab in VS Code workspace cache
@@ -1711,7 +1770,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         <div className="space-y-6">
                             {/* Source Text */}
                             <div>
-                                <h4 className="text-sm font-medium mb-2 text-muted-foreground">Source Text</h4>
+                                <h4 className="text-sm font-medium mb-2 text-muted-foreground">
+                                    Source Text
+                                </h4>
                                 <SourceTextDisplay
                                     content={sourceText || ""}
                                     footnoteOffset={footnoteOffset}
@@ -1721,7 +1782,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             {/* Backtranslation Section */}
                             <div className="space-y-4">
                                 <div className="flex items-center justify-between">
-                                    <h4 className="text-sm font-medium text-muted-foreground">Backtranslation</h4>
+                                    <h4 className="text-sm font-medium text-muted-foreground">
+                                        Backtranslation
+                                    </h4>
                                     <div className="flex items-center gap-2">
                                         {backtranslation && !isEditingBacktranslation && (
                                             <Button
@@ -1738,7 +1801,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             variant="ghost"
                                             size="icon"
                                             title="Generate Backtranslation"
-                                            disabled={!cellHasContent || isGeneratingBacktranslation}
+                                            disabled={
+                                                !cellHasContent || isGeneratingBacktranslation
+                                            }
                                         >
                                             {isGeneratingBacktranslation ? (
                                                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -1812,7 +1877,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         <div className="text-center p-6 text-muted-foreground bg-muted/50 rounded-lg">
                                             {cellHasContent ? (
                                                 <>
-                                                    <p>No backtranslation available for this text.</p>
+                                                    <p>
+                                                        No backtranslation available for this text.
+                                                    </p>
                                                     <p className="mt-2">
                                                         Click the refresh button to generate one.
                                                     </p>
@@ -1821,8 +1888,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 <>
                                                     <p>Add content to this cell first.</p>
                                                     <p className="mt-2">
-                                                        Backtranslation will be available once you have
-                                                        text to translate.
+                                                        Backtranslation will be available once you
+                                                        have text to translate.
                                                     </p>
                                                 </>
                                             )}
@@ -1833,8 +1900,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         </div>
                     </TabsContent>
 
-
-
                     <TabsContent value="footnotes">
                         <div className="content-section">
                             {/* Add Footnote action surfaced here with selection-aware hint - hide when already creating */}
@@ -1842,9 +1907,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 <div className="flex items-center justify-between mb-3">
                                     <div className="text-xs text-muted-foreground">
                                         {(() => {
-                                            const sel = editorHandlesRef.current?.getSelectionText?.() || "";
+                                            const sel =
+                                                editorHandlesRef.current?.getSelectionText?.() ||
+                                                "";
                                             return sel
-                                                ? `Selected: "${sel.slice(0, 40)}${sel.length > 40 ? "…" : ""}"`
+                                                ? `Selected: "${sel.slice(0, 40)}${
+                                                      sel.length > 40 ? "…" : ""
+                                                  }"`
                                                 : "Select text in the editor to attach a footnote (optional).";
                                         })()}
                                     </div>
@@ -1855,8 +1924,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     >
                                         <NotebookPen className="mr-2 h-4 w-4" />
                                         {(() => {
-                                            const sel = editorHandlesRef.current?.getSelectionText?.() || "";
-                                            return sel ? `Add footnote to selection` : `Add footnote`;
+                                            const sel =
+                                                editorHandlesRef.current?.getSelectionText?.() ||
+                                                "";
+                                            return sel
+                                                ? `Add footnote to selection`
+                                                : `Add footnote`;
                                         })()}
                                     </Button>
                                 </div>
@@ -2119,7 +2192,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     <div className="flex flex-col sm:flex-row gap-3 justify-center">
                                         <div className="flex items-center gap-2 mt-4">
                                             <Button
-                                                onClick={isRecording ? stopRecording : startRecording}
+                                                onClick={
+                                                    isRecording ? stopRecording : startRecording
+                                                }
                                                 variant={isRecording ? "secondary" : "default"}
                                                 className={isRecording ? "animate-pulse" : ""}
                                                 style={{ flex: 2 }}
@@ -2139,11 +2214,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         </div>
                                     </div>
                                 </div>
-                            ) : showRecorder || !audioUrl || !(
-                                audioUrl.startsWith("blob:") ||
-                                audioUrl.startsWith("data:") ||
-                                audioUrl.startsWith("http")
-                            ) ? (
+                            ) : showRecorder ||
+                              !audioUrl ||
+                              !(
+                                  audioUrl.startsWith("blob:") ||
+                                  audioUrl.startsWith("data:") ||
+                                  audioUrl.startsWith("http")
+                              ) ? (
                                 <div className="space-y-4">
                                     {!audioUrl && (
                                         <p className="text-center text-muted-foreground">
@@ -2193,11 +2270,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     <Tooltip>
                                                         <TooltipTrigger asChild>
                                                             <Button
-                                                                onClick={() => setShowAudioHistory(true)}
+                                                                onClick={() =>
+                                                                    setShowAudioHistory(true)
+                                                                }
                                                                 variant="default"
                                                                 className="font-semibold"
                                                                 style={{
-                                                                    backgroundColor: "var(--vscode-button-background)",
+                                                                    backgroundColor:
+                                                                        "var(--vscode-button-background)",
                                                                     color: "var(--vscode-button-foreground)",
                                                                     border: "1px solid var(--vscode-button-border)",
                                                                 }}
@@ -2211,7 +2291,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                             minWidth: "1.5rem",
                                                                             height: "1.25rem",
                                                                             padding: "0 6px",
-                                                                            backgroundColor: "var(--vscode-badge-background)",
+                                                                            backgroundColor:
+                                                                                "var(--vscode-badge-background)",
                                                                             color: "var(--vscode-badge-foreground)",
                                                                             border: "1px solid var(--vscode-panel-border)",
                                                                             fontSize: "0.75rem",
@@ -2225,7 +2306,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             </Button>
                                                         </TooltipTrigger>
                                                         <TooltipContent>
-                                                            <p>View all previous recordings for this cell</p>
+                                                            <p>
+                                                                View all previous recordings for
+                                                                this cell
+                                                            </p>
                                                         </TooltipContent>
                                                     </Tooltip>
                                                 </TooltipProvider>
@@ -2293,16 +2377,18 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         </p>
                                     )}
 
-                                    {recordingStatus && recordingStatus !== "Audio loaded" && !isTranscribing && (
-                                        <Badge
-                                            variant={isRecording ? "destructive" : "secondary"}
-                                            className={`self-center ${
-                                                isRecording ? "animate-pulse" : ""
-                                            }`}
-                                        >
-                                            {recordingStatus}
-                                        </Badge>
-                                    )}
+                                    {recordingStatus &&
+                                        recordingStatus !== "Audio loaded" &&
+                                        !isTranscribing && (
+                                            <Badge
+                                                variant={isRecording ? "destructive" : "secondary"}
+                                                className={`self-center ${
+                                                    isRecording ? "animate-pulse" : ""
+                                                }`}
+                                            >
+                                                {recordingStatus}
+                                            </Badge>
+                                        )}
                                 </div>
                             )}
                         </div>
