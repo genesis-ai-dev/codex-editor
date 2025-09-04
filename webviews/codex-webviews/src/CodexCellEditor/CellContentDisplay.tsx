@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useRef, useState, useMemo } from "react";
+import React, { useContext, useEffect, useRef, useState, useMemo, useCallback } from "react";
 import {
     EditorCellContent,
     EditorPostMessages,
@@ -346,7 +346,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
         // Helper function to check if this cell should be highlighted
         // Handles parent/child cell matching: child cells in target should highlight parent cells in source
-        const checkShouldHighlight = (): boolean => {
+        const checkShouldHighlight = useCallback((): boolean => {
             return cellIds.some((cellId) => {
                 if (!highlightedCellId || !cellId) return false;
 
@@ -365,7 +365,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
                 return false;
             });
-        };
+        }, [cellIds, highlightedCellId]);
 
         useEffect(() => {
             debug("Before Scrolling to content highlightedCellId", {

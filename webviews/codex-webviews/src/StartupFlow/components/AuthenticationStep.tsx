@@ -5,10 +5,10 @@ import {
     VSCodeProgressRing,
 } from "@vscode/webview-ui-toolkit/react";
 import { AuthState } from "../types";
-import { MessagesToStartupFlowProvider, SourceUploadPostMessages } from "types";
-import { 
-    PasswordDotsIndicator, 
-    validateVisualPassword
+import { MessagesToStartupFlowProvider } from "types";
+import {
+    PasswordDotsIndicator,
+    validateVisualPassword,
 } from "../../components/PasswordDotsIndicator";
 
 interface AuthenticationStepProps {
@@ -30,8 +30,6 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
     const [isRegistering, setIsRegistering] = useState(false);
     const [passwordError, setPasswordError] = useState<string>("");
     const [isLoading, setIsLoading] = useState(false);
-    
-
 
     useEffect(() => {
         if (authState.isAuthenticated) {
@@ -42,18 +40,18 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
 
     const handleUsernameChange = (value: string): void => {
         // Automatically replace spaces with underscores
-        const cleanedUsername = value.replace(/\s/g, '_');
+        const cleanedUsername = value.replace(/\s/g, "_");
         setUsername(cleanedUsername);
     };
 
     const validatePassword = (password: string): boolean => {
         const { isValid, issues } = validateVisualPassword(password, email, username);
-        
+
         if (!isValid) {
-            setPasswordError(issues.join(', '));
+            setPasswordError(issues.join(", "));
             return false;
         }
-        
+
         setPasswordError("");
         return true;
     };
@@ -137,11 +135,13 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
                         style={{ width: "100%" }}
                     />
                     {isRegistering && (
-                        <div style={{ 
-                            fontSize: '0.85em', 
-                            color: 'var(--vscode-descriptionForeground)', 
-                            marginTop: '4px' 
-                        }}>
+                        <div
+                            style={{
+                                fontSize: "0.85em",
+                                color: "var(--vscode-descriptionForeground)",
+                                marginTop: "4px",
+                            }}
+                        >
                             Spaces will be automatically replaced with underscores
                         </div>
                     )}

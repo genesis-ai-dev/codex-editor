@@ -542,7 +542,9 @@ const CellList: React.FC<CellListProps> = ({
             if (unsavedChanges) {
                 try {
                     handleSaveHtml();
-                } catch {}
+                } catch {
+                    console.error("Error saving current edits before opening cell by id force");
+                }
             }
 
             const documentUri =
@@ -825,6 +827,20 @@ const CellList: React.FC<CellListProps> = ({
         saveRetryCount,
         calculateFootnoteOffset,
         renderCellGroup,
+        cellDisplayMode,
+        lineNumbersEnabled,
+        vscode,
+        alertColorCodes,
+        highlightedCellId,
+        scrollSyncEnabled,
+        isCellInTranslationProcess,
+        getCellTranslationState,
+        successfulCompletions.size,
+        handleCellTranslation,
+        audioAttachments,
+        cellCommentsCount,
+        currentUsername,
+        requiredValidations,
     ]);
 
     // Fetch comments count for all visible cells

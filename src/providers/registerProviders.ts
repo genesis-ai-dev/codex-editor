@@ -8,9 +8,48 @@ import { CustomWebviewProvider as ParallelProvider } from "./parallelPassagesWeb
 import { WordsViewProvider } from "./WordsView/WordsViewProvider";
 import { GlobalProvider } from "../globalProvider";
 import { AutomatedTestingProvider } from "./AutomatedTestingProvider";
+import { NewSourceUploaderProvider } from "./NewSourceUploader/NewSourceUploaderProvider";
+import { getWorkSpaceFolder } from "../utils";
 
 export function registerProviders(context: vscode.ExtensionContext) {
     const disposables: vscode.Disposable[] = [];
+
+    // Register Source Uploader Provider
+    disposables.push(
+        vscode.workspace.registerTextDocumentContentProvider("newSourceUploaderProvider-scheme", {
+            provideTextDocumentContent: () => {
+                return "New Source Uploader";
+            },
+        })
+    );
+
+    const newSourceUploadProvider = new NewSourceUploaderProvider(context);
+    disposables.push(
+        vscode.window.registerCustomEditorProvider(
+            NewSourceUploaderProvider.viewType,
+            newSourceUploadProvider,
+            {
+                supportsMultipleEditorsPerDocument: false,
+                webviewOptions: {
+                    retainContextWhenHidden: true,
+                },
+            }
+        )
+    );
+
+    disposables.push(
+        vscode.commands.registerCommand("codex-project-manager.openSourceUpload", () => {
+            const workspaceFolder = getWorkSpaceFolder();
+            if (workspaceFolder) {
+                const uri = vscode.Uri.parse(`newSourceUploaderProvider-scheme:New Source Upload`);
+                vscode.commands.executeCommand(
+                    "vscode.openWith",
+                    uri,
+                    NewSourceUploaderProvider.viewType
+                );
+            }
+        })
+    );
 
     // Register CodexCellEditorProvider
     disposables.push(CodexCellEditorProvider.register(context));

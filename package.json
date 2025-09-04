@@ -18,7 +18,7 @@
         "Other"
     ],
     "activationEvents": [
-        "onCustomEditor:sourceUploadProvider-scheme",
+        "onCustomEditor:newSourceUploaderProvider-scheme",
         "onCustomEditor:startupFlowProvider-scheme",
         "onStartupFinished"
     ],
@@ -836,17 +836,6 @@
             }
         ],
         "customEditors": [
-            {
-                "viewType": "sourceUploadProvider",
-                "displayName": "Source Upload Editor",
-                "selector": [
-                    {
-                        "filenamePattern": "*.sourceUploadProvider",
-                        "scheme": "sourceUploadProvider-scheme"
-                    }
-                ],
-                "priority": "default"
-            },
             {
                 "viewType": "newSourceUploaderProvider",
                 "displayName": "Source Uploader",

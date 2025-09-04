@@ -37,7 +37,6 @@ import { MinimalCellResult, TranslationPair } from "../../../../../types";
 import { getNotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
 import { updateSplashScreenTimings } from "../../../../providers/SplashScreen/register";
 import { FileSyncManager, FileSyncResult } from "../fileSyncManager";
-import { registerBackgroundValidation } from "../../../../validation/backgroundValidationService";
 
 type WordFrequencyMap = Map<string, WordOccurrence[]>;
 
@@ -1940,13 +1939,12 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         isIndexContextInitialized = true;
 
         // Initialize Background Validation Service for automatic integrity checking
-        // This will catch database corruption that file-level sync might miss
+        // Background validation service has been removed with the deprecated transaction system
         try {
             const fileSyncManager = new FileSyncManager(translationPairsIndex);
-            registerBackgroundValidation(context, translationPairsIndex, fileSyncManager);
-            debug("🔍 Background Validation Service registered successfully");
+            debug("📁 File Sync Manager initialized successfully");
         } catch (error) {
-            console.error("🔍 Failed to register Background Validation Service:", error);
+            console.error("📁 Failed to initialize File Sync Manager:", error);
         }
     }
 
