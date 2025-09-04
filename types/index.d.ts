@@ -631,6 +631,7 @@ export type EditorPostMessages =
     | { command: "requestAudioAttachments"; }
     | { command: "requestAudioForCell"; content: { cellId: string; audioId?: string; }; }
     | { command: "getCommentsForCell"; content: { cellId: string; }; }
+    | { command: "getCommentsForCells"; content: { cellIds: string[]; }; }
     | { command: "openCommentsForCell"; content: { cellId: string; }; }
     | {
         command: "saveAudioAttachment";
@@ -725,6 +726,8 @@ type EditorReceiveMessages =
         content: QuillCellContent[];
         isSourceText: boolean;
         sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
+        username?: string;
+        validationCount?: number;
     }
     | {
         type: "preferredEditorTab";
@@ -833,6 +836,12 @@ type EditorReceiveMessages =
         content: {
             cellId: string;
             unresolvedCount: number;
+        };
+    }
+    | {
+        type: "commentsForCells";
+        content: {
+            [cellId: string]: number; // cellId -> unresolvedCount
         };
     }
     | { type: "providerSendsPromptedEditResponse"; content: string; }

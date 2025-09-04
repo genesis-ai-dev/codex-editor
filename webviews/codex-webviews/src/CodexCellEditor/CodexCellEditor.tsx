@@ -416,7 +416,7 @@ const CodexCellEditor: React.FC = () => {
         };
     }, []);
 
-    // Request required validation count once and listen for updates
+    // Listen for validation count updates (initial value comes bundled with content)
     useEffect(() => {
         const handleValidationConfig = (event: MessageEvent) => {
             const message = event.data;
@@ -424,13 +424,11 @@ const CodexCellEditor: React.FC = () => {
                 setRequiredValidations(message.content);
             }
             if (message?.type === "configurationChanged") {
-                // Re-request on configuration changes
-                vscode.postMessage({ command: "getValidationCount" } as EditorPostMessages);
+                // Configuration changes now send validationCount directly, no need to re-request
+                console.log("Configuration changed - validation count will be sent directly");
             }
         };
         window.addEventListener("message", handleValidationConfig);
-        // Initial request
-        vscode.postMessage({ command: "getValidationCount" } as EditorPostMessages);
         return () => window.removeEventListener("message", handleValidationConfig);
     }, [vscode]);
 
@@ -1188,21 +1186,27 @@ const CodexCellEditor: React.FC = () => {
 
         window.addEventListener("message", handleMessage);
 
-        // Send requests with error handling
-        try {
-            vscode.postMessage({
-                command: "getCurrentUsername",
-            });
-
-            debug("auth", "Requested username from extension");
-        } catch (error) {
-            debug("auth", "Error requesting username:", error);
-            // Set default username if we can't even send the request
-            setUsername("anonymous");
-        }
+        // Username now comes bundled with initial content, no separate request needed
+        debug("auth", "Username will be provided with initial content");
 
         return () => window.removeEventListener("message", handleMessage);
     }, [vscode]); // Only run this once with vscode reference as the dependency
+
+    // Handle bundled metadata from initial content (username and validation count)
+    useEffect(() => {
+        const handleBundledMetadata = (event: MessageEvent) => {
+            if (event.data.type === "providerSendsInitialContent") {
+                if (event.data.username !== undefined) {
+                    setUsername(event.data.username);
+                }
+                if (event.data.validationCount !== undefined) {
+                    setRequiredValidations(event.data.validationCount);
+                }
+            }
+        };
+        window.addEventListener("message", handleBundledMetadata);
+        return () => window.removeEventListener("message", handleBundledMetadata);
+    }, []);
 
     // Cleanup save timeout on unmount
     useEffect(() => {

@@ -843,22 +843,23 @@ const CellList: React.FC<CellListProps> = ({
         requiredValidations,
     ]);
 
-    // Fetch comments count for all visible cells
+    // Fetch comments count for all visible cells (batched)
     useEffect(() => {
         const fetchCommentsForAllCells = () => {
-            // Only request counts for cells we don't have yet to avoid redundant traffic
-            workingTranslationUnits.forEach((unit) => {
-                const cellId = unit.cellMarkers[0];
-                if (!cellCommentsCount.has(cellId)) {
-                    const messageContent: EditorPostMessages = {
-                        command: "getCommentsForCell",
-                        content: {
-                            cellId: cellId,
-                        },
-                    };
-                    vscode.postMessage(messageContent);
-                }
-            });
+            // Get all cell IDs we don't have comments for yet
+            const missingCellIds = workingTranslationUnits
+                .map(unit => unit.cellMarkers[0])
+                .filter(cellId => !cellCommentsCount.has(cellId));
+            
+            if (missingCellIds.length > 0) {
+                const messageContent: EditorPostMessages = {
+                    command: "getCommentsForCells",
+                    content: {
+                        cellIds: missingCellIds,
+                    },
+                };
+                vscode.postMessage(messageContent);
+            }
         };
 
         if (workingTranslationUnits.length > 0) {
@@ -866,7 +867,7 @@ const CellList: React.FC<CellListProps> = ({
         }
     }, [workingTranslationUnits, vscode, cellCommentsCount]);
 
-    // Handle comments count responses
+    // Handle comments count responses (both single and batched)
     useEffect(() => {
         const handleCommentsResponse = (event: MessageEvent) => {
             if (event.data.type === "commentsForCell") {
@@ -876,6 +877,15 @@ const CellList: React.FC<CellListProps> = ({
                     newMap.set(cellId, unresolvedCount || 0);
                     return newMap;
                 });
+            } else if (event.data.type === "commentsForCells") {
+                const commentsMap = event.data.content;
+                setCellCommentsCount((prev) => {
+                    const newMap = new Map(prev);
+                    Object.entries(commentsMap).forEach(([cellId, count]) => {
+                        newMap.set(cellId, (count as number) || 0);
+                    });
+                    return newMap;
+                });
             }
         };
 
@@ -883,22 +893,24 @@ const CellList: React.FC<CellListProps> = ({
         return () => window.removeEventListener("message", handleCommentsResponse);
     }, []);
 
-    // Handle refresh comments request
+    // Handle refresh comments request (batched)
     useEffect(() => {
         const handleRefreshComments = (event: MessageEvent) => {
             if (event.data.type === "refreshCommentCounts") {
                 console.log("Refreshing comment counts due to comments file change");
-                // Re-fetch comments count for all cells
-                workingTranslationUnits.forEach((unit) => {
-                    const cellId = unit.cellMarkers[0];
+                // Re-fetch comments count for all visible cells in one batch
+                const allCellIds = workingTranslationUnits.map(unit => unit.cellMarkers[0]);
+                if (allCellIds.length > 0) {
                     const messageContent: EditorPostMessages = {
-                        command: "getCommentsForCell",
+                        command: "getCommentsForCells",
                         content: {
-                            cellId: cellId,
+                            cellIds: allCellIds,
                         },
                     };
                     vscode.postMessage(messageContent);
-                });
+                    // Clear existing counts to force refresh
+                    setCellCommentsCount(new Map());
+                }
             }
         };
 

@@ -96,7 +96,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
 
     // Update validation state when editHistory changes
     useEffect(() => {
-        fetchValidationCount();
+        // Validation count is now bundled with initial content, no need to fetch repeatedly
 
         // Check if there are any edits
         if (!cell.editHistory || cell.editHistory.length === 0) {
@@ -128,14 +128,11 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
 
     // Get the current username when component mounts and listen for configuration changes
     useEffect(() => {
-        // If parent supplied username, use it and skip request
+        // Username is now bundled with initial content and passed down from parent
         if (currentUsername) {
             setUsername(currentUsername);
-        } else {
-            vscode.postMessage({
-                command: "getCurrentUsername",
-            });
         }
+        // No need to request username separately - it comes bundled with initial content
 
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
@@ -172,9 +169,8 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                     }
                 }
             } else if (message.type === "configurationChanged") {
-                // When configuration changes, refetch the validation count
-                console.log("Configuration changed, refetching validation count");
-                fetchValidationCount();
+                // Configuration changes now send validationCount directly, no need to refetch
+                console.log("Configuration changed - validation count will be sent directly");
             } else if (message.command === "updateValidationCount") {
                 setValidationUsers(message.content.validations || []);
                 if (requiredValidationsProp == null) {

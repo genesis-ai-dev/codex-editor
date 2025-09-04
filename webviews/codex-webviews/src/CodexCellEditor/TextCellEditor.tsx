@@ -425,19 +425,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     }, [cellLabel]);
 
     // Fetch comments count for this cell
-    useEffect(() => {
-        const fetchCommentsCount = () => {
-            const messageContent: EditorPostMessages = {
-                command: "getCommentsForCell",
-                content: {
-                    cellId: cellMarkers[0],
-                },
-            };
-            window.vscodeApi.postMessage(messageContent);
-        };
-
-        fetchCommentsCount();
-    }, [cellMarkers]);
+    // Comments count now handled by CellList.tsx batched requests
 
     // Handle comments count response
     useEffect(() => {

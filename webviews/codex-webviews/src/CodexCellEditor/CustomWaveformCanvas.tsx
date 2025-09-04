@@ -276,7 +276,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         [normalize]
     );
 
-    // Eagerly decode peaks/duration in the background when the cell opens
+    // Decode audio when audio data becomes available (but defer expensive operations)
     useEffect(() => {
         let cancelled = false;
         const decode = async () => {
@@ -291,17 +291,26 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                 }
                 if (!arrayBuffer) return;
                 if (cancelled) return;
-                const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-                if (cancelled) return;
-                if (isFinite(audioBuffer.duration) && audioBuffer.duration > 0) {
-                    setDuration(audioBuffer.duration);
-                    setCurrentTime(0);
-                }
-                const generatedPeaks = await generatePeaks(audioBuffer, numberOfBars);
-                if (cancelled) return;
-                setPeaks(generatedPeaks);
-                hasLoadedRef.current = true;
+                
+                // Use a low-priority timeout to avoid blocking the UI thread
+                setTimeout(async () => {
+                    try {
+                        if (cancelled) return;
+                        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                        if (cancelled) return;
+                        if (isFinite(audioBuffer.duration) && audioBuffer.duration > 0) {
+                            setDuration(audioBuffer.duration);
+                            setCurrentTime(0);
+                        }
+                        const generatedPeaks = await generatePeaks(audioBuffer, numberOfBars);
+                        if (cancelled) return;
+                        setPeaks(generatedPeaks);
+                        hasLoadedRef.current = true;
+                    } catch {
+                        // Ignore; will retry on interaction
+                    }
+                }, 100); // Small delay to avoid blocking cell opening
             } catch {
                 // Ignore; will retry on interaction
             }
@@ -327,33 +336,19 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
 
     const ensurePeaksLoaded = useCallback(async () => {
         if (hasLoadedRef.current) return;
-        setError(null);
-        try {
-            let arrayBuffer: ArrayBuffer;
-            if (audioBlob) {
-                arrayBuffer = await audioBlob.arrayBuffer();
-            } else {
-                const response = await fetch(audioUrl);
-                if (!response.ok) throw new Error("Failed to fetch audio");
-                arrayBuffer = await response.arrayBuffer();
-            }
-
-            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-
-            if (isFinite(audioBuffer.duration) && audioBuffer.duration > 0) {
-                setDuration(audioBuffer.duration);
-                setCurrentTime(0);
-            }
-
-            const generatedPeaks = await generatePeaks(audioBuffer, numberOfBars);
-            setPeaks(generatedPeaks);
-
-            hasLoadedRef.current = true;
-        } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to load audio");
-        }
-    }, [audioUrl, audioBlob, numberOfBars, generatePeaks]);
+        
+        // Wait for the automatic decoding to complete (it should already be in progress)
+        return new Promise<void>((resolve) => {
+            const checkLoaded = () => {
+                if (hasLoadedRef.current) {
+                    resolve();
+                } else {
+                    setTimeout(checkLoaded, 50);
+                }
+            };
+            checkLoaded();
+        });
+    }, []);
 
     // Draw waveform
     const drawWaveform = useCallback(() => {

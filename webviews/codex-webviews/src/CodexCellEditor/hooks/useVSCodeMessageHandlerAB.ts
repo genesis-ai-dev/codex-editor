@@ -58,7 +58,7 @@ interface UseVSCodeMessageHandlerProps {
     singleCellTranslationFailed?: () => void;
     setChapterNumber?: (chapterNumber: number) => void;
     setAudioAttachments: (attachments: { [cellId: string]: boolean; }) => void;
-    
+
     // A/B testing handlers
     showABTestVariants?: (data: { variants: string[]; cellId: string; testId: string; }) => void;
 }
@@ -100,6 +100,7 @@ export const useVSCodeMessageHandler = ({
             switch (message.type) {
                 case "providerSendsInitialContent":
                     setContent(message.content, message.isSourceText, message.sourceCellMap);
+                    // Bundled metadata (username, validationCount) is handled separately in CodexCellEditor.tsx
                     break;
                 case "providerSendsSpellCheckResponse":
                     setSpellCheckResponse(message.content);

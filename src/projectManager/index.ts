@@ -176,12 +176,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
 
                         console.log("Metadata file directly updated with validation count:", count);
 
-                        // Force codex editors to re-fetch the validation count
-                        // This will cause the validation status indicators to be updated
-                        // This is needed because the configuration change listener might not trigger immediately
-                        await vscode.commands.executeCommand(
-                            "codex-editor-extension.updateValidationIndicators"
-                        );
+                        // Configuration change listener will automatically handle validation count updates
                     } catch (error) {
                         console.error("Error updating metadata file directly:", error);
 
