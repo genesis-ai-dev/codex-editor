@@ -100,6 +100,7 @@ export const useVSCodeMessageHandler = ({
             switch (message.type) {
                 case "providerSendsInitialContent":
                     setContent(message.content, message.isSourceText, message.sourceCellMap);
+                    // Bundled metadata (username, validationCount) is handled separately in CodexCellEditor.tsx
                     break;
                 case "providerSendsSpellCheckResponse":
                     setSpellCheckResponse(message.content);

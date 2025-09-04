@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { QuillCellContent, ValidationEntry } from "../../../../types";
 import { getCellValueData } from "@sharedUtils";
+import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 
 // Helper function to check if an entry is a valid ValidationEntry object
 export function isValidValidationEntry(entry: any): entry is ValidationEntry {
@@ -96,7 +97,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
 
     // Update validation state when editHistory changes
     useEffect(() => {
-        fetchValidationCount();
+        // Validation count is now bundled with initial content, no need to fetch repeatedly
 
         // Check if there are any edits
         if (!cell.editHistory || cell.editHistory.length === 0) {
@@ -128,79 +129,72 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
 
     // Get the current username when component mounts and listen for configuration changes
     useEffect(() => {
-        // If parent supplied username, use it and skip request
+        // Username is now bundled with initial content and passed down from parent
         if (currentUsername) {
             setUsername(currentUsername);
-        } else {
-            vscode.postMessage({
-                command: "getCurrentUsername",
-            });
         }
+        // No need to request username separately - it comes bundled with initial content
+    }, [currentUsername]);
 
-        const handleMessage = (event: MessageEvent) => {
-            const message = event.data;
-            if (!currentUsername && message.type === "currentUsername") {
-                setUsername(message.content.username);
-            } else if (requiredValidationsProp == null && message.type === "validationCount") {
-                setRequiredValidations(message.content);
+    useMessageHandler("validationButton", (event: MessageEvent) => {
+        const message = event.data;
+        if (!currentUsername && message.type === "currentUsername") {
+            setUsername(message.content.username);
+        } else if (requiredValidationsProp == null && message.type === "validationCount") {
+            setRequiredValidations(message.content);
 
-                // The component will re-render with the new requiredValidations value
-                // which will recalculate isFullyValidated in the render function
-            } else if (message.type === "providerUpdatesValidationState") {
-                // Handle validation state updates from the backend
-                if (message.content.cellId === cellId) {
-                    const validatedBy = message.content.validatedBy || [];
-                    if (username) {
-                        // Check if the user has an active validation (not deleted)
-                        const userEntry = validatedBy.find(
-                            (entry: any) =>
-                                isValidValidationEntry(entry) &&
-                                entry.username === username &&
-                                !entry.isDeleted
-                        );
-                        setIsValidated(!!userEntry);
+            // The component will re-render with the new requiredValidations value
+            // which will recalculate isFullyValidated in the render function
+        } else if (message.type === "providerUpdatesValidationState") {
+            // Handle validation state updates from the backend
+            if (message.content.cellId === cellId) {
+                const validatedBy = message.content.validatedBy || [];
+                if (username) {
+                    // Check if the user has an active validation (not deleted)
+                    const userEntry = validatedBy.find(
+                        (entry: any) =>
+                            isValidValidationEntry(entry) &&
+                            entry.username === username &&
+                            !entry.isDeleted
+                    );
+                    setIsValidated(!!userEntry);
 
-                        // Update the list of validation users
-                        const activeValidations = validatedBy.filter(
-                            (entry: any) => isValidValidationEntry(entry) && !entry.isDeleted
-                        );
-                        setValidationUsers(activeValidations);
+                    // Update the list of validation users
+                    const activeValidations = validatedBy.filter(
+                        (entry: any) => isValidValidationEntry(entry) && !entry.isDeleted
+                    );
+                    setValidationUsers(activeValidations);
 
-                        // Validation is complete, clear pending state
-                        setIsPendingValidation(false);
-                        setIsValidationInProgress(false);
-                    }
+                    // Validation is complete, clear pending state
+                    setIsPendingValidation(false);
+                    setIsValidationInProgress(false);
                 }
-            } else if (message.type === "configurationChanged") {
-                // When configuration changes, refetch the validation count
-                console.log("Configuration changed, refetching validation count");
-                fetchValidationCount();
-            } else if (message.command === "updateValidationCount") {
-                setValidationUsers(message.content.validations || []);
-                if (requiredValidationsProp == null) {
-                    setRequiredValidations(message.content.requiredValidations || 1);
-                }
-                setIsValidated(message.content.isValidated);
-                setUserCreatedLatestEdit(message.content.userCreatedLatestEdit);
-            } else if (message.type === "validationInProgress") {
-                // Handle validation in progress message
-                if (message.content.cellId === cellId) {
-                    setIsValidationInProgress(message.content.inProgress);
-                    if (!message.content.inProgress) {
-                        // If validation is complete, clear pending state as well
-                        setIsPendingValidation(false);
-                    }
-                }
-            } else if (message.type === "pendingValidationCleared") {
-                // Handle when all pending validations are cleared
-                if (message.content.cellIds.includes(cellId)) {
+            }
+        } else if (message.type === "configurationChanged") {
+            // Configuration changes now send validationCount directly, no need to refetch
+            console.log("Configuration changed - validation count will be sent directly");
+        } else if (message.command === "updateValidationCount") {
+            setValidationUsers(message.content.validations || []);
+            if (requiredValidationsProp == null) {
+                setRequiredValidations(message.content.requiredValidations || 1);
+            }
+            setIsValidated(message.content.isValidated);
+            setUserCreatedLatestEdit(message.content.userCreatedLatestEdit);
+        } else if (message.type === "validationInProgress") {
+            // Handle validation in progress message
+            if (message.content.cellId === cellId) {
+                setIsValidationInProgress(message.content.inProgress);
+                if (!message.content.inProgress) {
+                    // If validation is complete, clear pending state as well
                     setIsPendingValidation(false);
                 }
             }
-        };
-
-        window.addEventListener("message", handleMessage);
-        return () => window.removeEventListener("message", handleMessage);
+        } else if (message.type === "pendingValidationCleared") {
+            // Handle when all pending validations are cleared
+            if (message.content.cellIds.includes(cellId)) {
+                setIsPendingValidation(false);
+            }
+        }
     }, [cellId, username, currentUsername, requiredValidationsProp]);
 
     // Close popover when clicking outside of it

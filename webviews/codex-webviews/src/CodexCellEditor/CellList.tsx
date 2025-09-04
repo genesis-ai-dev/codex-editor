@@ -16,6 +16,7 @@ import { getEmptyCellTranslationStyle, CellTranslationState } from "./CellTransl
 import AnimatedReveal from "../components/AnimatedReveal";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import CommentsBadge from "./CommentsBadge";
+import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 
 export interface CellListProps {
     spellCheckResponse: SpellCheckResponse | null;
@@ -542,7 +543,9 @@ const CellList: React.FC<CellListProps> = ({
             if (unsavedChanges) {
                 try {
                     handleSaveHtml();
-                } catch {}
+                } catch {
+                    console.error("Error saving current edits before opening cell by id force");
+                }
             }
 
             const documentUri =
@@ -825,24 +828,39 @@ const CellList: React.FC<CellListProps> = ({
         saveRetryCount,
         calculateFootnoteOffset,
         renderCellGroup,
+        cellDisplayMode,
+        lineNumbersEnabled,
+        vscode,
+        alertColorCodes,
+        highlightedCellId,
+        scrollSyncEnabled,
+        isCellInTranslationProcess,
+        getCellTranslationState,
+        successfulCompletions.size,
+        handleCellTranslation,
+        audioAttachments,
+        cellCommentsCount,
+        currentUsername,
+        requiredValidations,
     ]);
 
-    // Fetch comments count for all visible cells
+    // Fetch comments count for all visible cells (batched)
     useEffect(() => {
         const fetchCommentsForAllCells = () => {
-            // Only request counts for cells we don't have yet to avoid redundant traffic
-            workingTranslationUnits.forEach((unit) => {
-                const cellId = unit.cellMarkers[0];
-                if (!cellCommentsCount.has(cellId)) {
-                    const messageContent: EditorPostMessages = {
-                        command: "getCommentsForCell",
-                        content: {
-                            cellId: cellId,
-                        },
-                    };
-                    vscode.postMessage(messageContent);
-                }
-            });
+            // Get all cell IDs we don't have comments for yet
+            const missingCellIds = workingTranslationUnits
+                .map(unit => unit.cellMarkers[0])
+                .filter(cellId => !cellCommentsCount.has(cellId));
+            
+            if (missingCellIds.length > 0) {
+                const messageContent: EditorPostMessages = {
+                    command: "getCommentsForCells",
+                    content: {
+                        cellIds: missingCellIds,
+                    },
+                };
+                vscode.postMessage(messageContent);
+            }
         };
 
         if (workingTranslationUnits.length > 0) {
@@ -850,44 +868,45 @@ const CellList: React.FC<CellListProps> = ({
         }
     }, [workingTranslationUnits, vscode, cellCommentsCount]);
 
-    // Handle comments count responses
-    useEffect(() => {
-        const handleCommentsResponse = (event: MessageEvent) => {
-            if (event.data.type === "commentsForCell") {
-                const { cellId, unresolvedCount } = event.data.content;
-                setCellCommentsCount((prev) => {
-                    const newMap = new Map(prev);
-                    newMap.set(cellId, unresolvedCount || 0);
-                    return newMap;
+    // Handle comments count responses (both single and batched)
+    useMessageHandler("cellList-commentsResponse", (event: MessageEvent) => {
+        if (event.data.type === "commentsForCell") {
+            const { cellId, unresolvedCount } = event.data.content;
+            setCellCommentsCount((prev) => {
+                const newMap = new Map(prev);
+                newMap.set(cellId, unresolvedCount || 0);
+                return newMap;
+            });
+        } else if (event.data.type === "commentsForCells") {
+            const commentsMap = event.data.content;
+            setCellCommentsCount((prev) => {
+                const newMap = new Map(prev);
+                Object.entries(commentsMap).forEach(([cellId, count]) => {
+                    newMap.set(cellId, (count as number) || 0);
                 });
-            }
-        };
-
-        window.addEventListener("message", handleCommentsResponse);
-        return () => window.removeEventListener("message", handleCommentsResponse);
+                return newMap;
+            });
+        }
     }, []);
 
-    // Handle refresh comments request
-    useEffect(() => {
-        const handleRefreshComments = (event: MessageEvent) => {
-            if (event.data.type === "refreshCommentCounts") {
-                console.log("Refreshing comment counts due to comments file change");
-                // Re-fetch comments count for all cells
-                workingTranslationUnits.forEach((unit) => {
-                    const cellId = unit.cellMarkers[0];
-                    const messageContent: EditorPostMessages = {
-                        command: "getCommentsForCell",
-                        content: {
-                            cellId: cellId,
-                        },
-                    };
-                    vscode.postMessage(messageContent);
-                });
+    // Handle refresh comments request (batched)
+    useMessageHandler("cellList-refreshComments", (event: MessageEvent) => {
+        if (event.data.type === "refreshCommentCounts") {
+            console.log("Refreshing comment counts due to comments file change");
+            // Re-fetch comments count for all visible cells in one batch
+            const allCellIds = workingTranslationUnits.map(unit => unit.cellMarkers[0]);
+            if (allCellIds.length > 0) {
+                const messageContent: EditorPostMessages = {
+                    command: "getCommentsForCells",
+                    content: {
+                        cellIds: allCellIds,
+                    },
+                };
+                vscode.postMessage(messageContent);
+                // Clear existing counts to force refresh
+                setCellCommentsCount(new Map());
             }
-        };
-
-        window.addEventListener("message", handleRefreshComments);
-        return () => window.removeEventListener("message", handleRefreshComments);
+        }
     }, [workingTranslationUnits, vscode]);
 
     // Debug log to see the structure of translationUnits

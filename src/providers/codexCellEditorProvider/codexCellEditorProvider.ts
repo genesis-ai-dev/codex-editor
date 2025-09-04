@@ -177,10 +177,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Listen for configuration changes
         const configurationChangeDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration("codex-project-manager.validationCount")) {
-                // Notify all webviews about the configuration change
+                // Send updated validation count directly instead of triggering webview requests
+                const config = vscode.workspace.getConfiguration("codex-project-manager");
+                const validationCount = config.get("validationCount", 1);
                 this.webviewPanels.forEach((panel) => {
                     this.postMessageToWebview(panel, {
-                        type: "configurationChanged",
+                        type: "validationCount",
+                        content: validationCount,
                     });
                 });
 
@@ -403,16 +406,25 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
 
         // Create update function
-        const updateWebview = () => {
+        const updateWebview = async () => {
             debug("Updating webview");
             const notebookData: CodexNotebookAsJSONData = this.getDocumentAsJson(document);
             const processedData = this.processNotebookData(notebookData, document);
+
+            // Get bundled metadata to avoid separate requests
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            const validationCount = config.get("validationCount", 1);
+            const authApi = await this.getAuthApi();
+            const userInfo = await authApi?.getUserInfo();
+            const username = userInfo?.username || "anonymous";
 
             this.postMessageToWebview(webviewPanel, {
                 type: "providerSendsInitialContent",
                 content: processedData,
                 isSourceText: isSourceText,
                 sourceCellMap: document._sourceCellMap,
+                username: username,
+                validationCount: validationCount,
             });
 
             // Also send updated metadata to ensure font size changes are reflected
@@ -1546,7 +1558,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         safePostMessageToPanel(webviewPanel, message);
     }
 
-    public refreshWebview(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument) {
+    public async refreshWebview(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument) {
         debug("Refreshing webview");
         const notebookData = this.getDocumentAsJson(document);
         const processedData = this.processNotebookData(notebookData, document);
@@ -1560,11 +1572,20 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             isSourceText
         );
 
+        // Get bundled metadata to avoid separate requests
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        const validationCount = config.get("validationCount", 1);
+        const authApi = await this.getAuthApi();
+        const userInfo = await authApi?.getUserInfo();
+        const username = userInfo?.username || "anonymous";
+
         this.postMessageToWebview(webviewPanel, {
             type: "providerSendsInitialContent",
             content: processedData,
             isSourceText: isSourceText,
             sourceCellMap: document._sourceCellMap,
+            username: username,
+            validationCount: validationCount,
         });
 
         this.postMessageToWebview(webviewPanel, {
@@ -1738,7 +1759,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 mergeEvent,
                 targetPanel,
                 targetDocument,
-                () => this.refreshWebview(targetPanel, targetDocument),
+                async () => await this.refreshWebview(targetPanel, targetDocument),
                 this
             );
 
@@ -1831,7 +1852,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Refresh the target webview if it's open
             const targetPanel = this.webviewPanels.get(targetDocumentUri);
             if (targetPanel) {
-                this.refreshWebview(targetPanel, targetDocument);
+                await this.refreshWebview(targetPanel, targetDocument);
             }
 
             vscode.window.showInformationMessage(
@@ -1868,11 +1889,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             if (processedDocuments.has(docUri)) return;
             processedDocuments.add(docUri);
 
-            // Send the current validation count to each panel
-            this.postMessageToWebview(panel, {
-                type: "validationCount",
-                content: validationCount,
-            });
+            // Validation count now bundled with initial content, no separate send needed
 
             // Try to find the document
             // The document might be the current document
@@ -1927,13 +1944,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             `Updating validation indicators for all documents with validation count: ${validationCount}`
         );
 
-        // Send to all webviews
-        this.webviewPanels.forEach((panel) => {
-            this.postMessageToWebview(panel, {
-                type: "validationCount",
-                content: validationCount,
-            });
-        });
+        // Validation count now bundled with initial content, only send on actual config changes
 
         // Also refresh the validation state to ensure displays are consistent
         this.refreshValidationStateForAllDocuments();
@@ -2263,7 +2274,29 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                     // If multiple variants are present, send to the webview for selection
                     if (completionResult && Array.isArray((completionResult as any).variants) && (completionResult as any).variants.length > 1) {
-                        const { variants, testId, names } = completionResult as any;
+                        const { variants, testId, testName, names } = completionResult as any;
+
+                        // If variants are identical (ignoring whitespace), treat as single completion
+                        try {
+                            const normalize = (s: string) => (s || "").replace(/\s+/g, " ").trim();
+                            const allIdentical = variants.every((v: string) => normalize(v) === normalize(variants[0]));
+                            if (allIdentical) {
+                                const singleCompletion = variants[0] ?? "";
+                                progress.report({ message: "Updating document...", increment: 40 });
+                                this.updateSingleCellTranslation(0.9);
+                                currentDocument.updateCellContent(
+                                    currentCellId,
+                                    singleCompletion,
+                                    EditType.LLM_GENERATION,
+                                    shouldUpdateValue
+                                );
+                                this.updateSingleCellTranslation(1.0);
+                                debug("LLM completion result (identical variants)", { completion: singleCompletion?.slice?.(0, 80) });
+                                return singleCompletion;
+                            }
+                        } catch (e) {
+                            debug("Error comparing variants for identity; proceeding with A/B UI", { error: e });
+                        }
 
                         // Compute simple win rates per variant name from stored JSONL
                         let winRates: Record<string, { wins: number; total: number; winRate: number; }> | undefined;
@@ -2308,14 +2341,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
 
                         if (webviewPanel) {
+                            const abProb = (vscode.workspace.getConfiguration("codex-editor-extension").get("abTestingProbability") as number) ?? 0;
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerSendsABTestVariants",
                                 content: {
                                     variants,
                                     cellId: currentCellId,
                                     testId: testId || `${currentCellId}-${Date.now()}`,
+                                    testName,
                                     names,
                                     winRates,
+                                    abProbability: Math.max(0, Math.min(1, abProb)),
                                 },
                             } as any);
                         }
@@ -2833,7 +2869,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     /**
      * Toggles the correction editor mode and notifies all webviews
      */
-    public toggleCorrectionEditorMode(): void {
+    public async toggleCorrectionEditorMode(): Promise<void> {
         this.isCorrectionEditorMode = !this.isCorrectionEditorMode;
         debug("Correction editor mode toggled:", this.isCorrectionEditorMode);
 
@@ -2851,11 +2887,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         });
 
         // Refresh all webviews to show/hide merged cells appropriately
-        this.webviewPanels.forEach((panel, docUri) => {
+        for (const [docUri, panel] of this.webviewPanels) {
             if (this.currentDocument && docUri === this.currentDocument.uri.toString()) {
-                this.refreshWebview(panel, this.currentDocument);
+                await this.refreshWebview(panel, this.currentDocument);
             }
-        });
+        }
     }
 
     /**
