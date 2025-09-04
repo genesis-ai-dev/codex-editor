@@ -716,7 +716,8 @@ export type EditorPostMessages =
             selectionTimeMs: number;
             totalVariants: number;
         };
-    };
+    }
+    | { command: "adjustABTestingProbability"; content: { delta: number; }; };
 
 
 
@@ -827,7 +828,8 @@ type EditorReceiveMessages =
     }
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl"; }
     | { type: "providerSendsLLMCompletionResponse"; content: { completion: string; cellId: string; }; }
-    | { type: "providerSendsABTestVariants"; content: { variants: string[]; cellId: string; testId: string; names?: string[]; winRates?: number[]; }; }
+    | { type: "providerSendsABTestVariants"; content: { variants: string[]; cellId: string; testId: string; names?: string[]; winRates?: Record<string, { wins: number; total: number; winRate: number; }>; abProbability?: number; }; }
+    | { type: "abTestingProbabilityUpdated"; content: { value: number; }; }
     | { type: "jumpToSection"; content: string; }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }

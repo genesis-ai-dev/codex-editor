@@ -1,18 +1,20 @@
 import * as vscode from "vscode";
 import { CompletionConfig } from "@/utils/llmUtils";
 import { callLLM } from "../../utils/llmUtils";
-import { ChatMessage, MinimalCellResult, TranslationPair } from "../../../types";
+import { ChatMessage, MinimalCellResult } from "../../../types";
 import { CodexNotebookReader } from "../../serializer";
 import { CodexCellTypes } from "../../../types/enums";
 import { getAutoCompleteStatusBarItem } from "../../extension";
 import { tokenizeText } from "../../utils/nlpUtils";
 import { buildFewShotExamplesText, buildMessages, fetchFewShotExamples, getPrecedingTranslationPairs } from "./shared";
+import { abTestingRegistry } from "../../utils/abTestingRegistry";
 // A/B testing disabled for now
 
 export interface LLMCompletionResult {
     variants: string[]; // Always present; length 1 for non-AB scenarios
     isABTest: boolean; // True only when variants.length > 1
     testId?: string;
+    names?: string[];
 }
 
 export async function llmCompletion(
@@ -140,7 +142,113 @@ export async function llmCompletion(
                 fewShotExampleFormat || "source-and-target"
             );
 
-            // A/B testing disabled: call LLM once, return single variant
+            // Unified AB testing via registry with random test selection (global gating)
+            const extConfig = vscode.workspace.getConfiguration("codex-editor-extension");
+            const abEnabled = Boolean(extConfig.get("abTestingEnabled"));
+            const abProbability = Math.max(0, Math.min(1, Number(extConfig.get("abTestingProbability")) || 0));
+            const triggerAB = abEnabled && Math.random() < abProbability;
+
+            if (triggerAB) {
+                const candidates = [
+                    "searchAlgorithm",
+                    "fewShotFormat",
+                    // "llmGeneration" // intentionally disabled for now
+                ] as const;
+                const available = candidates.filter((name) => !!abTestingRegistry.get(name as any));
+                const pick = available.length > 0 ? available[Math.floor(Math.random() * available.length)] : null;
+
+                if (pick === "searchAlgorithm") {
+                    try {
+                        const searchCtx = {
+                            vscodeWorkspaceConfig: extConfig,
+                            executeCommand: vscode.commands.executeCommand,
+                            currentCellId: currentCellId,
+                            currentCellSourceContent,
+                            numberOfFewShotExamples,
+                            useOnlyValidatedExamples: Boolean(completionConfig.useOnlyValidatedExamples),
+                            allowHtmlPredictions: Boolean(completionConfig.allowHtmlPredictions),
+                            fewShotExampleFormat: fewShotExampleFormat || "source-and-target",
+                            targetLanguage,
+                            systemMessage,
+                            userMessageInstructions,
+                            precedingTranslationPairs,
+                            completionConfig,
+                            token,
+                        } as any;
+
+                        const searchResult = await abTestingRegistry.maybeRun<typeof searchCtx, string>(
+                            "searchAlgorithm",
+                            searchCtx
+                        );
+
+                        const allowHtml = Boolean(completionConfig.allowHtmlPredictions);
+                        const postProcess = (txt: string) => {
+                            const lines = (txt || "").split(/\r?\n/);
+                            const processed = lines.map((line) => line.replace(/^\s*.*?->\s*/, "").trimEnd()).join(allowHtml || returnHTML ? "<br/>" : "\n");
+                            return allowHtml ? (returnHTML ? processed : processed) : (returnHTML ? `<span>${processed}</span>` : processed);
+                        };
+
+                        if (searchResult && Array.isArray(searchResult.variants) && searchResult.variants.length === 2) {
+                            const variants = searchResult.variants.map(postProcess);
+                            return {
+                                variants,
+                                isABTest: true,
+                                testId: `${currentCellId}-searchAB-${Date.now()}`,
+                                names: searchResult.names,
+                            };
+                        }
+                    } catch (e) {
+                        console.warn("[llmCompletion] Registry A/B (searchAlgorithm) failed; falling back", e);
+                    }
+                }
+
+                if (pick === "fewShotFormat") {
+                    try {
+                        const ctx = {
+                            vscodeWorkspaceConfig: extConfig,
+                            executeCommand: vscode.commands.executeCommand,
+                            currentCellId: currentCellId,
+                            currentCellSourceContent,
+                            numberOfFewShotExamples,
+                            useOnlyValidatedExamples: Boolean(completionConfig.useOnlyValidatedExamples),
+                            allowHtmlPredictions: Boolean(completionConfig.allowHtmlPredictions),
+                            fewShotExampleFormat: fewShotExampleFormat || "source-and-target",
+                            targetLanguage,
+                            systemMessage,
+                            userMessageInstructions,
+                            precedingTranslationPairs,
+                            completionConfig,
+                            token,
+                        } as any;
+
+                        const result = await abTestingRegistry.maybeRun<typeof ctx, string>(
+                            "fewShotFormat",
+                            ctx
+                        );
+
+                        const allowHtml = Boolean(completionConfig.allowHtmlPredictions);
+                        const postProcess = (txt: string) => {
+                            const lines = (txt || "").split(/\r?\n/);
+                            const processed = lines.map((line) => line.replace(/^\s*.*?->\s*/, "").trimEnd()).join(allowHtml || returnHTML ? "<br/>" : "\n");
+                            return allowHtml ? (returnHTML ? processed : processed) : (returnHTML ? `<span>${processed}</span>` : processed);
+                        };
+
+                        if (result && Array.isArray(result.variants) && result.variants.length === 2) {
+                            const variants = result.variants.map(postProcess);
+                            return {
+                                variants,
+                                isABTest: true,
+                                testId: `${currentCellId}-fmtAB-${Date.now()}`,
+                                names: result.names,
+                            };
+                        }
+                    } catch (e) {
+                        console.warn("[llmCompletion] Registry A/B (fewShotFormat) failed; falling back", e);
+                    }
+                }
+            }
+
+            // A/B testing not triggered (or failed): call LLM once, return two identical variants
             const completion = await callLLM(messages, completionConfig, token);
             const allowHtml = Boolean(completionConfig.allowHtmlPredictions);
 
@@ -150,9 +258,10 @@ export async function llmCompletion(
                 .map((line) => line.replace(/^\s*.*?->\s*/, "").trimEnd())
                 .join(allowHtml || returnHTML ? "<br/>" : "\n");
 
-            const variants = allowHtml
-                ? (returnHTML ? [processed] : [processed])
-                : (returnHTML ? [`<span>${processed}</span>`] : [processed]);
+            const singleVariant = allowHtml
+                ? (returnHTML ? processed : processed)
+                : (returnHTML ? `<span>${processed}</span>` : processed);
+            const variants = [singleVariant, singleVariant];
 
             if (debugMode) {
                 logDebugMessages(messages, completion, variants);
@@ -160,7 +269,7 @@ export async function llmCompletion(
 
             return {
                 variants,
-                isABTest: false,
+                isABTest: false, // Identical variants – UI should hide A/B controls
             };
         } catch (error) {
             // Check if this is a cancellation error and re-throw as-is

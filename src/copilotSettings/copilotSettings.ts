@@ -207,7 +207,6 @@ export async function openSystemMessageEditor() {
                                 debugMode: false,
                                 useOnlyValidatedExamples: false,
                                 abTestingEnabled: false,
-                                abTestingVariants: 2,
                                 allowHtmlPredictions: allowHtmlPredictions,
                                 fewShotExampleFormat: "source-and-target",
                             };

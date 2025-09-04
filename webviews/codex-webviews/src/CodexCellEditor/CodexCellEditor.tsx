@@ -748,35 +748,24 @@ const CodexCellEditor: React.FC = () => {
         },
         setAudioAttachments: setAudioAttachments,
         showABTestVariants: (data) => {
-            debug(
-                "ab-test",
-                "Received A/B test variants (temporarily auto-applying first and not showing UI):",
-                { cellId: data?.cellId, count: data?.variants?.length }
-            );
+            const { variants, cellId, testId, names, abProbability } = data as any;
+            const count = Array.isArray(variants) ? variants.length : 0;
+            debug("ab-test", "Received A/B test variants:", { cellId, count });
 
-            // Temporarily do not show the A/B selector UI; just apply the first variant if any
-            if (data.variants && data.variants.length > 0 && data.cellId) {
-                applyVariantToCell(
-                    data.cellId,
-                    data.variants[0],
-                    data.testId,
-                    0,
-                    data.variants.length
-                );
+            if (!Array.isArray(variants) || count === 0 || !cellId) return;
 
-                // Send feedback as if variant 0 was selected
-                vscode.postMessage({
-                    command: "selectABTestVariant",
-                    content: {
-                        cellId: data.cellId,
-                        selectedIndex: 0,
-                        testId: data.testId,
-                        selectionTimeMs: 0,
-                        totalVariants: data.variants.length,
-                        names: (data as any).names,
-                    },
-                } as any);
+            // Determine if all variants are effectively identical (normalize whitespace)
+            const norm = (s: string) => (s || "").replace(/\s+/g, " ").trim();
+            const allIdentical = variants.every((v: string) => norm(v) === norm(variants[0]));
+
+            if (count > 1 && !allIdentical) {
+                // Show A/B selector UI
+                setAbTestState({ isActive: true, variants, cellId, testId, names, abProbability });
+                return;
             }
+
+            // Otherwise, auto-apply first variant quietly (no modal)
+            applyVariantToCell(cellId, variants[0], testId, 0, count);
         },
     });
 
@@ -2129,6 +2118,7 @@ const CodexCellEditor: React.FC = () => {
                     cellId={abTestState.cellId}
                     testId={abTestState.testId}
                     names={(abTestState as any).names}
+                    abProbability={(abTestState as any).abProbability}
                     onVariantSelected={(idx, ms) => handleVariantSelected(idx, ms)}
                     onDismiss={handleDismissABTest}
                 />

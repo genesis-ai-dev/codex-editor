@@ -52,6 +52,7 @@ import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/proje
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 import { migrateAudioAttachments } from "./utils/audioAttachmentsMigrationUtils";
 import { registerTestingCommands } from "./evaluation/testingCommands";
+import { initializeABTesting } from "./utils/abTestingSetup";
 
 const DEBUG_MODE = false;
 function debug(...args: any[]): void {
@@ -402,8 +403,8 @@ export async function activate(context: vscode.ExtensionContext) {
             (async () => registerTestingCommands(context))(),
         ]);
 
-        // Initialize A/B testing registry (always-on, simple)
-        // initializeABTesting(); // disabled
+        // Initialize A/B testing registry (always-on)
+        initializeABTesting();
 
         // Track total time for core components
         stepStart = trackTiming("Loading Core Components", coreComponentsStart);

@@ -101,6 +101,41 @@ export async function recordVariantSelection(
             await vscode.workspace.fs.writeFile(abTestPath, newLine);
         }
         console.log(`Recorded variant selection for test ${testId} cell ${cellId}: variant ${selectedIndex}`);
+
+        // Post selection to external analytics if we have variant names
+        try {
+            if (Array.isArray(names) && typeof selectedIndex === "number" && names[selectedIndex]) {
+                const { recordAbEvent, recordAbResult } = await import("./abTestingAnalytics");
+                const variantName = names[selectedIndex];
+                
+                // Map testId pattern to test type name
+                const getTestTypeName = (testId: string): string => {
+                    if (testId.includes('-searchAB-')) {
+                        return "Search Algorithm Test";
+                    } else if (testId.includes('-fmtAB-')) {
+                        return "Source vs Target Inclusion";
+                    }
+                    return testId; // fallback to original if pattern not recognized
+                };
+                
+                const testTypeName = getTestTypeName(testId);
+                
+                // Event: selection counts as a conversion for the chosen variant
+                await recordAbEvent({
+                    testName: testTypeName,
+                    variant: variantName,
+                    outcome: true,
+                });
+                // Result: declare the chosen variant as the winner for this run
+                await recordAbResult({
+                    category: testTypeName,
+                    options: names,
+                    winner: selectedIndex,
+                });
+            }
+        } catch (analyticsError) {
+            console.warn("[A/B] Failed to post analytics", analyticsError);
+        }
     } catch (error) {
         console.error("Failed to record variant selection:", error);
     }

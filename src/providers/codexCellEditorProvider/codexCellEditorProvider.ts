@@ -2276,6 +2276,28 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     if (completionResult && Array.isArray((completionResult as any).variants) && (completionResult as any).variants.length > 1) {
                         const { variants, testId, names } = completionResult as any;
 
+                        // If variants are identical (ignoring whitespace), treat as single completion
+                        try {
+                            const normalize = (s: string) => (s || "").replace(/\s+/g, " ").trim();
+                            const allIdentical = variants.every((v: string) => normalize(v) === normalize(variants[0]));
+                            if (allIdentical) {
+                                const singleCompletion = variants[0] ?? "";
+                                progress.report({ message: "Updating document...", increment: 40 });
+                                this.updateSingleCellTranslation(0.9);
+                                currentDocument.updateCellContent(
+                                    currentCellId,
+                                    singleCompletion,
+                                    EditType.LLM_GENERATION,
+                                    shouldUpdateValue
+                                );
+                                this.updateSingleCellTranslation(1.0);
+                                debug("LLM completion result (identical variants)", { completion: singleCompletion?.slice?.(0, 80) });
+                                return singleCompletion;
+                            }
+                        } catch (e) {
+                            debug("Error comparing variants for identity; proceeding with A/B UI", { error: e });
+                        }
+
                         // Compute simple win rates per variant name from stored JSONL
                         let winRates: Record<string, { wins: number; total: number; winRate: number; }> | undefined;
                         if (names && Array.isArray(names) && names.length > 0) {
@@ -2319,6 +2341,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
 
                         if (webviewPanel) {
+                            const abProb = (vscode.workspace.getConfiguration("codex-editor-extension").get("abTestingProbability") as number) ?? 0;
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerSendsABTestVariants",
                                 content: {
@@ -2327,6 +2350,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     testId: testId || `${currentCellId}-${Date.now()}`,
                                     names,
                                     winRates,
+                                    abProbability: Math.max(0, Math.min(1, abProb)),
                                 },
                             } as any);
                         }
