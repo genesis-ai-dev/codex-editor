@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Button } from "../components/ui/button";
 import { Play, Pause, RotateCcw, Trash2, Download, Clock, User, CheckCircle, Circle } from "lucide-react";
 import { WebviewApi } from "vscode-webview";
+import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 
 interface AudioHistoryEntry {
     attachmentId: string;
@@ -42,51 +43,46 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     }, [cellId, vscode]);
 
     // Listen for audio history response
-    useEffect(() => {
-        const handleMessage = (event: MessageEvent) => {
-            const message = event.data;
-            if (message.type === "audioHistoryReceived" && message.content.cellId === cellId) {
-                setAudioHistory(message.content.audioHistory);
-                // Use the currentAttachmentId from the backend (this reflects the actual selection state)
-                setSelectedAudioId(message.content.currentAttachmentId);
-                setHasExplicitSelection(message.content.hasExplicitSelection);
+    useMessageHandler("audioHistoryViewer", (event: MessageEvent) => {
+        const message = event.data;
+        if (message.type === "audioHistoryReceived" && message.content.cellId === cellId) {
+            setAudioHistory(message.content.audioHistory);
+            // Use the currentAttachmentId from the backend (this reflects the actual selection state)
+            setSelectedAudioId(message.content.currentAttachmentId);
+            setHasExplicitSelection(message.content.hasExplicitSelection);
+        }
+        if (message.type === "audioAttachmentRestored" && message.content.cellId === cellId) {
+            // Refresh audio history after restoration
+            vscode.postMessage({
+                command: "getAudioHistory",
+                content: { cellId }
+            });
+        }
+        if (message.type === "audioAttachmentSelected" && message.content.cellId === cellId) {
+            if (message.content.success) {
+                // Immediately update the selected state
+                setSelectedAudioId(message.content.audioId);
+                setHasExplicitSelection(true);
             }
-            if (message.type === "audioAttachmentRestored" && message.content.cellId === cellId) {
-                // Refresh audio history after restoration
-                vscode.postMessage({
-                    command: "getAudioHistory",
-                    content: { cellId }
-                });
+        }
+        if (message.type === "providerSendsAudioData") {
+            const { cellId: audioCellId, audioId, audioData } = message.content;
+            if (audioCellId === cellId && audioData) {
+                // Convert base64 to blob URL
+                fetch(audioData)
+                    .then(res => res.blob())
+                    .then(blob => {
+                        const blobUrl = URL.createObjectURL(blob);
+                        setAudioUrls(prev => new Map(prev).set(audioId, blobUrl));
+                        setLoadingIds(prev => {
+                            const next = new Set(prev);
+                            next.delete(audioId);
+                            return next;
+                        });
+                    })
+                    .catch(console.error);
             }
-            if (message.type === "audioAttachmentSelected" && message.content.cellId === cellId) {
-                if (message.content.success) {
-                    // Immediately update the selected state
-                    setSelectedAudioId(message.content.audioId);
-                    setHasExplicitSelection(true);
-                }
-            }
-            if (message.type === "providerSendsAudioData") {
-                const { cellId: audioCellId, audioId, audioData } = message.content;
-                if (audioCellId === cellId && audioData) {
-                    // Convert base64 to blob URL
-                    fetch(audioData)
-                        .then(res => res.blob())
-                        .then(blob => {
-                            const blobUrl = URL.createObjectURL(blob);
-                            setAudioUrls(prev => new Map(prev).set(audioId, blobUrl));
-                            setLoadingIds(prev => {
-                                const next = new Set(prev);
-                                next.delete(audioId);
-                                return next;
-                            });
-                        })
-                        .catch(console.error);
-                }
-            }
-        };
-
-        window.addEventListener("message", handleMessage);
-        return () => window.removeEventListener("message", handleMessage);
+        }
     }, [cellId, vscode]);
 
     // Clean up blob URLs on unmount

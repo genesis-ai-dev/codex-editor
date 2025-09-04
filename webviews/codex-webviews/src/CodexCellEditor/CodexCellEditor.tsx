@@ -31,6 +31,7 @@ import { CellTranslationState } from "./CellTranslationStyles";
 import { getVSCodeAPI } from "../shared/vscodeApi";
 import { Subsection } from "../lib/types";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
+import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 
 // eslint-disable-next-line react-refresh/only-export-components
 export enum CELL_DISPLAY_MODES {
@@ -340,97 +341,83 @@ const CodexCellEditor: React.FC = () => {
     };
 
     // Initialize state store after webview is ready
-    useEffect(() => {
-        const handleWebviewReady = (event: MessageEvent) => {
-            if (event.data.type === "webviewReady") {
-                debug("init", "Webview is ready");
-                setIsWebviewReady(true);
-            }
-        };
-        window.addEventListener("message", handleWebviewReady);
-        return () => window.removeEventListener("message", handleWebviewReady);
+    useMessageHandler("codexCellEditor-webviewReady", (event: MessageEvent) => {
+        if (event.data.type === "webviewReady") {
+            debug("init", "Webview is ready");
+            setIsWebviewReady(true);
+        }
     }, []);
 
     // Listen for highlight messages from the extension
-    useEffect(() => {
-        const handleMessage = (event: MessageEvent) => {
-            const message = event.data;
-            if (message.type === "highlightCell") {
-                // Set the highlighted cell ID (null clears the highlight)
-                setHighlightedCellId(message.cellId);
+    useMessageHandler("codexCellEditor-highlightAndValidation", (event: MessageEvent) => {
+        const message = event.data;
+        if (message.type === "highlightCell") {
+            // Set the highlighted cell ID (null clears the highlight)
+            setHighlightedCellId(message.cellId);
 
-                // Reset manual navigation tracking when highlight is cleared
-                if (!message.cellId) {
-                    setHasManuallyNavigatedAway(false);
-                    setLastHighlightedChapter(null);
-                    setChapterWhenHighlighted(null);
-                }
+            // Reset manual navigation tracking when highlight is cleared
+            if (!message.cellId) {
+                setHasManuallyNavigatedAway(false);
+                setLastHighlightedChapter(null);
+                setChapterWhenHighlighted(null);
             }
+        }
 
-            // Add handler for pending validations updates
-            if (message.type === "pendingValidationsUpdate") {
-                setPendingValidationsCount(
-                    message.type === "pendingValidationsUpdate" ? message.content.count : 0
-                );
+        // Add handler for pending validations updates
+        if (message.type === "pendingValidationsUpdate") {
+            setPendingValidationsCount(
+                message.type === "pendingValidationsUpdate" ? message.content.count : 0
+            );
 
-                // If validation count is zero, reset the applying state
-                if (message.content.count === 0) {
-                    setIsApplyingValidations(false);
-                }
-            }
-
-            // Also listen for validation completion message
-            if (message.type === "validationsApplied") {
+            // If validation count is zero, reset the applying state
+            if (message.content.count === 0) {
                 setIsApplyingValidations(false);
             }
+        }
 
-            // Handle file status updates
-            if (message.type === "updateFileStatus") {
-                setFileStatus(message.status);
-            }
+        // Also listen for validation completion message
+        if (message.type === "validationsApplied") {
+            setIsApplyingValidations(false);
+        }
 
-            // Handle cells per page update
-            if (message.type === "updateCellsPerPage") {
-                // Force re-render by updating subsection when cells per page changes
-                setCurrentSubsectionIndex(0);
-                // You could also update cellsPerPage state here if needed
-                // setCellsPerPage(message.cellsPerPage);
-            }
+        // Handle file status updates
+        if (message.type === "updateFileStatus") {
+            setFileStatus(message.status);
+        }
 
-            // Handle correction editor mode changes from provider
-            if (message.type === "correctionEditorModeChanged") {
-                setIsCorrectionEditorMode(message.enabled);
-            }
+        // Handle cells per page update
+        if (message.type === "updateCellsPerPage") {
+            // Force re-render by updating subsection when cells per page changes
+            setCurrentSubsectionIndex(0);
+            // You could also update cellsPerPage state here if needed
+            // setCellsPerPage(message.cellsPerPage);
+        }
 
-            // Handle metadata refresh requests (font size, text direction, etc.)
-            if (message.type === "refreshFontSizes" || message.type === "refreshMetadata") {
-                // Clear temporary font size to ensure new metadata takes effect
-                setTempFontSize(null);
-                // Request updated content to get the new font sizes and metadata
-                vscode.postMessage({ command: "getContent" } as EditorPostMessages);
-            }
-        };
-        window.addEventListener("message", handleMessage);
-        return () => {
-            window.removeEventListener("message", handleMessage);
-        };
-    }, []);
+        // Handle correction editor mode changes from provider
+        if (message.type === "correctionEditorModeChanged") {
+            setIsCorrectionEditorMode(message.enabled);
+        }
+
+        // Handle metadata refresh requests (font size, text direction, etc.)
+        if (message.type === "refreshFontSizes" || message.type === "refreshMetadata") {
+            // Clear temporary font size to ensure new metadata takes effect
+            setTempFontSize(null);
+            // Request updated content to get the new font sizes and metadata
+            vscode.postMessage({ command: "getContent" } as EditorPostMessages);
+        }
+    }, [vscode]);
 
     // Listen for validation count updates (initial value comes bundled with content)
-    useEffect(() => {
-        const handleValidationConfig = (event: MessageEvent) => {
-            const message = event.data;
-            if (message?.type === "validationCount") {
-                setRequiredValidations(message.content);
-            }
-            if (message?.type === "configurationChanged") {
-                // Configuration changes now send validationCount directly, no need to re-request
-                console.log("Configuration changed - validation count will be sent directly");
-            }
-        };
-        window.addEventListener("message", handleValidationConfig);
-        return () => window.removeEventListener("message", handleValidationConfig);
-    }, [vscode]);
+    useMessageHandler("codexCellEditor-validationConfig", (event: MessageEvent) => {
+        const message = event.data;
+        if (message?.type === "validationCount") {
+            setRequiredValidations(message.content);
+        }
+        if (message?.type === "configurationChanged") {
+            // Configuration changes now send validationCount directly, no need to re-request
+            console.log("Configuration changed - validation count will be sent directly");
+        }
+    }, []);
 
     useEffect(() => {
         if (highlightedCellId && scrollSyncEnabled && isSourceText) {
@@ -1160,52 +1147,43 @@ const CodexCellEditor: React.FC = () => {
     // Fetch username from extension and add extensive debugging
     useEffect(() => {
         debug("auth", "Setting up username listener and requesting username");
-
-        const handleMessage = (event: MessageEvent) => {
-            try {
-                debug("auth", "Message received:", event.data);
-                const message = event.data;
-
-                if (message.type === "setUsername" || message.command === "setUsername") {
-                    const newUsername = message.username || message.value;
-                    debug("auth", "Username set to:", newUsername);
-                    setUsername(newUsername || "anonymous");
-                } else if (message.type === "currentUsername") {
-                    debug("auth", "Current username received:", message.content?.username);
-                    setUsername(message.content?.username || "anonymous");
-                } else if (message.type === "error" && message.errorType === "authentication") {
-                    // Handle authentication errors by setting a default username
-                    debug("auth", "Authentication error, using default username");
-                    setUsername("anonymous");
-                }
-            } catch (error) {
-                // Prevent any errors in message handling from breaking the component
-                debug("auth", "Error handling message:", error);
-            }
-        };
-
-        window.addEventListener("message", handleMessage);
-
         // Username now comes bundled with initial content, no separate request needed
         debug("auth", "Username will be provided with initial content");
-
-        return () => window.removeEventListener("message", handleMessage);
     }, [vscode]); // Only run this once with vscode reference as the dependency
 
-    // Handle bundled metadata from initial content (username and validation count)
-    useEffect(() => {
-        const handleBundledMetadata = (event: MessageEvent) => {
-            if (event.data.type === "providerSendsInitialContent") {
-                if (event.data.username !== undefined) {
-                    setUsername(event.data.username);
-                }
-                if (event.data.validationCount !== undefined) {
-                    setRequiredValidations(event.data.validationCount);
-                }
+    useMessageHandler("codexCellEditor-username", (event: MessageEvent) => {
+        try {
+            debug("auth", "Message received:", event.data);
+            const message = event.data;
+
+            if (message.type === "setUsername" || message.command === "setUsername") {
+                const newUsername = message.username || message.value;
+                debug("auth", "Username set to:", newUsername);
+                setUsername(newUsername || "anonymous");
+            } else if (message.type === "currentUsername") {
+                debug("auth", "Current username received:", message.content?.username);
+                setUsername(message.content?.username || "anonymous");
+            } else if (message.type === "error" && message.errorType === "authentication") {
+                // Handle authentication errors by setting a default username
+                debug("auth", "Authentication error, using default username");
+                setUsername("anonymous");
             }
-        };
-        window.addEventListener("message", handleBundledMetadata);
-        return () => window.removeEventListener("message", handleBundledMetadata);
+        } catch (error) {
+            // Prevent any errors in message handling from breaking the component
+            debug("auth", "Error handling message:", error);
+        }
+    }, []);
+
+    // Handle bundled metadata from initial content (username and validation count)
+    useMessageHandler("codexCellEditor-bundledMetadata", (event: MessageEvent) => {
+        if (event.data.type === "providerSendsInitialContent") {
+            if (event.data.username !== undefined) {
+                setUsername(event.data.username);
+            }
+            if (event.data.validationCount !== undefined) {
+                setRequiredValidations(event.data.validationCount);
+            }
+        }
     }, []);
 
     // Cleanup save timeout on unmount
@@ -1817,23 +1795,19 @@ const CodexCellEditor: React.FC = () => {
     };
 
     // Listen for the bible book map from the provider
-    useEffect(() => {
-        const handleMessage = (event: MessageEvent) => {
-            const message = event.data;
-            if (message.type === "setBibleBookMap" && message.data) {
-                debug("map", "Received Bible Book Map from provider", message.data);
-                try {
-                    // Convert the array of entries back into a Map
-                    const newMap = new Map<string, BibleBookInfo>(message.data);
-                    setBibleBookMap(newMap);
-                    debug("map", "Successfully set Bible Book Map in state", newMap);
-                } catch (error) {
-                    console.error("Error processing bible book map data:", error);
-                }
+    useMessageHandler("codexCellEditor-bibleBookMap", (event: MessageEvent) => {
+        const message = event.data;
+        if (message.type === "setBibleBookMap" && message.data) {
+            debug("map", "Received Bible Book Map from provider", message.data);
+            try {
+                // Convert the array of entries back into a Map
+                const newMap = new Map<string, BibleBookInfo>(message.data);
+                setBibleBookMap(newMap);
+                debug("map", "Successfully set Bible Book Map in state", newMap);
+            } catch (error) {
+                console.error("Error processing bible book map data:", error);
             }
-        };
-        window.addEventListener("message", handleMessage);
-        return () => window.removeEventListener("message", handleMessage);
+        }
     }, []);
 
     // Update toggle functions to use the shared VS Code API instance
@@ -1887,19 +1861,14 @@ const CodexCellEditor: React.FC = () => {
     }, [vscode]);
 
     // Listen for editor position and file status updates
-    useEffect(() => {
-        const handleMessage = (event: MessageEvent) => {
-            const message = event.data;
-            if (message.type === "editorPosition") {
-                setEditorPosition(message.position);
-            }
-            if (message.type === "updateFileStatus") {
-                setFileStatus(message.status);
-            }
-        };
-
-        window.addEventListener("message", handleMessage);
-        return () => window.removeEventListener("message", handleMessage);
+    useMessageHandler("codexCellEditor-editorPosition", (event: MessageEvent) => {
+        const message = event.data;
+        if (message.type === "editorPosition") {
+            setEditorPosition(message.position);
+        }
+        if (message.type === "updateFileStatus") {
+            setFileStatus(message.status);
+        }
     }, []);
 
     if (duplicateCellsExist) {

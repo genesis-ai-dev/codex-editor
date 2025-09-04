@@ -21,6 +21,7 @@ import { diffWords } from "diff";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { processHtmlContent, updateFootnoteNumbering } from "./footnoteUtils";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
+import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 
 const icons: any = Quill.import("ui/icons");
 const vscode: any = (window as any).vscodeApi;
@@ -145,50 +146,45 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
     };
 
     // Enhanced message handling for A/B testing
-    useEffect(() => {
-        const handleMessage = (event: MessageEvent) => {
-            if (quillRef.current) {
-                const quill = quillRef.current;
-                if (event.data.type === "providerSendsPromptedEditResponse") {
-                    quill.root.innerHTML = event.data.content;
-                } else if (event.data.type === "providerSendsLLMCompletionResponse") {
-                    const completionText = event.data.content.completion;
-                    const completionCellId = event.data.content.cellId;
+    useMessageHandler("editorWithABTesting", (event: MessageEvent) => {
+        if (quillRef.current) {
+            const quill = quillRef.current;
+            if (event.data.type === "providerSendsPromptedEditResponse") {
+                quill.root.innerHTML = event.data.content;
+            } else if (event.data.type === "providerSendsLLMCompletionResponse") {
+                const completionText = event.data.content.completion;
+                const completionCellId = event.data.content.cellId;
 
-                    // Validate that the completion is for the current cell
-                    if (completionCellId === props.currentLineId) {
-                        quill.root.innerHTML = completionText;
-                        props.onChange?.({ 
-                            html: quill.root.innerHTML,
-                            text: quill.getText(),
-                            wordCount: quill.getText().trim().split(/\s+/).length
-                        });
-                        setUnsavedChanges(true);
-                    } else {
-                        console.warn(
-                            `LLM completion received for cell ${completionCellId} but current cell is ${props.currentLineId}. Ignoring completion.`
-                        );
-                    }
-                } else if (event.data.type === "providerSendsABTestVariants") {
-                    // Handle A/B test variants: show UI if 2+ variants exist, even if identical
-                    const { variants, cellId, testId, names, winRates } = event.data.content as {
-                        variants: string[];
-                        cellId: string;
-                        testId: string;
-                        names?: string[];
-                        winRates?: number[];
-                    };
-                    if (cellId === props.currentLineId && Array.isArray(variants) && variants.length > 1) {
-                        setAbTestState({ isActive: true, variants, cellId, testId, names, winRates });
-                    }
+                // Validate that the completion is for the current cell
+                if (completionCellId === props.currentLineId) {
+                    quill.root.innerHTML = completionText;
+                    props.onChange?.({ 
+                        html: quill.root.innerHTML,
+                        text: quill.getText(),
+                        wordCount: quill.getText().trim().split(/\s+/).length
+                    });
+                    setUnsavedChanges(true);
+                } else {
+                    console.warn(
+                        `LLM completion received for cell ${completionCellId} but current cell is ${props.currentLineId}. Ignoring completion.`
+                    );
                 }
-                updateHeaderLabel();
+            } else if (event.data.type === "providerSendsABTestVariants") {
+                // Handle A/B test variants: show UI if 2+ variants exist, even if identical
+                const { variants, cellId, testId, names, winRates } = event.data.content as {
+                    variants: string[];
+                    cellId: string;
+                    testId: string;
+                    names?: string[];
+                    winRates?: number[];
+                };
+                if (cellId === props.currentLineId && Array.isArray(variants) && variants.length > 1) {
+                    setAbTestState({ isActive: true, variants, cellId, testId, names, winRates });
+                }
             }
-        };
-
-        window.addEventListener("message", handleMessage);
-        return () => window.removeEventListener("message", handleMessage);
-    }, [props.currentLineId, props.onChange]);
+            updateHeaderLabel();
+        }
+    }, [props.currentLineId, props.onChange, updateHeaderLabel]);
 
     // Rest of the Editor component logic would be here...
     // For brevity, I'm including just the essential parts for A/B testing

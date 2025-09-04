@@ -18,6 +18,7 @@ import "./TranslationAnimations.css"; // Import the animation CSS
 import AnimatedReveal from "../components/AnimatedReveal";
 import { useTooltip } from "./contextProviders/TooltipContext";
 import CommentsBadge from "./CommentsBadge";
+import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 
 const SHOW_VALIDATION_BUTTON = true;
 interface CellContentDisplayProps {
@@ -71,71 +72,66 @@ const AudioPlayButton: React.FC<{
     // Do not pre-load on mount; we will request on first click to avoid spinner churn
 
     // Listen for audio data messages
-    useEffect(() => {
-        const handleMessage = (event: MessageEvent) => {
-            const message = event.data;
+    useMessageHandler("cellContentDisplay-audioData", (event: MessageEvent) => {
+        const message = event.data;
 
-            // Handle audio attachments updates - clear current url; fetch on next click
-            if (message.type === "providerSendsAudioAttachments") {
+        // Handle audio attachments updates - clear current url; fetch on next click
+        if (message.type === "providerSendsAudioAttachments") {
+            if (audioUrl && audioUrl.startsWith("blob:")) {
+                URL.revokeObjectURL(audioUrl);
+            }
+            setAudioUrl(null);
+            setIsLoading(false);
+        }
+
+        if (message.type === "providerSendsAudioData" && message.content.cellId === cellId) {
+            if (message.content.audioData) {
+                // Clean up previous URL if exists
                 if (audioUrl && audioUrl.startsWith("blob:")) {
                     URL.revokeObjectURL(audioUrl);
                 }
+
+                // Convert base64 to blob URL
+                fetch(message.content.audioData)
+                    .then((res) => res.blob())
+                    .then((blob) => {
+                        const blobUrl = URL.createObjectURL(blob);
+                        setAudioUrl(blobUrl);
+                        setIsLoading(false);
+                        if (pendingPlayRef.current) {
+                            // Auto-play once the data arrives
+                            try {
+                                if (!audioRef.current) {
+                                    audioRef.current = new Audio();
+                                    audioRef.current.onended = () => setIsPlaying(false);
+                                    audioRef.current.onerror = () => {
+                                        console.error("Error playing audio for cell:", cellId);
+                                        setIsPlaying(false);
+                                    };
+                                }
+                                audioRef.current.src = blobUrl;
+                                audioRef.current
+                                    .play()
+                                    .then(() => setIsPlaying(true))
+                                    .catch((e) => {
+                                        console.error("Error auto-playing audio for cell:", e);
+                                        setIsPlaying(false);
+                                    });
+                            } finally {
+                                pendingPlayRef.current = false;
+                            }
+                        }
+                    })
+                    .catch((error) => {
+                        console.error("Error converting audio data:", error);
+                        setIsLoading(false);
+                    });
+            } else {
+                // No audio data - clear the audio URL and stop loading
                 setAudioUrl(null);
                 setIsLoading(false);
             }
-
-            if (message.type === "providerSendsAudioData" && message.content.cellId === cellId) {
-                if (message.content.audioData) {
-                    // Clean up previous URL if exists
-                    if (audioUrl && audioUrl.startsWith("blob:")) {
-                        URL.revokeObjectURL(audioUrl);
-                    }
-
-                    // Convert base64 to blob URL
-                    fetch(message.content.audioData)
-                        .then((res) => res.blob())
-                        .then((blob) => {
-                            const blobUrl = URL.createObjectURL(blob);
-                            setAudioUrl(blobUrl);
-                            setIsLoading(false);
-                            if (pendingPlayRef.current) {
-                                // Auto-play once the data arrives
-                                try {
-                                    if (!audioRef.current) {
-                                        audioRef.current = new Audio();
-                                        audioRef.current.onended = () => setIsPlaying(false);
-                                        audioRef.current.onerror = () => {
-                                            console.error("Error playing audio for cell:", cellId);
-                                            setIsPlaying(false);
-                                        };
-                                    }
-                                    audioRef.current.src = blobUrl;
-                                    audioRef.current
-                                        .play()
-                                        .then(() => setIsPlaying(true))
-                                        .catch((e) => {
-                                            console.error("Error auto-playing audio for cell:", e);
-                                            setIsPlaying(false);
-                                        });
-                                } finally {
-                                    pendingPlayRef.current = false;
-                                }
-                            }
-                        })
-                        .catch((error) => {
-                            console.error("Error converting audio data:", error);
-                            setIsLoading(false);
-                        });
-                } else {
-                    // No audio data - clear the audio URL and stop loading
-                    setAudioUrl(null);
-                    setIsLoading(false);
-                }
-            }
-        };
-
-        window.addEventListener("message", handleMessage);
-        return () => window.removeEventListener("message", handleMessage);
+        }
     }, [audioUrl, cellId, vscode]); // Add vscode to dependencies
 
     // Clean up blob URL on unmount
