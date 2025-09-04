@@ -33,6 +33,7 @@ interface ABTestState {
     variants: string[];
     cellId: string;
     testId: string;
+    testName?: string;
     names?: string[];
     winRates?: number[];
 }
@@ -92,7 +93,8 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
         isActive: false,
         variants: [],
         cellId: '',
-        testId: ''
+        testId: '',
+        testName: ''
     });
 
     // A/B Testing handlers
@@ -128,6 +130,7 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
                 cellId: abTestState.cellId,
                 selectedIndex,
                 testId: abTestState.testId,
+                testName: abTestState.testName,
                 selectionTimeMs,
                 totalVariants: abTestState.variants?.length ?? 0
             }
@@ -141,7 +144,8 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
             isActive: false,
             variants: [],
             cellId: '',
-            testId: ''
+            testId: '',
+            testName: ''
         });
     };
 
@@ -175,10 +179,11 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
                 }
             } else if (event.data.type === "providerSendsABTestVariants") {
                 // Handle A/B test variants: show UI only if variants differ
-                const { variants, cellId, testId, names, winRates } = event.data.content as {
+                const { variants, cellId, testId, testName, names, winRates } = event.data.content as {
                     variants: string[];
                     cellId: string;
                     testId: string;
+                    testName?: string;
                     names?: string[];
                     winRates?: number[];
                 };
@@ -186,7 +191,7 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
                     const norm = (s: string) => (s || "").replace(/\s+/g, " ").trim();
                     const allIdentical = variants.every((v) => norm(v) === norm(variants[0]));
                     if (variants.length > 1 && !allIdentical) {
-                        setAbTestState({ isActive: true, variants, cellId, testId, names, winRates });
+                        setAbTestState({ isActive: true, variants, cellId, testId, testName, names, winRates });
                     } else {
                         // Auto-apply first variant silently
                         quillRef.current?.root && (quillRef.current.root.innerHTML = variants[0]);

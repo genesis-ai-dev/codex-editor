@@ -74,7 +74,8 @@ export async function recordVariantSelection(
     cellId: string,
     selectedIndex: number,
     selectionTimeMs: number,
-    names?: string[]
+    names?: string[],
+    testName?: string
 ): Promise<void> {
     try {
         const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -107,28 +108,21 @@ export async function recordVariantSelection(
             if (Array.isArray(names) && typeof selectedIndex === "number" && names[selectedIndex]) {
                 const { recordAbEvent, recordAbResult } = await import("./abTestingAnalytics");
                 const variantName = names[selectedIndex];
-                
-                // Map testId pattern to test type name
-                const getTestTypeName = (testId: string): string => {
-                    if (testId.includes('-searchAB-')) {
-                        return "Search Algorithm Test";
-                    } else if (testId.includes('-fmtAB-')) {
-                        return "Source vs Target Inclusion";
-                    }
-                    return testId; // fallback to original if pattern not recognized
-                };
-                
-                const testTypeName = getTestTypeName(testId);
-                
+
+                // Use the test name directly - no pattern matching needed
+                if (!testName) {
+                    return; // Skip analytics if no test name provided
+                }
+
                 // Event: selection counts as a conversion for the chosen variant
                 await recordAbEvent({
-                    testName: testTypeName,
+                    testName: testName,
                     variant: variantName,
                     outcome: true,
                 });
                 // Result: declare the chosen variant as the winner for this run
                 await recordAbResult({
-                    category: testTypeName,
+                    category: testName,
                     options: names,
                     winner: selectedIndex,
                 });

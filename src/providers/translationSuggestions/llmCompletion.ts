@@ -14,6 +14,7 @@ export interface LLMCompletionResult {
     variants: string[]; // Always present; length 1 for non-AB scenarios
     isABTest: boolean; // True only when variants.length > 1
     testId?: string;
+    testName?: string;
     names?: string[];
 }
 
@@ -150,14 +151,14 @@ export async function llmCompletion(
 
             if (triggerAB) {
                 const candidates = [
-                    "searchAlgorithm",
-                    "fewShotFormat",
+                    "Search Algorithm Test",
+                    "Source vs Target Inclusion",
                     // "llmGeneration" // intentionally disabled for now
                 ] as const;
                 const available = candidates.filter((name) => !!abTestingRegistry.get(name as any));
                 const pick = available.length > 0 ? available[Math.floor(Math.random() * available.length)] : null;
 
-                if (pick === "searchAlgorithm") {
+                if (pick === "Search Algorithm Test") {
                     try {
                         const searchCtx = {
                             vscodeWorkspaceConfig: extConfig,
@@ -177,7 +178,7 @@ export async function llmCompletion(
                         } as any;
 
                         const searchResult = await abTestingRegistry.maybeRun<typeof searchCtx, string>(
-                            "searchAlgorithm",
+                            "Search Algorithm Test",
                             searchCtx
                         );
 
@@ -194,6 +195,7 @@ export async function llmCompletion(
                                 variants,
                                 isABTest: true,
                                 testId: `${currentCellId}-searchAB-${Date.now()}`,
+                                testName: searchResult.testName,
                                 names: searchResult.names,
                             };
                         }
@@ -202,7 +204,7 @@ export async function llmCompletion(
                     }
                 }
 
-                if (pick === "fewShotFormat") {
+                if (pick === "Source vs Target Inclusion") {
                     try {
                         const ctx = {
                             vscodeWorkspaceConfig: extConfig,
@@ -222,7 +224,7 @@ export async function llmCompletion(
                         } as any;
 
                         const result = await abTestingRegistry.maybeRun<typeof ctx, string>(
-                            "fewShotFormat",
+                            "Source vs Target Inclusion",
                             ctx
                         );
 
@@ -239,6 +241,7 @@ export async function llmCompletion(
                                 variants,
                                 isABTest: true,
                                 testId: `${currentCellId}-fmtAB-${Date.now()}`,
+                                testName: result.testName,
                                 names: result.names,
                             };
                         }

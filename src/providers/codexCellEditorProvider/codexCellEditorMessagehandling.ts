@@ -674,11 +674,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     selectABTestVariant: async ({ event }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "selectABTestVariant"; }>;
-        const { cellId, selectedIndex, testId, selectionTimeMs, names } = (typedEvent as any).content || {};
+        const { cellId, selectedIndex, testId, testName, selectionTimeMs, names } = (typedEvent as any).content || {};
 
         // Import and call the A/B testing feedback function
         const { recordVariantSelection } = await import("../../utils/abTestingUtils");
-        await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, names);
+        await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, names, testName);
 
         console.log(`A/B test feedback recorded: Cell ${cellId}, variant ${selectedIndex}, test ${testId}, took ${selectionTimeMs}ms`);
     },

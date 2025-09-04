@@ -13,7 +13,7 @@ export function initializeABTesting() {
 
   // Search algorithm comparison test (fts5-bm25 vs sbs) for few-shot retrieval
   abTestingRegistry.register<SearchAlgorithmContext, string>(
-    "searchAlgorithm",
+    "Search Algorithm Test",
     1.0,
     async (ctx) => {
       const extConfig = ctx.vscodeWorkspaceConfig ?? undefined;
@@ -59,7 +59,7 @@ export function initializeABTesting() {
 
   // Few-shot example format test: source-and-target vs target-only
   abTestingRegistry.register<SearchAlgorithmContext, string>(
-    "fewShotFormat",
+    "Source vs Target Inclusion",
     1.0,
     async (ctx) => {
       const formats: Array<"source-and-target" | "target-only"> = [
