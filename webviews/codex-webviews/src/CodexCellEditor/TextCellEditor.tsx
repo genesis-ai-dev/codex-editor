@@ -216,7 +216,19 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [editedBacktranslation, setEditedBacktranslation] = useState<string | null>(null);
     const [isGeneratingBacktranslation, setIsGeneratingBacktranslation] = useState(false);
     const [backtranslationProgress, setBacktranslationProgress] = useState(0);
-    const [activeTab, setActiveTab] = useState<"" | "source" | "footnotes" | "audio" | "timestamps">(() => "");
+    const [activeTab, setActiveTab] = useState<"" | "source" | "footnotes" | "audio" | "timestamps">(() => {
+        try {
+            const stored = sessionStorage.getItem("preferred-editor-tab") as
+                | "source"
+                | "footnotes"
+                | "audio"
+                | "timestamps"
+                | null;
+            return stored ?? "";
+        } catch {
+            return "";
+        }
+    });
 
     // Load preferred tab from provider on mount
     useEffect(() => {
@@ -798,10 +810,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 }
             } catch {
                 // no-op
-            }
-            // Keep collapsed when no tab has been chosen yet
-            if (!activeTab) {
-                return;
             }
             const preferred = event.data.tab as typeof activeTab;
             setActiveTab(preferred);
