@@ -719,7 +719,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     adjustABTestingProbability: async ({ event, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "adjustABTestingProbability"; }> & { content: { delta: number } };
+        const typedEvent = event as Extract<EditorPostMessages, { command: "adjustABTestingProbability"; }> & { content: { delta: number; }; };
         const delta = Number((typedEvent as any)?.content?.delta) || 0;
         try {
             const config = vscode.workspace.getConfiguration("codex-editor-extension");
@@ -1791,7 +1791,7 @@ export async function scanForAudioAttachments(
                     // Check if cell has attachments in metadata
                     if (cell.metadata.attachments) {
                         for (const [attachmentId, attachment] of Object.entries(cell.metadata.attachments)) {
-                            if (attachment && (attachment as any).type === "audio" && !(attachment as any).isDeleted) {
+                            if (attachment && (attachment as any).type === "audio") {
                                 const attachmentPath = toPosixPath((attachment as any).url);
 
                                 // Build full path

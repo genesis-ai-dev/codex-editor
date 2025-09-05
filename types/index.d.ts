@@ -1164,6 +1164,7 @@ interface QuillCellContent {
     merged?: boolean;
     deleted?: boolean;
     data?: { [key: string]: any; footnotes?: Footnote[]; };
+    attachments?: { [attachmentId: string]: { type: string; isDeleted?: boolean; url?: string; }; };
 }
 
 interface Timestamps {

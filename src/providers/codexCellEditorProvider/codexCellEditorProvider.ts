@@ -554,28 +554,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             enabled: this.isCorrectionEditorMode,
         });
 
-        // Wait for webview ready event before scanning for audio attachments
+        // Wait for webview ready event before sending audio attachments status
         const onReadyMessageDisposable = webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages | GlobalMessage) => {
             if ('type' in e && e.type === 'webviewReady') {
                 try {
-                    debug("Webview ready, scanning for audio attachments");
-                    const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
-
-                    if (Object.keys(audioAttachments).length > 0) {
-                        debug("Found audio attachments, sending to webview:", Object.keys(audioAttachments));
-                        // Send only the cell IDs that have audio, not the file paths
-                        const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {} as any;
-                        for (const cellId of Object.keys(audioAttachments)) {
-                            audioCells[cellId] = "available";
-                        }
-
-                        this.postMessageToWebview(webviewPanel, {
-                            type: "providerSendsAudioAttachments",
-                            attachments: audioCells as any,
-                        });
-                    } else {
-                        debug("No audio attachments found");
-                    }
+                    debug("Webview ready, sending audio attachments status");
+                    await this.sendAudioAttachmentsStatus(webviewPanel, document);
                 } catch (error) {
                     console.error("Error scanning for audio attachments:", error);
                 }
@@ -1496,6 +1480,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             cellLabel: cell.metadata?.cellLabel,
             merged: cell.metadata?.data?.merged,
             deleted: cell.metadata?.data?.deleted,
+            attachments: cell.metadata?.attachments,
         }));
         debug("Translation units:", translationUnits);
 
@@ -1546,6 +1531,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 timestamps: cell.timestamps,
                 cellLabel: cell.cellLabel,
                 merged: cell.merged,
+                attachments: cell.attachments,
             });
         });
 
@@ -1593,6 +1579,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             content: notebookData.metadata,
         });
 
+        // Send audio attachment status immediately after content
+        await this.sendAudioAttachmentsStatus(webviewPanel, document);
+
         if (videoUrl) {
             this.postMessageToWebview(webviewPanel, {
                 type: "updateVideoUrlInWebview",
@@ -1600,6 +1589,57 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             });
         }
         debug("Webview refresh completed");
+    }
+
+    private async sendAudioAttachmentsStatus(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument): Promise<void> {
+        try {
+            // Get document data to check attachment metadata
+            const documentText = document.getText();
+            const notebookData = JSON.parse(documentText);
+            const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {};
+
+            // Process each cell to determine audio status
+            if (notebookData.cells && Array.isArray(notebookData.cells)) {
+                for (const cell of notebookData.cells) {
+                    if (cell.metadata && cell.metadata.id) {
+                        const cellId = cell.metadata.id;
+
+                        if (cell.metadata.attachments) {
+                            let hasAvailableAudio = false;
+                            let hasDeletedAudio = false;
+
+                            for (const [attachmentId, attachment] of Object.entries(cell.metadata.attachments)) {
+                                if (attachment && typeof attachment === 'object' && (attachment as any).type === 'audio') {
+                                    if ((attachment as any).isDeleted) {
+                                        hasDeletedAudio = true;
+                                    } else {
+                                        hasAvailableAudio = true;
+                                    }
+                                }
+                            }
+
+                            if (hasAvailableAudio) {
+                                audioCells[cellId] = "available";
+                            } else if (hasDeletedAudio) {
+                                audioCells[cellId] = "deletedOnly";
+                            } else {
+                                audioCells[cellId] = "none";
+                            }
+                        } else {
+                            audioCells[cellId] = "none";
+                        }
+                    }
+                }
+            }
+
+            debug("Sending audio attachment status for all cells:", Object.keys(audioCells).length);
+            this.postMessageToWebview(webviewPanel, {
+                type: "providerSendsAudioAttachments",
+                attachments: audioCells,
+            });
+        } catch (error) {
+            console.error(`Error sending audio attachments status for webview:`, error);
+        }
     }
 
     private getVideoUrl(
@@ -3132,25 +3172,50 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Scan for audio attachments
             const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
 
-            if (Object.keys(audioAttachments).length > 0) {
-                debug("Found updated media attachments, sending to webview:", Object.keys(audioAttachments));
-                // Send only the cell IDs that have audio, not the file paths
-                const audioCells: { [cellId: string]: boolean; } = {};
-                for (const cellId of Object.keys(audioAttachments)) {
-                    audioCells[cellId] = true;
-                }
+            // Get document data to check attachment metadata
+            const documentText = document.getText();
+            const notebookData = JSON.parse(documentText);
+            const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {};
 
-                this.postMessageToWebview(webviewPanel, {
-                    type: "providerSendsAudioAttachments",
-                    attachments: audioCells as any,
-                });
-            } else {
-                // Send empty attachments to clear any outdated media indicators
-                this.postMessageToWebview(webviewPanel, {
-                    type: "providerSendsAudioAttachments",
-                    attachments: {},
-                });
+            // Process each cell to determine audio status
+            if (notebookData.cells && Array.isArray(notebookData.cells)) {
+                for (const cell of notebookData.cells) {
+                    if (cell.metadata && cell.metadata.id) {
+                        const cellId = cell.metadata.id;
+
+                        if (cell.metadata.attachments) {
+                            let hasAvailableAudio = false;
+                            let hasDeletedAudio = false;
+
+                            for (const [attachmentId, attachment] of Object.entries(cell.metadata.attachments)) {
+                                if (attachment && typeof attachment === 'object' && (attachment as any).type === 'audio') {
+                                    if ((attachment as any).isDeleted) {
+                                        hasDeletedAudio = true;
+                                    } else {
+                                        hasAvailableAudio = true;
+                                    }
+                                }
+                            }
+
+                            if (hasAvailableAudio) {
+                                audioCells[cellId] = "available";
+                            } else if (hasDeletedAudio) {
+                                audioCells[cellId] = "deletedOnly";
+                            } else {
+                                audioCells[cellId] = "none";
+                            }
+                        } else {
+                            audioCells[cellId] = "none";
+                        }
+                    }
+                }
             }
+
+            debug("Sending updated audio attachment status for all cells:", Object.keys(audioCells).length);
+            this.postMessageToWebview(webviewPanel, {
+                type: "providerSendsAudioAttachments",
+                attachments: audioCells,
+            });
         } catch (error) {
             console.error(`Error refreshing media attachments for webview ${documentUri}:`, error);
         }
