@@ -628,7 +628,7 @@ export type EditorPostMessages =
     | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
     | { command: "closeCurrentDocument"; content?: { isSource: boolean; uri?: string; }; }
     | { command: "triggerSync"; }
-    | { command: "requestAudioAttachments"; }
+    // removed: requestAudioAttachments
     | { command: "requestAudioForCell"; content: { cellId: string; audioId?: string; }; }
     | { command: "getCommentsForCell"; content: { cellId: string; }; }
     | { command: "getCommentsForCells"; content: { cellIds: string[]; }; }

@@ -556,7 +556,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Wait for webview ready event before sending audio attachments status
         const onReadyMessageDisposable = webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages | GlobalMessage) => {
-            if ('type' in e && e.type === 'webviewReady') {
+            const isEditorReady = (e as any)?.command === 'webviewReady' || (e as any)?.type === 'webviewReady';
+            if (isEditorReady) {
                 try {
                     debug("Webview ready, sending audio attachments status");
                     await this.sendAudioAttachmentsStatus(webviewPanel, document);

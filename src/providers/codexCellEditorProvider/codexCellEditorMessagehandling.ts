@@ -939,46 +939,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
     },
 
-    requestAudioAttachments: async ({ document, webviewPanel, provider }) => {
-        console.log("requestAudioAttachments message received");
-        const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
-        const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {} as any;
-        // Start with none for all ids in document
-        try {
-            const notebookData = JSON.parse(document.getText());
-            if (Array.isArray(notebookData?.cells)) {
-                for (const cell of notebookData.cells) {
-                    if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
-                }
-            }
-        } catch (err) { console.warn('Failed to parse notebook cells for audio status', err); }
-
-        // Mark available where we found on-disk non-deleted attachments
-        for (const cellId of Object.keys(audioAttachments)) {
-            audioCells[cellId] = "available";
-        }
-
-        // Mark deletedOnly where no available but there exists at least one deleted attachment in metadata
-        try {
-            const notebookData = JSON.parse(document.getText());
-            if (Array.isArray(notebookData?.cells)) {
-                for (const cell of notebookData.cells) {
-                    const id = cell?.metadata?.id;
-                    if (!id) continue;
-                    if (audioCells[id] === "available") continue;
-                    const attachments = cell?.metadata?.attachments || {};
-                    const hasDeletedAudio = Object.values(attachments).some((att: any) => att?.type === "audio" && att?.isDeleted === true);
-                    if (hasDeletedAudio) {
-                        audioCells[id] = "deletedOnly";
-                    }
-                }
-            }
-        } catch (err) { console.warn('Failed to parse attachments for deleted-only status', err); }
-        provider.postMessageToWebview(webviewPanel, {
-            type: "providerSendsAudioAttachments",
-            attachments: audioCells as any,
-        });
-    },
+    // requestAudioAttachments removed: provider proactively sends status; no webview-initiated fallback
 
     requestAudioForCell: async ({ event, document, webviewPanel }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "requestAudioForCell"; }>;

@@ -1073,10 +1073,7 @@ const CodexCellEditor: React.FC = () => {
             },
         } as EditorPostMessages);
 
-        // Request updated audio attachments when closing editor
-        vscode.postMessage({
-            command: "requestAudioAttachments",
-        } as EditorPostMessages);
+        // No-op: provider proactively updates audio attachments; do not request here
     };
 
     const handleSaveHtml = () => {
@@ -1658,16 +1655,7 @@ const CodexCellEditor: React.FC = () => {
         untranslatedOrNotValidatedByCurrentUserUnitsForSection,
     ]);
 
-    // Request audio attachments for all cells when translation units are loaded
-    useEffect(() => {
-        if (translationUnitsForSection.length > 0) {
-            debug("audio", "Requesting audio attachments for all cells on initial load");
-            vscode.postMessage({
-                command: "requestAudioAttachments",
-                content: {},
-            } as EditorPostMessages);
-        }
-    }, [translationUnitsForSection.length, vscode]);
+    // No-op: provider proactively sends audio attachment status; no fallback request from webview
 
     // Simplify sparkle button handler to work with provider state
     const handleSparkleButtonClick = (cellId: string) => {
