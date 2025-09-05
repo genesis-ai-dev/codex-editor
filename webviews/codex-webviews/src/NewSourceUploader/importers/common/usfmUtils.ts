@@ -4,7 +4,6 @@ import {
     NotebookPair,
 } from '../../types/common';
 import {
-    createStandardCellId,
     createProcessedCell,
 } from '../../utils/workflowHelpers';
 import { getCorpusMarkerForBook } from '../../utils/corpusUtils';
@@ -12,28 +11,17 @@ import {
     extractUsfmFootnotes,
     convertUsfmToHtmlWithFootnotes
 } from '../../utils/usfmFootnoteExtractor';
+import { parseUsfmToJson as parseUsfmWithRegex } from './regexUsfmParser';
+import { convertUsfmInlineMarkersToHtml, usfmBlockToHtml, htmlInlineToUsfm, htmlBlockToUsfm } from './usfmHtmlMapper';
 import { validateFootnotes } from '../../utils/footnoteUtils';
 
-// Dynamic import to handle usfm-grammar in browser environment
-let USFMParser: any;
-let LEVEL: any;
-
-export const initializeUsfmGrammar = async () => {
-    if (!USFMParser) {
-        try {
-            const grammar = await import('usfm-grammar');
-            USFMParser = grammar.USFMParser;
-            LEVEL = grammar.LEVEL;
-        } catch (error) {
-            throw new Error('Failed to load USFM grammar library');
-        }
-    }
-};
+// Deprecated: dynamic import of usfm-grammar. Replaced by lightweight regex parser.
+export const initializeUsfmGrammar = async () => { };
 
 export interface UsfmContent {
     id: string;
     content: string;
-    type: 'verse' | 'paratext';
+    type: 'text' | 'paratext' | 'style';
     metadata: {
         bookCode?: string;
         bookName?: string;
@@ -41,6 +29,9 @@ export interface UsfmContent {
         verse?: number;
         originalText?: string;
         fileName?: string;
+        hasFootnotes?: boolean;
+        isChild?: boolean;
+        parentId?: string;
     };
 }
 
@@ -55,6 +46,8 @@ export interface ProcessedUsfmBook {
     usfmContent: UsfmContent[];
     footnoteCount: number;
     footnotes: any[];
+    headerLines?: string[];
+    rawHeader?: string;
 }
 
 /**
@@ -94,11 +87,8 @@ export const processUsfmContent = async (
     fileName: string,
     bookNames: Record<string, string> = {}
 ): Promise<ProcessedUsfmBook> => {
-    await initializeUsfmGrammar();
-
-    // Parse USFM using relaxed mode for better compatibility
-    const relaxedUsfmParser = new USFMParser(content, LEVEL.RELAXED);
-    const jsonOutput = relaxedUsfmParser.toJSON();
+    // Parse USFM using custom lightweight regex parser
+    const jsonOutput = parseUsfmWithRegex(content);
 
     // Extract book information
     const bookCode = jsonOutput.book?.bookCode?.toUpperCase();
@@ -141,19 +131,21 @@ export const processUsfmContent = async (
 
         chapters.add(chapterNumber);
 
+        let seenFirstVerseInChapter = false;
         chapter.contents.forEach((content: any) => {
             if (content.verseNumber !== undefined && content.verseText !== undefined) {
                 // This is a verse - process it for footnotes
                 const verseId = `${bookCode} ${chapterNumber}:${content.verseNumber}`;
-                let verseText = content.verseText.trim();
+                const verseText = content.verseText.trim();
+                const htmlVerse = convertUsfmInlineMarkersToHtml(verseText);
 
                 // Convert USFM to HTML with footnotes if needed
                 const { html: processedText } = convertUsfmToHtmlWithFootnotes(verseText);
 
                 usfmContent.push({
                     id: verseId,
-                    content: processedText,
-                    type: 'verse',
+                    content: processedText.replace(verseText, htmlVerse),
+                    type: 'text',
                     metadata: {
                         bookCode,
                         bookName,
@@ -164,18 +156,73 @@ export const processUsfmContent = async (
                         hasFootnotes: processedText.includes('footnote-marker'),
                     },
                 });
+
+                // Create child cells for milestone spans (e.g., qt, ts)
+                try {
+                    const milestoneTags = new Set(['qt', 'ts']);
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(`<div>${htmlVerse}</div>`, 'text/html');
+                    const container = doc.body.firstElementChild as HTMLElement | null;
+                    if (container) {
+                        const walker = (node: Node) => {
+                            if (node.nodeType === Node.ELEMENT_NODE) {
+                                const el = node as HTMLElement;
+                                const tag = el.getAttribute('data-tag');
+                                if (tag && milestoneTags.has(tag)) {
+                                    const childId = `${verseId}:${Math.random().toString(36).slice(2, 11)}`;
+                                    const innerHtml = el.innerHTML;
+                                    usfmContent.push({
+                                        id: childId,
+                                        content: innerHtml,
+                                        type: 'text',
+                                        metadata: {
+                                            bookCode,
+                                            bookName,
+                                            chapter: chapterNumber,
+                                            verse: content.verseNumber,
+                                            originalText: innerHtml,
+                                            fileName,
+                                            hasFootnotes: false,
+                                            isChild: true,
+                                            parentId: verseId,
+                                        },
+                                    });
+                                }
+                                Array.from(el.childNodes).forEach(walker);
+                            }
+                        };
+                        Array.from(container.childNodes).forEach(walker);
+                    }
+                } catch {
+                    // ignore child extraction errors
+                }
+
+                seenFirstVerseInChapter = true;
             } else if (content.text && !content.marker) {
                 // This is paratext (content without specific markers)
-                const paratextId = createStandardCellId(fileName, chapterNumber, usfmContent.length + 1);
-                let paratextContent = content.text.trim();
+                const paratextId = `${bookCode} ${chapterNumber}:${Math.random().toString(36).slice(2, 10)}`;
+                const paratextContent = content.text.trim();
+                const htmlParatext = paratextContent.length > 0 ? `<p data-tag="p">${convertUsfmInlineMarkersToHtml(paratextContent)}</p>` : paratextContent;
 
                 // Convert USFM to HTML with footnotes if needed
                 const { html: processedText } = convertUsfmToHtmlWithFootnotes(paratextContent);
 
+                // Determine if this is a style-only cell (no text content)
+                let cellType: UsfmContent['type'] = 'text';
+                try {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(htmlParatext || '', 'text/html');
+                    const el = doc.body.firstElementChild as HTMLElement | null;
+                    const textOnly = el ? (el.textContent || '').trim() : (htmlParatext || '').trim();
+                    if (!textOnly) cellType = 'style';
+                } catch {
+                    // ignore DOM parsing errors for style detection
+                }
+
                 usfmContent.push({
                     id: paratextId,
-                    content: processedText,
-                    type: 'paratext',
+                    content: processedText.replace(paratextContent, htmlParatext),
+                    type: cellType,
                     metadata: {
                         bookCode,
                         bookName,
@@ -183,6 +230,36 @@ export const processUsfmContent = async (
                         originalText: paratextContent,
                         fileName,
                         hasFootnotes: processedText.includes('footnote-marker'),
+                    },
+                });
+            } else if (content.marker) {
+                // Preserve raw marker lines as paratext for round-trip fidelity
+                const paratextId = `${bookCode} ${chapterNumber}:${Math.random().toString(36).slice(2, 10)}`;
+                const markerLine = String(content.marker).trim();
+                const htmlBlock = usfmBlockToHtml(markerLine);
+                // Determine if style-only (no inner text)
+                let cellType: UsfmContent['type'] = 'text';
+                try {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(htmlBlock, 'text/html');
+                    const el = doc.body.firstElementChild as HTMLElement | null;
+                    const textOnly = el ? (el.textContent || '').trim() : '';
+                    if (!textOnly) cellType = 'style';
+                } catch {
+                    // ignore DOM parsing errors for style detection
+                }
+
+                usfmContent.push({
+                    id: paratextId,
+                    content: htmlBlock,
+                    type: cellType,
+                    metadata: {
+                        bookCode,
+                        bookName,
+                        chapter: chapterNumber,
+                        originalText: markerLine,
+                        fileName,
+                        hasFootnotes: false,
                     },
                 });
             }
@@ -201,7 +278,7 @@ export const processUsfmContent = async (
             bookName: item.metadata.bookName,
             chapter: item.metadata.chapter,
             verse: item.metadata.verse,
-            cellLabel: item.type === 'verse' ? item.metadata.verse?.toString() : undefined,
+            cellLabel: item.metadata.verse !== undefined ? item.metadata.verse?.toString() : undefined,
             originalText: item.metadata.originalText,
             fileName: item.metadata.fileName,
         });
@@ -212,13 +289,63 @@ export const processUsfmContent = async (
         bookName,
         fileName,
         cells,
-        verseCount: usfmContent.filter(c => c.type === 'verse').length,
+        verseCount: usfmContent.filter(c => c.metadata.verse !== undefined).length,
         paratextCount: usfmContent.filter(c => c.type === 'paratext').length,
         chapters: Array.from(chapters).sort((a, b) => a - b),
         usfmContent,
         footnoteCount: footnotes.length,
         footnotes,
+        headerLines: jsonOutput.headerLines,
+        rawHeader: (jsonOutput as any).rawHeader,
     };
+};
+
+/**
+ * Reconstruct USFM text from processed content (codex notebook intermediate).
+ * Preserves order, adds chapter markers where chapter changes, and preserves
+ * marker lines that were captured as paratext content.
+ */
+export const exportToUSFM = (processed: ProcessedUsfmBook): string => {
+    const lines: string[] = [];
+    const bookCode = processed.bookCode.toUpperCase();
+    if (processed.rawHeader && processed.rawHeader.length > 0) {
+        lines.push(processed.rawHeader);
+    } else if (processed.headerLines && processed.headerLines.length > 0) {
+        for (const h of processed.headerLines) lines.push(h);
+    } else {
+        lines.push(`\\id ${bookCode}`);
+        lines.push('\\usfm 3.0');
+    }
+
+    let currentChapter: number | null = null;
+    for (const item of processed.usfmContent) {
+        const ch = item.metadata.chapter;
+        if (typeof ch === 'number' && ch !== currentChapter) {
+            currentChapter = ch;
+            lines.push(`\\c ${currentChapter}`);
+        }
+
+        if (item.type === 'text' && typeof item.metadata.verse !== 'undefined') {
+            const verseNum = item.metadata.verse;
+            // Convert HTML content back to USFM inline
+            const htmlContent = item.content ?? '';
+            const inlineUsfm = htmlInlineToUsfm(htmlContent);
+            lines.push(`\\v ${verseNum} ${inlineUsfm}`);
+        } else if (item.type === 'text' || item.type === 'style') {
+            const content = (item.content ?? '').trim();
+            if (content.length === 0) continue;
+            // If content is an HTML block with data-tag, convert to USFM paragraph line
+            if (content.startsWith('<')) {
+                lines.push(htmlBlockToUsfm(content));
+            } else {
+                // Fallback: treat as plain paragraph text
+                const inlineUsfm = htmlInlineToUsfm(content);
+                lines.push(`\\p ${inlineUsfm}`);
+            }
+        }
+    }
+
+    return lines.join('\n');
 };
 
 /**
@@ -248,12 +375,15 @@ export const createNotebookPair = (
         },
     };
 
-    const codexCells = cells.map(sourceCell => ({
-        id: sourceCell.id,
-        content: '', // Empty for translation
-        images: sourceCell.images,
-        metadata: sourceCell.metadata,
-    }));
+    const codexCells = cells.map(sourceCell => {
+        const isStyleCell = sourceCell.metadata?.type === 'style';
+        return {
+            id: sourceCell.id,
+            content: isStyleCell ? sourceCell.content : '',
+            images: sourceCell.images,
+            metadata: sourceCell.metadata,
+        };
+    });
 
     const codexNotebook: ProcessedNotebook = {
         name: baseName,

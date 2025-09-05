@@ -22,6 +22,7 @@ import ReactPlayer from "react-player";
 import { diffWords } from "diff";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { processHtmlContent, updateFootnoteNumbering } from "./footnoteUtils";
+import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 
 const icons: any = Quill.import("ui/icons");
 // Assuming you have access to the VSCode API here
@@ -36,13 +37,7 @@ export interface EditorContentChanged {
     html: string;
 }
 
-// Define the header cycle
-const HEADER_CYCLE = [
-    { label: "Normal", value: false },
-    { label: "H1", value: 1 },
-    { label: "H2", value: 2 },
-    { label: "H3", value: 3 },
-] as const;
+// Use Quill's native header dropdown instead of custom cycle buttons
 
 export interface EditorProps {
     currentLineId: string;
@@ -108,6 +103,7 @@ export interface EditorHandles {
     autocomplete: () => void;
     openLibrary: () => void;
     showEditHistory: () => void;
+    getSelectionText: () => string;
     addFootnote: () => void;
     editFootnote: (footnoteId: string, content: string) => void;
     updateContent: (content: string) => void;
@@ -271,7 +267,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     const [isEditorEmpty, setIsEditorEmpty] = useState(true);
     const [editHistory, setEditHistory] = useState<EditHistoryEntry[]>([]);
     const initialContentRef = useRef<string>("");
-    const [headerLabel, setHeaderLabel] = useState<string>("Normal"); // Track header label
+    // Header selection now uses Quill's native dropdown; no local label state needed
     const { setUnsavedChanges } = useContext(UnsavedChangesContext);
     const quillRef = useRef<Quill | null>(null);
     const editorRef = useRef<HTMLDivElement>(null);
@@ -321,11 +317,6 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 modules: {
                     toolbar: {
                         container: TOOLBAR_OPTIONS,
-                        handlers: {
-                            headerStyleLeft: () => handleHeaderChange("prev"),
-                            headerStyleRight: () => handleHeaderChange("next"),
-                            headerStyleLabel: () => {}, // No-op handler for the label
-                        },
                     },
                     keyboard: {
                         bindings: {
@@ -335,84 +326,16 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     spellChecker: {},
                 },
             });
-
-            // Add custom button HTML
-            const leftButton = document.querySelector(".ql-headerStyleLeft");
-            const labelButton = document.querySelector(".ql-headerStyleLabel");
-            const rightButton = document.querySelector(".ql-headerStyleRight");
-
-            if (leftButton && labelButton && rightButton) {
-                leftButton.innerHTML =
-                    '<i class="codicon codicon-chevron-left" style="color: var(--vscode-editor-foreground)"></i>';
-                labelButton.innerHTML = `<span class="header-style-label" style="color: var(--vscode-editor-foreground)">${headerLabel}</span>`;
-                rightButton.innerHTML =
-                    '<i class="codicon codicon-chevron-right" style="color: var(--vscode-editor-foreground)"></i>';
-            }
-
-            // Apply Quill toolbar styling with CSS-in-JS for !important overrides
+            // Apply minimal direct styles; rely on CSS file for look-and-feel
             const toolbar = editorRef.current.querySelector(".ql-toolbar");
             const container = editorRef.current.querySelector(".ql-container");
 
             if (toolbar) {
-                // Apply styles that need !important
-                const toolbarStyles = `
-                    border: none !important;
-                    padding: 2px !important;
-                    transition: all 0.3s ease;
-                    overflow: hidden;
-                `;
-                toolbar.setAttribute("style", toolbarStyles);
-
-                // Style toolbar buttons
-                const buttons = toolbar.querySelectorAll("button");
-                buttons.forEach((button) => {
-                    const buttonStyles = `
-                        width: 24px !important;
-                        height: 24px !important;
-                        padding: 2px !important;
-                    `;
-                    button.setAttribute("style", buttonStyles);
-                });
-
-                // Style toolbar formats
-                const qlHeaderStyleLabel = toolbar.querySelectorAll(".ql-headerStyleLabel");
-                qlHeaderStyleLabel.forEach((format) => {
-                    format.setAttribute("style", "max-width: fit-content !important;");
-                });
-                const formats = toolbar.querySelectorAll(".ql-formats");
-                formats.forEach((format) => {
-                    format.setAttribute(
-                        "style",
-                        "margin-right: 6px !important; display: flex; flex-flow: row nowrap;"
-                    );
-                });
-
-                // Style SVG icons
-                const svgs = toolbar.querySelectorAll("svg");
-                svgs.forEach((svg) => {
-                    const svgStyles = `
-                        width: 16px !important;
-                        height: 16px !important;
-                    `;
-                    svg.setAttribute("style", svgStyles);
-                });
-
-                // Style pickers
-                const pickers = toolbar.querySelectorAll(".ql-picker");
-                pickers.forEach((picker) => {
-                    const pickerStyles = `
-                        height: 24px !important;
-                        line-height: 24px !important;
-                        font-size: 12px !important;
-                    `;
-                    picker.setAttribute("style", pickerStyles);
-                });
-
-                // Style picker labels
-                const pickerLabels = toolbar.querySelectorAll(".ql-picker-label");
-                pickerLabels.forEach((label) => {
-                    label.setAttribute("style", "padding: 0 4px !important;");
-                });
+                // Keep transitions smooth; primary styling handled in CSS
+                toolbar.setAttribute(
+                    "style",
+                    "transition: all 0.2s ease; overflow: hidden;"
+                );
             }
 
             // Add paste event listener to handle paste operations
@@ -686,7 +609,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                             html: finalContent,
                         });
                     }
-                    updateHeaderLabel();
+                    // Header selection handled by native dropdown
                 }
             });
 
@@ -728,41 +651,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         }
     }, []); // Empty dependency array
 
-    // Function to update the header label based on current formatting
-    const updateHeaderLabel = () => {
-        if (quillRef.current) {
-            const currentHeader = quillRef.current.getFormat().header;
-            const header = HEADER_CYCLE.find((h) => h.value === currentHeader) || HEADER_CYCLE[0];
-            setHeaderLabel(header.label);
-        }
-    };
-
-    // Initialize header label on mount
-    useEffect(() => {
-        updateHeaderLabel();
-    }, []);
-
-    // Handle header change via buttons
-    const handleHeaderChange = (direction: "prev" | "next") => {
-        if (!quillRef.current) return;
-
-        const currentHeaderValue = quillRef.current.getFormat().header;
-        const currentIndex = HEADER_CYCLE.findIndex(
-            (h) => h.value === currentHeaderValue || (h.value === false && !currentHeaderValue)
-        );
-
-        let nextIndex: number;
-
-        if (direction === "next") {
-            nextIndex = (currentIndex + 1) % HEADER_CYCLE.length;
-        } else {
-            nextIndex = (currentIndex - 1 + HEADER_CYCLE.length) % HEADER_CYCLE.length;
-        }
-
-        const newHeader = HEADER_CYCLE[nextIndex];
-        quillRef.current.format("header", newHeader.value);
-        setHeaderLabel(newHeader.label); // Update the label immediately
-    };
+    // Removed custom header cycle logic in favor of native dropdown
 
     // Revert content if necessary
     const revertedValue = useMemo(() => {
@@ -814,42 +703,31 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     };
 
     // Add message listener for prompt response
-    useEffect(() => {
-        const handleMessage = (event: MessageEvent) => {
-            if (quillRef.current) {
-                const quill = quillRef.current;
-                if (event.data.type === "providerSendsPromptedEditResponse") {
-                    quill.root.innerHTML = event.data.content;
-                } else if (event.data.type === "providerSendsLLMCompletionResponse") {
-                    const completionText = event.data.content.completion;
-                    const completionCellId = event.data.content.cellId;
+    useMessageHandler("editor-promptResponse", (event: MessageEvent) => {
+        if (quillRef.current) {
+            const quill = quillRef.current;
+            if (event.data.type === "providerSendsPromptedEditResponse") {
+                quill.root.innerHTML = event.data.content;
+            } else if (event.data.type === "providerSendsLLMCompletionResponse") {
+                const completionText = event.data.content.completion;
+                const completionCellId = event.data.content.cellId;
 
-                    // Validate that the completion is for the current cell
-                    if (completionCellId === props.currentLineId) {
-                        quill.root.innerHTML = completionText; // Clear existing content
-                        props.onChange?.({ html: quill.root.innerHTML });
-                        setUnsavedChanges(true);
-                    } else {
-                        console.warn(
-                            `LLM completion received for cell ${completionCellId} but current cell is ${props.currentLineId}. Ignoring completion.`
-                        );
-                    }
+                // Validate that the completion is for the current cell
+                if (completionCellId === props.currentLineId) {
+                    quill.root.innerHTML = completionText; // Clear existing content
+                    props.onChange?.({ html: quill.root.innerHTML });
+                    setUnsavedChanges(true);
+                } else {
+                    console.warn(
+                        `LLM completion received for cell ${completionCellId} but current cell is ${props.currentLineId}. Ignoring completion.`
+                    );
                 }
-                updateHeaderLabel(); // Update header label after external changes
             }
-        };
-
-        window.addEventListener("message", handleMessage);
-        return () => window.removeEventListener("message", handleMessage);
-    }, []);
-
-    // **New useEffect to update the header label in the toolbar**
-    useEffect(() => {
-        const labelElement = document.querySelector(".header-style-label");
-        if (labelElement) {
-            labelElement.textContent = headerLabel;
+            // No-op: header selection managed by native dropdown
         }
-    }, [headerLabel]);
+    }, [props.currentLineId, props.onChange]);
+
+    // Removed header label sync effect
 
     // Add function to strip HTML tags and decode entities
     const stripHtmlAndDecode = (html: string): string => {
@@ -1184,6 +1062,14 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             setEditHistoryForCell(props.editHistory);
             setShowHistoryModal(true);
         },
+        getSelectionText: () => {
+            if (!quillRef.current) return "";
+            const selection = quillRef.current.getSelection();
+            if (selection && selection.length > 0) {
+                return quillRef.current.getText(selection.index, selection.length).trim();
+            }
+            return "";
+        },
         addFootnote: () => {
             handleAddFootnote();
         },
@@ -1210,8 +1096,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     props.onChange({ html: content });
                 }
 
-                // Update header label after content change
-                updateHeaderLabel();
+                // Header selection handled by native dropdown
             }
         },
         renumberFootnotes: () => {
@@ -1312,7 +1197,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                 fontSize: "0.9em",
                             }}
                         >
-                            {isCreatingNewFootnote ? "Add Footnote" : "Save Changes"}
+                            {isCreatingNewFootnote ? "Create Footnote" : "Save Changes"}
                         </button>
                     </div>
                 </div>
@@ -1629,11 +1514,10 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
 // Existing constants and interfaces
 const TOOLBAR_OPTIONS = [
-    ["headerStyleLeft", "headerStyleLabel", "headerStyleRight"],
+    [{ header: [false, 1, 2, 3] }],
     ["bold", "italic", "underline", "strike", "blockquote", "link"],
     [{ list: "ordered" }, { list: "bullet" }],
     [{ indent: "-1" }, { indent: "+1" }],
-    ["clean"],
 ];
 
 // Add interface for edit history

@@ -17,7 +17,6 @@ import {
     migration_editHistoryFormat,
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/contentIndexes/indexes";
-import { registerSourceUploadCommands } from "./providers/SourceUpload/registerCommands";
 import { migrateSourceFiles } from "./utils/codexNotebookUtils";
 import { StatusBarItem } from "vscode";
 import { Database } from "fts5-sql-bundle";
@@ -53,6 +52,7 @@ import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/proje
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 import { migrateAudioAttachments } from "./utils/audioAttachmentsMigrationUtils";
 import { registerTestingCommands } from "./evaluation/testingCommands";
+import { initializeABTesting } from "./utils/abTestingSetup";
 
 const DEBUG_MODE = false;
 function debug(...args: any[]): void {
@@ -397,15 +397,14 @@ export async function activate(context: vscode.ExtensionContext) {
 
         await Promise.all([
             registerSmartEditCommands(context),
-            registerSourceUploadCommands(context),
             registerProviders(context),
             registerCommands(context),
             initializeWebviews(context),
             (async () => registerTestingCommands(context))(),
         ]);
 
-        // Initialize A/B testing registry (always-on, simple)
-        // initializeABTesting(); // disabled
+        // Initialize A/B testing registry (always-on)
+        initializeABTesting();
 
         // Track total time for core components
         stepStart = trackTiming("Loading Core Components", coreComponentsStart);

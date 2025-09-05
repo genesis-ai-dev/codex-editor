@@ -767,7 +767,7 @@ describe("YourFileTypeImporter", () => {
 -   **Markdown**: GitHub Flavored Markdown parsing with `marked` library, image extraction ✅ **IMPLEMENTED**
 -   **eBible Corpus**: File-based structured data parsing (TSV/CSV), verse metadata ✅ **IMPLEMENTED**
 -   **eBible Download**: Download Bible text from eBible repository (with Macula Hebrew/Greek support) ✅ **IMPLEMENTED**
--   **USFM**: Biblical markup parsing with usfm-grammar, chapter/verse structure ✅ **IMPLEMENTED**
+-   **USFM**: Biblical markup parsing with custom regex-based parser (headers, markers, chapters/verses), chapter/verse structure ✅ **IMPLEMENTED**
 -   **Paratext Project**: Both folder-based projects (.SFM files, Settings.xml, BookNames.xml) and ZIP archives ✅ **IMPLEMENTED**
 -   **Smart Segmenter**: Universal text importer with intelligent features ✅ **IMPLEMENTED**
     -   **Structure-aware splitting**: Respects paragraphs, sentences, and document boundaries
@@ -800,7 +800,7 @@ All major transaction-based importers have been successfully migrated to the new
 | USFM Import        | `UsfmSourceImportTransaction` | `usfmImporter`           | ✅ Complete |
 | Paratext Projects  | N/A (new)                     | `paratextImporter`       | ✅ Complete |
 | eBible Download    | `DownloadBibleTransaction`    | `ebibleDownloadImporter` | ✅ Complete |
-| Smart Segmenter       | `SourceImportTransaction`     | `smartSegmenterPlugin`      | ✅ Complete |
+| Smart Segmenter    | `SourceImportTransaction`     | `smartSegmenterPlugin`   | ✅ Complete |
 | Subtitles/VTT      | N/A (new)                     | `subtitlesImporter`      | ✅ Complete |
 | Open Bible Stories | N/A (new)                     | `obsImporter`            | ✅ Complete |
 | Markdown           | N/A (new)                     | `markdownImporter`       | ✅ Complete |

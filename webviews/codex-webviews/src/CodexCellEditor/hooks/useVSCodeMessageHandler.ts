@@ -100,6 +100,10 @@ export const useVSCodeMessageHandler = ({
             switch (message.type) {
                 case "providerSendsInitialContent":
                     setContent(message.content, message.isSourceText, message.sourceCellMap);
+
+                    // Bundled metadata (username, validationCount) is handled separately in CodexCellEditor.tsx
+                    // Note: Audio attachments are NOT processed here to avoid flashing/changing status
+                    // They will be updated via the separate providerSendsAudioAttachments message
                     break;
                 case "providerSendsSpellCheckResponse":
                     setSpellCheckResponse(message.content);

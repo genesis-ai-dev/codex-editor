@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useRef, useState, useMemo } from "react";
+import React, { useContext, useEffect, useRef, useState, useMemo, useCallback } from "react";
 import {
     EditorCellContent,
     EditorPostMessages,
@@ -18,6 +18,7 @@ import "./TranslationAnimations.css"; // Import the animation CSS
 import AnimatedReveal from "../components/AnimatedReveal";
 import { useTooltip } from "./contextProviders/TooltipContext";
 import CommentsBadge from "./CommentsBadge";
+import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 
 const SHOW_VALIDATION_BUTTON = true;
 interface CellContentDisplayProps {
@@ -71,71 +72,66 @@ const AudioPlayButton: React.FC<{
     // Do not pre-load on mount; we will request on first click to avoid spinner churn
 
     // Listen for audio data messages
-    useEffect(() => {
-        const handleMessage = (event: MessageEvent) => {
-            const message = event.data;
+    useMessageHandler("cellContentDisplay-audioData", (event: MessageEvent) => {
+        const message = event.data;
 
-            // Handle audio attachments updates - clear current url; fetch on next click
-            if (message.type === "providerSendsAudioAttachments") {
+        // Handle audio attachments updates - clear current url; fetch on next click
+        if (message.type === "providerSendsAudioAttachments") {
+            if (audioUrl && audioUrl.startsWith("blob:")) {
+                URL.revokeObjectURL(audioUrl);
+            }
+            setAudioUrl(null);
+            setIsLoading(false);
+        }
+
+        if (message.type === "providerSendsAudioData" && message.content.cellId === cellId) {
+            if (message.content.audioData) {
+                // Clean up previous URL if exists
                 if (audioUrl && audioUrl.startsWith("blob:")) {
                     URL.revokeObjectURL(audioUrl);
                 }
+
+                // Convert base64 to blob URL
+                fetch(message.content.audioData)
+                    .then((res) => res.blob())
+                    .then((blob) => {
+                        const blobUrl = URL.createObjectURL(blob);
+                        setAudioUrl(blobUrl);
+                        setIsLoading(false);
+                        if (pendingPlayRef.current) {
+                            // Auto-play once the data arrives
+                            try {
+                                if (!audioRef.current) {
+                                    audioRef.current = new Audio();
+                                    audioRef.current.onended = () => setIsPlaying(false);
+                                    audioRef.current.onerror = () => {
+                                        console.error("Error playing audio for cell:", cellId);
+                                        setIsPlaying(false);
+                                    };
+                                }
+                                audioRef.current.src = blobUrl;
+                                audioRef.current
+                                    .play()
+                                    .then(() => setIsPlaying(true))
+                                    .catch((e) => {
+                                        console.error("Error auto-playing audio for cell:", e);
+                                        setIsPlaying(false);
+                                    });
+                            } finally {
+                                pendingPlayRef.current = false;
+                            }
+                        }
+                    })
+                    .catch((error) => {
+                        console.error("Error converting audio data:", error);
+                        setIsLoading(false);
+                    });
+            } else {
+                // No audio data - clear the audio URL and stop loading
                 setAudioUrl(null);
                 setIsLoading(false);
             }
-
-            if (message.type === "providerSendsAudioData" && message.content.cellId === cellId) {
-                if (message.content.audioData) {
-                    // Clean up previous URL if exists
-                    if (audioUrl && audioUrl.startsWith("blob:")) {
-                        URL.revokeObjectURL(audioUrl);
-                    }
-
-                    // Convert base64 to blob URL
-                    fetch(message.content.audioData)
-                        .then((res) => res.blob())
-                        .then((blob) => {
-                            const blobUrl = URL.createObjectURL(blob);
-                            setAudioUrl(blobUrl);
-                            setIsLoading(false);
-                            if (pendingPlayRef.current) {
-                                // Auto-play once the data arrives
-                                try {
-                                    if (!audioRef.current) {
-                                        audioRef.current = new Audio();
-                                        audioRef.current.onended = () => setIsPlaying(false);
-                                        audioRef.current.onerror = () => {
-                                            console.error("Error playing audio for cell:", cellId);
-                                            setIsPlaying(false);
-                                        };
-                                    }
-                                    audioRef.current.src = blobUrl;
-                                    audioRef.current
-                                        .play()
-                                        .then(() => setIsPlaying(true))
-                                        .catch((e) => {
-                                            console.error("Error auto-playing audio for cell:", e);
-                                            setIsPlaying(false);
-                                        });
-                                } finally {
-                                    pendingPlayRef.current = false;
-                                }
-                            }
-                        })
-                        .catch((error) => {
-                            console.error("Error converting audio data:", error);
-                            setIsLoading(false);
-                        });
-                } else {
-                    // No audio data - clear the audio URL and stop loading
-                    setAudioUrl(null);
-                    setIsLoading(false);
-                }
-            }
-        };
-
-        window.addEventListener("message", handleMessage);
-        return () => window.removeEventListener("message", handleMessage);
+        }
     }, [audioUrl, cellId, vscode]); // Add vscode to dependencies
 
     // Clean up blob URL on unmount
@@ -157,7 +153,9 @@ const AudioPlayButton: React.FC<{
             if (state !== "available") {
                 try {
                     sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");
-                } catch {}
+                } catch (e) {
+                    void e;
+                }
                 vscode.postMessage({
                     command: "setPreferredEditorTab",
                     content: { tab: "audio" },
@@ -344,7 +342,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
         // Helper function to check if this cell should be highlighted
         // Handles parent/child cell matching: child cells in target should highlight parent cells in source
-        const checkShouldHighlight = (): boolean => {
+        const checkShouldHighlight = useCallback((): boolean => {
             return cellIds.some((cellId) => {
                 if (!highlightedCellId || !cellId) return false;
 
@@ -363,7 +361,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
                 return false;
             });
-        };
+        }, [cellIds, highlightedCellId]);
 
         useEffect(() => {
             debug("Before Scrolling to content highlightedCellId", {
@@ -777,20 +775,28 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 )}
 
                                 {/* Audio Play Button */}
-                                {audioAttachments && (
-                                    <AudioPlayButton
-                                        cellId={cellIds[0]}
-                                        vscode={vscode}
-                                        state={(audioAttachments[cellIds[0]] as any) || "none"}
-                                        onOpenCell={(id) => {
-                                            // Use force variant to ensure editor opens even with unsaved state
-                                            const open =
-                                                (window as any).openCellByIdForce ||
-                                                (window as any).openCellById;
-                                            if (typeof open === "function") open(id);
-                                        }}
-                                    />
-                                )}
+                                {audioAttachments && audioAttachments[cellIds[0]] !== undefined &&
+                                    (() => {
+                                        const audioState = audioAttachments[cellIds[0]];
+
+                                        // For source text: only show the play button if audio is available.
+                                        if (isSourceText && audioState !== "available") return null;
+
+                                        return (
+                                            <AudioPlayButton
+                                                cellId={cellIds[0]}
+                                                vscode={vscode}
+                                                state={audioState}
+                                                onOpenCell={(id) => {
+                                                    // Use force variant to ensure editor opens even with unsaved state
+                                                    const open =
+                                                        (window as any).openCellByIdForce ||
+                                                        (window as any).openCellById;
+                                                    if (typeof open === "function") open(id);
+                                                }}
+                                            />
+                                        );
+                                    })()}
 
                                 {/* Merge Button - only show in correction editor mode for source text */}
                                 {isSourceText &&

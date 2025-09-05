@@ -163,6 +163,49 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
+    getCommentsForCells: async ({ event, webviewPanel }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "getCommentsForCells"; }>;
+        try {
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            if (!workspaceFolders || workspaceFolders.length === 0) {
+                const result: { [cellId: string]: number; } = {};
+                typedEvent.content.cellIds.forEach(cellId => {
+                    result[cellId] = 0;
+                });
+                safePostMessageToPanel(webviewPanel, {
+                    type: "commentsForCells",
+                    content: result,
+                });
+                return;
+            }
+
+            const comments = await getCommentsFromFile(".project/comments.json");
+            const result: { [cellId: string]: number; } = {};
+
+            typedEvent.content.cellIds.forEach(cellId => {
+                result[cellId] = getUnresolvedCommentsCountForCell(comments, cellId);
+            });
+
+            safePostMessageToPanel(webviewPanel, {
+                type: "commentsForCells",
+                content: result,
+            });
+        } catch (error) {
+            // Silent fallback
+            if (!(error instanceof Error && error.message === "Failed to parse notebook comments from file")) {
+                console.error("Unexpected error getting comments for cells:", error);
+            }
+            const result: { [cellId: string]: number; } = {};
+            typedEvent.content.cellIds.forEach(cellId => {
+                result[cellId] = 0;
+            });
+            safePostMessageToPanel(webviewPanel, {
+                type: "commentsForCells",
+                content: result,
+            });
+        }
+    },
+
     openCommentsForCell: async ({ event, document, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "openCommentsForCell"; }>;
         try {
@@ -410,9 +453,19 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             sourceFileName
         );
 
-        await vscode.commands.executeCommand("codexNotebookTreeView.openSourceFile", {
-            sourceFileUri: sourceUri,
-        });
+        try {
+            await vscode.commands.executeCommand(
+                "vscode.openWith",
+                sourceUri,
+                "codex.cellEditor",
+                { viewColumn: vscode.ViewColumn.Beside }
+            );
+        } catch (error) {
+            console.error(`Failed to open source file: ${error}`);
+            vscode.window.showErrorMessage(
+                `Failed to open source file: ${sourceUri.toString()}`
+            );
+        }
         provider.postMessageToWebview(webviewPanel, {
             type: "jumpToSection",
             content: typedEvent.content.chapterNumber.toString(),
@@ -621,11 +674,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     selectABTestVariant: async ({ event }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "selectABTestVariant"; }>;
-        const { cellId, selectedIndex, testId, selectionTimeMs, names } = (typedEvent as any).content || {};
+        const { cellId, selectedIndex, testId, testName, selectionTimeMs, names } = (typedEvent as any).content || {};
 
         // Import and call the A/B testing feedback function
         const { recordVariantSelection } = await import("../../utils/abTestingUtils");
-        await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, names);
+        await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, names, testName);
 
         console.log(`A/B test feedback recorded: Cell ${cellId}, variant ${selectedIndex}, test ${testId}, took ${selectionTimeMs}ms`);
     },
@@ -656,6 +709,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     getValidationCount: async ({ webviewPanel, provider }) => {
+        // Validation count is now bundled with initial content; only send on explicit request
         const config = vscode.workspace.getConfiguration("codex-project-manager");
         const validationCount = config.get("validationCount", 1);
         provider.postMessageToWebview(webviewPanel, {
@@ -664,7 +718,27 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
     },
 
+    adjustABTestingProbability: async ({ event, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "adjustABTestingProbability"; }> & { content: { delta: number; }; };
+        const delta = Number((typedEvent as any)?.content?.delta) || 0;
+        try {
+            const config = vscode.workspace.getConfiguration("codex-editor-extension");
+            const current = Number(config.get("abTestingProbability")) || 0;
+            const next = Math.max(0, Math.min(1, current + delta));
+            await config.update("abTestingProbability", next, vscode.ConfigurationTarget.Workspace);
+            // Inform webview of new value
+            provider.postMessageToWebview(webviewPanel, {
+                type: "abTestingProbabilityUpdated",
+                content: { value: next }
+            });
+            vscode.window.setStatusBarMessage(`A/B test frequency set to ${(next * 100).toFixed(0)}%`, 2000);
+        } catch (err) {
+            console.error("Failed to update A/B testing probability", err);
+        }
+    },
+
     getCurrentUsername: async ({ webviewPanel, provider }) => {
+        // Username is now bundled with initial content; only send on explicit request
         const authApi = await provider.getAuthApi();
         const userInfo = await authApi?.getUserInfo();
         const username = userInfo?.username || "anonymous";
@@ -865,46 +939,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
     },
 
-    requestAudioAttachments: async ({ document, webviewPanel, provider }) => {
-        console.log("requestAudioAttachments message received");
-        const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
-        const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {} as any;
-        // Start with none for all ids in document
-        try {
-            const notebookData = JSON.parse(document.getText());
-            if (Array.isArray(notebookData?.cells)) {
-                for (const cell of notebookData.cells) {
-                    if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
-                }
-            }
-        } catch (err) { console.warn('Failed to parse notebook cells for audio status', err); }
-
-        // Mark available where we found on-disk non-deleted attachments
-        for (const cellId of Object.keys(audioAttachments)) {
-            audioCells[cellId] = "available";
-        }
-
-        // Mark deletedOnly where no available but there exists at least one deleted attachment in metadata
-        try {
-            const notebookData = JSON.parse(document.getText());
-            if (Array.isArray(notebookData?.cells)) {
-                for (const cell of notebookData.cells) {
-                    const id = cell?.metadata?.id;
-                    if (!id) continue;
-                    if (audioCells[id] === "available") continue;
-                    const attachments = cell?.metadata?.attachments || {};
-                    const hasDeletedAudio = Object.values(attachments).some((att: any) => att?.type === "audio" && att?.isDeleted === true);
-                    if (hasDeletedAudio) {
-                        audioCells[id] = "deletedOnly";
-                    }
-                }
-            }
-        } catch (err) { console.warn('Failed to parse attachments for deleted-only status', err); }
-        provider.postMessageToWebview(webviewPanel, {
-            type: "providerSendsAudioAttachments",
-            attachments: audioCells as any,
-        });
-    },
+    // requestAudioAttachments removed: provider proactively sends status; no webview-initiated fallback
 
     requestAudioForCell: async ({ event, document, webviewPanel }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "requestAudioForCell"; }>;
@@ -1717,7 +1752,7 @@ export async function scanForAudioAttachments(
                     // Check if cell has attachments in metadata
                     if (cell.metadata.attachments) {
                         for (const [attachmentId, attachment] of Object.entries(cell.metadata.attachments)) {
-                            if (attachment && (attachment as any).type === "audio" && !(attachment as any).isDeleted) {
+                            if (attachment && (attachment as any).type === "audio") {
                                 const attachmentPath = toPosixPath((attachment as any).url);
 
                                 // Build full path
@@ -1728,27 +1763,9 @@ export async function scanForAudioAttachments(
                                 try {
                                     // Check if file exists and read it
                                     if (await pathExists(fullPath)) {
-                                        const ext = path.extname(fullPath).toLowerCase();
-                                        const mimeType = ext === ".webm" ? "audio/webm" :
-                                            ext === ".mp3" ? "audio/mp3" :
-                                                ext === ".m4a" ? "audio/mp4" :
-                                                    ext === ".ogg" ? "audio/ogg" : "audio/wav";
-
-                                        const fileData = await vscode.workspace.fs.readFile(vscode.Uri.file(fullPath));
-                                        const base64Data = `data:${mimeType};base64,${Buffer.from(fileData).toString('base64')}`;
-
-                                        // Send the audio data to the webview
-                                        safePostMessageToPanel(webviewPanel, {
-                                            type: "providerSendsAudioData",
-                                            content: {
-                                                cellId: cellId,
-                                                audioId: attachmentId,
-                                                audioData: base64Data
-                                            }
-                                        });
-
+                                        // Record availability only; avoid sending base64 audio during scans
                                         audioAttachments[cellId] = fullPath;
-                                        debug("Found audio attachment in metadata:", {
+                                        debug("Found audio attachment in metadata (availability only):", {
                                             cellId,
                                             attachmentId,
                                             path: fullPath
@@ -1798,27 +1815,9 @@ export async function scanForAudioAttachments(
                                     // Only process if not already found in metadata
                                     if (!audioAttachments[cellId]) {
                                         try {
-                                            // Read the file and send as base64
-                                            const fileData = await vscode.workspace.fs.readFile(vscode.Uri.file(fullAudioPath));
-                                            const mimeType = audioFile.endsWith('.webm') ? 'audio/webm' :
-                                                audioFile.endsWith('.mp3') ? 'audio/mp3' :
-                                                    audioFile.endsWith('.m4a') ? 'audio/mp4' :
-                                                        audioFile.endsWith('.ogg') ? 'audio/ogg' :
-                                                            'audio/wav';
-                                            const base64Data = `data:${mimeType};base64,${Buffer.from(fileData).toString('base64')}`;
-
-                                            // Send the audio data to the webview
-                                            safePostMessageToPanel(webviewPanel, {
-                                                type: "providerSendsAudioData",
-                                                content: {
-                                                    cellId: cellId,
-                                                    audioId: audioFile.replace(/\.[^/.]+$/, ""), // Remove extension
-                                                    audioData: base64Data
-                                                }
-                                            });
-
+                                            // Record availability only; avoid sending base64 during scans
                                             audioAttachments[cellId] = fullAudioPath;
-                                            debug("Found and sent legacy audio file:", {
+                                            debug("Found legacy audio file (availability only):", {
                                                 cellId,
                                                 audioFile,
                                                 path: fullAudioPath

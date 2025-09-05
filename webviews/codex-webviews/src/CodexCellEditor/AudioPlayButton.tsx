@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { WebviewApi } from "vscode-webview";
+import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 
 type AudioState = "available" | "deletedOnly" | "none";
 
@@ -17,60 +18,55 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = ({ cellId, vscode, state
     const pendingPlayRef = useRef(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
 
-    useEffect(() => {
-        const handleMessage = (event: MessageEvent) => {
-            const message = event.data;
+    useMessageHandler("audioPlayButton", (event: MessageEvent) => {
+        const message = event.data;
 
-            if (message.type === "providerSendsAudioAttachments") {
+        if (message.type === "providerSendsAudioAttachments") {
+            if (audioUrl && audioUrl.startsWith("blob:")) {
+                URL.revokeObjectURL(audioUrl);
+            }
+            setAudioUrl(null);
+            setIsLoading(false);
+        }
+
+        if (message.type === "providerSendsAudioData" && message.content.cellId === cellId) {
+            if (message.content.audioData) {
                 if (audioUrl && audioUrl.startsWith("blob:")) {
                     URL.revokeObjectURL(audioUrl);
                 }
+
+                fetch(message.content.audioData)
+                    .then((res) => res.blob())
+                    .then((blob) => {
+                        const blobUrl = URL.createObjectURL(blob);
+                        setAudioUrl(blobUrl);
+                        setIsLoading(false);
+                        if (pendingPlayRef.current) {
+                            try {
+                                if (!audioRef.current) {
+                                    audioRef.current = new Audio();
+                                    audioRef.current.onended = () => setIsPlaying(false);
+                                    audioRef.current.onerror = () => {
+                                        console.error("Error playing audio for cell:", cellId);
+                                        setIsPlaying(false);
+                                    };
+                                }
+                                audioRef.current.src = blobUrl;
+                                audioRef.current
+                                    .play()
+                                    .then(() => setIsPlaying(true))
+                                    .catch(() => setIsPlaying(false));
+                            } finally {
+                                pendingPlayRef.current = false;
+                            }
+                        }
+                    })
+                    .catch(() => setIsLoading(false));
+            } else {
                 setAudioUrl(null);
                 setIsLoading(false);
             }
-
-            if (message.type === "providerSendsAudioData" && message.content.cellId === cellId) {
-                if (message.content.audioData) {
-                    if (audioUrl && audioUrl.startsWith("blob:")) {
-                        URL.revokeObjectURL(audioUrl);
-                    }
-
-                    fetch(message.content.audioData)
-                        .then((res) => res.blob())
-                        .then((blob) => {
-                            const blobUrl = URL.createObjectURL(blob);
-                            setAudioUrl(blobUrl);
-                            setIsLoading(false);
-                            if (pendingPlayRef.current) {
-                                try {
-                                    if (!audioRef.current) {
-                                        audioRef.current = new Audio();
-                                        audioRef.current.onended = () => setIsPlaying(false);
-                                        audioRef.current.onerror = () => {
-                                            console.error("Error playing audio for cell:", cellId);
-                                            setIsPlaying(false);
-                                        };
-                                    }
-                                    audioRef.current.src = blobUrl;
-                                    audioRef.current
-                                        .play()
-                                        .then(() => setIsPlaying(true))
-                                        .catch(() => setIsPlaying(false));
-                                } finally {
-                                    pendingPlayRef.current = false;
-                                }
-                            }
-                        })
-                        .catch(() => setIsLoading(false));
-                } else {
-                    setAudioUrl(null);
-                    setIsLoading(false);
-                }
-            }
-        };
-
-        window.addEventListener("message", handleMessage);
-        return () => window.removeEventListener("message", handleMessage);
+        }
     }, [audioUrl, cellId, vscode]);
 
     useEffect(() => {

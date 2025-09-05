@@ -60,6 +60,18 @@ export class SearchManager {
     }
 
     /**
+     * Get a specific algorithm instance by type, with safe fallback
+     */
+    private getAlgorithmByType(type: SearchAlgorithmType): BaseSearchAlgorithm {
+        const algorithm = this.algorithms.get(type);
+        if (!algorithm) {
+            console.warn(`[SearchManager] Requested algorithm '${type}' not found, falling back to default`);
+            return this.algorithms.get(this.defaultAlgorithm)!;
+        }
+        return algorithm;
+    }
+
+    /**
      * Validate and fill in default values for search options
      */
     private validateSearchOptions(options: Partial<SearchOptions>): SearchOptions {
@@ -97,6 +109,27 @@ export class SearchManager {
             }
             
             throw error;
+        }
+    }
+
+    /**
+     * Force running search with a specific algorithm, ignoring configuration
+     */
+    async searchWithAlgorithm(
+        algorithmType: SearchAlgorithmType,
+        query: string,
+        options: Partial<SearchOptions> = {}
+    ): Promise<TranslationPair[]> {
+        const algorithm = this.getAlgorithmByType(algorithmType);
+        try {
+            const validatedOptions = this.validateSearchOptions(options);
+            return await algorithm.search(query, validatedOptions);
+        } catch (error) {
+            console.error(`[SearchManager] Forced search failed with algorithm '${algorithm.getName()}':`, error);
+            // Fallback to default algorithm
+            const fallback = this.algorithms.get(this.defaultAlgorithm)!;
+            const validatedOptions = this.validateSearchOptions(options);
+            return await fallback.search(query, validatedOptions);
         }
     }
 
@@ -149,5 +182,42 @@ export class SearchManager {
             console.log(`[SearchManager] Standard search returned ${results.length} results`);
             return results;
         }
+    }
+
+    /**
+     * Backward compatibility method with explicit algorithm selection
+     */
+    async getTranslationPairsFromSourceCellQueryWithAlgorithm(
+        algorithmType: SearchAlgorithmType,
+        query: string,
+        k: number = 5,
+        onlyValidated: boolean = false
+    ): Promise<TranslationPair[]> {
+        const initialLimit = Math.max(k * 6, 30);
+        const options: Partial<SearchOptions> = {
+            limit: k,
+            onlyValidated,
+            returnRawContent: false
+        };
+
+        const algorithm = this.getAlgorithmByType(algorithmType);
+        const algorithmName = algorithm.getName();
+        console.log(`[SearchManager] (forced) Using algorithm: ${algorithmName} for query: "${query}" (limit: ${k}, onlyValidated: ${onlyValidated})`);
+
+        if (algorithmName === "fts5-bm25") {
+            // Prefer overlap filtering behavior for FTS5
+            try {
+                const fts5 = this.getAlgorithmByType("fts5-bm25") as any;
+                if (typeof fts5.searchWithWordOverlapFilter === "function") {
+                    return await fts5.searchWithWordOverlapFilter(query, options);
+                }
+            } catch (err) {
+                console.warn(`[SearchManager] FTS5 overlap filtering unavailable, falling back to standard search`, err);
+            }
+        }
+
+        // For other algorithms, do a standard search with larger initial limit
+        const results = await this.searchWithAlgorithm(algorithmType, query, { ...options, limit: initialLimit });
+        return results;
     }
 }

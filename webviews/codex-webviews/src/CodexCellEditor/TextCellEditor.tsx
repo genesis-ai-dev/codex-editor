@@ -26,6 +26,7 @@ import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 import AudioWaveformWithTranscription from "./AudioWaveformWithTranscription";
 import SourceTextDisplay from "./SourceTextDisplay";
 import { AudioHistoryViewer } from "./AudioHistoryViewer";
+import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 
 // ShadCN UI components
 import { Button } from "../components/ui/button";
@@ -37,6 +38,8 @@ import { Badge } from "../components/ui/badge";
 import { Progress } from "../components/ui/progress";
 import { Separator } from "../components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import "./TextCellEditor-overrides.css";
 import { Slider } from "../components/ui/slider";
 
@@ -62,7 +65,6 @@ import {
     MessageCircle,
     Loader2,
     Volume2,
-    TypeIcon,
     Pin,
     Copy,
     Square,
@@ -214,60 +216,26 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [editedBacktranslation, setEditedBacktranslation] = useState<string | null>(null);
     const [isGeneratingBacktranslation, setIsGeneratingBacktranslation] = useState(false);
     const [backtranslationProgress, setBacktranslationProgress] = useState(0);
-    const [activeTab, setActiveTab] = useState<
-        "source" | "backtranslation" | "footnotes" | "audio" | "timestamps"
-    >(() => {
+    const [activeTab, setActiveTab] = useState<"" | "source" | "footnotes" | "audio" | "timestamps">(() => {
         try {
-            const id = cellMarkers[0];
-            if (sessionStorage.getItem(`start-audio-recording-${id}`)) {
-                return "audio";
-            }
-            const stored = sessionStorage.getItem("preferred-editor-tab");
-            if (
-                stored === "source" ||
-                stored === "backtranslation" ||
-                stored === "footnotes" ||
-                stored === "audio" ||
-                stored === "timestamps"
-            ) {
-                return stored as
-                    | "source"
-                    | "backtranslation"
-                    | "footnotes"
-                    | "timestamps"
-                    | "audio";
-            }
-        } catch {}
-        return "source";
+            const stored = sessionStorage.getItem("preferred-editor-tab") as
+                | "source"
+                | "footnotes"
+                | "audio"
+                | "timestamps"
+                | null;
+            return stored ?? "";
+        } catch {
+            return "";
+        }
     });
 
     // Load preferred tab from provider on mount
     useEffect(() => {
-        const handlePreferredTab = (event: MessageEvent) => {
-            if (event.data && event.data.type === "preferredEditorTab") {
-                // If this open was specifically forced to audio for recording, ignore
-                try {
-                    const id = cellMarkers[0];
-                    if (sessionStorage.getItem(`start-audio-recording-${id}`)) {
-                        return;
-                    }
-                } catch {}
-                const preferred = event.data.tab as typeof activeTab;
-                setActiveTab(preferred);
-                try {
-                    sessionStorage.setItem("preferred-editor-tab", preferred);
-                } catch {}
-                if (preferred === "audio") {
-                    setTimeout(centerEditor, 50);
-                    setTimeout(centerEditor, 250);
-                }
-            }
-        };
-        window.addEventListener("message", handlePreferredTab);
         window.vscodeApi.postMessage({ command: "getPreferredEditorTab" });
-        return () => window.removeEventListener("message", handlePreferredTab);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
     const [footnotes, setFootnotes] = useState<
         Array<{ id: string; content: string; element?: HTMLElement }>
     >([]);
@@ -311,15 +279,40 @@ const CellEditor: React.FC<CellEditorProps> = ({
     } | null>(null);
     const transcriptionClientRef = useRef<WhisperTranscriptionClient | null>(null);
 
-    // Helper to center the editor within the scroll container after layout settles
+    // Helper to smoothly center the editor. Coalesces multiple calls and
+    // performs a single smooth scroll after layout settles.
+    const scrollTimeoutRef = useRef<number | null>(null);
+    const scrollRafRef = useRef<number | null>(null);
     const centerEditor = useCallback(() => {
         const el = cellEditorRef.current;
         if (!el) return;
-        const scrollOnce = () => el.scrollIntoView({ behavior: "smooth", block: "center" });
-        // Do a few passes to account for async content height changes
-        requestAnimationFrame(scrollOnce);
-        setTimeout(scrollOnce, 150);
-        setTimeout(scrollOnce, 350);
+
+        // Cancel any pending schedule to avoid jitter from duplicate calls
+        if (scrollTimeoutRef.current) {
+            clearTimeout(scrollTimeoutRef.current);
+            scrollTimeoutRef.current = null;
+        }
+        if (scrollRafRef.current) {
+            cancelAnimationFrame(scrollRafRef.current);
+            scrollRafRef.current = null;
+        }
+
+        // Wait a short time for layout changes (images, waveform, etc.) to settle
+        scrollTimeoutRef.current = window.setTimeout(() => {
+            scrollRafRef.current = requestAnimationFrame(() => {
+                el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+                scrollRafRef.current = null;
+            });
+            scrollTimeoutRef.current = null;
+        }, 120);
+    }, []);
+
+    // Cleanup any pending timers/frames on unmount
+    useEffect(() => {
+        return () => {
+            if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+            if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+        };
     }, []);
 
     // Effect to always derive audioUrl from audioBlob
@@ -361,6 +354,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [isPinned, setIsPinned] = useState(false);
     const [showAdvancedControls, setShowAdvancedControls] = useState(false);
     const [unresolvedCommentsCount, setUnresolvedCommentsCount] = useState<number>(0);
+    const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+    const [showDiscardModal, setShowDiscardModal] = useState(false);
 
     const handleSaveCell = () => {
         handleSaveHtml();
@@ -392,33 +387,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
     }, [cellLabel]);
 
     // Fetch comments count for this cell
-    useEffect(() => {
-        const fetchCommentsCount = () => {
-            const messageContent: EditorPostMessages = {
-                command: "getCommentsForCell",
-                content: {
-                    cellId: cellMarkers[0],
-                },
-            };
-            window.vscodeApi.postMessage(messageContent);
-        };
-
-        fetchCommentsCount();
-    }, [cellMarkers]);
+    // Comments count now handled by CellList.tsx batched requests
 
     // Handle comments count response
-    useEffect(() => {
-        const handleCommentsResponse = (event: MessageEvent) => {
-            if (
-                event.data.type === "commentsForCell" &&
-                event.data.content.cellId === cellMarkers[0]
-            ) {
-                setUnresolvedCommentsCount(event.data.content.unresolvedCount);
-            }
-        };
-
-        window.addEventListener("message", handleCommentsResponse);
-        return () => window.removeEventListener("message", handleCommentsResponse);
+    useMessageHandler("textCellEditor-commentsResponse", (event: MessageEvent) => {
+        if (
+            event.data.type === "commentsForCell" &&
+            event.data.content.cellId === cellMarkers[0]
+        ) {
+            setUnresolvedCommentsCount(event.data.content.unresolvedCount);
+        }
     }, [cellMarkers]);
 
     const handleLabelChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -449,16 +427,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
         handleLabelBlur();
     };
 
-    useEffect(() => {
-        const handleSimilarCellsResponse = (event: MessageEvent) => {
-            const message = event.data;
-            if (message.type === "providerSendsSimilarCellIdsResponse") {
-                setSimilarCells(message.content);
-            }
-        };
-
-        window.addEventListener("message", handleSimilarCellsResponse);
-        return () => window.removeEventListener("message", handleSimilarCellsResponse);
+    useMessageHandler("textCellEditor-similarCellsResponse", (event: MessageEvent) => {
+        const message = event.data;
+        if (message.type === "providerSendsSimilarCellIdsResponse") {
+            setSimilarCells(message.content);
+        }
     }, []);
 
     const makeChild = () => {
@@ -589,16 +562,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
     }, [cellMarkers, cellType, cellIsChild]);
 
     // Add effect to handle source text response
-    useEffect(() => {
-        const handleSourceTextResponse = (event: MessageEvent) => {
-            const message = event.data;
-            if (message.type === "providerSendsSourceText") {
-                setSourceText(message.content);
-            }
-        };
-
-        window.addEventListener("message", handleSourceTextResponse);
-        return () => window.removeEventListener("message", handleSourceTextResponse);
+    useMessageHandler("textCellEditor-sourceTextResponse", (event: MessageEvent) => {
+        const message = event.data;
+        if (message.type === "providerSendsSourceText") {
+            setSourceText(message.content);
+        }
     }, []);
 
     // Pseudo progress bar for backtranslation generation
@@ -622,31 +590,26 @@ const CellEditor: React.FC<CellEditorProps> = ({
         };
     }, [isGeneratingBacktranslation, backtranslationProgress]);
 
-    useEffect(() => {
-        const handleBacktranslationResponse = (event: MessageEvent) => {
-            const message = event.data;
-            if (
-                message.type === "providerSendsBacktranslation" ||
-                message.type === "providerSendsExistingBacktranslation" ||
-                message.type === "providerSendsUpdatedBacktranslation" ||
-                message.type === "providerConfirmsBacktranslationSet"
-            ) {
-                setBacktranslation(message.content || null);
-                setEditedBacktranslation(message.content?.backtranslation || null);
+    useMessageHandler("textCellEditor-backtranslationResponse", (event: MessageEvent) => {
+        const message = event.data;
+        if (
+            message.type === "providerSendsBacktranslation" ||
+            message.type === "providerSendsExistingBacktranslation" ||
+            message.type === "providerSendsUpdatedBacktranslation" ||
+            message.type === "providerConfirmsBacktranslationSet"
+        ) {
+            setBacktranslation(message.content || null);
+            setEditedBacktranslation(message.content?.backtranslation || null);
 
-                // Complete the progress bar and reset loading state
-                if (isGeneratingBacktranslation) {
-                    setBacktranslationProgress(100);
-                    setTimeout(() => {
-                        setIsGeneratingBacktranslation(false);
-                        setBacktranslationProgress(0);
-                    }, 500); // Brief delay to show completion
-                }
+            // Complete the progress bar and reset loading state
+            if (isGeneratingBacktranslation) {
+                setBacktranslationProgress(100);
+                setTimeout(() => {
+                    setIsGeneratingBacktranslation(false);
+                    setBacktranslationProgress(0);
+                }, 500); // Brief delay to show completion
             }
-        };
-
-        window.addEventListener("message", handleBacktranslationResponse);
-        return () => window.removeEventListener("message", handleBacktranslationResponse);
+        }
     }, [isGeneratingBacktranslation]);
 
     useEffect(() => {
@@ -729,17 +692,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
         [unsavedChanges, handleSaveHtml, openCellById, setContentBeingUpdated, setEditorContent]
     );
 
-    useEffect(() => {
-        const handleMessage = (event: MessageEvent) => {
-            const message = event.data;
-            if (message.type === "openCellById") {
-                handleOpenCellById(message.cellId, message.text);
-            }
-        };
-
-        window.addEventListener("message", handleMessage);
-        return () => window.removeEventListener("message", handleMessage);
-    }, []); // Empty dependency array means this effect runs once on mount
+    useMessageHandler("textCellEditor-openCellById", (event: MessageEvent) => {
+        const message = event.data;
+        if (message.type === "openCellById") {
+            handleOpenCellById(message.cellId, message.text);
+        }
+    }, [handleOpenCellById]);
 
     // Add effect to initialize footnotes from the document
     useEffect(() => {
@@ -763,35 +721,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
             }
         }
 
-        // Listen for storeFootnote messages
-        const handleMessage = (event: MessageEvent) => {
-            if (
-                event.data.type === "footnoteStored" &&
-                event.data.content.cellId === cellMarkers[0]
-            ) {
-                const newFootnote = {
-                    id: event.data.content.footnoteId,
-                    content: event.data.content.content,
-                };
-
-                setFootnotes((prev) => {
-                    // Check if footnote with this ID already exists
-                    const exists = prev.some((fn) => fn.id === newFootnote.id);
-                    const updatedFootnotes = exists
-                        ? prev.map((fn) => (fn.id === newFootnote.id ? newFootnote : fn))
-                        : [...prev, newFootnote];
-
-                    // Re-parse to ensure correct chronological ordering (debounced)
-                    parseFootnotesFromContent();
-
-                    return updatedFootnotes;
-                });
-            }
-        };
-
-        window.addEventListener("message", handleMessage);
-        return () => window.removeEventListener("message", handleMessage);
     }, [cellMarkers, cell?.data?.footnotes]);
+
 
     // Function to parse footnotes from cell content with debouncing to prevent race conditions
     const parseFootnotesFromContent = useCallback(() => {
@@ -868,13 +799,60 @@ const CellEditor: React.FC<CellEditorProps> = ({
         };
     }, []);
 
-    // Smart tab switching - switch to an available tab if current becomes unavailable
-    useEffect(() => {
-        // If source tab is active but no source text, switch to backtranslation or footnotes
-        if (activeTab === "source" && !sourceText) {
-            setActiveTab("backtranslation");
+    // Message handlers using centralized dispatcher
+    useMessageHandler("textCellEditor-preferredTab", (event: MessageEvent) => {
+        if (event.data && event.data.type === "preferredEditorTab") {
+            // If this open was specifically forced to audio for recording, ignore
+            try {
+                const id = cellMarkers[0];
+                if (sessionStorage.getItem(`start-audio-recording-${id}`)) {
+                    return;
+                }
+            } catch {
+                // no-op
+            }
+            const preferred = event.data.tab as typeof activeTab;
+            setActiveTab(preferred);
+            try {
+                sessionStorage.setItem("preferred-editor-tab", preferred);
+            } catch {
+                // no-op
+            }
+            if (preferred === "audio") {
+                setTimeout(centerEditor, 50);
+                setTimeout(centerEditor, 250);
+            }
         }
-    }, [activeTab, sourceText]);
+    }, [cellMarkers, centerEditor, activeTab]);
+
+    // Listen for storeFootnote messages
+    useMessageHandler("textCellEditor-footnoteStored", (event: MessageEvent) => {
+        if (
+            event.data.type === "footnoteStored" &&
+            event.data.content.cellId === cellMarkers[0]
+        ) {
+            const newFootnote = {
+                id: event.data.content.footnoteId,
+                content: event.data.content.content,
+            };
+
+            setFootnotes((prev) => {
+                // Check if footnote with this ID already exists
+                const exists = prev.some((fn) => fn.id === newFootnote.id);
+                const updatedFootnotes = exists
+                    ? prev.map((fn) => (fn.id === newFootnote.id ? newFootnote : fn))
+                    : [...prev, newFootnote];
+
+                // Re-parse to ensure correct chronological ordering (debounced)
+                parseFootnotesFromContent();
+
+                return updatedFootnotes;
+            });
+        }
+    }, [cellMarkers, parseFootnotesFromContent]);
+
+    // Smart tab switching - currently, keep user on Source even if no source text
+    // (backtranslation tab was removed; no automatic switching needed)
 
     // Audio recording functions
     const startRecording = async () => {
@@ -1161,17 +1139,19 @@ const CellEditor: React.FC<CellEditorProps> = ({
             content: { cellId: cellMarkers[0] },
         });
         // If requested by list view, auto-record
+        // Do not auto-open any tab. If auto-recording was requested, start in background without changing tabs.
         try {
             const autoRecord = sessionStorage.getItem(`start-audio-recording-${cellMarkers[0]}`);
             if (autoRecord) {
-                setActiveTab("audio");
                 setShowRecorder(true);
                 setTimeout(() => {
                     startRecording();
                     sessionStorage.removeItem(`start-audio-recording-${cellMarkers[0]}`);
                 }, 300);
             }
-        } catch {}
+        } catch {
+            // no-op
+        }
     }, [preloadAudioForTab, cellMarkers]);
 
     // When switching to a new cell, ensure the editor is fully visible
@@ -1180,147 +1160,152 @@ const CellEditor: React.FC<CellEditorProps> = ({
     }, [cellMarkers, centerEditor]);
 
     // Handle audio data response
-    useEffect(() => {
-        const handleAudioResponse = async (event: MessageEvent) => {
-            const message = event.data;
+    useMessageHandler("textCellEditor-audioResponse", async (event: MessageEvent) => {
+        const message = event.data;
 
-            // Handle audio attachments list - request fresh audio data when attachments change
-            if (message.type === "providerSendsAudioAttachments") {
-                const attachments = message.attachments || [];
-                // If we already have audio loaded or loading, ignore attachment updates
-                if (audioBlob || isAudioLoading) {
-                    return;
-                }
+        // Handle audio attachments list - request fresh audio data when attachments change
+        if (message.type === "providerSendsAudioAttachments") {
+            const attachments = message.attachments || [];
+            // If we already have audio loaded or loading, ignore attachment updates
+            if (audioBlob || isAudioLoading) {
+                return;
+            }
 
-                if (attachments.length > 0) {
-                    // We have audio; show loading and request data only if not already requested
+            if (attachments.length > 0) {
+                // We have audio; show loading and request data only if not already requested
+                setIsAudioLoading(true);
+                const messageContent: EditorPostMessages = {
+                    command: "requestAudioForCell",
+                    content: { cellId: cellMarkers[0] },
+                };
+                window.vscodeApi.postMessage(messageContent);
+            } else {
+                // No attachments: settle UI quietly without toggling recorder mode state
+                setIsAudioLoading(false);
+                setAudioFetchPending(false);
+            }
+        }
+
+        // Handle specific audio data
+        if (
+            message.type === "providerSendsAudioData" &&
+            message.content.cellId === cellMarkers[0]
+        ) {
+            if (message.content.audioData) {
+                try {
+                    // Show loading only when there is actual audio to fetch
                     setIsAudioLoading(true);
-                    const messageContent: EditorPostMessages = {
-                        command: "requestAudioForCell",
-                        content: { cellId: cellMarkers[0] },
-                    };
-                    window.vscodeApi.postMessage(messageContent);
-                } else {
-                    // No attachments: settle UI quietly without toggling recorder mode state
+                    const base64Response = await fetch(message.content.audioData);
+                    const blob = await base64Response.blob();
+                    setAudioBlob(blob);
+                    // If recorder was showing because there was no audio previously,
+                    // switch to waveform automatically once audio is available
+                    setShowRecorder(false);
+                    setRecordingStatus("Audio loaded");
                     setIsAudioLoading(false);
                     setAudioFetchPending(false);
-                }
-            }
-
-            // Handle specific audio data
-            if (
-                message.type === "providerSendsAudioData" &&
-                message.content.cellId === cellMarkers[0]
-            ) {
-                if (message.content.audioData) {
-                    try {
-                        // Show loading only when there is actual audio to fetch
-                        setIsAudioLoading(true);
-                        const base64Response = await fetch(message.content.audioData);
-                        const blob = await base64Response.blob();
-                        setAudioBlob(blob);
-                        setRecordingStatus("Audio loaded");
-                        setIsAudioLoading(false);
-                        setAudioFetchPending(false);
-                        setTimeout(centerEditor, 50);
-                        setTimeout(centerEditor, 250);
-                        if (message.content.transcription) {
-                            setSavedTranscription({
-                                content: message.content.transcription.content,
-                                timestamp: message.content.transcription.timestamp,
-                                language: message.content.transcription.language,
-                            });
-                        }
-                        if (message.content.audioId) {
-                            sessionStorage.setItem(
-                                `audio-id-${cellMarkers[0]}`,
-                                message.content.audioId
-                            );
-                        }
-                    } catch (error) {
-                        console.error("Error converting audio data to blob:", error);
-                        setRecordingStatus("Error loading audio");
-                        setIsAudioLoading(false);
+                    setTimeout(centerEditor, 50);
+                    setTimeout(centerEditor, 250);
+                    if (message.content.transcription) {
+                        setSavedTranscription({
+                            content: message.content.transcription.content,
+                            timestamp: message.content.transcription.timestamp,
+                            language: message.content.transcription.language,
+                        });
                     }
-                } else {
-                    // No audio — present recorder immediately
+                    if (message.content.audioId) {
+                        sessionStorage.setItem(
+                            `audio-id-${cellMarkers[0]}`,
+                            message.content.audioId
+                        );
+                    }
+                } catch (error) {
+                    console.error("Error converting audio data to blob:", error);
+                    setRecordingStatus("Error loading audio");
                     setIsAudioLoading(false);
-                    setAudioFetchPending(false);
-                    setActiveTab("audio");
-                    setShowRecorder(true);
                 }
+            } else {
+                // No audio — prepare recorder but do not switch tabs automatically
+                setIsAudioLoading(false);
+                setAudioFetchPending(false);
+                setShowRecorder(true);
             }
+        }
 
-            // Handle save confirmation
-            if (
-                message.type === "audioAttachmentSaved" &&
-                message.content.cellId === cellMarkers[0]
-            ) {
-                if (message.content.success) {
-                    setRecordingStatus("Audio saved successfully");
-                } else {
-                    setRecordingStatus(
-                        `Error saving audio: ${message.content.error || "Unknown error"}`
-                    );
-                }
-                // Refresh audio history after save
-                window.vscodeApi.postMessage({
-                    command: "getAudioHistory",
-                    content: { cellId: cellMarkers[0] },
-                });
+        // Handle save confirmation
+        if (
+            message.type === "audioAttachmentSaved" &&
+            message.content.cellId === cellMarkers[0]
+        ) {
+            if (message.content.success) {
+                setRecordingStatus("Audio saved successfully");
+            } else {
+                setRecordingStatus(
+                    `Error saving audio: ${message.content.error || "Unknown error"}`
+                );
             }
+            // Refresh audio history after save
+            window.vscodeApi.postMessage({
+                command: "getAudioHistory",
+                content: { cellId: cellMarkers[0] },
+            });
+        }
 
-            // Handle delete confirmation
-            if (
-                message.type === "audioAttachmentDeleted" &&
-                message.content.cellId === cellMarkers[0]
-            ) {
-                if (message.content.success) {
-                    setRecordingStatus("Audio deleted");
-                } else {
-                    setRecordingStatus(
-                        `Error deleting audio: ${message.content.error || "Unknown error"}`
-                    );
-                }
-                // Refresh audio history after delete
-                window.vscodeApi.postMessage({
-                    command: "getAudioHistory",
-                    content: { cellId: cellMarkers[0] },
-                });
+        // Handle delete confirmation
+        if (
+            message.type === "audioAttachmentDeleted" &&
+            message.content.cellId === cellMarkers[0]
+        ) {
+            if (message.content.success) {
+                setRecordingStatus("Audio deleted");
+            } else {
+                setRecordingStatus(
+                    `Error deleting audio: ${message.content.error || "Unknown error"}`
+                );
             }
-            // Handle restore confirmation
-            if (
-                message.type === "audioAttachmentRestored" &&
-                message.content.cellId === cellMarkers[0]
-            ) {
-                // Refresh audio history after restore
-                window.vscodeApi.postMessage({
-                    command: "getAudioHistory",
-                    content: { cellId: cellMarkers[0] },
-                });
-            }
-        };
-
-        window.addEventListener("message", handleAudioResponse);
-        return () => window.removeEventListener("message", handleAudioResponse);
-    }, [cellMarkers]);
+            // Refresh audio history after delete
+            window.vscodeApi.postMessage({
+                command: "getAudioHistory",
+                content: { cellId: cellMarkers[0] },
+            });
+        }
+        // Handle restore confirmation
+        if (
+            message.type === "audioAttachmentRestored" &&
+            message.content.cellId === cellMarkers[0]
+        ) {
+            // Refresh audio history after restore
+            window.vscodeApi.postMessage({
+                command: "getAudioHistory",
+                content: { cellId: cellMarkers[0] },
+            });
+        }
+    }, [cellMarkers, audioBlob, isAudioLoading, centerEditor]);
 
     // Listen for audio history responses and update hasAudioHistory
-    useEffect(() => {
-        const handleHistoryResponse = (event: MessageEvent) => {
-            const message = event.data;
-            if (
-                message.type === "audioHistoryReceived" &&
-                message.content.cellId === cellMarkers[0]
-            ) {
-                const history = message.content.audioHistory || [];
-                setHasAudioHistory(history.length > 0);
-                setAudioHistoryCount(history.length);
+    useMessageHandler("textCellEditor-audioHistoryResponse", (event: MessageEvent) => {
+        const message = event.data;
+        if (
+            message.type === "audioHistoryReceived" &&
+            message.content.cellId === cellMarkers[0]
+        ) {
+            const history = message.content.audioHistory || [];
+            setHasAudioHistory(history.length > 0);
+            setAudioHistoryCount(history.length);
+
+            // If we just restored an audio (previously none loaded),
+            // auto-close history and request the current audio so the waveform appears
+            const hasAvailable = history.some((h: any) => !h.attachment?.isDeleted);
+            if (hasAvailable && !audioBlob) {
+                setShowAudioHistory(false);
+                const messageContent: EditorPostMessages = {
+                    command: "requestAudioForCell",
+                    content: { cellId: cellMarkers[0] }
+                };
+                window.vscodeApi.postMessage(messageContent);
             }
-        };
-        window.addEventListener("message", handleHistoryResponse);
-        return () => window.removeEventListener("message", handleHistoryResponse);
-    }, [cellMarkers]);
+        }
+    }, [cellMarkers, audioBlob, showAudioHistory]);
 
     // Clean up media recorder and stream on unmount
     useEffect(() => {
@@ -1339,9 +1324,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     return (
         <Card className="w-full max-w-4xl shadow-xl" style={{ direction: textDirection }}>
-            <CardHeader className="border-b p-4 flex flex-row flex-nowrap items-center justify-between">
-                <div className="flex flex-row flex-wrap items-center justify-between">
-                    <div className="flex items-center gap-2">
+            <CardHeader className="border-b p-4 flex flex-row flex-nowrap items-center justify-between gap-3">
+                <div className="flex flex-row flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 pr-3">
                         {isEditorControlsExpanded ? (
                             <X
                                 className="h-4 w-4 cursor-pointer"
@@ -1350,7 +1335,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 }
                             />
                         ) : (
-                            <div className="flex items-center gap-2 cursor-pointer">
+                            <div
+                                className="flex items-center gap-2 cursor-pointer"
+                                onClick={() => setIsEditorControlsExpanded(!isEditorControlsExpanded)}
+                                title="Edit cell label"
+                                role="button"
+                                aria-label="Edit cell label"
+                            >
                                 <div className="flex items-center gap-1">
                                     <span className="text-lg font-semibold">{cellMarkers[0]}</span>
                                     {editableLabel && (
@@ -1358,12 +1349,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             {editableLabel}
                                         </span>
                                     )}
-                                    <Pencil
-                                        onClick={() =>
-                                            setIsEditorControlsExpanded(!isEditorControlsExpanded)
-                                        }
-                                        className="h-4 w-4"
-                                    />
                                 </div>
                                 <CommentsBadge
                                     cellId={cellMarkers[0]}
@@ -1372,24 +1357,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             </div>
                         )}
                     </div>
-                    <div className="flex items-center gap-1">
-                        {/* <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button
-                                        onClick={() => editorHandlesRef.current?.openLibrary()}
-                                        variant="ghost"
-                                        size="icon"
-                                        title="Add All Words to Dictionary"
-                                    >
-                                        <Book className="h-4 w-4" />
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                    <p>Add All Words to Dictionary</p>
-                                </TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider> */}
+                    <div className="flex items-center gap-3 ml-auto pl-3 md:pl-4 flex-shrink-0" />
+                </div>
+                <div className="flex items-center gap-2">
+                    {/* Right-aligned utility buttons: AI, History, Settings */}
+                    <div className="flex items-center gap-2 mr-2">
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1424,128 +1396,146 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 </TooltipContent>
                             </Tooltip>
                         </TooltipProvider>
-                        <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button
-                                        onClick={() => editorHandlesRef.current?.addFootnote()}
-                                        variant="ghost"
-                                        size="icon"
-                                        title="Add Footnote"
-                                    >
-                                        <NotebookPen className="h-4 w-4" />
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                    <p>Add Footnote</p>
-                                </TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
-                        {showAdvancedControls ? (
-                            <div className="flex items-center gap-1">
-                                <AddParatextButton
-                                    cellId={cellMarkers[0]}
-                                    cellTimestamps={cellTimestamps}
-                                />
-                                {cellType !== CodexCellTypes.PARATEXT && !cellIsChild && (
-                                    <Button
-                                        onClick={makeChild}
-                                        variant="ghost"
-                                        size="icon"
-                                        title="Add Child Cell"
-                                    >
-                                        <ListOrdered className="h-4 w-4" />
-                                    </Button>
-                                )}
-                                {!sourceCellContent && (
-                                    <ConfirmationButton
-                                        icon="trash"
-                                        onClick={deleteCell}
-                                        disabled={cellHasContent}
-                                    />
-                                )}
+                        <Popover open={showAdvancedControls} onOpenChange={setShowAdvancedControls}>
+                            <PopoverTrigger asChild>
                                 <Button
-                                    onClick={handlePinCell}
                                     variant="ghost"
                                     size="icon"
-                                    title={
-                                        isPinned
-                                            ? "Unpin from Parallel View"
-                                            : "Pin in Parallel View"
-                                    }
-                                    className={isPinned ? "text-blue-500" : ""}
+                                    title="Advanced Controls"
                                 >
-                                    <Pin className="h-4 w-4" />
+                                    <Settings className="h-4 w-4" />
                                 </Button>
-                            </div>
+                            </PopoverTrigger>
+                            <PopoverContent align="end" className="w-auto p-2 space-x-1 space-y-0">
+                                <div className="flex items-center gap-1">
+                                    <AddParatextButton
+                                        cellId={cellMarkers[0]}
+                                        cellTimestamps={cellTimestamps}
+                                    />
+                                    {cellType !== CodexCellTypes.PARATEXT && !cellIsChild && (
+                                        <Button
+                                            onClick={makeChild}
+                                            variant="ghost"
+                                            size="icon"
+                                            title="Add Child Cell"
+                                        >
+                                            <ListOrdered className="h-4 w-4" />
+                                        </Button>
+                                    )}
+                                    {!sourceCellContent && (
+                                        <ConfirmationButton
+                                            icon="trash"
+                                            onClick={deleteCell}
+                                            disabled={cellHasContent}
+                                        />
+                                    )}
+                                    <Button
+                                        onClick={handlePinCell}
+                                        variant="ghost"
+                                        size="icon"
+                                        title={
+                                            isPinned ? "Unpin from Parallel View" : "Pin in Parallel View"
+                                        }
+                                        className={isPinned ? "text-blue-500" : ""}
+                                    >
+                                        <Pin className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            </PopoverContent>
+                        </Popover>
+                    </div>
+                    <div className="flex items-center gap-1">
+                        {showCloseConfirm && unsavedChanges ? (
+                            <>
+                                <Button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleSaveCell();
+                                        handleCloseEditor();
+                                        setShowCloseConfirm(false);
+                                    }}
+                                    variant="default"
+                                    size="icon"
+                                    title="Save & Close"
+                                    disabled={(isSaving && !saveError) || isEditingFootnoteInline}
+                                >
+                                    {isSaving && !saveError ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <Check className="h-4 w-4" />
+                                    )}
+                                </Button>
+                                <Button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setShowDiscardModal(true);
+                                    }}
+                                    variant="destructive"
+                                    size="icon"
+                                    title="Discard changes and close"
+                                >
+                                    <Trash2 className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setShowCloseConfirm(false);
+                                    }}
+                                    variant="ghost"
+                                    size="icon"
+                                    title="Cancel"
+                                >
+                                    <X className="h-4 w-4" />
+                                </Button>
+                            </>
                         ) : (
                             <Button
-                                onClick={() => setShowAdvancedControls(!showAdvancedControls)}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (unsavedChanges) {
+                                        setShowCloseConfirm(true);
+                                    } else {
+                                        handleCloseEditor();
+                                    }
+                                }}
                                 variant="ghost"
                                 size="icon"
-                                title="Show Advanced Controls"
+                                title="Close editor"
                             >
-                                <Settings className="h-4 w-4" />
+                                <X className="h-4 w-4" />
                             </Button>
                         )}
                     </div>
                 </div>
-                <div className="flex items-center gap-1">
-                    {unsavedChanges ? (
-                        <>
-                            <Button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleSaveCell();
-                                }}
-                                variant="default"
-                                size="icon"
-                                title={
-                                    isSaving
-                                        ? "Saving..."
-                                        : saveError
-                                        ? saveRetryCount >= 3
-                                            ? `Save failed after ${saveRetryCount} attempts - Click to retry (check connection)`
-                                            : `Save failed - Click to retry ${
-                                                  saveRetryCount > 0
-                                                      ? `(${saveRetryCount} attempts)`
-                                                      : ""
-                                              }`
-                                        : "Save changes"
-                                }
-                                disabled={(isSaving && !saveError) || isEditingFootnoteInline}
-                                className={cn(
-                                    saveError &&
-                                        "ring-2 ring-red-500 ring-offset-1 hover:ring-red-600"
-                                )}
-                            >
-                                {isSaving && !saveError ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                    <Check className={cn("h-4 w-4", saveError && "text-red-500")} />
-                                )}
-                            </Button>
-                            <ConfirmationButton
-                                icon="trash"
-                                onClick={handleCloseEditor}
-                                disabled={isSaving || isEditingFootnoteInline}
-                            />
-                        </>
-                    ) : (
+                {/* Advanced controls now appear in a popover; no inline layout shift */}
+            </CardHeader>
+
+            {/* Discard confirmation modal */}
+            <Dialog open={showDiscardModal} onOpenChange={setShowDiscardModal}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Discard changes?</DialogTitle>
+                    </DialogHeader>
+                    <div className="text-sm text-muted-foreground">
+                        This will close the editor and discard all unsaved changes.
+                    </div>
+                    <DialogFooter>
+                        <Button variant="secondary" onClick={() => setShowDiscardModal(false)}>
+                            Cancel
+                        </Button>
                         <Button
-                            onClick={(e) => {
-                                e.stopPropagation();
+                            variant="destructive"
+                            onClick={() => {
+                                setShowDiscardModal(false);
+                                setShowCloseConfirm(false);
                                 handleCloseEditor();
                             }}
-                            variant="ghost"
-                            size="icon"
-                            title="Close editor"
                         >
-                            <X className="h-4 w-4" />
+                            Discard
                         </Button>
-                    )}
-                </div>
-            </CardHeader>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <CardContent className="p-4 space-y-4">
                 {isEditorControlsExpanded && (
@@ -1579,7 +1569,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     }`}
                     ref={cellEditorRef}
                 >
-                    <TypeIcon className="h-5 w-5 mt-2 text-muted-foreground flex-shrink-0" />
                     <div className="flex-1">
                         <Editor
                             currentLineId={cellMarkers[0]}
@@ -1611,12 +1600,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 </div>
 
                 <Tabs
-                    defaultValue={activeTab}
-                    value={activeTab}
+                    value={activeTab || "__none__"}
                     onValueChange={(value) => {
                         const tabValue = value as
                             | "source"
-                            | "backtranslation"
                             | "footnotes"
                             | "timestamps"
                             | "audio";
@@ -1627,6 +1614,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             command: "setPreferredEditorTab",
                             content: { tab: tabValue },
                         });
+
+                        // Refresh selection when opening footnotes tab to avoid stale state
+                        if (tabValue === "footnotes") {
+                            try {
+                                const sel = editorHandlesRef.current?.getSelectionText?.() || "";
+                                (window as any).__codexFootnoteSelection = sel; // ephemeral cache if needed later
+                            } catch {
+                                // no-op
+                            }
+                        }
 
                         // Preload audio when audio tab is selected
                         if (tabValue === "audio") {
@@ -1641,20 +1638,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     >
                         <TabsTrigger value="source">
                             <FileCode className="mr-2 h-4 w-4" />
-
                             {!sourceText && (
                                 <span className="ml-2 h-2 w-2 rounded-full bg-gray-400" />
                             )}
-                        </TabsTrigger>
-                        <TabsTrigger value="backtranslation">
-                            <RotateCcw className="mr-2 h-4 w-4" />
                             {backtranslation && (
                                 <span
                                     className="ml-2 h-2 w-2 rounded-full bg-green-400"
                                     title="Backtranslation available"
                                 />
                             )}
-                            {!backtranslation && contentBeingUpdated.cellContent.trim() && (
+                            {!backtranslation && cellHasContent && (
                                 <span
                                     className="ml-2 h-2 w-2 rounded-full bg-yellow-400"
                                     title="Generate backtranslation"
@@ -1697,132 +1690,164 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         )}
                     </TabsList>
 
+                    {activeTab === "source" && (
                     <TabsContent value="source">
-                        <SourceTextDisplay
-                            content={sourceText || ""}
-                            footnoteOffset={footnoteOffset}
-                        />
-                    </TabsContent>
-
-                    <TabsContent value="backtranslation">
-                        <div className="content-section space-y-4">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    {backtranslation && !isEditingBacktranslation && (
-                                        <Button
-                                            onClick={() => setIsEditingBacktranslation(true)}
-                                            variant="ghost"
-                                            size="icon"
-                                            title="Edit Backtranslation"
-                                        >
-                                            <Pencil className="h-4 w-4" />
-                                        </Button>
-                                    )}
-                                    <Button
-                                        onClick={handleGenerateBacktranslation}
-                                        variant="ghost"
-                                        size="icon"
-                                        title="Generate Backtranslation"
-                                        disabled={
-                                            !contentBeingUpdated.cellContent.trim() ||
-                                            isGeneratingBacktranslation
-                                        }
-                                    >
-                                        {isGeneratingBacktranslation ? (
-                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                        ) : (
-                                            <RefreshCcw className="h-4 w-4" />
-                                        )}
-                                    </Button>
-                                </div>
+                        <div className="space-y-6">
+                            {/* Source Text */}
+                            <div>
+                                <h4 className="text-sm font-medium mb-2 text-muted-foreground">Source Text</h4>
+                                <SourceTextDisplay
+                                    content={sourceText || ""}
+                                    footnoteOffset={footnoteOffset}
+                                />
                             </div>
 
-                            {/* Loading indicator for backtranslation generation */}
-                            {isGeneratingBacktranslation && (
-                                <div className="space-y-3">
-                                    <div className="text-center">
-                                        <p className="text-sm text-muted-foreground mb-2">
-                                            Generating backtranslation...
-                                        </p>
-                                        <Progress
-                                            value={backtranslationProgress}
-                                            className="w-full"
-                                        />
-                                        <p className="text-xs text-muted-foreground mt-1">
-                                            {Math.round(backtranslationProgress)}%
-                                        </p>
+                            {/* Backtranslation Section */}
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-sm font-medium text-muted-foreground">Backtranslation</h4>
+                                    <div className="flex items-center gap-2">
+                                        {backtranslation && !isEditingBacktranslation && (
+                                            <Button
+                                                onClick={() => setIsEditingBacktranslation(true)}
+                                                variant="ghost"
+                                                size="icon"
+                                                title="Edit Backtranslation"
+                                            >
+                                                <Pencil className="h-4 w-4" />
+                                            </Button>
+                                        )}
+                                        <Button
+                                            onClick={handleGenerateBacktranslation}
+                                            variant="ghost"
+                                            size="icon"
+                                            title="Generate Backtranslation"
+                                            disabled={!cellHasContent || isGeneratingBacktranslation}
+                                        >
+                                            {isGeneratingBacktranslation ? (
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                            ) : (
+                                                <RefreshCcw className="h-4 w-4" />
+                                            )}
+                                        </Button>
                                     </div>
+                                </div>
+
+                                {/* Loading indicator for backtranslation generation */}
+                                {isGeneratingBacktranslation && (
+                                    <div className="space-y-3">
+                                        <div className="text-center">
+                                            <p className="text-sm text-muted-foreground mb-2">
+                                                Generating backtranslation...
+                                            </p>
+                                            <Progress
+                                                value={backtranslationProgress}
+                                                className="w-full"
+                                            />
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                {Math.round(backtranslationProgress)}%
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {!isGeneratingBacktranslation && backtranslation ? (
+                                    <>
+                                        {isEditingBacktranslation ? (
+                                            <div className="space-y-3">
+                                                <Textarea
+                                                    value={editedBacktranslation || ""}
+                                                    onChange={(e) =>
+                                                        setEditedBacktranslation(e.target.value)
+                                                    }
+                                                    className="min-h-[150px]"
+                                                    placeholder="Enter backtranslation text..."
+                                                />
+                                                <div className="flex gap-2 justify-end">
+                                                    <Button
+                                                        onClick={handleSaveBacktranslation}
+                                                        size="sm"
+                                                        title="Save Backtranslation"
+                                                    >
+                                                        Save
+                                                    </Button>
+                                                    <Button
+                                                        onClick={() =>
+                                                            setIsEditingBacktranslation(false)
+                                                        }
+                                                        variant="secondary"
+                                                        size="sm"
+                                                        title="Cancel Editing"
+                                                    >
+                                                        Cancel
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="p-4 rounded-lg bg-muted">
+                                                <ReactMarkdown className="prose prose-sm max-w-none">
+                                                    {backtranslation.backtranslation}
+                                                </ReactMarkdown>
+                                            </div>
+                                        )}
+                                    </>
+                                ) : (
+                                    !isGeneratingBacktranslation && (
+                                        <div className="text-center p-6 text-muted-foreground bg-muted/50 rounded-lg">
+                                            {cellHasContent ? (
+                                                <>
+                                                    <p>No backtranslation available for this text.</p>
+                                                    <p className="mt-2">
+                                                        Click the refresh button to generate one.
+                                                    </p>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <p>Add content to this cell first.</p>
+                                                    <p className="mt-2">
+                                                        Backtranslation will be available once you have
+                                                        text to translate.
+                                                    </p>
+                                                </>
+                                            )}
+                                        </div>
+                                    )
+                                )}
+                            </div>
+                        </div>
+                    </TabsContent>
+                    )}
+
+
+
+                    {activeTab === "footnotes" && (
+                    <TabsContent value="footnotes">
+                        <div className="content-section">
+                            {/* Add Footnote action surfaced here with selection-aware hint - hide when already creating */}
+                            {!isEditingFootnoteInline && (
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="text-xs text-muted-foreground">
+                                        {(() => {
+                                            const sel = editorHandlesRef.current?.getSelectionText?.() || "";
+                                            return sel
+                                                ? `Selected: "${sel.slice(0, 40)}${sel.length > 40 ? "…" : ""}"`
+                                                : "Select text in the editor to attach a footnote (optional).";
+                                        })()}
+                                    </div>
+                                    <Button
+                                        size="sm"
+                                        onClick={() => editorHandlesRef.current?.addFootnote()}
+                                        disabled={!editorHandlesRef.current}
+                                    >
+                                        <NotebookPen className="mr-2 h-4 w-4" />
+                                        {(() => {
+                                            const sel = editorHandlesRef.current?.getSelectionText?.() || "";
+                                            return sel ? `Add footnote to selection` : `Add footnote`;
+                                        })()}
+                                    </Button>
                                 </div>
                             )}
 
-                            {!isGeneratingBacktranslation && backtranslation ? (
-                                <>
-                                    {isEditingBacktranslation ? (
-                                        <div className="space-y-3">
-                                            <Textarea
-                                                value={editedBacktranslation || ""}
-                                                onChange={(e) =>
-                                                    setEditedBacktranslation(e.target.value)
-                                                }
-                                                className="min-h-[150px]"
-                                                placeholder="Enter backtranslation text..."
-                                            />
-                                            <div className="flex gap-2 justify-end">
-                                                <Button
-                                                    onClick={handleSaveBacktranslation}
-                                                    size="sm"
-                                                    title="Save Backtranslation"
-                                                >
-                                                    Save
-                                                </Button>
-                                                <Button
-                                                    onClick={() =>
-                                                        setIsEditingBacktranslation(false)
-                                                    }
-                                                    variant="secondary"
-                                                    size="sm"
-                                                    title="Cancel Editing"
-                                                >
-                                                    Cancel
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="p-4 rounded-lg bg-muted">
-                                            <ReactMarkdown className="prose prose-sm max-w-none">
-                                                {backtranslation.backtranslation}
-                                            </ReactMarkdown>
-                                        </div>
-                                    )}
-                                </>
-                            ) : (
-                                !isGeneratingBacktranslation && (
-                                    <div className="text-center p-8 text-muted-foreground">
-                                        {contentBeingUpdated.cellContent.trim() ? (
-                                            <>
-                                                <p>No backtranslation available for this text.</p>
-                                                <p className="mt-2">
-                                                    Click the refresh button to generate a
-                                                    backtranslation.
-                                                </p>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <p>Add content to this cell first.</p>
-                                                <p className="mt-2">
-                                                    Backtranslation will be available once you have
-                                                    text to translate.
-                                                </p>
-                                            </>
-                                        )}
-                                    </div>
-                                )
-                            )}
-                        </div>
-                    </TabsContent>
-
-                    <TabsContent value="footnotes">
-                        <div className="content-section">
                             {footnotes.length > 0 ? (
                                 <div className="space-y-3">
                                     {footnotes.map((footnote, index) => (
@@ -1918,15 +1943,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             ) : (
                                 <div className="text-center p-8 text-muted-foreground">
                                     <p>No footnotes in this cell yet.</p>
-                                    <p className="mt-2 flex items-center justify-center gap-2">
-                                        Use the footnote button <NotebookPen className="h-4 w-4" />{" "}
-                                        in the editor toolbar to add footnotes.
-                                    </p>
+                                    <p className="mt-2">Use the button above to add one.</p>
                                 </div>
                             )}
                         </div>
                     </TabsContent>
+                    )}
 
+                    {activeTab === "timestamps" && (
                     <TabsContent value="timestamps">
                         <div className="content-section space-y-4">
                             <h3 className="text-lg font-medium">Timestamps</h3>
@@ -2063,7 +2087,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             )}
                         </div>
                     </TabsContent>
+                    )}
 
+                    {activeTab === "audio" && (
                     <TabsContent value="audio">
                         <div className="content-section space-y-6">
                             <h3 className="text-lg font-medium">Audio Recording</h3>
@@ -2271,6 +2297,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             )}
                         </div>
                     </TabsContent>
+                    )}
                 </Tabs>
             </CardContent>
 

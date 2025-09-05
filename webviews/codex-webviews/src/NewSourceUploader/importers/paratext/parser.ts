@@ -180,9 +180,8 @@ const extractFilesFromZip = async (
             // More intelligent USFM detection
             let isUsfm = false;
 
-            // Standard extensions
-            if (fileName.endsWith('.usfm') || fileName.endsWith('.sfm') ||
-                fileName.endsWith('.usx') || fileName.endsWith('.ptx')) {
+            // Standard extensions (exclude USX/PTX which are XML or Paratext project files)
+            if (fileName.endsWith('.usfm') || fileName.endsWith('.sfm')) {
                 isUsfm = true;
             }
 

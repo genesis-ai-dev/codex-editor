@@ -177,10 +177,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Listen for configuration changes
         const configurationChangeDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration("codex-project-manager.validationCount")) {
-                // Notify all webviews about the configuration change
+                // Send updated validation count directly instead of triggering webview requests
+                const config = vscode.workspace.getConfiguration("codex-project-manager");
+                const validationCount = config.get("validationCount", 1);
                 this.webviewPanels.forEach((panel) => {
                     this.postMessageToWebview(panel, {
-                        type: "configurationChanged",
+                        type: "validationCount",
+                        content: validationCount,
                     });
                 });
 
@@ -403,16 +406,25 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
 
         // Create update function
-        const updateWebview = () => {
+        const updateWebview = async () => {
             debug("Updating webview");
             const notebookData: CodexNotebookAsJSONData = this.getDocumentAsJson(document);
             const processedData = this.processNotebookData(notebookData, document);
+
+            // Get bundled metadata to avoid separate requests
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            const validationCount = config.get("validationCount", 1);
+            const authApi = await this.getAuthApi();
+            const userInfo = await authApi?.getUserInfo();
+            const username = userInfo?.username || "anonymous";
 
             this.postMessageToWebview(webviewPanel, {
                 type: "providerSendsInitialContent",
                 content: processedData,
                 isSourceText: isSourceText,
                 sourceCellMap: document._sourceCellMap,
+                username: username,
+                validationCount: validationCount,
             });
 
             // Also send updated metadata to ensure font size changes are reflected
@@ -542,28 +554,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             enabled: this.isCorrectionEditorMode,
         });
 
-        // Wait for webview ready event before scanning for audio attachments
+        // Wait for webview ready event before sending audio attachments status
         const onReadyMessageDisposable = webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages | GlobalMessage) => {
-            if ('type' in e && e.type === 'webviewReady') {
+            const isEditorReady = (e as any)?.command === 'webviewReady' || (e as any)?.type === 'webviewReady';
+            if (isEditorReady) {
                 try {
-                    debug("Webview ready, scanning for audio attachments");
-                    const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
-
-                    if (Object.keys(audioAttachments).length > 0) {
-                        debug("Found audio attachments, sending to webview:", Object.keys(audioAttachments));
-                        // Send only the cell IDs that have audio, not the file paths
-                        const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {} as any;
-                        for (const cellId of Object.keys(audioAttachments)) {
-                            audioCells[cellId] = "available";
-                        }
-
-                        this.postMessageToWebview(webviewPanel, {
-                            type: "providerSendsAudioAttachments",
-                            attachments: audioCells as any,
-                        });
-                    } else {
-                        debug("No audio attachments found");
-                    }
+                    debug("Webview ready, sending audio attachments status");
+                    await this.sendAudioAttachmentsStatus(webviewPanel, document);
                 } catch (error) {
                     console.error("Error scanning for audio attachments:", error);
                 }
@@ -1484,6 +1481,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             cellLabel: cell.metadata?.cellLabel,
             merged: cell.metadata?.data?.merged,
             deleted: cell.metadata?.data?.deleted,
+            attachments: cell.metadata?.attachments,
         }));
         debug("Translation units:", translationUnits);
 
@@ -1534,6 +1532,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 timestamps: cell.timestamps,
                 cellLabel: cell.cellLabel,
                 merged: cell.merged,
+                attachments: cell.attachments,
             });
         });
 
@@ -1546,7 +1545,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         safePostMessageToPanel(webviewPanel, message);
     }
 
-    public refreshWebview(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument) {
+    public async refreshWebview(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument) {
         debug("Refreshing webview");
         const notebookData = this.getDocumentAsJson(document);
         const processedData = this.processNotebookData(notebookData, document);
@@ -1560,17 +1559,29 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             isSourceText
         );
 
+        // Get bundled metadata to avoid separate requests
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        const validationCount = config.get("validationCount", 1);
+        const authApi = await this.getAuthApi();
+        const userInfo = await authApi?.getUserInfo();
+        const username = userInfo?.username || "anonymous";
+
         this.postMessageToWebview(webviewPanel, {
             type: "providerSendsInitialContent",
             content: processedData,
             isSourceText: isSourceText,
             sourceCellMap: document._sourceCellMap,
+            username: username,
+            validationCount: validationCount,
         });
 
         this.postMessageToWebview(webviewPanel, {
             type: "providerUpdatesNotebookMetadataForWebview",
             content: notebookData.metadata,
         });
+
+        // Send audio attachment status immediately after content
+        await this.sendAudioAttachmentsStatus(webviewPanel, document);
 
         if (videoUrl) {
             this.postMessageToWebview(webviewPanel, {
@@ -1579,6 +1590,57 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             });
         }
         debug("Webview refresh completed");
+    }
+
+    private async sendAudioAttachmentsStatus(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument): Promise<void> {
+        try {
+            // Get document data to check attachment metadata
+            const documentText = document.getText();
+            const notebookData = JSON.parse(documentText);
+            const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {};
+
+            // Process each cell to determine audio status
+            if (notebookData.cells && Array.isArray(notebookData.cells)) {
+                for (const cell of notebookData.cells) {
+                    if (cell.metadata && cell.metadata.id) {
+                        const cellId = cell.metadata.id;
+
+                        if (cell.metadata.attachments) {
+                            let hasAvailableAudio = false;
+                            let hasDeletedAudio = false;
+
+                            for (const [attachmentId, attachment] of Object.entries(cell.metadata.attachments)) {
+                                if (attachment && typeof attachment === 'object' && (attachment as any).type === 'audio') {
+                                    if ((attachment as any).isDeleted) {
+                                        hasDeletedAudio = true;
+                                    } else {
+                                        hasAvailableAudio = true;
+                                    }
+                                }
+                            }
+
+                            if (hasAvailableAudio) {
+                                audioCells[cellId] = "available";
+                            } else if (hasDeletedAudio) {
+                                audioCells[cellId] = "deletedOnly";
+                            } else {
+                                audioCells[cellId] = "none";
+                            }
+                        } else {
+                            audioCells[cellId] = "none";
+                        }
+                    }
+                }
+            }
+
+            debug("Sending audio attachment status for all cells:", Object.keys(audioCells).length);
+            this.postMessageToWebview(webviewPanel, {
+                type: "providerSendsAudioAttachments",
+                attachments: audioCells,
+            });
+        } catch (error) {
+            console.error(`Error sending audio attachments status for webview:`, error);
+        }
     }
 
     private getVideoUrl(
@@ -1738,7 +1800,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 mergeEvent,
                 targetPanel,
                 targetDocument,
-                () => this.refreshWebview(targetPanel, targetDocument),
+                async () => await this.refreshWebview(targetPanel, targetDocument),
                 this
             );
 
@@ -1831,7 +1893,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Refresh the target webview if it's open
             const targetPanel = this.webviewPanels.get(targetDocumentUri);
             if (targetPanel) {
-                this.refreshWebview(targetPanel, targetDocument);
+                await this.refreshWebview(targetPanel, targetDocument);
             }
 
             vscode.window.showInformationMessage(
@@ -1868,11 +1930,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             if (processedDocuments.has(docUri)) return;
             processedDocuments.add(docUri);
 
-            // Send the current validation count to each panel
-            this.postMessageToWebview(panel, {
-                type: "validationCount",
-                content: validationCount,
-            });
+            // Validation count now bundled with initial content, no separate send needed
 
             // Try to find the document
             // The document might be the current document
@@ -1927,13 +1985,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             `Updating validation indicators for all documents with validation count: ${validationCount}`
         );
 
-        // Send to all webviews
-        this.webviewPanels.forEach((panel) => {
-            this.postMessageToWebview(panel, {
-                type: "validationCount",
-                content: validationCount,
-            });
-        });
+        // Validation count now bundled with initial content, only send on actual config changes
 
         // Also refresh the validation state to ensure displays are consistent
         this.refreshValidationStateForAllDocuments();
@@ -2263,7 +2315,29 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                     // If multiple variants are present, send to the webview for selection
                     if (completionResult && Array.isArray((completionResult as any).variants) && (completionResult as any).variants.length > 1) {
-                        const { variants, testId, names } = completionResult as any;
+                        const { variants, testId, testName, names } = completionResult as any;
+
+                        // If variants are identical (ignoring whitespace), treat as single completion
+                        try {
+                            const normalize = (s: string) => (s || "").replace(/\s+/g, " ").trim();
+                            const allIdentical = variants.every((v: string) => normalize(v) === normalize(variants[0]));
+                            if (allIdentical) {
+                                const singleCompletion = variants[0] ?? "";
+                                progress.report({ message: "Updating document...", increment: 40 });
+                                this.updateSingleCellTranslation(0.9);
+                                currentDocument.updateCellContent(
+                                    currentCellId,
+                                    singleCompletion,
+                                    EditType.LLM_GENERATION,
+                                    shouldUpdateValue
+                                );
+                                this.updateSingleCellTranslation(1.0);
+                                debug("LLM completion result (identical variants)", { completion: singleCompletion?.slice?.(0, 80) });
+                                return singleCompletion;
+                            }
+                        } catch (e) {
+                            debug("Error comparing variants for identity; proceeding with A/B UI", { error: e });
+                        }
 
                         // Compute simple win rates per variant name from stored JSONL
                         let winRates: Record<string, { wins: number; total: number; winRate: number; }> | undefined;
@@ -2308,14 +2382,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
 
                         if (webviewPanel) {
+                            const abProb = (vscode.workspace.getConfiguration("codex-editor-extension").get("abTestingProbability") as number) ?? 0;
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerSendsABTestVariants",
                                 content: {
                                     variants,
                                     cellId: currentCellId,
                                     testId: testId || `${currentCellId}-${Date.now()}`,
+                                    testName,
                                     names,
                                     winRates,
+                                    abProbability: Math.max(0, Math.min(1, abProb)),
                                 },
                             } as any);
                         }
@@ -2833,7 +2910,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     /**
      * Toggles the correction editor mode and notifies all webviews
      */
-    public toggleCorrectionEditorMode(): void {
+    public async toggleCorrectionEditorMode(): Promise<void> {
         this.isCorrectionEditorMode = !this.isCorrectionEditorMode;
         debug("Correction editor mode toggled:", this.isCorrectionEditorMode);
 
@@ -2851,11 +2928,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         });
 
         // Refresh all webviews to show/hide merged cells appropriately
-        this.webviewPanels.forEach((panel, docUri) => {
+        for (const [docUri, panel] of this.webviewPanels) {
             if (this.currentDocument && docUri === this.currentDocument.uri.toString()) {
-                this.refreshWebview(panel, this.currentDocument);
+                await this.refreshWebview(panel, this.currentDocument);
             }
-        });
+        }
     }
 
     /**
@@ -3096,25 +3173,50 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Scan for audio attachments
             const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
 
-            if (Object.keys(audioAttachments).length > 0) {
-                debug("Found updated media attachments, sending to webview:", Object.keys(audioAttachments));
-                // Send only the cell IDs that have audio, not the file paths
-                const audioCells: { [cellId: string]: boolean; } = {};
-                for (const cellId of Object.keys(audioAttachments)) {
-                    audioCells[cellId] = true;
-                }
+            // Get document data to check attachment metadata
+            const documentText = document.getText();
+            const notebookData = JSON.parse(documentText);
+            const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {};
 
-                this.postMessageToWebview(webviewPanel, {
-                    type: "providerSendsAudioAttachments",
-                    attachments: audioCells as any,
-                });
-            } else {
-                // Send empty attachments to clear any outdated media indicators
-                this.postMessageToWebview(webviewPanel, {
-                    type: "providerSendsAudioAttachments",
-                    attachments: {},
-                });
+            // Process each cell to determine audio status
+            if (notebookData.cells && Array.isArray(notebookData.cells)) {
+                for (const cell of notebookData.cells) {
+                    if (cell.metadata && cell.metadata.id) {
+                        const cellId = cell.metadata.id;
+
+                        if (cell.metadata.attachments) {
+                            let hasAvailableAudio = false;
+                            let hasDeletedAudio = false;
+
+                            for (const [attachmentId, attachment] of Object.entries(cell.metadata.attachments)) {
+                                if (attachment && typeof attachment === 'object' && (attachment as any).type === 'audio') {
+                                    if ((attachment as any).isDeleted) {
+                                        hasDeletedAudio = true;
+                                    } else {
+                                        hasAvailableAudio = true;
+                                    }
+                                }
+                            }
+
+                            if (hasAvailableAudio) {
+                                audioCells[cellId] = "available";
+                            } else if (hasDeletedAudio) {
+                                audioCells[cellId] = "deletedOnly";
+                            } else {
+                                audioCells[cellId] = "none";
+                            }
+                        } else {
+                            audioCells[cellId] = "none";
+                        }
+                    }
+                }
             }
+
+            debug("Sending updated audio attachment status for all cells:", Object.keys(audioCells).length);
+            this.postMessageToWebview(webviewPanel, {
+                type: "providerSendsAudioAttachments",
+                attachments: audioCells,
+            });
         } catch (error) {
             console.error(`Error refreshing media attachments for webview ${documentUri}:`, error);
         }

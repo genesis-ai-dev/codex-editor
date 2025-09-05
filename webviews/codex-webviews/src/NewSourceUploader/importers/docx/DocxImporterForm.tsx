@@ -11,7 +11,7 @@ import {
 } from "../../../components/ui/card";
 import { Progress } from "../../../components/ui/progress";
 import { Alert, AlertDescription } from "../../../components/ui/alert";
-import { Upload, FileText, CheckCircle, XCircle, ArrowLeft } from "lucide-react";
+import { Upload, FileText, CheckCircle, XCircle, ArrowLeft, Info } from "lucide-react";
 import { validateFile, parseFile } from "./index";
 import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
 import { AlignmentPreview } from "../../components/AlignmentPreview";
@@ -228,6 +228,22 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                     Back to Home
                 </Button>
             </div>
+
+            {/* DOCX Large File Warning */}
+            <Alert className="border-amber-200 bg-amber-50">
+                <Info className="h-4 w-4 text-amber-600" />
+                <AlertDescription className="text-amber-800">
+                    <div className="space-y-2">
+                        <div className="font-medium">Important Note</div>
+                        <div className="text-sm">
+                            Very large DOCX files may cause performance issues or processing delays.
+                            Complex documents with many images, tables, or formatting may require
+                            significant memory and processing time. For best results, consider splitting
+                            large documents into smaller files when possible.
+                        </div>
+                    </div>
+                </AlertDescription>
+            </Alert>
 
             <Card>
                 <CardHeader>

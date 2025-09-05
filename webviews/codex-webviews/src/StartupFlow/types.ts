@@ -1,5 +1,3 @@
-import { BiblePreview, PreviewContent } from "../../../../types";
-import { DownloadBibleTransaction } from "../../../../src/transactions/DownloadBibleTransaction";
 import * as vscode from "vscode";
 import { ConflictFile } from "../../../../src/projectManager/utils/merge/types";
 import { ResolvedFile } from "../../../../src/projectManager/utils/merge/resolvers";
@@ -23,40 +21,6 @@ export type WorkflowStep =
     | "preview"
     | "processing"
     | "complete";
-
-export type ProcessingStatus = "pending" | "active" | "complete" | "error";
-
-export interface ProcessingStage {
-    label: string;
-    description: string;
-    status: ProcessingStatus;
-}
-
-export interface ProcessingStages {
-    [key: string]: ProcessingStage;
-}
-
-// Add specific Bible download stages
-export interface BibleDownloadStages extends ProcessingStages {
-    validation: ProcessingStage;
-    download: ProcessingStage;
-    splitting: ProcessingStage;
-    notebooks: ProcessingStage;
-    metadata: ProcessingStage;
-    commit: ProcessingStage;
-}
-
-// Add Bible download specific state
-export interface BibleDownloadState {
-    language: string;
-    translationId: string;
-    status: "idle" | "downloading" | "complete" | "error";
-    progress?: {
-        stage: keyof BibleDownloadStages;
-        message: string;
-        increment: number;
-    };
-}
 
 // Add project selection type
 export type ProjectSelectionType = "clone" | "open" | "new";
@@ -82,16 +46,6 @@ export interface ProjectSelectionState {
     error?: string;
 }
 
-export interface MultiPreviewItem {
-    id: string; // Unique ID for each preview
-    fileName: string;
-    fileSize: number;
-    isValid: boolean;
-    isRejected?: boolean;
-    preview: PreviewContent | BiblePreview;
-    sourceId?: string; // Optional sourceId for translation previews
-}
-
 export interface CodexFile {
     id: string;
     name: string;
@@ -101,33 +55,6 @@ export interface CodexFile {
 export interface TranslationAssociation {
     file: File;
     codexId: string;
-}
-
-export interface WorkflowState {
-    step: WorkflowStep;
-    importType: ImportType | null;
-    authState: AuthState;
-    projectSelection: ProjectSelectionState;
-    selectedFiles: string[];
-    fileObjects: File[];
-    selectedSourceId?: string;
-    preview?: PreviewContent | BiblePreview;
-    error?: string | null;
-    progress?: {
-        message: string;
-        increment: number;
-    };
-    availableCodexFiles?: CodexFile[];
-    bibleDownload?: BibleDownloadState;
-    currentTransaction?: DownloadBibleTransaction;
-    previews: MultiPreviewItem[];
-    selectedPreviewId?: string;
-    translationAssociations: TranslationAssociation[];
-}
-
-export interface ImportProgress {
-    message: string;
-    increment: number;
 }
 
 export interface GitLabInfo {

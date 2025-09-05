@@ -22,6 +22,7 @@ import {
     searchTranslationPairs,
 } from "./search";
 import { SQLiteIndexManager, CURRENT_SCHEMA_VERSION } from "./sqliteIndex";
+import { SearchManager, SearchAlgorithmType } from "../searchAlgorithms";
 
 import {
     initializeWordsIndex,
@@ -37,7 +38,6 @@ import { MinimalCellResult, TranslationPair } from "../../../../../types";
 import { getNotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
 import { updateSplashScreenTimings } from "../../../../providers/SplashScreen/register";
 import { FileSyncManager, FileSyncResult } from "../fileSyncManager";
-import { registerBackgroundValidation } from "../../../../validation/backgroundValidationService";
 
 type WordFrequencyMap = Map<string, WordOccurrence[]>;
 
@@ -514,6 +514,44 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                         .join("\n");
                     vscode.window.showInformationMessage(
                         `Found ${results.length} ${onlyValidated ? 'validated' : 'all'} results for query: ${query}\n${resultsString}`
+                    );
+                }
+                return results;
+            }
+        );
+
+        const getTranslationPairsFromSourceCellQueryWithAlgorithmCommand = vscode.commands.registerCommand(
+            "codex-editor-extension.getTranslationPairsFromSourceCellQueryWithAlgorithm",
+            async (
+                algorithm: SearchAlgorithmType,
+                query?: string,
+                k: number = 10,
+                onlyValidated: boolean = false,
+                showInfo: boolean = false
+            ) => {
+                if (!query) {
+                    query = await vscode.window.showInputBox({
+                        prompt: "Enter a query to search source cells",
+                        placeHolder: "e.g. love, faith, hope",
+                    });
+                    if (!query) return []; // User cancelled the input
+                    showInfo = true;
+                }
+
+                const manager = new SearchManager(translationPairsIndex);
+                const results = await manager.getTranslationPairsFromSourceCellQueryWithAlgorithm(
+                    algorithm,
+                    query,
+                    k,
+                    onlyValidated
+                );
+
+                if (showInfo) {
+                    const resultsString = results
+                        .map((r: TranslationPair) => `${r.cellId}: ${r.sourceCell.content}`)
+                        .join("\n");
+                    vscode.window.showInformationMessage(
+                        `(${algorithm}) Found ${results.length} ${onlyValidated ? 'validated' : 'all'} results for query: ${query}\n${resultsString}`
                     );
                 }
                 return results;
@@ -1903,6 +1941,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             ...[
                 searchTargetCellsByQueryCommand,
                 getTranslationPairsFromSourceCellQueryCommand,
+                getTranslationPairsFromSourceCellQueryWithAlgorithmCommand,
                 getSourceCellByCellIdFromAllSourceCellsCommand,
                 getTargetCellByCellIdCommand,
                 getTranslationPairFromProjectCommand,
@@ -1940,13 +1979,12 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         isIndexContextInitialized = true;
 
         // Initialize Background Validation Service for automatic integrity checking
-        // This will catch database corruption that file-level sync might miss
+        // Background validation service has been removed with the deprecated transaction system
         try {
             const fileSyncManager = new FileSyncManager(translationPairsIndex);
-            registerBackgroundValidation(context, translationPairsIndex, fileSyncManager);
-            debug("🔍 Background Validation Service registered successfully");
+            debug("📁 File Sync Manager initialized successfully");
         } catch (error) {
-            console.error("🔍 Failed to register Background Validation Service:", error);
+            console.error("📁 Failed to initialize File Sync Manager:", error);
         }
     }
 
