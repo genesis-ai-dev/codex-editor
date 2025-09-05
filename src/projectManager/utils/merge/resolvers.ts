@@ -308,6 +308,183 @@ function needsEditHistoryMigration(content: string): boolean {
 }
 
 /**
+ * Helper function to resolve metadata conflicts using edit history
+ * This function determines the latest edit for each metadata field and applies it
+ */
+function resolveMetadataConflictsUsingEditHistory(
+    ourCell: CustomNotebookCellData,
+    theirCell: CustomNotebookCellData
+): CustomNotebookCellData {
+    // Combine all edits from both cells
+    const allEdits = [
+        ...(ourCell.metadata?.edits || []),
+        ...(theirCell.metadata?.edits || [])
+    ].sort((a, b) => a.timestamp - b.timestamp);
+
+    // Group edits by their editMap path
+    const editsByPath = new Map<string, any[]>();
+    for (const edit of allEdits) {
+        if (edit.editMap && Array.isArray(edit.editMap)) {
+            const pathKey = edit.editMap.join('.');
+            if (!editsByPath.has(pathKey)) {
+                editsByPath.set(pathKey, []);
+            }
+            editsByPath.get(pathKey)!.push(edit);
+        }
+    }
+
+    // Start with our cell as the base
+    const resolvedCell = { ...ourCell };
+
+    // For each metadata path, apply the most recent edit
+    for (const [pathKey, edits] of editsByPath.entries()) {
+        if (edits.length === 0) continue;
+
+        // Find the most recent edit for this path
+        const mostRecentEdit = edits.sort((a, b) => b.timestamp - a.timestamp)[0];
+
+        // Apply the edit to the resolved cell based on the path
+        applyEditToCell(resolvedCell, mostRecentEdit);
+
+        debugLog(`Applied most recent edit for ${pathKey}: ${mostRecentEdit.value}`);
+    }
+
+    return resolvedCell;
+}
+
+/**
+ * Helper function to merge validatedBy arrays between duplicate edits
+ */
+function mergeValidatedByArrays(existingEdit: any, newEdit: any): void {
+    // Initialize validatedBy arrays if they don't exist
+    if (!existingEdit.validatedBy) existingEdit.validatedBy = [];
+    if (!newEdit.validatedBy) newEdit.validatedBy = [];
+
+    // Combine validation entries
+    if (newEdit.validatedBy.length > 0) {
+        newEdit.validatedBy.forEach((entry: any) => {
+            // Convert string entries to ValidationEntry objects
+            let validationEntry: ValidationEntry;
+            if (!isValidValidationEntry(entry)) {
+                // Handle string entries
+                if (typeof entry === "string") {
+                    const currentTimestamp = Date.now();
+                    validationEntry = {
+                        username: entry,
+                        creationTimestamp: currentTimestamp,
+                        updatedTimestamp: currentTimestamp,
+                        isDeleted: false,
+                    };
+                } else {
+                    // Skip invalid entries
+                    return;
+                }
+            } else {
+                validationEntry = entry;
+            }
+
+            // Find if this user already has a validation entry
+            const existingEntryIndex = existingEdit.validatedBy.findIndex(
+                (existingEntry: any) => {
+                    if (typeof existingEntry === "string") {
+                        return existingEntry === validationEntry.username;
+                    }
+                    return (
+                        isValidValidationEntry(existingEntry) &&
+                        existingEntry.username === validationEntry.username
+                    );
+                }
+            );
+
+            if (existingEntryIndex === -1) {
+                // User doesn't have an entry yet, add it
+                existingEdit.validatedBy.push(validationEntry);
+            } else {
+                // User already has an entry, update if the new one is more recent
+                const existingEntryItem = existingEdit.validatedBy[existingEntryIndex];
+                if (typeof existingEntryItem === "string") {
+                    existingEdit.validatedBy[existingEntryIndex] = validationEntry;
+                } else if (
+                    validationEntry.updatedTimestamp > existingEntryItem.updatedTimestamp
+                ) {
+                    existingEdit.validatedBy[existingEntryIndex] = {
+                        ...validationEntry,
+                        creationTimestamp: existingEntryItem.creationTimestamp,
+                    };
+                }
+            }
+        });
+    }
+
+    // Ensure the validatedBy array only contains ValidationEntry objects
+    if (existingEdit.validatedBy && existingEdit.validatedBy.length > 0) {
+        existingEdit.validatedBy = existingEdit.validatedBy.filter(
+            (entry: any) => typeof entry !== "string"
+        );
+    }
+}
+
+/**
+ * Helper function to apply an edit to a cell based on its editMap path
+ */
+function applyEditToCell(cell: CustomNotebookCellData, edit: any): void {
+    if (!edit.editMap || !Array.isArray(edit.editMap)) {
+        return;
+    }
+
+    const path = edit.editMap;
+    const value = edit.value;
+
+    // Ensure metadata exists
+    if (!cell.metadata) {
+        cell.metadata = {
+            id: (cell as any).id || '',
+            type: CodexCellTypes.TEXT,
+            edits: []
+        };
+    }
+
+    try {
+        if (path.length === 1 && path[0] === 'value') {
+            // Direct cell value edit
+            cell.value = value;
+        } else if (path.length >= 2 && path[0] === 'metadata') {
+            // Metadata field edit
+            if (path.length === 2) {
+                // Direct metadata field (e.g., cellLabel)
+                const field = path[1];
+                if (field === 'cellLabel') {
+                    cell.metadata.cellLabel = value;
+                } else if (field === 'selectedAudioId') {
+                    cell.metadata.selectedAudioId = value;
+                } else if (field === 'selectionTimestamp') {
+                    cell.metadata.selectionTimestamp = value;
+                }
+            } else if (path.length === 3 && path[1] === 'data') {
+                // Data field edit (e.g., startTime, endTime)
+                const dataField = path[2];
+                if (!cell.metadata.data) {
+                    cell.metadata.data = {};
+                }
+
+                if (dataField === 'startTime') {
+                    cell.metadata.data.startTime = value;
+                } else if (dataField === 'endTime') {
+                    cell.metadata.data.endTime = value;
+                } else if (dataField === 'deleted') {
+                    cell.metadata.data.deleted = value;
+                } else {
+                    // Generic data field assignment
+                    (cell.metadata.data as any)[dataField] = value;
+                }
+            }
+        }
+    } catch (error) {
+        debugLog(`Error applying edit to cell: ${error}`);
+    }
+}
+
+/**
  * Helper function to migrate old format edits to new format in-place
  */
 function migrateEditHistoryInContent(content: string): string {
@@ -425,222 +602,46 @@ export async function resolveCodexCustomMerge(
         const theirCell = theirCellsMap.get(cellId);
         if (theirCell) {
             debugLog(`Found matching cell ${cellId} - merging content`);
-            // Merge edit histories
-            const mergedEdits = [
+
+            // Use the new metadata conflict resolution function
+            const mergedCell = resolveMetadataConflictsUsingEditHistory(ourCell, theirCell);
+
+            // Combine all edits from both cells and deduplicate
+            const allEdits = [
                 ...(ourCell.metadata?.edits || []),
-                ...(theirCell.metadata?.edits || []),
+                ...(theirCell.metadata?.edits || [])
             ].sort((a, b) => a.timestamp - b.timestamp);
 
-            debugLog(`Combined ${mergedEdits.length} edits for cell ${cellId}`);
-
             // Remove duplicates based on timestamp, editMap and value, while merging validatedBy entries
-            const editMap = new Map<string, EditHistory>();
-
-            // First pass: Group edits by timestamp, editMap and value
-            mergedEdits.forEach((edit) => {
-                const editMapKey = edit.editMap.join('.');
-                const key = `${edit.timestamp}:${editMapKey}:${edit.value}`;
-                if (!editMap.has(key)) {
-                    editMap.set(key, edit);
-                } else {
-                    // Merge validatedBy arrays if both exist
-                    const existingEdit = editMap.get(key)!;
-
-                    // Initialize validatedBy arrays if they don't exist
-                    if (!existingEdit.validatedBy) existingEdit.validatedBy = [];
-                    if (!edit.validatedBy) edit.validatedBy = [];
-
-                    // Combine validation entries
-                    if (edit.validatedBy.length > 0) {
-                        edit.validatedBy.forEach((entry: any) => {
-                            // Convert string entries to ValidationEntry objects
-                            let validationEntry: ValidationEntry;
-                            if (!isValidValidationEntry(entry)) {
-                                // Handle string entries
-                                if (typeof entry === "string") {
-                                    const currentTimestamp = Date.now();
-                                    validationEntry = {
-                                        username: entry,
-                                        creationTimestamp: currentTimestamp,
-                                        updatedTimestamp: currentTimestamp,
-                                        isDeleted: false,
-                                    };
-                                } else {
-                                    // Skip invalid entries that are neither strings nor ValidationEntry objects
-                                    return;
-                                }
-                            } else {
-                                validationEntry = entry;
-                            }
-
-                            // Find if this user already has a validation entry
-                            const existingEntryIndex = existingEdit.validatedBy!.findIndex(
-                                (existingEntry: any) => {
-                                    if (typeof existingEntry === "string") {
-                                        return existingEntry === validationEntry.username;
-                                    }
-                                    return (
-                                        isValidValidationEntry(existingEntry) &&
-                                        existingEntry.username === validationEntry.username
-                                    );
-                                }
-                            );
-
-                            if (existingEntryIndex === -1) {
-                                // User doesn't have an entry yet, add it
-                                existingEdit.validatedBy!.push(validationEntry);
-                            } else {
-                                // User already has an entry
-                                const existingEntryItem =
-                                    existingEdit.validatedBy![existingEntryIndex];
-
-                                // If existing entry is a string, replace it with the object
-                                if (typeof existingEntryItem === "string") {
-                                    existingEdit.validatedBy![existingEntryIndex] = validationEntry;
-                                } else {
-                                    // Both are objects, update if the new one is more recent
-                                    if (
-                                        validationEntry.updatedTimestamp >
-                                        existingEntryItem.updatedTimestamp
-                                    ) {
-                                        existingEdit.validatedBy![existingEntryIndex] = {
-                                            ...validationEntry,
-                                            // Keep the original creation timestamp
-                                            creationTimestamp: existingEntryItem.creationTimestamp,
-                                        };
-                                    }
-                                }
-                            }
-                        });
-                    }
-
-                    // After merging, ensure the validatedBy array only contains ValidationEntry objects
-                    if (existingEdit.validatedBy && existingEdit.validatedBy.length > 0) {
-                        existingEdit.validatedBy = existingEdit.validatedBy.filter(
-                            (entry) => typeof entry !== "string"
-                        );
+            const editMap = new Map<string, any>();
+            allEdits.forEach((edit) => {
+                if (edit.editMap && Array.isArray(edit.editMap)) {
+                    const editMapKey = edit.editMap.join('.');
+                    const key = `${edit.timestamp}:${editMapKey}:${edit.value}`;
+                    if (!editMap.has(key)) {
+                        editMap.set(key, edit);
+                    } else {
+                        // Merge validatedBy arrays if both exist
+                        const existingEdit = editMap.get(key)!;
+                        mergeValidatedByArrays(existingEdit, edit);
                     }
                 }
             });
 
-            // Convert map back to array
-            const uniqueEdits = Array.from(editMap.values());
+            // Convert map back to array and sort
+            const uniqueEdits = Array.from(editMap.values()).sort((a, b) => a.timestamp - b.timestamp);
 
             debugLog(`Filtered to ${uniqueEdits.length} unique edits for cell ${cellId}`);
 
-            // Sort edits by timestamp to ensure most recent is last
-            uniqueEdits.sort((a, b) => a.timestamp - b.timestamp);
-            debugLog({ uniqueEdits });
-            const latestEdit = uniqueEdits[uniqueEdits.length - 1];
-
-            debugLog({ latestEdit });
-
-            //! NOTE: the following logic is a bit convoluted, but there may be
-            // a case where there is an LLM-generated edit that is the most recent edit,
-            // and it does not have a user edit confirming it.
-            // in this case, we want to take the user edit, because it is more reliable.
-            // so we need to find the user edit that confirms the LLM edit, or else take the
-            // user edit.
-            // This seems like an anti-pattern because we are storing the cell value in two
-            // places, which results in cache-invalidation-type issues, but this also provides
-            // us with really rich data in the edit history, which is crucial for tracking
-            // the effectiveness of the LLM-generated edits.
-
-            //! get the last time we set our current cell value
-            const ourEditsThatMatchCurrentValue = ourCell.metadata?.edits
-                ?.filter((edit) => EditMapUtils.isValue(edit.editMap) && edit.value === ourCell?.value)
-                .sort((a, b) => a.timestamp - b.timestamp);
-            const editThatBelongsToOurCellValue =
-                ourEditsThatMatchCurrentValue?.[ourEditsThatMatchCurrentValue.length - 1];
-
-            //! get the last time they set our current cell value
-            const theirEditsThatMatchCurrentValue = theirCell.metadata?.edits
-                ?.filter((theirEdit) => EditMapUtils.isValue(theirEdit.editMap) && theirEdit.value === theirCell?.value)
-                .sort((a, b) => a.timestamp - b.timestamp);
-            const editThatBelongsToTheirCellValue =
-                theirEditsThatMatchCurrentValue?.[theirEditsThatMatchCurrentValue.length - 1];
-
-            //! we want to know which edit is responsible for the current respectivre cell value, and
-            // then take the most recent of the two
-            const mostRecentOfTheirAndOurEdits = [
-                editThatBelongsToTheirCellValue,
-                editThatBelongsToOurCellValue,
-            ].sort((a, b) => (a?.timestamp ?? 0) - (b?.timestamp ?? 0))[1];
-
-            debugLog({ editThatBelongsToOurCellValue, editThatBelongsToTheirCellValue });
-
-            // A fallback value is needed because sometimes edit history can be lost but one of the files has a cell value.
-            // We default our own but if ours is an empty string we use their cell value
-            const fallbackValue = ourCell.value || theirCell.value;
-            // Ensure the latest edit is in the history
-            let finalValue = mostRecentOfTheirAndOurEdits?.value ?? fallbackValue; // Nullish coalescing to keep empty strings from being overwritten
-            if (
-                (ourCell.metadata?.edits?.length || 0) === 0 &&
-                (theirCell.metadata?.edits?.length || 0) > 0
-            ) {
-                finalValue = theirCell.value;
+            // Update the merged cell with the deduplicated edits
+            if (!mergedCell.metadata) {
+                mergedCell.metadata = {
+                    id: cellId,
+                    type: CodexCellTypes.TEXT,
+                    edits: []
+                };
             }
-            const finalEdits = [...uniqueEdits];
-            debugLog({ finalValue, finalEdits });
-
-            // Sort one final time to ensure the new edit is properly placed
-            finalEdits.sort((a, b) => a.timestamp - b.timestamp);
-
-            // Ensure all edits have properly formatted validatedBy arrays (no strings)
-            finalEdits.forEach((edit) => {
-                if (edit.validatedBy) {
-                    // Convert any remaining string entries to ValidationEntry objects
-                    const validatedBy = edit.validatedBy
-                        .map((entry) => {
-                            if (!isValidValidationEntry(entry)) {
-                                // Handle string entries
-                                if (typeof entry === "string") {
-                                    const currentTimestamp = Date.now();
-                                    return {
-                                        username: entry,
-                                        creationTimestamp: currentTimestamp,
-                                        updatedTimestamp: currentTimestamp,
-                                        isDeleted: false,
-                                    };
-                                }
-                                // Skip invalid entries
-                                return null;
-                            }
-                            return entry;
-                        })
-                        .filter((entry) => entry !== null) as ValidationEntry[];
-
-                    // Deduplicate by username (keep newest)
-                    const usernameMap = new Map<string, ValidationEntry>();
-                    validatedBy.forEach((entry) => {
-                        const existingEntry = usernameMap.get(entry.username);
-                        if (
-                            !existingEntry ||
-                            entry.updatedTimestamp > existingEntry.updatedTimestamp
-                        ) {
-                            usernameMap.set(entry.username, entry);
-                        }
-                    });
-
-                    // Replace with deduplicated array
-                    edit.validatedBy = Array.from(usernameMap.values());
-                }
-            });
-
-
-            // temporary fix: we need to store all mutable fields in the edit history, not the cell metadata
-            // Determine which cellLabel to use - prefer the longer one
-            let cellLabelToUse = ourCell.metadata?.cellLabel;
-            if (theirCell.metadata?.cellLabel && ourCell.metadata?.cellLabel) {
-                // Both have cellLabels, use the longer one
-                cellLabelToUse = theirCell.metadata.cellLabel.length > ourCell.metadata.cellLabel.length
-                    ? theirCell.metadata.cellLabel
-                    : ourCell.metadata.cellLabel;
-            } else if (theirCell.metadata?.cellLabel) {
-                // Only their cell has a cellLabel
-                cellLabelToUse = theirCell.metadata.cellLabel;
-            }
-            // If only our cell has a cellLabel or neither has one, we'll use ours (which might be undefined)
+            mergedCell.metadata.edits = uniqueEdits;
 
             // Merge attachments intelligently
             const mergedAttachments = mergeAttachments(
@@ -655,22 +656,10 @@ export async function resolveCodexCustomMerge(
                 mergedAttachments
             );
 
-            // Create merged cell with combined history
-            const mergedCell = {
-                ...ourCell,
-                value: finalValue as string,
-                metadata: {
-                    ...{ ...theirCell.metadata, ...ourCell.metadata, }, // Fixme: this needs to be triangulated based on the last common commit
-                    data: { ...theirCell.metadata?.data, ...ourCell.metadata?.data, },
-                    cellLabel: cellLabelToUse,
-                    id: cellId,
-                    edits: finalEdits,
-                    type: ourCell.metadata?.type || CodexCellTypes.TEXT,
-                    attachments: mergedAttachments,
-                    selectedAudioId,
-                    selectionTimestamp,
-                },
-            };
+            // Apply attachment and selection data to merged cell
+            mergedCell.metadata.attachments = mergedAttachments;
+            mergedCell.metadata.selectedAudioId = selectedAudioId;
+            mergedCell.metadata.selectionTimestamp = selectionTimestamp;
 
             debugLog(`Pushing merged cell ${cellId} to results`);
             resultCells.push(mergedCell);

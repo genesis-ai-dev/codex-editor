@@ -278,3 +278,4 @@ const edit: EditHistory<["metadata", "cellLabel"]> = {
 
 This type system provides a robust foundation for the CRDT edit system, ensuring type safety while maintaining flexibility for future extensions.</contents>
 </xai:function_call"> wrote to file "/Users/benjaminscholtens/Documents/clear_bible/codex-editor/TYPE_SAFE_EDITS.md
+
