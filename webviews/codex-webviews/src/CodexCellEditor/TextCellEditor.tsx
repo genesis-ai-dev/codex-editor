@@ -354,7 +354,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [isPinned, setIsPinned] = useState(false);
     const [showAdvancedControls, setShowAdvancedControls] = useState(false);
     const [unresolvedCommentsCount, setUnresolvedCommentsCount] = useState<number>(0);
-    const [showCloseConfirm, setShowCloseConfirm] = useState(false);
     const [showDiscardModal, setShowDiscardModal] = useState(false);
 
     const handleSaveCell = () => {
@@ -1445,66 +1444,43 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         </Popover>
                     </div>
                     <div className="flex items-center gap-1">
-                        {showCloseConfirm && unsavedChanges ? (
-                            <>
-                                <Button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleSaveCell();
-                                        handleCloseEditor();
-                                        setShowCloseConfirm(false);
-                                    }}
-                                    variant="default"
-                                    size="icon"
-                                    title="Save & Close"
-                                    disabled={(isSaving && !saveError) || isEditingFootnoteInline}
-                                >
-                                    {isSaving && !saveError ? (
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                        <Check className="h-4 w-4" />
-                                    )}
-                                </Button>
-                                <Button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setShowDiscardModal(true);
-                                    }}
-                                    variant="destructive"
-                                    size="icon"
-                                    title="Discard changes and close"
-                                >
-                                    <Trash2 className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setShowCloseConfirm(false);
-                                    }}
-                                    variant="ghost"
-                                    size="icon"
-                                    title="Cancel"
-                                >
-                                    <X className="h-4 w-4" />
-                                </Button>
-                            </>
-                        ) : (
-                            <Button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (unsavedChanges) {
-                                        setShowCloseConfirm(true);
-                                    } else {
-                                        handleCloseEditor();
-                                    }
-                                }}
-                                variant="ghost"
-                                size="icon"
-                                title="Close editor"
-                            >
-                                <X className="h-4 w-4" />
-                            </Button>
-                        )}
+                        <Button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (unsavedChanges) {
+                                    // Save and let CodexCellEditor close on success
+                                    handleSaveCell();
+                                } else {
+                                    // No changes; treat as close for convenience
+                                    handleCloseEditor();
+                                }
+                            }}
+                            variant="default"
+                            size="icon"
+                            title={unsavedChanges ? "Save changes" : "Close"}
+                            disabled={(isSaving && !saveError) || isEditingFootnoteInline}
+                        >
+                            {isSaving && !saveError ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                                <Check className="h-4 w-4" />
+                            )}
+                        </Button>
+                        <Button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (unsavedChanges) {
+                                    setShowDiscardModal(true);
+                                } else {
+                                    handleCloseEditor();
+                                }
+                            }}
+                            variant="destructive"
+                            size="icon"
+                            title={unsavedChanges ? "Discard changes and close" : "Close"}
+                        >
+                            <Trash2 className="h-4 w-4" />
+                        </Button>
                     </div>
                 </div>
                 {/* Advanced controls now appear in a popover; no inline layout shift */}
@@ -1526,8 +1502,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         <Button
                             variant="destructive"
                             onClick={() => {
+                                // Explicitly discard local edits and refresh content
                                 setShowDiscardModal(false);
-                                setShowCloseConfirm(false);
+                                // Clear any staged edits in parent state so preview reverts
+                                setContentBeingUpdated({} as EditorCellContent);
+                                // Reset unsaved flag in context
+                                setUnsavedChanges(false);
+                                // Ask provider to resend current content from disk/source
+                                window.vscodeApi.postMessage({ command: "getContent" } as EditorPostMessages);
+                                // Finally close the editor UI
                                 handleCloseEditor();
                             }}
                         >

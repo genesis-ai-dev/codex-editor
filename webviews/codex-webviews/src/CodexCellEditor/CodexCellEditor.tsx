@@ -227,6 +227,7 @@ const CodexCellEditor: React.FC = () => {
         testId: string;
         names?: string[];
         winRates?: any;
+        abProbability?: number;
     }>({
         isActive: false,
         variants: [],
