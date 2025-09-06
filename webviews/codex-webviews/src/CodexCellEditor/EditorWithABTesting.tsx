@@ -33,6 +33,7 @@ interface ABTestState {
     variants: string[];
     cellId: string;
     testId: string;
+    testName?: string;
     names?: string[];
     winRates?: number[];
 }
@@ -92,7 +93,8 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
         isActive: false,
         variants: [],
         cellId: '',
-        testId: ''
+        testId: '',
+        testName: ''
     });
 
     // A/B Testing handlers
@@ -128,6 +130,7 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
                 cellId: abTestState.cellId,
                 selectedIndex,
                 testId: abTestState.testId,
+                testName: abTestState.testName,
                 selectionTimeMs,
                 totalVariants: abTestState.variants?.length ?? 0
             }
@@ -141,8 +144,13 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
             isActive: false,
             variants: [],
             cellId: '',
-            testId: ''
+            testId: '',
+            testName: ''
         });
+    };
+
+    const updateHeaderLabel = () => {
+        // Implementation for updating header label
     };
 
     // Enhanced message handling for A/B testing
@@ -170,16 +178,29 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
                     );
                 }
             } else if (event.data.type === "providerSendsABTestVariants") {
-                // Handle A/B test variants: show UI if 2+ variants exist, even if identical
-                const { variants, cellId, testId, names, winRates } = event.data.content as {
+                // Handle A/B test variants: show UI only if variants differ
+                const { variants, cellId, testId, testName, names, winRates } = event.data.content as {
                     variants: string[];
                     cellId: string;
                     testId: string;
+                    testName?: string;
                     names?: string[];
                     winRates?: number[];
                 };
-                if (cellId === props.currentLineId && Array.isArray(variants) && variants.length > 1) {
-                    setAbTestState({ isActive: true, variants, cellId, testId, names, winRates });
+                if (cellId === props.currentLineId && Array.isArray(variants) && variants.length > 0) {
+                    const norm = (s: string) => (s || "").replace(/\s+/g, " ").trim();
+                    const allIdentical = variants.every((v) => norm(v) === norm(variants[0]));
+                    if (variants.length > 1 && !allIdentical) {
+                        setAbTestState({ isActive: true, variants, cellId, testId, testName, names, winRates });
+                    } else {
+                        // Auto-apply first variant silently
+                        quillRef.current?.root && (quillRef.current.root.innerHTML = variants[0]);
+                        props.onChange?.({
+                            html: variants[0],
+                            text: variants[0],
+                            wordCount: variants[0]?.trim()?.split(/\s+/).length || 0,
+                        });
+                    }
                 }
             }
             updateHeaderLabel();
@@ -189,10 +210,6 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
     // Rest of the Editor component logic would be here...
     // For brevity, I'm including just the essential parts for A/B testing
     // The full implementation would include all the Quill setup, formatting, etc.
-
-    const updateHeaderLabel = () => {
-        // Implementation for updating header label
-    };
 
     useImperativeHandle(ref, () => ({
         quillRef,

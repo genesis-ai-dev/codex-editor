@@ -65,7 +65,6 @@ import {
     MessageCircle,
     Loader2,
     Volume2,
-    TypeIcon,
     Pin,
     Copy,
     Square,
@@ -217,31 +216,18 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [editedBacktranslation, setEditedBacktranslation] = useState<string | null>(null);
     const [isGeneratingBacktranslation, setIsGeneratingBacktranslation] = useState(false);
     const [backtranslationProgress, setBacktranslationProgress] = useState(0);
-    const [activeTab, setActiveTab] = useState<
-        "source" | "footnotes" | "audio" | "timestamps"
-    >(() => {
+    const [activeTab, setActiveTab] = useState<"" | "source" | "footnotes" | "audio" | "timestamps">(() => {
         try {
-            const id = cellMarkers[0];
-            if (sessionStorage.getItem(`start-audio-recording-${id}`)) {
-                return "audio";
-            }
-            const stored = sessionStorage.getItem("preferred-editor-tab");
-            if (
-                stored === "source" ||
-                stored === "footnotes" ||
-                stored === "audio" ||
-                stored === "timestamps"
-            ) {
-                return stored as
-                    | "source"
-                    | "footnotes"
-                    | "audio"
-                    | "timestamps";
-            }
+            const stored = sessionStorage.getItem("preferred-editor-tab") as
+                | "source"
+                | "footnotes"
+                | "audio"
+                | "timestamps"
+                | null;
+            return stored ?? "";
         } catch {
-            // no-op
+            return "";
         }
-        return "source";
     });
 
     // Load preferred tab from provider on mount
@@ -368,7 +354,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [isPinned, setIsPinned] = useState(false);
     const [showAdvancedControls, setShowAdvancedControls] = useState(false);
     const [unresolvedCommentsCount, setUnresolvedCommentsCount] = useState<number>(0);
-    const [showCloseConfirm, setShowCloseConfirm] = useState(false);
     const [showDiscardModal, setShowDiscardModal] = useState(false);
 
     const handleSaveCell = () => {
@@ -837,7 +822,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 setTimeout(centerEditor, 250);
             }
         }
-    }, [cellMarkers, centerEditor]);
+    }, [cellMarkers, centerEditor, activeTab]);
 
     // Listen for storeFootnote messages
     useMessageHandler("textCellEditor-footnoteStored", (event: MessageEvent) => {
@@ -1153,10 +1138,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
             content: { cellId: cellMarkers[0] },
         });
         // If requested by list view, auto-record
+        // Do not auto-open any tab. If auto-recording was requested, start in background without changing tabs.
         try {
             const autoRecord = sessionStorage.getItem(`start-audio-recording-${cellMarkers[0]}`);
             if (autoRecord) {
-                setActiveTab("audio");
                 setShowRecorder(true);
                 setTimeout(() => {
                     startRecording();
@@ -1239,10 +1224,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     setIsAudioLoading(false);
                 }
             } else {
-                // No audio — present recorder immediately
+                // No audio — prepare recorder but do not switch tabs automatically
                 setIsAudioLoading(false);
                 setAudioFetchPending(false);
-                setActiveTab("audio");
                 setShowRecorder(true);
             }
         }
@@ -1460,66 +1444,43 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         </Popover>
                     </div>
                     <div className="flex items-center gap-1">
-                        {showCloseConfirm && unsavedChanges ? (
-                            <>
-                                <Button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleSaveCell();
-                                        handleCloseEditor();
-                                        setShowCloseConfirm(false);
-                                    }}
-                                    variant="default"
-                                    size="icon"
-                                    title="Save & Close"
-                                    disabled={(isSaving && !saveError) || isEditingFootnoteInline}
-                                >
-                                    {isSaving && !saveError ? (
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                        <Check className="h-4 w-4" />
-                                    )}
-                                </Button>
-                                <Button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setShowDiscardModal(true);
-                                    }}
-                                    variant="destructive"
-                                    size="icon"
-                                    title="Discard changes and close"
-                                >
-                                    <Trash2 className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setShowCloseConfirm(false);
-                                    }}
-                                    variant="ghost"
-                                    size="icon"
-                                    title="Cancel"
-                                >
-                                    <X className="h-4 w-4" />
-                                </Button>
-                            </>
-                        ) : (
-                            <Button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (unsavedChanges) {
-                                        setShowCloseConfirm(true);
-                                    } else {
-                                        handleCloseEditor();
-                                    }
-                                }}
-                                variant="ghost"
-                                size="icon"
-                                title="Close editor"
-                            >
-                                <X className="h-4 w-4" />
-                            </Button>
-                        )}
+                        <Button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (unsavedChanges) {
+                                    // Save and let CodexCellEditor close on success
+                                    handleSaveCell();
+                                } else {
+                                    // No changes; treat as close for convenience
+                                    handleCloseEditor();
+                                }
+                            }}
+                            variant="default"
+                            size="icon"
+                            title={unsavedChanges ? "Save changes" : "Close"}
+                            disabled={(isSaving && !saveError) || isEditingFootnoteInline}
+                        >
+                            {isSaving && !saveError ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                                <Check className="h-4 w-4" />
+                            )}
+                        </Button>
+                        <Button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (unsavedChanges) {
+                                    setShowDiscardModal(true);
+                                } else {
+                                    handleCloseEditor();
+                                }
+                            }}
+                            variant="destructive"
+                            size="icon"
+                            title={unsavedChanges ? "Discard changes and close" : "Close"}
+                        >
+                            <Trash2 className="h-4 w-4" />
+                        </Button>
                     </div>
                 </div>
                 {/* Advanced controls now appear in a popover; no inline layout shift */}
@@ -1541,8 +1502,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         <Button
                             variant="destructive"
                             onClick={() => {
+                                // Explicitly discard local edits and refresh content
                                 setShowDiscardModal(false);
-                                setShowCloseConfirm(false);
+                                // Clear any staged edits in parent state so preview reverts
+                                setContentBeingUpdated({} as EditorCellContent);
+                                // Reset unsaved flag in context
+                                setUnsavedChanges(false);
+                                // Ask provider to resend current content from disk/source
+                                window.vscodeApi.postMessage({ command: "getContent" } as EditorPostMessages);
+                                // Finally close the editor UI
                                 handleCloseEditor();
                             }}
                         >
@@ -1584,7 +1552,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     }`}
                     ref={cellEditorRef}
                 >
-                    <TypeIcon className="h-5 w-5 mt-2 text-muted-foreground flex-shrink-0" />
                     <div className="flex-1">
                         <Editor
                             currentLineId={cellMarkers[0]}
@@ -1616,8 +1583,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 </div>
 
                 <Tabs
-                    defaultValue={activeTab}
-                    value={activeTab}
+                    value={activeTab || "__none__"}
                     onValueChange={(value) => {
                         const tabValue = value as
                             | "source"
@@ -1707,6 +1673,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         )}
                     </TabsList>
 
+                    {activeTab === "source" && (
                     <TabsContent value="source">
                         <div className="space-y-6">
                             {/* Source Text */}
@@ -1832,9 +1799,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             </div>
                         </div>
                     </TabsContent>
+                    )}
 
 
 
+                    {activeTab === "footnotes" && (
                     <TabsContent value="footnotes">
                         <div className="content-section">
                             {/* Add Footnote action surfaced here with selection-aware hint - hide when already creating */}
@@ -1962,7 +1931,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             )}
                         </div>
                     </TabsContent>
+                    )}
 
+                    {activeTab === "timestamps" && (
                     <TabsContent value="timestamps">
                         <div className="content-section space-y-4">
                             <h3 className="text-lg font-medium">Timestamps</h3>
@@ -2099,7 +2070,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             )}
                         </div>
                     </TabsContent>
+                    )}
 
+                    {activeTab === "audio" && (
                     <TabsContent value="audio">
                         <div className="content-section space-y-6">
                             <h3 className="text-lg font-medium">Audio Recording</h3>
@@ -2307,6 +2280,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             )}
                         </div>
                     </TabsContent>
+                    )}
                 </Tabs>
             </CardContent>
 

@@ -35,16 +35,16 @@ class ABTestingRegistry {
   async maybeRun<TContext, TVariant>(
     name: string,
     context: TContext
-  ): Promise<{ variants: TVariant[]; names?: string[] } | null> {
+  ): Promise<{ variants: TVariant[]; names?: string[]; testName?: string } | null> {
     const entry = this.tests.get(name) as ABTestEntry<TContext, TVariant> | undefined;
     if (!entry) return null;
     if (!this.shouldRun(name)) return null;
     try {
       const result = await entry.handler(context);
       if (Array.isArray(result)) {
-        return { variants: result };
+        return { variants: result, testName: entry.name };
       }
-      return result;
+      return { ...result, testName: entry.name };
     } catch (err) {
       console.error(`[ABTestingRegistry] Test '${name}' failed`, err);
       return null;

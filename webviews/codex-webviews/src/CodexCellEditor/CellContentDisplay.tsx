@@ -775,18 +775,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 )}
 
                                 {/* Audio Play Button */}
-                                {audioAttachments &&
+                                {audioAttachments && audioAttachments[cellIds[0]] !== undefined &&
                                     (() => {
-                                        const rawState = audioAttachments[cellIds[0]] as any;
-                                        const audioState =
-                                            rawState === true
-                                                ? "available"
-                                                : rawState === false || rawState == null
-                                                ? "none"
-                                                : (rawState as
-                                                      | "available"
-                                                      | "deletedOnly"
-                                                      | "none");
+                                        const audioState = audioAttachments[cellIds[0]];
 
                                         // For source text: only show the play button if audio is available.
                                         if (isSourceText && audioState !== "available") return null;
