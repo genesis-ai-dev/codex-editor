@@ -47,7 +47,6 @@ import {
 import { openBookNameEditor } from "./bookNameSettings/bookNameSettings";
 import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
-import { registerVersionCheckCommands, resetVersionModalCooldown } from "./utils/extensionVersionChecker";
 import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 import { migrateAudioAttachments } from "./utils/audioAttachmentsMigrationUtils";
@@ -450,11 +449,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Register update commands and check for updates (non-blocking)
         registerUpdateCommands(context);
 
-        // Register extension version check commands
-        registerVersionCheckCommands(context);
-
-        // Reset version modal cooldown on extension activation
-        await resetVersionModalCooldown(context);
+        // Version checking removed from this extension
 
         // Don't close splash screen yet - we still have sync operations to show
         // The splash screen will be closed after all operations complete
@@ -693,13 +688,9 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
             try {
                 const authStatus = authApi.getAuthStatus();
                 if (authStatus.isAuthenticated) {
-                    debug("🔄 [POST-WORKSPACE] Codex project detected and user authenticated, checking extension versions before sync...");
+                    debug("🔄 [POST-WORKSPACE] Codex project detected and user authenticated, proceeding to sync...");
 
-                    // Note: Network-based extension version checking has been removed
-                    // Version compatibility is now checked during sync operations via metadata.json
-                    const allowSync = true;
-
-                    if (allowSync) {
+                    {
                         const syncStart = globalThis.performance.now();
                         const syncManager = SyncManager.getInstance();
                         try {
