@@ -1131,8 +1131,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             type: "audio",
             createdAt: Date.now(),
             updatedAt: Date.now(),
-            isDeleted: false
-        });
+            isDeleted: false,
+            // Persist optional metadata if provided by client
+            ...(typedEvent.content.metadata ? { metadata: typedEvent.content.metadata } : {}),
+        } as any);
 
         provider.postMessageToWebview(webviewPanel, {
             type: "audioAttachmentSaved",

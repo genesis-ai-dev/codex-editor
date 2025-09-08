@@ -991,8 +991,41 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
         // Convert blob to base64 for transfer to provider
         const reader = new FileReader();
-        reader.onloadend = () => {
+        reader.onloadend = async () => {
             const base64data = reader.result as string;
+
+            // Attempt to compute simple metadata using Web Audio API (best-effort)
+            let meta: any = {
+                mimeType: blob.type || undefined,
+                sizeBytes: blob.size,
+            };
+            try {
+                const arrayBuf = await blob.arrayBuffer();
+                // Decode to PCM to obtain duration and channels
+                const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({
+                    sampleRate: 48000,
+                } as any);
+                const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
+                const durationSec = decoded.duration;
+                const channels = decoded.numberOfChannels;
+                // Approximated bitrate in kbps: size(bytes)*8 / duration(seconds) / 1000
+                const bitrateKbps =
+                    durationSec > 0 ? Math.round((blob.size * 8) / durationSec / 1000) : undefined;
+                meta = {
+                    ...meta,
+                    sampleRate: decoded.sampleRate,
+                    channels,
+                    durationSec,
+                    bitrateKbps,
+                };
+                try {
+                    audioCtx.close();
+                } catch {
+                    void 0;
+                }
+            } catch {
+                // ignore metadata decode errors
+            }
 
             // Send to provider to save file
             const messageContent: EditorPostMessages = {
@@ -1002,6 +1035,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     audioData: base64data,
                     audioId: uniqueId,
                     fileExtension: fileExtension,
+                    metadata: meta,
                 },
             };
 

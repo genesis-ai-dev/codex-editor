@@ -576,7 +576,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             cellToUpdate.metadata.edits = [];
         }
         const currentTimestamp = Date.now();
-        
+
         // Only add edit if startTime is different from current value
         if (timestamps.startTime !== undefined && timestamps.startTime !== cellToUpdate.metadata.data?.startTime) {
             const startTimeEditMap = EditMapUtils.dataStartTime();
@@ -596,7 +596,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 ],
             });
         }
-        
+
         // Only add edit if endTime is different from current value
         if (timestamps.endTime !== undefined && timestamps.endTime !== cellToUpdate.metadata.data?.endTime) {
             const endTimeEditMap = EditMapUtils.dataEndTime();
@@ -1291,7 +1291,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
      * @param attachmentId The unique ID of the attachment
      * @param attachmentData The attachment data (url and type)
      */
-    public updateCellAttachment(cellId: string, attachmentId: string, attachmentData: { url: string; type: string; createdAt: number; updatedAt: number; isDeleted: boolean; }): void {
+    public updateCellAttachment(
+        cellId: string,
+        attachmentId: string,
+        attachmentData: { url: string; type: string; createdAt: number; updatedAt: number; isDeleted: boolean; metadata?: Record<string, any>; }
+    ): void {
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
             (cell) => cell.metadata?.id === cellId
         );
@@ -1318,7 +1322,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         // Add or update the attachment
-        cell.metadata.attachments[attachmentId] = attachmentData;
+        cell.metadata.attachments[attachmentId] = attachmentData as any;
 
         // Auto-select new audio recordings (overrides any existing selection)
         if (attachmentData.type === "audio" && cell.metadata) {

@@ -640,6 +640,14 @@ export type EditorPostMessages =
             audioData: string; // base64 encoded audio data
             audioId: string; // unique ID for the audio file
             fileExtension: string; // e.g., "webm", "wav", "mp3"
+            metadata?: {
+                mimeType?: string;
+                sizeBytes?: number;
+                sampleRate?: number; // Hz
+                channels?: number; // 1 = mono, 2 = stereo
+                durationSec?: number; // seconds (float)
+                bitrateKbps?: number; // approximate kbps
+            };
         };
     }
     | {
