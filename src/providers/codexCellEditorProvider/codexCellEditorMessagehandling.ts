@@ -674,11 +674,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     selectABTestVariant: async ({ event }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "selectABTestVariant"; }>;
-        const { cellId, selectedIndex, testId, selectionTimeMs, names } = (typedEvent as any).content || {};
+        const { cellId, selectedIndex, testId, testName, selectionTimeMs, names } = (typedEvent as any).content || {};
 
         // Import and call the A/B testing feedback function
         const { recordVariantSelection } = await import("../../utils/abTestingUtils");
-        await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, names);
+        await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, names, testName);
 
         console.log(`A/B test feedback recorded: Cell ${cellId}, variant ${selectedIndex}, test ${testId}, took ${selectionTimeMs}ms`);
     },
@@ -716,6 +716,25 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             type: "validationCount",
             content: validationCount,
         });
+    },
+
+    adjustABTestingProbability: async ({ event, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "adjustABTestingProbability"; }> & { content: { delta: number; }; };
+        const delta = Number((typedEvent as any)?.content?.delta) || 0;
+        try {
+            const config = vscode.workspace.getConfiguration("codex-editor-extension");
+            const current = Number(config.get("abTestingProbability")) || 0;
+            const next = Math.max(0, Math.min(1, current + delta));
+            await config.update("abTestingProbability", next, vscode.ConfigurationTarget.Workspace);
+            // Inform webview of new value
+            provider.postMessageToWebview(webviewPanel, {
+                type: "abTestingProbabilityUpdated",
+                content: { value: next }
+            });
+            vscode.window.setStatusBarMessage(`A/B test frequency set to ${(next * 100).toFixed(0)}%`, 2000);
+        } catch (err) {
+            console.error("Failed to update A/B testing probability", err);
+        }
     },
 
     getCurrentUsername: async ({ webviewPanel, provider }) => {
@@ -920,46 +939,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
     },
 
-    requestAudioAttachments: async ({ document, webviewPanel, provider }) => {
-        console.log("requestAudioAttachments message received");
-        const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
-        const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {} as any;
-        // Start with none for all ids in document
-        try {
-            const notebookData = JSON.parse(document.getText());
-            if (Array.isArray(notebookData?.cells)) {
-                for (const cell of notebookData.cells) {
-                    if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
-                }
-            }
-        } catch (err) { console.warn('Failed to parse notebook cells for audio status', err); }
-
-        // Mark available where we found on-disk non-deleted attachments
-        for (const cellId of Object.keys(audioAttachments)) {
-            audioCells[cellId] = "available";
-        }
-
-        // Mark deletedOnly where no available but there exists at least one deleted attachment in metadata
-        try {
-            const notebookData = JSON.parse(document.getText());
-            if (Array.isArray(notebookData?.cells)) {
-                for (const cell of notebookData.cells) {
-                    const id = cell?.metadata?.id;
-                    if (!id) continue;
-                    if (audioCells[id] === "available") continue;
-                    const attachments = cell?.metadata?.attachments || {};
-                    const hasDeletedAudio = Object.values(attachments).some((att: any) => att?.type === "audio" && att?.isDeleted === true);
-                    if (hasDeletedAudio) {
-                        audioCells[id] = "deletedOnly";
-                    }
-                }
-            }
-        } catch (err) { console.warn('Failed to parse attachments for deleted-only status', err); }
-        provider.postMessageToWebview(webviewPanel, {
-            type: "providerSendsAudioAttachments",
-            attachments: audioCells as any,
-        });
-    },
+    // requestAudioAttachments removed: provider proactively sends status; no webview-initiated fallback
 
     requestAudioForCell: async ({ event, document, webviewPanel }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "requestAudioForCell"; }>;
@@ -1772,7 +1752,7 @@ export async function scanForAudioAttachments(
                     // Check if cell has attachments in metadata
                     if (cell.metadata.attachments) {
                         for (const [attachmentId, attachment] of Object.entries(cell.metadata.attachments)) {
-                            if (attachment && (attachment as any).type === "audio" && !(attachment as any).isDeleted) {
+                            if (attachment && (attachment as any).type === "audio") {
                                 const attachmentPath = toPosixPath((attachment as any).url);
 
                                 // Build full path

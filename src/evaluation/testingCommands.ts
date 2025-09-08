@@ -82,7 +82,6 @@ export function registerTestingCommands(context: vscode.ExtensionContext) {
 			"numberOfFewShotExamples",
 			"debugMode",
 			"useOnlyValidatedExamples",
-			"abTestingVariants",
 			"allowHtmlPredictions",
 		];
 
@@ -232,5 +231,4 @@ export function registerTestingCommands(context: vscode.ExtensionContext) {
 	context.subscriptions.push(snapshotCmd, runTestCmd, listHistoryCmd, loadTestCmd, reapplyCmd, deleteTestCmd);
 	console.log('[testingCommands] All testing commands registered successfully, including deleteTest');
 }
-
 

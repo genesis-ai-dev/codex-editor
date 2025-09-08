@@ -11,7 +11,6 @@ import http from "isomorphic-git/http/web";
 import { BookCompletionData } from "../progressReporting/progressReportingService";
 import { ProgressReportingService, registerProgressReportingCommands } from "../progressReporting/progressReportingService";
 import { CommentsMigrator } from "../utils/commentsMigrationUtils";
-import { checkMetadataVersionsForSync } from "../utils/extensionVersionChecker";
 // Define TranslationProgress interface locally since it's not exported from types
 interface BookProgress {
     bookId: string;
@@ -112,7 +111,6 @@ export class SyncManager {
     private CONNECTION_ERROR_COOLDOWN = 60000; // 1 minute cooldown for connection messages
     private currentSyncStage: string = "";
     private syncStatusListeners: Array<(isSyncInProgress: boolean, syncStage: string) => void> = [];
-    private extensionContext?: vscode.ExtensionContext;
 
     private constructor() {
         // Initialize with configuration values
@@ -126,10 +124,7 @@ export class SyncManager {
         return SyncManager.instance;
     }
 
-    // Set the extension context for version checking
-    public setExtensionContext(context: vscode.ExtensionContext): void {
-        this.extensionContext = context;
-    }
+    // (removed) extension context was only used for version checking
 
     // Register a listener for sync status updates
     public addSyncStatusListener(listener: (isSyncInProgress: boolean, syncStage: string) => void): void {
@@ -250,34 +245,7 @@ export class SyncManager {
             return;
         }
 
-        // Check extension versions against metadata requirements
-        const contextToUse = context || this.extensionContext;
-        if (contextToUse) {
-            debug("🔍 Checking extension version compatibility with project metadata...");
-            try {
-                const canSync = await checkMetadataVersionsForSync(contextToUse, isManualSync);
-                if (!canSync) {
-                    debug("🚫 Sync blocked due to extension version incompatibility");
-                    if (showInfoOnConnectionIssues) {
-                        vscode.window.showWarningMessage(
-                            "Sync cancelled due to extension version requirements. Please update your extensions and try again."
-                        );
-                    }
-                    return; // Cancel sync entirely
-                }
-                debug("✅ Extension versions compatible with project metadata");
-            } catch (error) {
-                console.error("Error checking extension versions:", error);
-                if (showInfoOnConnectionIssues) {
-                    vscode.window.showWarningMessage(
-                        "Could not verify extension versions. Proceeding with sync."
-                    );
-                }
-                // Continue with sync on version check error to avoid blocking user
-            }
-        } else {
-            console.warn("⚠️ No extension context available for version checking, proceeding with sync");
-        }
+        // Proceed without extension version checks against metadata
 
         // Set sync in progress flag and show immediate feedback
         this.clearPendingSync();
@@ -718,9 +686,7 @@ export function registerSyncCommands(context: vscode.ExtensionContext): void {
     // Register progress reporting commands with background service
     registerProgressReportingCommands(context);
 
-    // Set the extension context in the sync manager for version checking
     const syncManager = SyncManager.getInstance();
-    syncManager.setExtensionContext(context);
 
     // Command to trigger immediate sync
     context.subscriptions.push(
