@@ -119,7 +119,7 @@ const extensionConfig = {
                 {
                     from: "node_modules/fts5-sql-bundle/package.json",
                     to: "node_modules/fts5-sql-bundle/package.json",
-                }
+                },
             ],
         }),
     ],
@@ -232,6 +232,10 @@ const testConfig = {
                     },
                 ],
             },
+            {
+                test: /\.codex$/,
+                type: "asset/source",
+            },
             // ... other rules
         ],
     },
@@ -250,4 +254,39 @@ const testConfig = {
     },
 };
 
-module.exports = [extensionConfig, serverConfig, testConfig];
+const testRunnerConfig = {
+    name: "test-runner",
+    target: "node",
+    mode: "none",
+    entry: "./src/test/runTest.ts",
+    output: {
+        path: path.resolve(__dirname, "out", "test"),
+        filename: "runTest.js",
+        libraryTarget: "commonjs2",
+    },
+    externals: {
+        vscode: "commonjs vscode",
+    },
+    resolve: {
+        extensions: [".ts", ".js"],
+        alias: {
+            "@": path.resolve(__dirname, "src"),
+        },
+    },
+    module: {
+        rules: [
+            {
+                test: /\.ts$/,
+                exclude: /node_modules/,
+                use: [
+                    {
+                        loader: "ts-loader",
+                    },
+                ],
+            },
+        ],
+    },
+    devtool: "nosources-source-map",
+};
+
+module.exports = [extensionConfig, serverConfig, testConfig, testRunnerConfig];
