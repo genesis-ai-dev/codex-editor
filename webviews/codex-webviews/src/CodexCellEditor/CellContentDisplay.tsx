@@ -867,11 +867,14 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 </div>
 
                 {/* Right side: wrappable label + content */}
-                <div className="flex flex-wrap items-baseline gap-[0.25rem] flex-1 min-w-0">
+                <div
+                    className="flex flex-wrap items-baseline gap-[0.25rem] flex-1 min-w-0"
+                    style={{ flexDirection: lineNumbersEnabled ? "column" : "row" }}
+                >
                     {/* Cell label - shown after line number when present */}
                     {label && (
                         <div
-                            className="cell-label-text text-primary inline-block text-right min-w-[2.5ch] relative -top-[2px]"
+                            className="cell-label-text text-primary inline-block text-right relative -top-[2px]"
                             style={{
                                 fontWeight:
                                     cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
