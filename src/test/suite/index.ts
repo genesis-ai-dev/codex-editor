@@ -1,6 +1,13 @@
 // Imports mocha for the browser, defining the `mocha` global.
 require("mocha/mocha");
 
+// Ensure a minimal location object exists for mocha in non-browser contexts
+if (typeof (globalThis as any).location === "undefined") {
+    (globalThis as any).location = { search: "" } as any;
+} else if (typeof (globalThis as any).location.search === "undefined") {
+    (globalThis as any).location.search = "";
+}
+
 // Define our own promisify function
 function promisify<T>(fn: any): (...args: any[]) => Promise<T> {
     return (...args: any[]) => {
@@ -21,8 +28,13 @@ export function run(): Promise<void> {
         });
 
         // Bundles all files in the current directory matching `*.test`
-        const importAll = (r: { keys: () => string[]; (key: string): any }) =>
-            r.keys().forEach((key) => r(key));
+        const importAll = (r: { keys: () => string[]; (key: string): any; }) => {
+            const patternSource = (globalThis as any).process?.env?.CODEX_TEST_GLOB as string | undefined;
+            const runtimeFilter = patternSource ? new RegExp(patternSource) : undefined;
+            r.keys()
+                .filter((key) => (runtimeFilter ? runtimeFilter.test(key) : true))
+                .forEach((key) => r(key));
+        };
         // Use webpack's require without accessing context property
         importAll(require.context(".", true, /\.test$/));
 

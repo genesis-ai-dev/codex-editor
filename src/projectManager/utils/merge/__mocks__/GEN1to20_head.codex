@@ -1,0 +1,545 @@
+{
+  "cells": [
+    {
+      "kind": 2,
+      "languageId": "html",
+      "value": "<span>test</span>",
+      "metadata": {
+        "type": "text",
+        "id": "GEN 1:1",
+        "data": {},
+        "cellLabel": "1",
+        "edits": [
+          {
+            "editMap": [
+              "metadata",
+              "cellLabel"
+            ],
+            "value": "ih",
+            "timestamp": 1757098695548,
+            "type": "user-edit",
+            "author": "test-user-in-codex",
+            "validatedBy": [
+              {
+                "username": "test-user-in-codex",
+                "creationTimestamp": 1757098695548,
+                "updatedTimestamp": 1757098695548,
+                "isDeleted": false
+              }
+            ]
+          },
+          {
+            "editMap": [
+              "metadata",
+              "cellLabel"
+            ],
+            "value": "hi",
+            "timestamp": 1757098701032,
+            "type": "user-edit",
+            "author": "test-user-in-codex",
+            "validatedBy": [
+              {
+                "username": "test-user-in-codex",
+                "creationTimestamp": 1757098701032,
+                "updatedTimestamp": 1757098701032,
+                "isDeleted": false
+              }
+            ]
+          },
+          {
+            "editMap": [
+              "metadata",
+              "cellLabel"
+            ],
+            "value": "hi",
+            "timestamp": 1757098701202,
+            "type": "user-edit",
+            "author": "test-user-in-codex",
+            "validatedBy": [
+              {
+                "username": "test-user-in-codex",
+                "creationTimestamp": 1757098701202,
+                "updatedTimestamp": 1757098701202,
+                "isDeleted": false
+              }
+            ]
+          },
+          {
+            "editMap": [
+              "value"
+            ],
+            "value": "<span>test</span>",
+            "timestamp": 1757098950282,
+            "type": "user-edit",
+            "author": "test-user-in-codex",
+            "validatedBy": [
+              {
+                "username": "test-user-in-codex",
+                "creationTimestamp": 1757098950282,
+                "updatedTimestamp": 1757098950282,
+                "isDeleted": false
+              }
+            ]
+          },
+          {
+            "editMap": [
+              "metadata",
+              "cellLabel"
+            ],
+            "value": "1",
+            "timestamp": 1757099269075,
+            "type": "user-edit",
+            "author": "test-user-in-codex",
+            "validatedBy": [
+              {
+                "username": "test-user-in-codex",
+                "creationTimestamp": 1757099269075,
+                "updatedTimestamp": 1757099269075,
+                "isDeleted": false
+              }
+            ]
+          },
+          {
+            "editMap": [
+              "metadata",
+              "cellLabel"
+            ],
+            "value": "1",
+            "timestamp": 1757099269235,
+            "type": "user-edit",
+            "author": "test-user-in-codex",
+            "validatedBy": [
+              {
+                "username": "test-user-in-codex",
+                "creationTimestamp": 1757099269235,
+                "updatedTimestamp": 1757099269235,
+                "isDeleted": false
+              }
+            ]
+          },
+          {
+            "editMap": [
+              "value"
+            ],
+            "value": "<span>test hi</span>",
+            "timestamp": 1757104151037,
+            "type": "user-edit",
+            "author": "test-user-in-codex",
+            "validatedBy": [
+              {
+                "username": "test-user-in-codex",
+                "creationTimestamp": 1757104151037,
+                "updatedTimestamp": 1757104151037,
+                "isDeleted": false
+              }
+            ]
+          },
+          {
+            "editMap": [
+              "metadata",
+              "cellLabel"
+            ],
+            "value": "1 test",
+            "timestamp": 1757104156848,
+            "type": "user-edit",
+            "author": "test-user-in-codex",
+            "validatedBy": [
+              {
+                "username": "test-user-in-codex",
+                "creationTimestamp": 1757104156848,
+                "updatedTimestamp": 1757104156848,
+                "isDeleted": false
+              }
+            ]
+          },
+          {
+            "editMap": [
+              "metadata",
+              "cellLabel"
+            ],
+            "value": "1 test",
+            "timestamp": 1757104156994,
+            "type": "user-edit",
+            "author": "test-user-in-codex",
+            "validatedBy": [
+              {
+                "username": "test-user-in-codex",
+                "creationTimestamp": 1757104156994,
+                "updatedTimestamp": 1757104156994,
+                "isDeleted": false
+              }
+            ]
+          },
+          {
+            "editMap": [
+              "metadata",
+              "cellLabel"
+            ],
+            "value": "1 test",
+            "timestamp": 1757104157843,
+            "type": "user-edit",
+            "author": "test-user-in-codex",
+            "validatedBy": [
+              {
+                "username": "test-user-in-codex",
+                "creationTimestamp": 1757104157843,
+                "updatedTimestamp": 1757104157843,
+                "isDeleted": false
+              }
+            ]
+          },
+          {
+            "editMap": [
+              "metadata",
+              "cellLabel"
+            ],
+            "value": "1",
+            "timestamp": 1757104175738,
+            "type": "user-edit",
+            "author": "test-user-in-codex",
+            "validatedBy": [
+              {
+                "username": "test-user-in-codex",
+                "creationTimestamp": 1757104175738,
+                "updatedTimestamp": 1757104175738,
+                "isDeleted": false
+              }
+            ]
+          },
+          {
+            "editMap": [
+              "metadata",
+              "cellLabel"
+            ],
+            "value": "1",
+            "timestamp": 1757104175818,
+            "type": "user-edit",
+            "author": "test-user-in-codex",
+            "validatedBy": [
+              {
+                "username": "test-user-in-codex",
+                "creationTimestamp": 1757104175818,
+                "updatedTimestamp": 1757104175818,
+                "isDeleted": false
+              }
+            ]
+          },
+          {
+            "editMap": [
+              "value"
+            ],
+            "value": "<span>test</span>",
+            "timestamp": 1757104181642,
+            "type": "user-edit",
+            "author": "test-user-in-codex",
+            "validatedBy": [
+              {
+                "username": "test-user-in-codex",
+                "creationTimestamp": 1757104181642,
+                "updatedTimestamp": 1757104181642,
+                "isDeleted": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": 2,
+      "languageId": "html",
+      "value": "<span>gen 2 hi</span>",
+      "metadata": {
+        "type": "text",
+        "id": "GEN 1:2",
+        "data": {},
+        "edits": [
+          {
+            "editMap": [
+              "value"
+            ],
+            "value": "<span>gen 2</span>",
+            "timestamp": 1757351602599,
+            "type": "user-edit",
+            "author": "test-user-in-codex",
+            "validatedBy": [
+              {
+                "username": "test-user-in-codex",
+                "creationTimestamp": 1757351602599,
+                "updatedTimestamp": 1757351602599,
+                "isDeleted": false
+              }
+            ]
+          },
+          {
+            "editMap": [
+              "metadata",
+              "cellLabel"
+            ],
+            "value": "2",
+            "timestamp": 1757351612055,
+            "type": "user-edit",
+            "author": "test-user-in-codex",
+            "validatedBy": [
+              {
+                "username": "test-user-in-codex",
+                "creationTimestamp": 1757351612055,
+                "updatedTimestamp": 1757351612055,
+                "isDeleted": false
+              }
+            ]
+          },
+          {
+            "editMap": [
+              "metadata",
+              "cellLabel"
+            ],
+            "value": "2",
+            "timestamp": 1757351612145,
+            "type": "user-edit",
+            "author": "test-user-in-codex",
+            "validatedBy": [
+              {
+                "username": "test-user-in-codex",
+                "creationTimestamp": 1757351612145,
+                "updatedTimestamp": 1757351612145,
+                "isDeleted": false
+              }
+            ]
+          },
+          {
+            "editMap": [
+              "value"
+            ],
+            "value": "<span>gen 2 hi</span>",
+            "timestamp": 1757351700837,
+            "type": "user-edit",
+            "author": "test-user-in-codex",
+            "validatedBy": [
+              {
+                "username": "test-user-in-codex",
+                "creationTimestamp": 1757351700837,
+                "updatedTimestamp": 1757351700837,
+                "isDeleted": false
+              }
+            ]
+          }
+        ],
+        "cellLabel": "2"
+      }
+    },
+    {
+      "kind": 2,
+      "languageId": "html",
+      "value": "",
+      "metadata": {
+        "type": "text",
+        "id": "GEN 1:3",
+        "data": {},
+        "edits": []
+      }
+    },
+    {
+      "kind": 2,
+      "languageId": "html",
+      "value": "",
+      "metadata": {
+        "type": "text",
+        "id": "GEN 1:4",
+        "data": {},
+        "edits": []
+      }
+    },
+    {
+      "kind": 2,
+      "languageId": "html",
+      "value": "",
+      "metadata": {
+        "type": "text",
+        "id": "GEN 1:5",
+        "data": {},
+        "edits": []
+      }
+    },
+    {
+      "kind": 2,
+      "languageId": "html",
+      "value": "",
+      "metadata": {
+        "type": "text",
+        "id": "GEN 1:6",
+        "data": {},
+        "edits": []
+      }
+    },
+    {
+      "kind": 2,
+      "languageId": "html",
+      "value": "",
+      "metadata": {
+        "type": "text",
+        "id": "GEN 1:7",
+        "data": {},
+        "edits": []
+      }
+    },
+    {
+      "kind": 2,
+      "languageId": "html",
+      "value": "",
+      "metadata": {
+        "type": "text",
+        "id": "GEN 1:8",
+        "data": {},
+        "edits": []
+      }
+    },
+    {
+      "kind": 2,
+      "languageId": "html",
+      "value": "",
+      "metadata": {
+        "type": "text",
+        "id": "GEN 1:9",
+        "data": {},
+        "edits": []
+      }
+    },
+    {
+      "kind": 2,
+      "languageId": "html",
+      "value": "",
+      "metadata": {
+        "type": "text",
+        "id": "GEN 1:10",
+        "data": {},
+        "edits": []
+      }
+    },
+    {
+      "kind": 2,
+      "languageId": "html",
+      "value": "",
+      "metadata": {
+        "type": "text",
+        "id": "GEN 1:11",
+        "data": {},
+        "edits": []
+      }
+    },
+    {
+      "kind": 2,
+      "languageId": "html",
+      "value": "",
+      "metadata": {
+        "type": "text",
+        "id": "GEN 1:12",
+        "data": {},
+        "edits": []
+      }
+    },
+    {
+      "kind": 2,
+      "languageId": "html",
+      "value": "",
+      "metadata": {
+        "type": "text",
+        "id": "GEN 1:13",
+        "data": {},
+        "edits": []
+      }
+    },
+    {
+      "kind": 2,
+      "languageId": "html",
+      "value": "",
+      "metadata": {
+        "type": "text",
+        "id": "GEN 1:14",
+        "data": {},
+        "edits": []
+      }
+    },
+    {
+      "kind": 2,
+      "languageId": "html",
+      "value": "",
+      "metadata": {
+        "type": "text",
+        "id": "GEN 1:15",
+        "data": {},
+        "edits": []
+      }
+    },
+    {
+      "kind": 2,
+      "languageId": "html",
+      "value": "",
+      "metadata": {
+        "type": "text",
+        "id": "GEN 1:16",
+        "data": {},
+        "edits": []
+      }
+    },
+    {
+      "kind": 2,
+      "languageId": "html",
+      "value": "",
+      "metadata": {
+        "type": "text",
+        "id": "GEN 1:17",
+        "data": {},
+        "edits": []
+      }
+    },
+    {
+      "kind": 2,
+      "languageId": "html",
+      "value": "",
+      "metadata": {
+        "type": "text",
+        "id": "GEN 1:18",
+        "data": {},
+        "edits": []
+      }
+    },
+    {
+      "kind": 2,
+      "languageId": "html",
+      "value": "",
+      "metadata": {
+        "type": "text",
+        "id": "GEN 1:19",
+        "data": {},
+        "edits": []
+      }
+    },
+    {
+      "kind": 2,
+      "languageId": "html",
+      "value": "",
+      "metadata": {
+        "type": "text",
+        "id": "GEN 1:20",
+        "data": {},
+        "edits": []
+      }
+    }
+  ],
+  "metadata": {
+    "id": "GEN",
+    "originalName": "GEN",
+    "sourceFsPath": "/Users/ryderwishart/hello-there-()-my-project/.project/sourceTexts/GEN.source",
+    "codexFsPath": "/Users/ryderwishart/hello-there-()-my-project/files/target/GEN.codex",
+    "navigation": [],
+    "sourceCreatedAt": "2025-01-15T02:54:24.133Z",
+    "codexLastModified": "2025-01-15T02:54:24.133Z",
+    "gitStatus": "untracked",
+    "corpusMarker": "OT",
+    "lineNumbersEnabled": false,
+    "lineNumbersEnabledSource": "local",
+    "cellDisplayMode": "one-line-per-cell",
+    "textDirection": "ltr",
+    "textDirectionSource": "local"
+  }
+}
