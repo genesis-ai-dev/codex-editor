@@ -1495,7 +1495,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     }}
                                     variant="default"
                                     size="icon"
-                                    title={unsavedChanges ? "Save changes" : "Close"}
+                                    title={"Save changes"}
                                     disabled={(isSaving && !saveError) || isEditingFootnoteInline}
                                 >
                                     {isSaving && !saveError ? (
@@ -1507,15 +1507,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 <Button
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        if (unsavedChanges) {
-                                            setShowDiscardModal(true);
-                                        } else {
-                                            handleCloseEditor();
-                                        }
+                                        setShowDiscardModal(true);
                                     }}
                                     variant="destructive"
                                     size="icon"
-                                    title={unsavedChanges ? "Discard changes and close" : "Close"}
+                                    title={"Discard changes and close"}
                                 >
                                     <X className="h-4 w-4" />
                                 </Button>
