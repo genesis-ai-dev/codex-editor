@@ -22,7 +22,7 @@ import ConfirmationButton from "./ConfirmationButton";
 import { generateChildCellId } from "../../../../src/providers/codexCellEditorProvider/utils/cellUtils";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import Quill from "quill";
-import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
+import { WhisperTranscriptionClient, type AsrMeta } from "./WhisperTranscriptionClient";
 import AudioWaveformWithTranscription from "./AudioWaveformWithTranscription";
 import SourceTextDisplay from "./SourceTextDisplay";
 import { AudioHistoryViewer } from "./AudioHistoryViewer";
@@ -126,6 +126,28 @@ interface CellEditorProps {
     footnoteOffset?: number;
     prevEndTime?: number;
     nextStartTime?: number;
+}
+
+// Simple ISO-639-1 to ISO-639-3 mapping for common languages; default to 'eng'
+const ISO2_TO_ISO3: Record<string, string> = {
+    en: "eng",
+    fr: "fra",
+    es: "spa",
+    de: "deu",
+    pt: "por",
+    it: "ita",
+    nl: "nld",
+    ru: "rus",
+    zh: "zho",
+    ja: "jpn",
+    ko: "kor",
+};
+
+function toIso3(code: string | undefined): string {
+    if (!code) return "eng";
+    const norm = code.toLowerCase();
+    if (norm.length === 2) return ISO2_TO_ISO3[norm] ?? "eng";
+    return norm; // assume already ISO-639-3
 }
 
 const DEBUG_ENABLED = false;
@@ -293,6 +315,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
         language?: string;
     } | null>(null);
     const transcriptionClientRef = useRef<WhisperTranscriptionClient | null>(null);
+    const [asrConfig, setAsrConfig] = useState<{
+        endpoint: string;
+        provider: string;
+        model: string;
+        language: string; // ISO-639-3 expected by MMS; may be ISO-639-1 and mapped
+        phonetic: boolean;
+    } | null>(null);
 
     // Helper to smoothly center the editor. Coalesces multiple calls and
     // performs a single smooth scroll after layout settles.
@@ -1084,6 +1113,22 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
     };
 
+    // Request ASR config on mount
+    useEffect(() => {
+        window.vscodeApi.postMessage({ command: "getAsrConfig" });
+    }, []);
+
+    // Handle ASR config response
+    useMessageHandler(
+        "textCellEditor-asrConfig",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "asrConfig") {
+                setAsrConfig(message.content);
+            }
+        }
+    );
+
     const handleTranscribeAudio = async () => {
         if (!audioBlob) {
             setTranscriptionStatus("No audio to transcribe");
@@ -1095,10 +1140,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
         setTranscriptionStatus("Connecting to transcription service...");
 
         try {
-            // Create transcription client
-            const client = new WhisperTranscriptionClient(
-                "wss://ryderwishart--whisper-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe"
-            );
+            // Create transcription client using configured endpoint (fallback to legacy)
+            const wsEndpoint =
+                asrConfig?.endpoint ||
+                "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe";
+            const client = new WhisperTranscriptionClient(wsEndpoint);
             transcriptionClientRef.current = client;
 
             // Set up progress handler
@@ -1111,8 +1157,27 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 setTranscriptionStatus(`Error: ${error}`);
             };
 
+            // Prepare provider-specific metadata
+            let meta: AsrMeta;
+            const mime = audioBlob.type || "audio/webm";
+            const provider = (asrConfig?.provider || "mms").toLowerCase();
+            if (provider === "mms") {
+                meta = {
+                    type: "meta",
+                    provider: "mms",
+                    model: asrConfig?.model || "facebook/mms-1b-all",
+                    mime,
+                    language: toIso3(asrConfig?.language || "eng"),
+                    task: "transcribe",
+                    phonetic: !!asrConfig?.phonetic,
+                };
+            } else {
+                // Whisper or other providers that follow Whisper semantics
+                meta = { type: "meta", mime };
+            }
+
             // Perform transcription
-            const result = await client.transcribe(audioBlob);
+            const result = await client.transcribe(audioBlob, meta);
 
             // Success - save transcription but don't automatically insert
             const transcribedText = result.text.trim();

@@ -738,6 +738,37 @@
                         "default": "gpt-4o",
                         "description": "Model name selected for inference. Ignorable for local LLM. If you are using a custom LLM, set to 'custom' and update the customModel setting below."
                     },
+                    "codex-editor-extension.asrEndpoint": {
+                        "title": "ASR WebSocket Endpoint",
+                        "type": "string",
+                        "default": "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe",
+                        "description": "WebSocket endpoint for audio transcription (MMS/Whisper unified service)."
+                    },
+                    "codex-editor-extension.asrProvider": {
+                        "title": "ASR Provider",
+                        "type": "string",
+                        "enum": ["mms", "whisper"],
+                        "default": "mms",
+                        "description": "Provider for transcription. MMS requires a language code; Whisper auto-detects."
+                    },
+                    "codex-editor-extension.asrModel": {
+                        "title": "ASR Model",
+                        "type": "string",
+                        "default": "facebook/mms-1b-all",
+                        "description": "Model identifier to use for transcription (e.g., facebook/mms-1b-all)."
+                    },
+                    "codex-editor-extension.asrLanguage": {
+                        "title": "ASR Language (ISO-639-3)",
+                        "type": "string",
+                        "default": "eng",
+                        "description": "Language code for transcription. MMS requires ISO-639-3 (e.g., eng, fra, spa). 2-letter codes will be mapped where possible."
+                    },
+                    "codex-editor-extension.asrPhonetic": {
+                        "title": "Return Phonetic (IPA)",
+                        "type": "boolean",
+                        "default": false,
+                        "description": "If enabled and supported by provider, also return phonetic (IPA) transcription."
+                    },
                     "codex-editor-extension.customModel": {
                         "title": "Custom LLM Model",
                         "type": "string",

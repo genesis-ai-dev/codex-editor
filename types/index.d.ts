@@ -685,6 +685,7 @@ export type EditorPostMessages =
             language: string;
         };
     }
+    | { command: "getAsrConfig"; }
     | {
         command: "mergeCellWithPrevious";
         content: {
@@ -890,6 +891,7 @@ type EditorReceiveMessages =
     }
     | { type: "refreshFontSizes"; }
     | { type: "refreshMetadata"; }
+    | { type: "asrConfig"; content: { endpoint: string; provider: string; model: string; language: string; phonetic: boolean; }; }
     | {
         type: "providerConfirmsBacktranslationSet";
         content: SavedBacktranslation | null;
@@ -1470,7 +1472,10 @@ type ProjectManagerMessageFromWebview =
     | { command: "openExternal"; url: string; }
     | { command: "setGlobalFontSize"; }
     | { command: "setGlobalTextDirection"; }
-    | { command: "setGlobalLineNumbers"; };
+    | { command: "setGlobalLineNumbers"; }
+    | { command: "getAsrSettings"; }
+    | { command: "saveAsrSettings"; data: { endpoint: string; provider: string; model: string; language: string; phonetic: boolean; }; }
+    | { command: "fetchAsrModels"; data: { endpoint: string; }; };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;
@@ -1534,7 +1539,10 @@ type ProjectManagerMessageToWebview =
             updateVersion: string | null;
             isCheckingForUpdates: boolean;
         };
-    };
+    }
+    | { command: "asrSettings"; data: { endpoint: string; provider: string; model: string; language: string; phonetic: boolean; }; }
+    | { command: "asrModels"; data: string[]; }
+    | { command: "asrSettingsSaved"; };
 
 // Ensure the Project type is correctly defined
 interface LocalProject {

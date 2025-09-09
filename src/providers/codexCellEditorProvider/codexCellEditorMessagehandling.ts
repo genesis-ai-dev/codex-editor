@@ -89,6 +89,23 @@ interface MessageHandlerContext {
 // Individual message handlers
 const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<void> | void> = {
     webviewReady: () => { },
+    getAsrConfig: async ({ webviewPanel }) => {
+        try {
+            const config = vscode.workspace.getConfiguration("codex-editor-extension");
+            const endpoint = config.get<string>("asrEndpoint", "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe");
+            const provider = config.get<string>("asrProvider", "mms");
+            const model = config.get<string>("asrModel", "facebook/mms-1b-all");
+            const language = config.get<string>("asrLanguage", "eng");
+            const phonetic = config.get<boolean>("asrPhonetic", false);
+
+            safePostMessageToPanel(webviewPanel, {
+                type: "asrConfig",
+                content: { endpoint, provider, model, language, phonetic }
+            });
+        } catch (error) {
+            console.error("Error sending ASR config:", error);
+        }
+    },
 
     // Return the user's preferred editor tab (workspace-scoped), default to "source"
     getPreferredEditorTab: async ({ webviewPanel, provider }) => {

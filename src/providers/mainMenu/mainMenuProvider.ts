@@ -611,6 +611,71 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 await syncManager.executeSync("Syncing project", true, undefined, true);
                 break;
             }
+            case "getAsrSettings": {
+                const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                const settings = {
+                    endpoint: config.get<string>("asrEndpoint", "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe"),
+                    provider: config.get<string>("asrProvider", "mms"),
+                    model: config.get<string>("asrModel", "facebook/mms-1b-all"),
+                    language: config.get<string>("asrLanguage", "eng"),
+                    phonetic: config.get<boolean>("asrPhonetic", false),
+                };
+                if (this._view) {
+                    safePostMessageToView(this._view, { command: "asrSettings", data: settings }, "MainMenu");
+                }
+                break;
+            }
+            case "saveAsrSettings": {
+                const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                const target = vscode.ConfigurationTarget.Workspace;
+                await config.update("asrEndpoint", (message as any).data?.endpoint, target);
+                await config.update("asrProvider", (message as any).data?.provider, target);
+                await config.update("asrModel", (message as any).data?.model, target);
+                await config.update("asrLanguage", (message as any).data?.language, target);
+                await config.update("asrPhonetic", !!(message as any).data?.phonetic, target);
+                if (this._view) {
+                    safePostMessageToView(this._view, { command: "asrSettingsSaved" }, "MainMenu");
+                }
+                break;
+            }
+            case "fetchAsrModels": {
+                const endpoint: string | undefined = (message as any).data?.endpoint;
+                if (!endpoint) {
+                    if (this._view) {
+                        safePostMessageToView(this._view, { command: "asrModels", data: [] }, "MainMenu");
+                    }
+                    break;
+                }
+                try {
+                    const url = endpoint.replace(/\/$/, '').replace(/\/ws\/.*/, '') + '/models';
+                    const res = await new Promise<string>((resolve, reject) => {
+                        const https = require('https');
+                        const http = require('http');
+                        const lib = url.startsWith('https') ? https : http;
+                        lib.get(url, (resp: any) => {
+                            let data = '';
+                            resp.on('data', (chunk: any) => (data += chunk));
+                            resp.on('end', () => resolve(data));
+                        }).on('error', (err: any) => reject(err));
+                    });
+                    let models: any[] = [];
+                    try {
+                        const parsed = JSON.parse(res);
+                        models = Array.isArray(parsed) ? parsed : parsed?.models || [];
+                    } catch {
+                        models = [];
+                    }
+                    if (this._view) {
+                        safePostMessageToView(this._view, { command: "asrModels", data: models }, "MainMenu");
+                    }
+                } catch (e) {
+                    console.error("Failed to fetch ASR models:", e);
+                    if (this._view) {
+                        safePostMessageToView(this._view, { command: "asrModels", data: [] }, "MainMenu");
+                    }
+                }
+                break;
+            }
             case "getSyncSettings": {
                 const config = vscode.workspace.getConfiguration("codex-project-manager");
                 const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
@@ -1817,5 +1882,4 @@ export class MainMenuProvider extends BaseWebviewProvider {
         }
     }
 }
-
 
