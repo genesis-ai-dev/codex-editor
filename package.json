@@ -816,7 +816,6 @@
                         "maximum": 1,
                         "description": "Probability (0-1) that any eligible event will run a true A/B test. When not triggered, the system returns identical variants to keep UX consistent without doubling compute."
                     },
-                    
                     "codex-editor-extension.searchAlgorithm": {
                         "title": "Search Algorithm",
                         "type": "string",
@@ -895,7 +894,7 @@
         ]
     },
     "scripts": {
-        "vscode:prepublish": "npm run build:webviews && npm run compile",
+        "vscode:prepublish": "npm run build:webviews && npm run compile && npm run test",
         "compile": "webpack --config webpack.config.js",
         "watch": "webpack --config webpack.config.js --watch",
         "package": "webpack --config webpack.config.js --mode production --devtool hidden-source-map",

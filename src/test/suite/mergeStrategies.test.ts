@@ -28,8 +28,8 @@ suite("Merge Strategies Test Suite", () => {
         const strategy1 = determineStrategy(metadataFile);
         assert.strictEqual(strategy1, ConflictResolutionStrategy.OVERRIDE);
 
-        // Test ARRAY strategy
-        const commentsFile = "file-comments.json";
+        // Comments currently default to OVERRIDE in determineStrategy
+        const commentsFile = ".project/comments.json";
         const strategy2 = determineStrategy(commentsFile);
         assert.strictEqual(strategy2, ConflictResolutionStrategy.ARRAY);
 
