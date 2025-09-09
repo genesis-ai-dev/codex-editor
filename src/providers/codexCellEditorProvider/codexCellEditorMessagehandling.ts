@@ -107,6 +107,64 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
+    updateCellAfterTranscription: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellAfterTranscription"; }>;
+        const { cellId, transcribedText, language } = typedEvent.content;
+        try {
+            // Get current selected audio attachment for this cell
+            const currentAttachment = document.getCurrentAttachment(cellId, "audio");
+            if (!currentAttachment) {
+                console.warn("No current audio attachment to save transcription for cell:", cellId);
+                return;
+            }
+            const { attachmentId, attachment } = currentAttachment as any;
+            const updated = {
+                ...(attachment || {}),
+                transcription: {
+                    content: transcribedText,
+                    language: language || "unknown",
+                    timestamp: Date.now(),
+                },
+                updatedAt: Date.now(),
+            };
+            await document.updateCellAttachment(cellId, attachmentId, updated);
+
+            // Notify webview(s) of updated audio attachments status
+            const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
+            const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {} as any;
+            try {
+                const notebookData = JSON.parse(document.getText());
+                if (Array.isArray(notebookData?.cells)) {
+                    for (const cell of notebookData.cells) {
+                        if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
+                    }
+                }
+            } catch { }
+            for (const cid of Object.keys(updatedAudioAttachments)) {
+                audioCells[cid] = "available";
+            }
+            try {
+                const notebookData = JSON.parse(document.getText());
+                if (Array.isArray(notebookData?.cells)) {
+                    for (const cell of notebookData.cells) {
+                        const id = cell?.metadata?.id;
+                        if (!id) continue;
+                        if (audioCells[id] === "available") continue;
+                        const attachments = cell?.metadata?.attachments || {};
+                        const hasDeletedAudio = Object.values(attachments).some((att: any) => att?.type === "audio" && att?.isDeleted === true);
+                        if (hasDeletedAudio) audioCells[id] = "deletedOnly";
+                    }
+                }
+            } catch { }
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsAudioAttachments",
+                attachments: audioCells as any,
+            });
+        } catch (error) {
+            console.error("Failed to update transcription for cell:", cellId, error);
+        }
+    },
+
     // Return the user's preferred editor tab (workspace-scoped), default to "source"
     getPreferredEditorTab: async ({ webviewPanel, provider }) => {
         try {

@@ -46,6 +46,8 @@ import {
 } from "./providers/SplashScreen/register";
 import { openBookNameEditor } from "./bookNameSettings/bookNameSettings";
 import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
+import { GlobalProvider } from "./globalProvider";
+import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/codexCellEditorProvider";
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
 import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
@@ -488,6 +490,28 @@ export async function activate(context: vscode.ExtensionContext) {
                     }
                 });
             }
+        })
+    );
+
+    // Batch transcription command
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-editor-extension.generateTranscriptions", async () => {
+            const countInput = await vscode.window.showInputBox({
+                prompt: "How many cells to transcribe?",
+                placeHolder: "e.g., 5",
+                validateInput: (val) => (val && !isNaN(Number(val)) && Number(val) >= 1 ? undefined : "Enter a positive number"),
+            });
+            if (!countInput) return;
+            const count = Math.max(1, Math.floor(Number(countInput)));
+
+            const provider = GlobalProvider.getInstance().getProvider("codex-cell-editor") as CodexCellEditorProvider | undefined;
+            if (!provider) {
+                vscode.window.showErrorMessage("Open a Codex cell editor to run this command.");
+                return;
+            }
+
+            provider.postMessageToWebviews({ type: "startBatchTranscription", content: { count } } as any);
+            vscode.window.showInformationMessage(`Starting transcription for up to ${count} cells...`);
         })
     );
 

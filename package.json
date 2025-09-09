@@ -271,6 +271,11 @@
                 "category": "Codex Editor"
             },
             {
+                "command": "codex-editor-extension.generateTranscriptions",
+                "title": "Generate Transcriptions",
+                "category": "Codex Editor"
+            },
+            {
                 "command": "codex-project-manager.initializeNewProject",
                 "title": "Initialize New Project",
                 "category": "Codex Project Management"

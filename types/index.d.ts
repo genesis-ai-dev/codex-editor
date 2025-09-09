@@ -892,6 +892,7 @@ type EditorReceiveMessages =
     | { type: "refreshFontSizes"; }
     | { type: "refreshMetadata"; }
     | { type: "asrConfig"; content: { endpoint: string; provider: string; model: string; language: string; phonetic: boolean; }; }
+    | { type: "startBatchTranscription"; content: { count: number; }; }
     | {
         type: "providerConfirmsBacktranslationSet";
         content: SavedBacktranslation | null;

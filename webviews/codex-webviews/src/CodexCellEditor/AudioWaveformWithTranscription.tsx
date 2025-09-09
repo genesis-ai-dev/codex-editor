@@ -75,7 +75,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                 ) : transcription ? (
                     <div className="space-y-3">
                         <div className="bg-[var(--vscode-editor-background)] p-4 rounded-lg border border-[var(--vscode-panel-border)]">
-                            <p className="text-sm text-[var(--vscode-foreground)] leading-relaxed mb-2">
+                            <p className="text-sm leading-relaxed mb-2" style={{ color: 'var(--vscode-descriptionForeground)' }}>
                                 {transcription.content}
                             </p>
                             {transcription.language && (

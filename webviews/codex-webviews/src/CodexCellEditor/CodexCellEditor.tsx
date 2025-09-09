@@ -32,6 +32,7 @@ import { getVSCodeAPI } from "../shared/vscodeApi";
 import { Subsection } from "../lib/types";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
+import { WhisperTranscriptionClient, type AsrMeta } from "./WhisperTranscriptionClient";
 
 // eslint-disable-next-line react-refresh/only-export-components
 export enum CELL_DISPLAY_MODES {
@@ -237,6 +238,99 @@ const CodexCellEditor: React.FC = () => {
 
     // Acquire VS Code API once at component initialization
     const vscode = useMemo(() => getVSCodeAPI(), []);
+
+    // Batch transcription handler
+    useMessageHandler(
+        "codexCellEditor-startBatchTranscription",
+        (event: MessageEvent) => {
+            const message = event.data as EditorReceiveMessages;
+            if (message.type !== "startBatchTranscription") return;
+            const run = async () => {
+                try {
+                    // Fetch ASR config
+                    const asrConfig = await new Promise<{ endpoint: string; provider: string; model: string; language: string; phonetic: boolean }>((resolve) => {
+                        const onMsg = (ev: MessageEvent) => {
+                            if (ev.data?.type === "asrConfig") {
+                                window.removeEventListener("message", onMsg);
+                                resolve(ev.data.content);
+                            }
+                        };
+                        window.addEventListener("message", onMsg);
+                        vscode.postMessage({ command: "getAsrConfig" });
+                    });
+
+                    const toIso3 = (code?: string) => {
+                        const ISO2_TO_ISO3: Record<string, string> = { en: "eng", fr: "fra", es: "spa", de: "deu", pt: "por", it: "ita", nl: "nld", ru: "rus", zh: "zho", ja: "jpn", ko: "kor" };
+                        if (!code) return "eng";
+                        const norm = code.toLowerCase();
+                        return norm.length === 2 ? (ISO2_TO_ISO3[norm] ?? "eng") : norm;
+                    };
+
+                    const wsEndpoint = asrConfig.endpoint || "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe";
+
+                    const max = Math.max(0, message.content.count | 0);
+                    const units = translationUnits.slice(0, max > 0 ? max : translationUnits.length);
+                    for (const unit of units) {
+                        const cellId = unit.cellMarkers[0];
+                        // Request audio for cell
+                        const audioData = await new Promise<string | null>((resolve) => {
+                            let resolved = false;
+                            const handler = (ev: MessageEvent) => {
+                                if (ev.data?.type === "providerSendsAudioData" && ev.data.content?.cellId === cellId) {
+                                    window.removeEventListener("message", handler);
+                                    resolved = true;
+                                    resolve(ev.data.content.audioData || null);
+                                }
+                            };
+                            window.addEventListener("message", handler);
+                            vscode.postMessage({ command: "requestAudioForCell", content: { cellId } } as EditorPostMessages);
+                            // Timeout after 5s
+                            setTimeout(() => { if (!resolved) { window.removeEventListener("message", handler); resolve(null); } }, 5000);
+                        });
+                        if (!audioData) continue;
+
+                        // Convert data URL to Blob
+                        const blob = await (await fetch(audioData)).blob();
+
+                        // Build meta
+                        const mime = blob.type || "audio/webm";
+                        const provider = (asrConfig.provider || "mms").toLowerCase();
+                        let meta: AsrMeta = { type: 'meta', mime };
+                        if (provider === "mms") {
+                            meta = {
+                                type: 'meta',
+                                provider: 'mms',
+                                model: asrConfig.model || 'facebook/mms-1b-all',
+                                mime,
+                                language: toIso3(asrConfig.language || 'eng'),
+                                task: 'transcribe',
+                                phonetic: !!asrConfig.phonetic,
+                            };
+                        }
+
+                        // Transcribe
+                        const client = new WhisperTranscriptionClient(wsEndpoint);
+                        try {
+                            const result = await client.transcribe(blob, meta);
+                            const text = (result.text || '').trim();
+                            if (text) {
+                                vscode.postMessage({
+                                    command: 'updateCellAfterTranscription',
+                                    content: { cellId, transcribedText: text, language: result.language || 'unknown' }
+                                } as unknown as EditorPostMessages);
+                            }
+                        } catch (err) {
+                            console.error('Batch transcription failed for', cellId, err);
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error during batch transcription:', e);
+                }
+            };
+            run();
+        },
+        [translationUnits, vscode]
+    );
 
     // A/B test variant selection handler
     const handleVariantSelected = (selectedIndex: number, selectionTimeMs: number) => {
