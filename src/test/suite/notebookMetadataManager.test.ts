@@ -81,6 +81,16 @@ suite("NotebookMetadataManager Test Suite", () => {
                 console.error("Failed to delete temporary file:", error);
             }
         }
+        // Best-effort cleanup of fs-ops-* directories created in this workspace
+        try {
+            const root = vscode.Uri.file("/tmp/test-workspace");
+            const entries = await vscode.workspace.fs.readDirectory(root);
+            for (const [name, type] of entries) {
+                if (type === vscode.FileType.Directory && name.startsWith("fs-ops-")) {
+                    try { await vscode.workspace.fs.delete(vscode.Uri.joinPath(root, name), { recursive: true }); } catch { /* ignore */ }
+                }
+            }
+        } catch { /* ignore */ }
     });
 
     test("should add and retrieve metadata correctly", async () => {
