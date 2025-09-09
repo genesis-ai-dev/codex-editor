@@ -2065,6 +2065,8 @@ const CodexCellEditor: React.FC = () => {
                                 tempFontSize !== null ? tempFontSize : metadata?.fontSize || 14
                             }
                             lineNumbersEnabled={metadata?.lineNumbersEnabled ?? true}
+                            currentUsername={username}
+                            requiredValidations={requiredValidations ?? undefined}
                         />
                     </div>
                 </div>
