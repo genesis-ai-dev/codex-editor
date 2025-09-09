@@ -13,7 +13,7 @@ export async function fetchFewShotExamples(
   // Request a large pool of candidates to ensure we have enough complete pairs to rank
   // Use a higher multiplier since many candidates may be incomplete pairs
   const initialCandidateCount = Math.max(numberOfFewShotExamples * 10, 100);
-  console.log(`[fetchFewShotExamples] Starting search with query: "${sourceContent}" (length: ${sourceContent?.length || 0}), requesting ${initialCandidateCount} candidates, validated only: ${useOnlyValidatedExamples}`);
+  console.debug(`[fetchFewShotExamples] Starting search with query: "${sourceContent}" (length: ${sourceContent?.length || 0}), requesting ${initialCandidateCount} candidates, validated only: ${useOnlyValidatedExamples}`);
   
   let similarSourceCells: TranslationPair[] = [];
   try {
@@ -23,7 +23,7 @@ export async function fetchFewShotExamples(
       initialCandidateCount,
       useOnlyValidatedExamples
     ) || [];
-    console.log(`[fetchFewShotExamples] Raw search returned ${similarSourceCells.length} results`);
+    console.debug(`[fetchFewShotExamples] Raw search returned ${similarSourceCells.length} results`);
   } catch (error) {
     console.error(`[fetchFewShotExamples] Command execution failed:`, error);
     console.error(`[fetchFewShotExamples] Query was: "${sourceContent}", candidates: ${initialCandidateCount}, validated: ${useOnlyValidatedExamples}`);
@@ -37,7 +37,7 @@ export async function fetchFewShotExamples(
       // Basic validity filters only
       if (!pair || pair.cellId === currentCellId) {
         if (pair?.cellId === currentCellId) {
-          console.log(`[fetchFewShotExamples] Filtering out current cell: ${currentCellId}`);
+          console.debug(`[fetchFewShotExamples] Filtering out current cell: ${currentCellId}`);
         }
         return false;
       }
@@ -46,7 +46,7 @@ export async function fetchFewShotExamples(
       const pairSourceContent = pair.sourceCell?.content || "";
       const pairTargetContent = pair.targetCell?.content || "";
       if (!pairSourceContent.trim() || !pairTargetContent.trim()) {
-        console.log(`[fetchFewShotExamples] Filtering out pair ${pair.cellId} - incomplete pair (missing source or target)`);
+        console.debug(`[fetchFewShotExamples] Filtering out pair ${pair.cellId} - incomplete pair (missing source or target)`);
         return false;
       }
       
@@ -61,7 +61,7 @@ export async function fetchFewShotExamples(
       const overlapCount = currentTokens.filter(token => pairTokens.includes(token)).length;
       const overlapRatio = currentTokens.length > 0 ? overlapCount / currentTokens.length : 0;
       
-      console.log(`[fetchFewShotExamples] Pair ${pair.cellId} - overlap: ${overlapCount}/${currentTokens.length} = ${(overlapRatio * 100).toFixed(1)}%`);
+      console.debug(`[fetchFewShotExamples] Pair ${pair.cellId} - overlap: ${overlapCount}/${currentTokens.length} = ${(overlapRatio * 100).toFixed(1)}%`);
       
       return {
         pair,
@@ -77,20 +77,20 @@ export async function fetchFewShotExamples(
       return b.overlapCount - a.overlapCount;
     });
   
-  console.log(`[fetchFewShotExamples] Ranked ${rankedPairs.length} complete pairs by relevance`);
+  console.debug(`[fetchFewShotExamples] Ranked ${rankedPairs.length} complete pairs by relevance`);
   
   // Take the top N most relevant complete pairs
   const filteredSimilarSourceCells = rankedPairs
     .slice(0, numberOfFewShotExamples)
     .map(ranked => ranked.pair);
 
-  console.log(`[fetchFewShotExamples] Returning ${filteredSimilarSourceCells.length} top-ranked examples (requested: ${numberOfFewShotExamples})`);
+  console.debug(`[fetchFewShotExamples] Returning ${filteredSimilarSourceCells.length} top-ranked examples (requested: ${numberOfFewShotExamples})`);
   
   if (filteredSimilarSourceCells.length === 0) {
-    console.warn(`[fetchFewShotExamples] WARNING: No complete translation pairs found! Source content: "${sourceContent}", query tokens: [${tokenizeText({ method: "whitespace_and_punctuation", text: sourceContent }).join(', ')}]`);
-    console.warn(`[fetchFewShotExamples] This means the database only contains incomplete pairs (source-only or target-only).`);
+    console.debug(`[fetchFewShotExamples] No complete translation pairs found. Source length: ${sourceContent?.length || 0}`);
+    console.debug(`[fetchFewShotExamples] Database may contain only incomplete pairs (source-only or target-only).`);
   } else if (filteredSimilarSourceCells.length < numberOfFewShotExamples) {
-    console.warn(`[fetchFewShotExamples] Found fewer examples than requested: ${filteredSimilarSourceCells.length}/${numberOfFewShotExamples}`);
+    console.debug(`[fetchFewShotExamples] Found fewer examples than requested: ${filteredSimilarSourceCells.length}/${numberOfFewShotExamples}`);
   }
   
   return filteredSimilarSourceCells;
@@ -156,7 +156,7 @@ export function buildFewShotExamplesText(
   allowHtml: boolean = false, 
   exampleFormat: string = "source-and-target"
 ): string {
-  console.log(`[buildFewShotExamplesText] Building ${pairs.length} examples in '${exampleFormat}' format`);
+  console.debug(`[buildFewShotExamplesText] Building ${pairs.length} examples in '${exampleFormat}' format`);
   
   const examplesInner = pairs
     .map((pair) => {
@@ -262,5 +262,4 @@ export async function writeDebugMessages(messages: ChatMessage[], response: stri
     new TextEncoder().encode(messagesContent + "\n\nAPI Response:\n" + response)
   );
 }
-
 

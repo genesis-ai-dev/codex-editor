@@ -1215,6 +1215,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
             setTranscriptionStatus(
                 `Transcription failed: ${error instanceof Error ? error.message : "Unknown error"}`
             );
+            try {
+                window.vscodeApi.postMessage({
+                    command: 'showErrorMessage',
+                    text: `Transcription failed for ${cellMarkers[0]}: ${error instanceof Error ? error.message : String(error)}`,
+                });
+            } catch { /* ignore messaging errors */ }
         } finally {
             setIsTranscribing(false);
             transcriptionClientRef.current = null;

@@ -23,7 +23,8 @@ export class WhisperTranscriptionClient {
 
     async transcribe(
         audioBlob: Blob,
-        meta: AsrMeta
+        meta: AsrMeta,
+        timeoutMs: number = 30000
     ): Promise<{ text: string; language: string; provider?: string; model?: string; phonetic?: string | null }> {
         return new Promise((resolve, reject) => {
             try {
@@ -101,7 +102,7 @@ export class WhisperTranscriptionClient {
                     }
                 };
 
-                // Add timeout
+                // Add timeout (default 30s, configurable)
                 setTimeout(() => {
                     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
                         this.cleanup();
@@ -111,7 +112,7 @@ export class WhisperTranscriptionClient {
                         }
                         reject(new Error(errorMsg));
                     }
-                }, 300000); // 5 minute timeout
+                }, timeoutMs);
 
             } catch (error) {
                 this.cleanup();

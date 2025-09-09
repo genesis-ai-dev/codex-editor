@@ -16,6 +16,8 @@ import {
 import { createNewWorkspaceAndProject, openProject, createNewProject } from "../../utils/projectCreationUtils/projectCreationUtils";
 import { FrontierAPI } from "webviews/codex-webviews/src/StartupFlow/types";
 import git from "isomorphic-git";
+import * as https from "node:https";
+import * as http from "node:http";
 import * as fs from "fs";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { SyncManager } from "../../projectManager/syncManager";
@@ -649,14 +651,12 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 try {
                     const url = endpoint.replace(/\/$/, '').replace(/\/ws\/.*/, '') + '/models';
                     const res = await new Promise<string>((resolve, reject) => {
-                        const https = require('https');
-                        const http = require('http');
                         const lib = url.startsWith('https') ? https : http;
-                        lib.get(url, (resp: any) => {
+                        lib.get(url, (resp) => {
                             let data = '';
-                            resp.on('data', (chunk: any) => (data += chunk));
+                            resp.on('data', (chunk) => (data += chunk));
                             resp.on('end', () => resolve(data));
-                        }).on('error', (err: any) => reject(err));
+                        }).on('error', (err) => reject(err));
                     });
                     let models: any[] = [];
                     try {
@@ -1882,4 +1882,3 @@ export class MainMenuProvider extends BaseWebviewProvider {
         }
     }
 }
-

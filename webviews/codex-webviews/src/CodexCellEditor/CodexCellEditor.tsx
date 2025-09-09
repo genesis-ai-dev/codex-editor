@@ -249,14 +249,28 @@ const CodexCellEditor: React.FC = () => {
                 try {
                     // Fetch ASR config
                     const asrConfig = await new Promise<{ endpoint: string; provider: string; model: string; language: string; phonetic: boolean }>((resolve) => {
+                        let resolved = false;
                         const onMsg = (ev: MessageEvent) => {
                             if (ev.data?.type === "asrConfig") {
                                 window.removeEventListener("message", onMsg);
+                                resolved = true;
                                 resolve(ev.data.content);
                             }
                         };
                         window.addEventListener("message", onMsg);
                         vscode.postMessage({ command: "getAsrConfig" });
+                        setTimeout(() => {
+                            if (!resolved) {
+                                window.removeEventListener("message", onMsg);
+                                resolve({
+                                    endpoint: "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe",
+                                    provider: "mms",
+                                    model: "facebook/mms-1b-all",
+                                    language: "eng",
+                                    phonetic: false,
+                                });
+                            }
+                        }, 2000);
                     });
 
                     const toIso3 = (code?: string) => {
@@ -269,28 +283,33 @@ const CodexCellEditor: React.FC = () => {
                     const wsEndpoint = asrConfig.endpoint || "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe";
 
                     const max = Math.max(0, message.content.count | 0);
-                    const units = translationUnits.slice(0, max > 0 ? max : translationUnits.length);
+                    const candidates = translationUnits.filter((u) => audioAttachments[u.cellMarkers[0]] === 'available');
+                    const units = (candidates.length > 0 ? candidates : translationUnits).slice(0, max > 0 ? max : translationUnits.length);
                     for (const unit of units) {
                         const cellId = unit.cellMarkers[0];
                         // Request audio for cell
-                        const audioData = await new Promise<string | null>((resolve) => {
+                        const audioInfo = await new Promise<{ audioData: string | null; hasTranscription: boolean }>((resolve) => {
                             let resolved = false;
                             const handler = (ev: MessageEvent) => {
                                 if (ev.data?.type === "providerSendsAudioData" && ev.data.content?.cellId === cellId) {
                                     window.removeEventListener("message", handler);
                                     resolved = true;
-                                    resolve(ev.data.content.audioData || null);
+                                    resolve({
+                                        audioData: ev.data.content.audioData || null,
+                                        hasTranscription: !!ev.data.content.transcription,
+                                    });
                                 }
                             };
                             window.addEventListener("message", handler);
                             vscode.postMessage({ command: "requestAudioForCell", content: { cellId } } as EditorPostMessages);
                             // Timeout after 5s
-                            setTimeout(() => { if (!resolved) { window.removeEventListener("message", handler); resolve(null); } }, 5000);
+                            setTimeout(() => { if (!resolved) { window.removeEventListener("message", handler); resolve({ audioData: null, hasTranscription: false }); } }, 5000);
                         });
-                        if (!audioData) continue;
+                        if (!audioInfo.audioData) continue; // no audio to transcribe
+                        if (audioInfo.hasTranscription) continue; // already transcribed
 
                         // Convert data URL to Blob
-                        const blob = await (await fetch(audioData)).blob();
+                        const blob = await (await fetch(audioInfo.audioData)).blob();
 
                         // Build meta
                         const mime = blob.type || "audio/webm";
@@ -311,16 +330,29 @@ const CodexCellEditor: React.FC = () => {
                         // Transcribe
                         const client = new WhisperTranscriptionClient(wsEndpoint);
                         try {
-                            const result = await client.transcribe(blob, meta);
+                            const result = await client.transcribe(blob, meta, 30000);
                             const text = (result.text || '').trim();
                             if (text) {
                                 vscode.postMessage({
                                     command: 'updateCellAfterTranscription',
                                     content: { cellId, transcribedText: text, language: result.language || 'unknown' }
                                 } as unknown as EditorPostMessages);
+
+                                // If editing a source file, also update the cell's main text content
+                                if (isSourceText) {
+                                    const html = `<span>${text}</span>`;
+                                    vscode.postMessage({
+                                        command: 'saveHtml',
+                                        content: { cellMarkers: [cellId], cellContent: html, cellChanged: true }
+                                    } as unknown as EditorPostMessages);
+                                }
                             }
                         } catch (err) {
                             console.error('Batch transcription failed for', cellId, err);
+                            vscode.postMessage({
+                                command: 'showErrorMessage',
+                                text: `Transcription failed for ${cellId}: ${err instanceof Error ? err.message : String(err)}`,
+                            } as any);
                         }
                     }
                 } catch (e) {

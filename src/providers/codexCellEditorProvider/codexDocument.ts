@@ -258,6 +258,16 @@ export class CodexCellDocument implements vscode.CustomDocument {
             return; // Skip adding edit if normalized content hasn't changed
         }
 
+        // Special case: for non-persisting LLM previews, do not record a value edit
+        // This avoids unintended persistence during merge/save when the user discards changes in the editor
+        if (editType === EditType.LLM_GENERATION && !shouldUpdateValue) {
+            // Notify webview-only so UI can reflect previewed content without marking file dirty
+            this._onDidChangeForWebview.fire({
+                edits: [{ cellId, newContent, editType }],
+            });
+            return;
+        }
+
         // Prepare edit history array and capture previous value before any updates
         if (!cellToUpdate.metadata.edits) {
             cellToUpdate.metadata.edits = [];

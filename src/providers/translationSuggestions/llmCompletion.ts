@@ -65,14 +65,18 @@ export async function llmCompletion(
             .join(" ");
 
         // Get few-shot examples (existing behavior encapsulated)
-        console.log(`[llmCompletion] Fetching few-shot examples with query: "${sourceContent}", cellId: ${currentCellId}, count: ${numberOfFewShotExamples}, onlyValidated: ${completionConfig.useOnlyValidatedExamples}`);
+        if (completionConfig.debugMode) {
+            console.debug(`[llmCompletion] Fetching few-shot examples with query: "${sourceContent}", cellId: ${currentCellId}, count: ${numberOfFewShotExamples}, onlyValidated: ${completionConfig.useOnlyValidatedExamples}`);
+        }
         const finalExamples = await fetchFewShotExamples(
             sourceContent,
             currentCellId,
             numberOfFewShotExamples,
             completionConfig.useOnlyValidatedExamples
         );
-        console.log(`[llmCompletion] Retrieved ${finalExamples.length} few-shot examples:`, finalExamples.map(ex => ({ cellId: ex.cellId, source: ex.sourceCell?.content?.substring(0, 50) + '...', target: ex.targetCell?.content?.substring(0, 50) + '...' })));
+        if (completionConfig.debugMode) {
+            console.debug(`[llmCompletion] Retrieved ${finalExamples.length} few-shot examples:`, finalExamples.map(ex => ({ cellId: ex.cellId, source: ex.sourceCell?.content?.substring(0, 50) + '...', target: ex.targetCell?.content?.substring(0, 50) + '...' })));
+        }
 
         // Get preceding cells and their IDs, limited by context size
         const contextLimit = contextSize === "small" ? 5 : contextSize === "medium" ? 10 : 50;

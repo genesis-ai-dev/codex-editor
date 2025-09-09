@@ -46,7 +46,6 @@ import {
 } from "./providers/SplashScreen/register";
 import { openBookNameEditor } from "./bookNameSettings/bookNameSettings";
 import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
-import { GlobalProvider } from "./globalProvider";
 import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/codexCellEditorProvider";
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
 import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
