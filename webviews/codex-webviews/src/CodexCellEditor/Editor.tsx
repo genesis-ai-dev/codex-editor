@@ -332,10 +332,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
             if (toolbar) {
                 // Keep transitions smooth; primary styling handled in CSS
-                toolbar.setAttribute(
-                    "style",
-                    "transition: all 0.2s ease; overflow: hidden;"
-                );
+                toolbar.setAttribute("style", "transition: all 0.2s ease; overflow: hidden;");
             }
 
             // Add paste event listener to handle paste operations
@@ -703,29 +700,33 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     };
 
     // Add message listener for prompt response
-    useMessageHandler("editor-promptResponse", (event: MessageEvent) => {
-        if (quillRef.current) {
-            const quill = quillRef.current;
-            if (event.data.type === "providerSendsPromptedEditResponse") {
-                quill.root.innerHTML = event.data.content;
-            } else if (event.data.type === "providerSendsLLMCompletionResponse") {
-                const completionText = event.data.content.completion;
-                const completionCellId = event.data.content.cellId;
+    useMessageHandler(
+        "editor-promptResponse",
+        (event: MessageEvent) => {
+            if (quillRef.current) {
+                const quill = quillRef.current;
+                if (event.data.type === "providerSendsPromptedEditResponse") {
+                    quill.root.innerHTML = event.data.content;
+                } else if (event.data.type === "providerSendsLLMCompletionResponse") {
+                    const completionText = event.data.content.completion;
+                    const completionCellId = event.data.content.cellId;
 
-                // Validate that the completion is for the current cell
-                if (completionCellId === props.currentLineId) {
-                    quill.root.innerHTML = completionText; // Clear existing content
-                    props.onChange?.({ html: quill.root.innerHTML });
-                    setUnsavedChanges(true);
-                } else {
-                    console.warn(
-                        `LLM completion received for cell ${completionCellId} but current cell is ${props.currentLineId}. Ignoring completion.`
-                    );
+                    // Validate that the completion is for the current cell
+                    if (completionCellId === props.currentLineId) {
+                        quill.root.innerHTML = completionText; // Clear existing content
+                        props.onChange?.({ html: quill.root.innerHTML });
+                        setUnsavedChanges(true);
+                    } else {
+                        console.warn(
+                            `LLM completion received for cell ${completionCellId} but current cell is ${props.currentLineId}. Ignoring completion.`
+                        );
+                    }
                 }
+                // No-op: header selection managed by native dropdown
             }
-            // No-op: header selection managed by native dropdown
-        }
-    }, [props.currentLineId, props.onChange]);
+        },
+        [props.currentLineId, props.onChange]
+    );
 
     // Removed header label sync effect
 
