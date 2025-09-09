@@ -566,19 +566,33 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
-        cellToUpdate.metadata.data = {
-            ...cellToUpdate.metadata.data,
-            ...timestamps,
-        };
+
+        // Capture previous values before updating so comparisons are correct
+        const previousStartTime = cellToUpdate.metadata.data?.startTime;
+        const previousEndTime = cellToUpdate.metadata.data?.endTime;
 
         // Add edit to cell's edit history
         if (!cellToUpdate.metadata.edits) {
             cellToUpdate.metadata.edits = [];
         }
         const currentTimestamp = Date.now();
-        
-        // Only add edit if startTime is different from current value
-        if (timestamps.startTime !== undefined && timestamps.startTime !== cellToUpdate.metadata.data?.startTime) {
+
+        // Only add edit if startTime is different from previous value
+        if (timestamps.startTime !== undefined && timestamps.startTime !== previousStartTime) {
+            // Ensure initial import exists for startTime
+            const hasInitialStart = (cellToUpdate.metadata.edits || []).some((e) =>
+                e.type === EditType.INITIAL_IMPORT && EditMapUtils.equals(e.editMap, EditMapUtils.dataStartTime())
+            );
+            if (!hasInitialStart && previousStartTime !== undefined) {
+                cellToUpdate.metadata.edits.push({
+                    editMap: EditMapUtils.dataStartTime(),
+                    value: previousStartTime,
+                    timestamp: currentTimestamp,
+                    type: EditType.INITIAL_IMPORT,
+                    author: this._author,
+                    validatedBy: [],
+                });
+            }
             const startTimeEditMap = EditMapUtils.dataStartTime();
             cellToUpdate.metadata.edits.push({
                 editMap: startTimeEditMap,
@@ -596,9 +610,23 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 ],
             });
         }
-        
-        // Only add edit if endTime is different from current value
-        if (timestamps.endTime !== undefined && timestamps.endTime !== cellToUpdate.metadata.data?.endTime) {
+
+        // Only add edit if endTime is different from previous value
+        if (timestamps.endTime !== undefined && timestamps.endTime !== previousEndTime) {
+            // Ensure initial import exists for endTime
+            const hasInitialEnd = (cellToUpdate.metadata.edits || []).some((e) =>
+                e.type === EditType.INITIAL_IMPORT && EditMapUtils.equals(e.editMap, EditMapUtils.dataEndTime())
+            );
+            if (!hasInitialEnd && previousEndTime !== undefined) {
+                cellToUpdate.metadata.edits.push({
+                    editMap: EditMapUtils.dataEndTime(),
+                    value: previousEndTime,
+                    timestamp: currentTimestamp,
+                    type: EditType.INITIAL_IMPORT,
+                    author: this._author,
+                    validatedBy: [],
+                });
+            }
             const endTimeEditMap = EditMapUtils.dataEndTime();
             cellToUpdate.metadata.edits.push({
                 editMap: endTimeEditMap,
@@ -616,6 +644,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 ],
             });
         }
+
+        // Now apply the timestamp updates to the document data
+        cellToUpdate.metadata.data = {
+            ...cellToUpdate.metadata.data,
+            ...timestamps,
+        };
 
         // Record the edit
         this._edits.push({

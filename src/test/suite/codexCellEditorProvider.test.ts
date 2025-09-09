@@ -584,6 +584,81 @@ suite("CodexCellEditorProvider Test Suite", () => {
         );
     });
 
+    test("updateCellTimestamps records edit history for start and end time", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        let onDidReceiveMessageCallback: any = null;
+        const webviewPanel = {
+            webview: {
+                html: "",
+                options: { enableScripts: true },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: "https://example.com",
+                onDidReceiveMessage: (callback: (message: any) => void) => {
+                    if (!onDidReceiveMessageCallback) {
+                        onDidReceiveMessageCallback = callback;
+                    }
+                    return { dispose: () => { } };
+                },
+                postMessage: (_message: any) => Promise.resolve(),
+            },
+            onDidDispose: () => ({ dispose: () => { } }),
+            onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+        } as any as vscode.WebviewPanel;
+
+        await provider.resolveCustomEditor(
+            document,
+            webviewPanel,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+
+        // First update: set both start and end time
+        const ts1 = { startTime: 111, endTime: 222 };
+        onDidReceiveMessageCallback!({
+            command: "updateCellTimestamps",
+            content: { cellId, timestamps: ts1 },
+        });
+        await new Promise((r) => setTimeout(r, 50));
+
+        // Verify initial-import entries for previous values plus user edits for new values
+        const parsed1: CodexNotebookAsJSONData = JSON.parse(document.getText());
+        const updatedCell1 = parsed1.cells.find((c: any) => c.metadata.id === cellId)!;
+        const edits1 = updatedCell1.metadata.edits;
+        assert.ok(edits1 && edits1.length >= 2, "Should have edits after first timestamps update");
+        const prevStart = codexSubtitleContent.cells[0].metadata.data.startTime;
+        const prevEnd = codexSubtitleContent.cells[0].metadata.data.endTime;
+        const hasInitialStart = edits1.some((e: any) => e.type === "initial-import" && JSON.stringify(e.editMap) === JSON.stringify(["metadata", "data", "startTime"]) && e.value === prevStart);
+        const hasInitialEnd = edits1.some((e: any) => e.type === "initial-import" && JSON.stringify(e.editMap) === JSON.stringify(["metadata", "data", "endTime"]) && e.value === prevEnd);
+        assert.ok(hasInitialStart, "Should record initial-import for startTime");
+        assert.ok(hasInitialEnd, "Should record initial-import for endTime");
+        const hasUserStart = edits1.some((e: any) => e.type === "user-edit" && JSON.stringify(e.editMap) === JSON.stringify(["metadata", "data", "startTime"]) && e.value === 111);
+        const hasUserEnd = edits1.some((e: any) => e.type === "user-edit" && JSON.stringify(e.editMap) === JSON.stringify(["metadata", "data", "endTime"]) && e.value === 222);
+        assert.ok(hasUserStart, "Should record user-edit for startTime new value");
+        assert.ok(hasUserEnd, "Should record user-edit for endTime new value");
+
+        // Second update: change only endTime (start stays same) → only one new edit expected
+        const ts2 = { startTime: 111, endTime: 333 };
+        onDidReceiveMessageCallback!({
+            command: "updateCellTimestamps",
+            content: { cellId, timestamps: ts2 },
+        });
+        await new Promise((r) => setTimeout(r, 50));
+
+        const parsed2: CodexNotebookAsJSONData = JSON.parse(document.getText());
+        const updatedCell2 = parsed2.cells.find((c: any) => c.metadata.id === cellId)!;
+        const edits2 = updatedCell2.metadata.edits;
+        const lastEdit = edits2[edits2.length - 1];
+        assert.deepStrictEqual(lastEdit.editMap, ["metadata", "data", "endTime"]);
+        assert.strictEqual(lastEdit.value, 333);
+    });
+
     test("smart edit functionality updates cell content correctly", async () => {
         const provider = new CodexCellEditorProvider(context);
         const document = await provider.openCustomDocument(
