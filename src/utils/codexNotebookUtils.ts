@@ -746,23 +746,6 @@ export async function migrateSourceFiles() {
     console.log("Source file migration completed.");
 }
 
-export async function writeSourceFile(uri: vscode.Uri, content: string): Promise<void> {
-    // Write to a temp file next to the target (same dir), not inside the target path
-    const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const tempUri = vscode.Uri.file(`${uri.fsPath}.${uniqueSuffix}.tmp`);
-    try {
-        // Ensure parent directory exists
-        const parentDirPath = uri.fsPath.substring(0, uri.fsPath.lastIndexOf("/"));
-        if (parentDirPath) {
-            await vscode.workspace.fs.createDirectory(vscode.Uri.file(parentDirPath));
-        }
-        await vscode.workspace.fs.writeFile(tempUri, Buffer.from(content));
-        await vscode.workspace.fs.rename(tempUri, uri, { overwrite: true });
-    } catch (error) {
-        console.error("Error writing file:", error);
-        throw error;
-    }
-}
 
 export async function splitSourceFile(uri: vscode.Uri): Promise<void> {
     try {

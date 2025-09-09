@@ -1,6 +1,6 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
-import { writeSourceFile, splitSourceFile } from "../../utils/codexNotebookUtils";
+import { splitSourceFile } from "../../utils/codexNotebookUtils";
 
 suite("File System Operations Test Suite", () => {
     let tempSourceUri: vscode.Uri;
@@ -67,26 +67,6 @@ suite("File System Operations Test Suite", () => {
         }
     });
 
-    test("should use atomic write operations", async () => {
-        const tempFileUri = vscode.Uri.joinPath(
-            testDirUri,
-            `tempFile-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`
-        );
-        await writeSourceFile(tempFileUri, "Atomic content");
-
-        const stat = await vscode.workspace.fs.stat(tempFileUri);
-        assert.ok(stat.type === vscode.FileType.File, "The file should be written atomically");
-
-        await vscode.workspace.fs.delete(tempFileUri);
-    });
-
-    test("should handle file system errors gracefully", async () => {
-        const invalidUri = vscode.Uri.file("/invalid/path/to/file");
-        await assert.rejects(
-            async () => await writeSourceFile(invalidUri, "Content"),
-            "An error should be thrown for an invalid file path"
-        );
-    });
 
     test("should maintain file consistency during splits", async () => {
         const multiBookSource = vscode.Uri.joinPath(testDirUri, "multiBook.usfm");

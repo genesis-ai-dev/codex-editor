@@ -990,4 +990,68 @@ suite("CodexCellEditorProvider Test Suite", () => {
         assert.ok(initialImport, "Should create initial-import value edit before first user edit on source file");
         assert.strictEqual(userEdit.value, newValue, "User edit should have the new value");
     });
+
+    test("llmCompletion does not update cell value when addContentToValue is false/undefined", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        let onDidReceiveMessageCallback: any = null;
+        const webviewPanel = {
+            webview: {
+                html: "",
+                options: { enableScripts: true },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: "https://example.com",
+                onDidReceiveMessage: (callback: (message: any) => void) => {
+                    if (!onDidReceiveMessageCallback) onDidReceiveMessageCallback = callback;
+                    return { dispose: () => { } };
+                },
+                postMessage: (_message: any) => Promise.resolve(),
+            },
+            onDidDispose: () => ({ dispose: () => { } }),
+            onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+        } as any as vscode.WebviewPanel;
+
+        await provider.resolveCustomEditor(
+            document,
+            webviewPanel,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+        const originalValue = JSON.parse(document.getText()).cells.find((c: any) => c.metadata.id === cellId).value;
+
+        // Stub llmCompletion to return identical variants (triggers identical-variants single update path)
+        const llmModule = await import("../../providers/translationSuggestions/llmCompletion");
+        const llmStub = sinon.stub(llmModule, "llmCompletion").resolves({ variants: ["PREDICTED", "PREDICTED"] } as any);
+
+        try {
+            // Trigger llmCompletion without addContentToValue flag
+            onDidReceiveMessageCallback!({
+                command: "llmCompletion",
+                content: { currentLineId: cellId }
+            });
+
+            // Let the queue process
+            await new Promise((r) => setTimeout(r, 120));
+
+            const parsed = JSON.parse(document.getText());
+            const cell = parsed.cells.find((c: any) => c.metadata.id === cellId);
+
+            // Value should remain unchanged
+            assert.strictEqual(cell.value, originalValue, "Cell value should not change after llmCompletion without addContentToValue");
+
+            // Edit history should include an LLM_GENERATION value edit with the predicted text
+            const hasLlmEdit = (cell.metadata.edits || []).some(
+                (e: any) => e.type === "llm-generation" && JSON.stringify(e.editMap) === JSON.stringify(["value"]) && e.value === "PREDICTED"
+            );
+            assert.ok(hasLlmEdit, "Edit history should record an LLM_GENERATION value edit");
+        } finally {
+            llmStub.restore();
+        }
+    });
 });
