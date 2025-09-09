@@ -5,6 +5,7 @@ import { writeSourceFile, splitSourceFile } from "../../utils/codexNotebookUtils
 suite("File System Operations Test Suite", () => {
     let tempSourceUri: vscode.Uri;
     let workspaceUri: vscode.Uri;
+    let testDirUri: vscode.Uri;
 
     suiteSetup(async () => {
         // Ensure a temporary workspace folder is available
@@ -15,11 +16,16 @@ suite("File System Operations Test Suite", () => {
             });
         }
         workspaceUri = vscode.workspace.workspaceFolders![0].uri;
+        testDirUri = vscode.Uri.joinPath(
+            workspaceUri,
+            `fs-ops-${Date.now()}-${Math.random().toString(36).slice(2)}`
+        );
+        await vscode.workspace.fs.createDirectory(testDirUri);
     });
 
     setup(async () => {
         // Create a test source file before each test
-        tempSourceUri = vscode.Uri.joinPath(workspaceUri, "test.usfm");
+        tempSourceUri = vscode.Uri.joinPath(testDirUri, "test.usfm");
         const content = "\\id GEN\n\\h Genesis\n\\c 1\n\\v 1 Test content";
         await vscode.workspace.fs.writeFile(tempSourceUri, Buffer.from(content));
     });
@@ -34,7 +40,10 @@ suite("File System Operations Test Suite", () => {
     });
 
     test("should use atomic write operations", async () => {
-        const tempFileUri = vscode.Uri.joinPath(workspaceUri, "tempFile.tmp");
+        const tempFileUri = vscode.Uri.joinPath(
+            testDirUri,
+            `tempFile-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`
+        );
         await writeSourceFile(tempFileUri, "Atomic content");
 
         const stat = await vscode.workspace.fs.stat(tempFileUri);
@@ -52,15 +61,15 @@ suite("File System Operations Test Suite", () => {
     });
 
     test("should maintain file consistency during splits", async () => {
-        const multiBookSource = vscode.Uri.joinPath(workspaceUri, "multiBook.usfm");
+        const multiBookSource = vscode.Uri.joinPath(testDirUri, "multiBook.usfm");
         const content =
             "\\id GEN\n\\c 1\n\\v 1 In the beginning...\n\\id EXO\n\\c 1\n\\v 1 Now these are the names...";
         await vscode.workspace.fs.writeFile(multiBookSource, Buffer.from(content));
 
         await splitSourceFile(multiBookSource);
 
-        const genFile = vscode.Uri.joinPath(workspaceUri, "gen.source");
-        const exoFile = vscode.Uri.joinPath(workspaceUri, "exo.source");
+        const genFile = vscode.Uri.joinPath(testDirUri, "gen.source");
+        const exoFile = vscode.Uri.joinPath(testDirUri, "exo.source");
 
         const genStat = await vscode.workspace.fs.stat(genFile);
         const exoStat = await vscode.workspace.fs.stat(exoFile);

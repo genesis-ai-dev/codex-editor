@@ -747,8 +747,15 @@ export async function migrateSourceFiles() {
 }
 
 export async function writeSourceFile(uri: vscode.Uri, content: string): Promise<void> {
-    const tempUri = vscode.Uri.joinPath(uri, ".temp");
+    // Write to a temp file next to the target (same dir), not inside the target path
+    const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const tempUri = vscode.Uri.file(`${uri.fsPath}.${uniqueSuffix}.tmp`);
     try {
+        // Ensure parent directory exists
+        const parentDirPath = uri.fsPath.substring(0, uri.fsPath.lastIndexOf("/"));
+        if (parentDirPath) {
+            await vscode.workspace.fs.createDirectory(vscode.Uri.file(parentDirPath));
+        }
         await vscode.workspace.fs.writeFile(tempUri, Buffer.from(content));
         await vscode.workspace.fs.rename(tempUri, uri, { overwrite: true });
     } catch (error) {
@@ -765,8 +772,16 @@ export async function splitSourceFile(uri: vscode.Uri): Promise<void> {
 
         for (const book of books) {
             const bookId = book.substring(0, 3).toLowerCase();
-            const bookUri = vscode.Uri.joinPath(uri, "..", `${bookId}.source`);
-            await writeSourceFile(bookUri, `\\id ${book}`);
+            const parentDirPath = uri.fsPath.substring(0, uri.fsPath.lastIndexOf("/"));
+            const bookFilePath = `${parentDirPath}/${bookId}.source`;
+            const bookUri = vscode.Uri.file(bookFilePath);
+            // Create dir and write directly; atomicity not required for split outputs
+            try {
+                await vscode.workspace.fs.createDirectory(vscode.Uri.file(parentDirPath));
+            } catch (e) {
+                // Directory may already exist; ignore
+            }
+            await vscode.workspace.fs.writeFile(bookUri, Buffer.from(`\\id ${book}`));
         }
     } catch (error) {
         console.error("Error splitting file:", error);
