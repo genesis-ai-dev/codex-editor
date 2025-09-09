@@ -238,8 +238,8 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                         <div className="text-sm">
                             Very large DOCX files may cause performance issues or processing delays.
                             Complex documents with many images, tables, or formatting may require
-                            significant memory and processing time. For best results, consider splitting
-                            large documents into smaller files when possible.
+                            significant memory and processing time. For best results, consider
+                            splitting large documents into smaller files when possible.
                         </div>
                     </div>
                 </AlertDescription>
@@ -271,7 +271,7 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                         >
                             <Upload className="h-12 w-12 text-muted-foreground" />
                             <span className="text-sm text-muted-foreground">
-                                Click to select a DOCX file or drag and drop
+                                Click to select DOCX files
                             </span>
                         </label>
                     </div>

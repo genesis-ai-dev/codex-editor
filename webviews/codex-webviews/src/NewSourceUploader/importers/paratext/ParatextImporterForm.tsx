@@ -344,7 +344,7 @@ export const ParatextImporterForm: React.FC<ImporterComponentProps> = (props) =>
                         >
                             <Upload className="h-12 w-12 text-muted-foreground" />
                             <span className="text-sm text-muted-foreground">
-                                Click to select a Paratext project ZIP file or drag and drop
+                                Click to select a Paratext project archive (.zip/.ptx)
                             </span>
                         </label>
                     </div>

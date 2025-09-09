@@ -12,6 +12,7 @@ import {
 import { Progress } from "../../../components/ui/progress";
 import { Alert, AlertDescription } from "../../../components/ui/alert";
 import { Upload, FileText, CheckCircle, XCircle, ArrowLeft, Eye, Hash } from "lucide-react";
+import { FileDropzone } from "../../components/FileDropzone";
 import { Badge } from "../../../components/ui/badge";
 import { markdownImporter } from "./index";
 import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
@@ -243,26 +244,18 @@ export const MarkdownImporterForm: React.FC<ImporterComponentProps> = (props) =>
                         <Badge variant="outline">.mkd</Badge>
                     </div>
 
-                    <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-8 text-center">
-                        <input
-                            type="file"
-                            accept=".md,.markdown,.mdown,.mkd"
-                            multiple
-                            onChange={handleFileSelect}
-                            className="hidden"
-                            id="markdown-file-input"
-                            disabled={isProcessing}
-                        />
-                        <label
-                            htmlFor="markdown-file-input"
-                            className="cursor-pointer inline-flex flex-col items-center gap-2"
-                        >
-                            <Upload className="h-12 w-12 text-muted-foreground" />
-                            <span className="text-sm text-muted-foreground">
-                                Click to select a Markdown file or drag and drop
-                            </span>
-                        </label>
-                    </div>
+                    <FileDropzone
+                        accept=".md,.markdown,.mdown,.mkd,.mdx"
+                        multiple
+                        disabled={isProcessing}
+                        onFiles={(files) => {
+                            const event = {
+                                target: { files },
+                            } as unknown as React.ChangeEvent<HTMLInputElement>;
+                            handleFileSelect(event);
+                        }}
+                        label="Click to select Markdown files"
+                    />
 
                     {selectedFiles.length > 0 && (
                         <div className="space-y-4">
