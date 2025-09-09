@@ -7,6 +7,7 @@ import { CodexCellEditorProvider } from "../../providers/codexCellEditorProvider
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { resolveCodexCustomMerge } from "../../../src/projectManager/utils/merge/resolvers";
 import { codexSubtitleContent } from "./mocks/codexSubtitleContent";
+import { CodexNotebookAsJSONData } from "../../../types";
 
 suite("Provider + Merge Integration - multi-user multi-field edits", () => {
     let provider: CodexCellEditorProvider;
@@ -176,6 +177,80 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
         const theirOnly = cellById(theirUniqueId);
         assert.ok(ourOnly, "Our-only cell should be in merged output");
         assert.ok(theirOnly, "Their-only cell should be in merged output");
+    });
+
+    test("audio attachments from two users are merged and selection resolves by timestamp", async () => {
+        const oursDoc = await provider.openCustomDocument(
+            oursUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        const theirsDoc = await provider.openCustomDocument(
+            theirsUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        // Use an existing shared cell ID from the mock content
+        const sharedCellId = codexSubtitleContent.cells[0].metadata.id as string;
+
+        const now = Date.now();
+        const oursAudioId = "audio-ours";
+        const theirsAudioId = "audio-theirs";
+
+        // Each side adds a distinct audio attachment
+        (oursDoc as any).updateCellAttachment(sharedCellId, oursAudioId, {
+            url: "attachments/a1.mp3",
+            type: "audio",
+            createdAt: now,
+            updatedAt: now,
+            isDeleted: false,
+        });
+        (theirsDoc as any).updateCellAttachment(sharedCellId, theirsAudioId, {
+            url: "attachments/a2.mp3",
+            type: "audio",
+            createdAt: now + 100,
+            updatedAt: now + 100,
+            isDeleted: false,
+        });
+
+        // Set selection timestamps so theirs is newer
+        const getCell = (doc: any) => JSON.parse(doc.getText()).cells.find((c: any) => c.metadata?.id === sharedCellId);
+        const oursParsed1: CodexNotebookAsJSONData = JSON.parse((oursDoc as any).getText());
+        const theirsParsed1: CodexNotebookAsJSONData = JSON.parse((theirsDoc as any).getText());
+        const oursCellIdx = oursParsed1.cells.findIndex((c: any) => c.metadata?.id === sharedCellId);
+        const theirsCellIdx = theirsParsed1.cells.findIndex((c: any) => c.metadata?.id === sharedCellId);
+        oursParsed1.cells[oursCellIdx].metadata.selectionTimestamp = now + 50;
+        theirsParsed1.cells[theirsCellIdx].metadata.selectionTimestamp = now + 150;
+        // Persist selection timestamps back to documents
+        await vscode.workspace.fs.writeFile(oursUri, Buffer.from(JSON.stringify(oursParsed1, null, 2)));
+        await vscode.workspace.fs.writeFile(theirsUri, Buffer.from(JSON.stringify(theirsParsed1, null, 2)));
+
+        // Reload documents to reflect persisted selectionTimestamp
+        const oursDocReloaded = await provider.openCustomDocument(
+            oursUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+        const theirsDocReloaded = await provider.openCustomDocument(
+            theirsUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        const merged = await resolveCodexCustomMerge((oursDocReloaded as any).getText(), (theirsDocReloaded as any).getText());
+        const notebook = JSON.parse(merged);
+        const shared = notebook.cells.find((c: any) => c.metadata?.id === sharedCellId);
+        assert.ok(shared, "Shared cell should exist in merged notebook");
+
+        // Attachments from both sides should be present
+        const attachments = shared.metadata.attachments || {};
+        assert.ok(attachments[oursAudioId], "Our audio attachment should be present in merged cell");
+        assert.ok(attachments[theirsAudioId], "Their audio attachment should be present in merged cell");
+
+        // Selection should prefer newer selectionTimestamp (theirs)
+        assert.strictEqual(shared.metadata.selectedAudioId, theirsAudioId);
     });
 });
 
