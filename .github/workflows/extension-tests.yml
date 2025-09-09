@@ -1,55 +1,63 @@
 name: VS Code Extension – Tests
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    push:
+        branches: [main]
+    pull_request:
+        branches: [main]
 
 jobs:
-  test:
-    name: Node ${{ matrix.node }} • ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        node: [20] # VS Code currently builds against Node 20; adjust if needed.
+    test:
+        name: Node ${{ matrix.node }} • ${{ matrix.os }}
+        runs-on: ${{ matrix.os }}
+        defaults:
+            run:
+                shell: bash
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, macos-latest, windows-latest]
+                node: [20] # VS Code currently builds against Node 20; adjust if needed.
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+        steps:
+            - name: Checkout (manual)
+              run: |
+                  set -euo pipefail
+                  REPO_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+                  git init .
+                  git config --global --add safe.directory "$PWD"
+                  git remote add origin "$REPO_URL"
+                  git fetch --no-tags --prune --progress --depth=1 origin ${{ github.sha }}
+                  git checkout --progress --force ${{ github.sha }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node }}
-          cache: npm
+            # Use preinstalled Node on GitHub-hosted runners (Node ${{ matrix.node }} available on latest images)
+            - name: Show Node version
+              run: node -v
 
-      - name: Install deps
-        run: npm ci
+            - name: Install deps
+              run: npm ci
 
-      # If you build TypeScript before running tests, keep this step.
-      - name: Build
-        run: npm run -s build
-        if: ${{ hashFiles('tsconfig.json') != '' }}
+            # If you build TypeScript before running tests, keep this step.
+            - name: Build
+              run: npm run -s build
+              if: ${{ hashFiles('tsconfig.json') != '' }}
 
-      # On Linux, VS Code tests need an X server; run them under xvfb
-      - name: Test (Linux)
-        if: runner.os == 'Linux'
-        run: xvfb-run -a npm test
+            # On Linux, VS Code tests need an X server; run them under xvfb
+            - name: Test (Linux)
+              if: runner.os == 'Linux'
+              run: xvfb-run -a npm test
 
-      # On macOS/Windows, just run tests
-      - name: Test (macOS/Windows)
-        if: runner.os != 'Linux'
-        run: npm test
+            # On macOS/Windows, just run tests
+            - name: Test (macOS/Windows)
+              if: runner.os != 'Linux'
+              run: npm test
 
-      # (Optional) Upload screenshots/logs/artifacts if your tests produce them
-      # - name: Upload test logs
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: test-output-${{ matrix.os }}
-      #     path: |
-      #       ./**/test-output/**
-      #       ./**/logs/**
+            # (Optional) Upload screenshots/logs/artifacts if your tests produce them
+            # - name: Upload test logs
+            #   if: always()
+            #   uses: actions/upload-artifact@v4
+            #   with:
+            #     name: test-output-${{ matrix.os }}
+            #     path: |
+            #       ./**/test-output/**
+            #       ./**/logs/**
