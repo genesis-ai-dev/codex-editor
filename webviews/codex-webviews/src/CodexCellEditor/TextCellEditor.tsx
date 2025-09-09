@@ -222,21 +222,28 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [editedBacktranslation, setEditedBacktranslation] = useState<string | null>(null);
     const [isGeneratingBacktranslation, setIsGeneratingBacktranslation] = useState(false);
     const [backtranslationProgress, setBacktranslationProgress] = useState(0);
-    const [activeTab, setActiveTab] = useState<
-        "" | "source" | "footnotes" | "audio" | "timestamps"
-    >(() => {
-        try {
-            const stored = sessionStorage.getItem("preferred-editor-tab") as
-                | "source"
-                | "footnotes"
-                | "audio"
-                | "timestamps"
-                | null;
-            return stored ?? "";
-        } catch {
-            return "";
+    const [activeTab, setActiveTab] = useState<"source" | "footnotes" | "audio" | "timestamps">(
+        () => {
+            try {
+                const id = cellMarkers[0];
+                if (sessionStorage.getItem(`start-audio-recording-${id}`)) {
+                    return "audio";
+                }
+                const stored = sessionStorage.getItem("preferred-editor-tab");
+                if (
+                    stored === "source" ||
+                    stored === "footnotes" ||
+                    stored === "audio" ||
+                    stored === "timestamps"
+                ) {
+                    return stored as "source" | "footnotes" | "audio" | "timestamps";
+                }
+            } catch {
+                // no-op
+            }
+            return "source";
         }
-    });
+    );
 
     // Load preferred tab from provider on mount
     useEffect(() => {
@@ -851,7 +858,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 }
             }
         },
-        [cellMarkers, centerEditor, activeTab]
+        [cellMarkers, centerEditor]
     );
 
     // Listen for storeFootnote messages
@@ -895,8 +902,34 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
 
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const recorder = new MediaRecorder(stream);
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    // Request high-quality capture suitable for later WAV conversion
+                    sampleRate: 48000,
+                    sampleSize: 24, // May be ignored by some browsers; best-effort
+                    channelCount: 1,
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false,
+                },
+            });
+
+            const mediaRecorderOptions: MediaRecorderOptions = {};
+            try {
+                if (typeof MediaRecorder !== "undefined") {
+                    if (MediaRecorder.isTypeSupported?.("audio/webm;codecs=opus")) {
+                        mediaRecorderOptions.mimeType = "audio/webm;codecs=opus";
+                    } else if (MediaRecorder.isTypeSupported?.("audio/webm")) {
+                        mediaRecorderOptions.mimeType = "audio/webm";
+                    }
+                }
+            } catch {
+                // no-op, fall back to default mimeType
+            }
+            // Increase bitrate for higher quality Opus encoding
+            mediaRecorderOptions.audioBitsPerSecond = 256000; // 256 kbps
+
+            const recorder = new MediaRecorder(stream, mediaRecorderOptions);
 
             audioChunksRef.current = [];
 
@@ -913,6 +946,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
             recorder.onstop = () => {
                 setIsRecording(false);
+                // Keep Blob type simple to avoid downstream extension parsing issues
                 const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
                 setAudioBlob(blob);
 
@@ -957,8 +991,41 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
         // Convert blob to base64 for transfer to provider
         const reader = new FileReader();
-        reader.onloadend = () => {
+        reader.onloadend = async () => {
             const base64data = reader.result as string;
+
+            // Attempt to compute simple metadata using Web Audio API (best-effort)
+            let meta: any = {
+                mimeType: blob.type || undefined,
+                sizeBytes: blob.size,
+            };
+            try {
+                const arrayBuf = await blob.arrayBuffer();
+                // Decode to PCM to obtain duration and channels
+                const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({
+                    sampleRate: 48000,
+                } as any);
+                const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
+                const durationSec = decoded.duration;
+                const channels = decoded.numberOfChannels;
+                // Approximated bitrate in kbps: size(bytes)*8 / duration(seconds) / 1000
+                const bitrateKbps =
+                    durationSec > 0 ? Math.round((blob.size * 8) / durationSec / 1000) : undefined;
+                meta = {
+                    ...meta,
+                    sampleRate: decoded.sampleRate,
+                    channels,
+                    durationSec,
+                    bitrateKbps,
+                };
+                try {
+                    audioCtx.close();
+                } catch {
+                    void 0;
+                }
+            } catch {
+                // ignore metadata decode errors
+            }
 
             // Send to provider to save file
             const messageContent: EditorPostMessages = {
@@ -968,6 +1035,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     audioData: base64data,
                     audioId: uniqueId,
                     fileExtension: fileExtension,
+                    metadata: meta,
                 },
             };
 
@@ -1716,145 +1784,139 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         )}
                     </TabsList>
 
-                    {activeTab === "source" && (
-                        <TabsContent value="source">
-                            <div className="space-y-6">
-                                {/* Source Text */}
-                                <div>
-                                    <h4 className="text-sm font-medium mb-2 text-muted-foreground">
-                                        Source Text
-                                    </h4>
-                                    <SourceTextDisplay
-                                        content={sourceText || ""}
-                                        footnoteOffset={footnoteOffset}
-                                    />
-                                </div>
+                    <TabsContent value="source">
+                        <div className="space-y-6">
+                            {/* Source Text */}
+                            <div>
+                                <h4 className="text-sm font-medium mb-2 text-muted-foreground">
+                                    Source Text
+                                </h4>
+                                <SourceTextDisplay
+                                    content={sourceText || ""}
+                                    footnoteOffset={footnoteOffset}
+                                />
+                            </div>
 
-                                {/* Backtranslation Section */}
-                                <div className="space-y-4">
-                                    <div className="flex items-center justify-between">
-                                        <h4 className="text-sm font-medium text-muted-foreground">
-                                            Backtranslation
-                                        </h4>
-                                        <div className="flex items-center gap-2">
-                                            {backtranslation && !isEditingBacktranslation && (
-                                                <Button
-                                                    onClick={() =>
-                                                        setIsEditingBacktranslation(true)
-                                                    }
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    title="Edit Backtranslation"
-                                                >
-                                                    <Pencil className="h-4 w-4" />
-                                                </Button>
-                                            )}
+                            {/* Backtranslation Section */}
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-sm font-medium text-muted-foreground">
+                                        Backtranslation
+                                    </h4>
+                                    <div className="flex items-center gap-2">
+                                        {backtranslation && !isEditingBacktranslation && (
                                             <Button
-                                                onClick={handleGenerateBacktranslation}
+                                                onClick={() => setIsEditingBacktranslation(true)}
                                                 variant="ghost"
                                                 size="icon"
-                                                title="Generate Backtranslation"
-                                                disabled={
-                                                    !cellHasContent || isGeneratingBacktranslation
-                                                }
+                                                title="Edit Backtranslation"
                                             >
-                                                {isGeneratingBacktranslation ? (
-                                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                                ) : (
-                                                    <RefreshCcw className="h-4 w-4" />
-                                                )}
+                                                <Pencil className="h-4 w-4" />
                                             </Button>
+                                        )}
+                                        <Button
+                                            onClick={handleGenerateBacktranslation}
+                                            variant="ghost"
+                                            size="icon"
+                                            title="Generate Backtranslation"
+                                            disabled={
+                                                !cellHasContent || isGeneratingBacktranslation
+                                            }
+                                        >
+                                            {isGeneratingBacktranslation ? (
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                            ) : (
+                                                <RefreshCcw className="h-4 w-4" />
+                                            )}
+                                        </Button>
+                                    </div>
+                                </div>
+
+                                {/* Loading indicator for backtranslation generation */}
+                                {isGeneratingBacktranslation && (
+                                    <div className="space-y-3">
+                                        <div className="text-center">
+                                            <p className="text-sm text-muted-foreground mb-2">
+                                                Generating backtranslation...
+                                            </p>
+                                            <Progress
+                                                value={backtranslationProgress}
+                                                className="w-full"
+                                            />
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                {Math.round(backtranslationProgress)}%
+                                            </p>
                                         </div>
                                     </div>
+                                )}
 
-                                    {/* Loading indicator for backtranslation generation */}
-                                    {isGeneratingBacktranslation && (
-                                        <div className="space-y-3">
-                                            <div className="text-center">
-                                                <p className="text-sm text-muted-foreground mb-2">
-                                                    Generating backtranslation...
-                                                </p>
-                                                <Progress
-                                                    value={backtranslationProgress}
-                                                    className="w-full"
+                                {!isGeneratingBacktranslation && backtranslation ? (
+                                    <>
+                                        {isEditingBacktranslation ? (
+                                            <div className="space-y-3">
+                                                <Textarea
+                                                    value={editedBacktranslation || ""}
+                                                    onChange={(e) =>
+                                                        setEditedBacktranslation(e.target.value)
+                                                    }
+                                                    className="min-h-[150px]"
+                                                    placeholder="Enter backtranslation text..."
                                                 />
-                                                <p className="text-xs text-muted-foreground mt-1">
-                                                    {Math.round(backtranslationProgress)}%
-                                                </p>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {!isGeneratingBacktranslation && backtranslation ? (
-                                        <>
-                                            {isEditingBacktranslation ? (
-                                                <div className="space-y-3">
-                                                    <Textarea
-                                                        value={editedBacktranslation || ""}
-                                                        onChange={(e) =>
-                                                            setEditedBacktranslation(e.target.value)
+                                                <div className="flex gap-2 justify-end">
+                                                    <Button
+                                                        onClick={handleSaveBacktranslation}
+                                                        size="sm"
+                                                        title="Save Backtranslation"
+                                                    >
+                                                        Save
+                                                    </Button>
+                                                    <Button
+                                                        onClick={() =>
+                                                            setIsEditingBacktranslation(false)
                                                         }
-                                                        className="min-h-[150px]"
-                                                        placeholder="Enter backtranslation text..."
-                                                    />
-                                                    <div className="flex gap-2 justify-end">
-                                                        <Button
-                                                            onClick={handleSaveBacktranslation}
-                                                            size="sm"
-                                                            title="Save Backtranslation"
-                                                        >
-                                                            Save
-                                                        </Button>
-                                                        <Button
-                                                            onClick={() =>
-                                                                setIsEditingBacktranslation(false)
-                                                            }
-                                                            variant="secondary"
-                                                            size="sm"
-                                                            title="Cancel Editing"
-                                                        >
-                                                            Cancel
-                                                        </Button>
-                                                    </div>
+                                                        variant="secondary"
+                                                        size="sm"
+                                                        title="Cancel Editing"
+                                                    >
+                                                        Cancel
+                                                    </Button>
                                                 </div>
-                                            ) : (
-                                                <div className="p-4 rounded-lg bg-muted">
-                                                    <ReactMarkdown className="prose prose-sm max-w-none">
-                                                        {backtranslation.backtranslation}
-                                                    </ReactMarkdown>
-                                                </div>
-                                            )}
-                                        </>
-                                    ) : (
-                                        !isGeneratingBacktranslation && (
-                                            <div className="text-center p-6 text-muted-foreground bg-muted/50 rounded-lg">
-                                                {cellHasContent ? (
-                                                    <>
-                                                        <p>
-                                                            No backtranslation available for this
-                                                            text.
-                                                        </p>
-                                                        <p className="mt-2">
-                                                            Click the refresh button to generate
-                                                            one.
-                                                        </p>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <p>Add content to this cell first.</p>
-                                                        <p className="mt-2">
-                                                            Backtranslation will be available once
-                                                            you have text to translate.
-                                                        </p>
-                                                    </>
-                                                )}
                                             </div>
-                                        )
-                                    )}
-                                </div>
+                                        ) : (
+                                            <div className="p-4 rounded-lg bg-muted">
+                                                <ReactMarkdown className="prose prose-sm max-w-none">
+                                                    {backtranslation.backtranslation}
+                                                </ReactMarkdown>
+                                            </div>
+                                        )}
+                                    </>
+                                ) : (
+                                    !isGeneratingBacktranslation && (
+                                        <div className="text-center p-6 text-muted-foreground bg-muted/50 rounded-lg">
+                                            {cellHasContent ? (
+                                                <>
+                                                    <p>
+                                                        No backtranslation available for this text.
+                                                    </p>
+                                                    <p className="mt-2">
+                                                        Click the refresh button to generate one.
+                                                    </p>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <p>Add content to this cell first.</p>
+                                                    <p className="mt-2">
+                                                        Backtranslation will be available once you
+                                                        have text to translate.
+                                                    </p>
+                                                </>
+                                            )}
+                                        </div>
+                                    )
+                                )}
                             </div>
-                        </TabsContent>
-                    )}
+                        </div>
+                    </TabsContent>
 
                     {activeTab === "footnotes" && (
                         <TabsContent value="footnotes">

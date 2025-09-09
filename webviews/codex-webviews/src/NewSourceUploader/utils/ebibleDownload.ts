@@ -103,7 +103,9 @@ export const getEbiblePreviewUrl = (metadata: ExtendedEbibleMetadata): string =>
     if (isMaculaBible) {
         return 'https://github.com/genesis-ai-dev/hebrew-greek-bible/raw/refs/heads/main/macula-ebible.txt';
     } else {
-        return `https://raw.githubusercontent.com/BibleNLP/ebible/0eed6f47ff555201874d5416bbfebba4ed743d4f/corpus/${languageCode}-${translationId}.txt`;
+        // (a80bedcea96707e020eb04157f3ad3c2e7c02621 - updated with eBible Corpus Metadata)
+        // (062b7b4e5b970493d1ef94f7b3bfce76052e7361 - later Bibles, but lacking updates)
+        return `https://raw.githubusercontent.com/BibleNLP/ebible/a80bedcea96707e020eb04157f3ad3c2e7c02621/corpus/${languageCode}-${translationId}.txt`;
     }
 };
 

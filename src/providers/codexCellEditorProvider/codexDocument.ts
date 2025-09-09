@@ -723,15 +723,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 type: CodexCellTypes.TEXT,
                 edits: [],
                 data: {},
-            } as any;
+            };
         }
 
         if (!cellToSoftDelete.metadata.data) {
-            cellToSoftDelete.metadata.data = {} as any;
+            cellToSoftDelete.metadata.data = {};
         }
 
         // Set deleted flag
-        (cellToSoftDelete.metadata.data as any).deleted = true;
+        (cellToSoftDelete.metadata.data).deleted = true;
 
         // Record the edit
         this._edits.push({
@@ -1340,7 +1340,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
      * @param attachmentId The unique ID of the attachment
      * @param attachmentData The attachment data (url and type)
      */
-    public updateCellAttachment(cellId: string, attachmentId: string, attachmentData: { url: string; type: string; createdAt: number; updatedAt: number; isDeleted: boolean; }): void {
+    public updateCellAttachment(
+        cellId: string,
+        attachmentId: string,
+        attachmentData: { url: string; type: string; createdAt: number; updatedAt: number; isDeleted: boolean; metadata?: Record<string, any>; }
+    ): void {
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
             (cell) => cell.metadata?.id === cellId
         );
