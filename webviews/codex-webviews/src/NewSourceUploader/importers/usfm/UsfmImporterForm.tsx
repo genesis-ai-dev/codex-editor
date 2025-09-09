@@ -296,7 +296,7 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = (props) => {
                         >
                             <Hash className="h-12 w-12 text-muted-foreground" />
                             <span className="text-sm text-muted-foreground">
-                                Click to select USFM files or drag and drop
+                                Click to select USFM files
                             </span>
                             <span className="text-xs text-muted-foreground">
                                 Multiple files supported for batch import

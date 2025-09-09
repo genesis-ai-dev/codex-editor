@@ -513,7 +513,7 @@ export const SubtitlesImporterForm: React.FC<ImporterComponentProps> = (props) =
                         >
                             <Upload className="h-12 w-12 text-muted-foreground" />
                             <span className="text-sm text-muted-foreground">
-                                Click to select a subtitle file or drag and drop
+                                Click to select a subtitle file (VTT/SRT)
                             </span>
                         </label>
                     </div>

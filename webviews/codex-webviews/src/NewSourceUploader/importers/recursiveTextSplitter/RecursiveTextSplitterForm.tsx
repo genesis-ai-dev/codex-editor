@@ -635,7 +635,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                                 >
                                     <Upload className="h-12 w-12 text-muted-foreground" />
                                     <span className="text-sm text-muted-foreground">
-                                        Click to select a text file or drag and drop
+                                        Click to select a file
                                     </span>
                                 </label>
                             </div>
@@ -716,9 +716,9 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                                         }}
                                     />
                                     <p className="text-xs text-muted-foreground mt-1">
-                                        Smart Segmenter finds natural boundaries in your text. Sections
-                                        may vary in size to respect paragraphs, sentences, and
-                                        document structure.
+                                        Smart Segmenter finds natural boundaries in your text.
+                                        Sections may vary in size to respect paragraphs, sentences,
+                                        and document structure.
                                     </p>
                                 </div>
 

@@ -449,6 +449,41 @@ const NewSourceUploader: React.FC = () => {
         });
     }, []);
 
+    // Allow drag-and-drop only inside explicit dropzones; suppress elsewhere to avoid VS Code intercepting
+    useEffect(() => {
+        const shouldSuppress = (event: DragEvent) => {
+            const target = event.target as Element | null;
+            if (!target) return true;
+            const allowed = target.closest('[data-allow-dropzone="true"]');
+            return !allowed;
+        };
+
+        const handleWindowDragOver = (event: DragEvent) => {
+            if (shouldSuppress(event)) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (event.dataTransfer) {
+                    event.dataTransfer.dropEffect = "none";
+                }
+            }
+        };
+
+        const handleWindowDrop = (event: DragEvent) => {
+            if (shouldSuppress(event)) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+        };
+
+        window.addEventListener("dragover", handleWindowDragOver, true);
+        window.addEventListener("drop", handleWindowDrop, true);
+
+        return () => {
+            window.removeEventListener("dragover", handleWindowDragOver, true);
+            window.removeEventListener("drop", handleWindowDrop, true);
+        };
+    }, []);
+
     // If loading, show loading state
     if (wizardState.isLoadingInventory) {
         return (
