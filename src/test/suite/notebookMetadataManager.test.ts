@@ -146,15 +146,18 @@ suite("NotebookMetadataManager Test Suite", () => {
         const tempFolder = vscode.workspace.workspaceFolders?.[0]?.uri || vscode.Uri.file("/tmp/test-workspace");
         // Ensure the parent directory exists
         await vscode.workspace.fs.createDirectory(tempFolder);
-        const tempFileUri = vscode.Uri.joinPath(tempFolder, "tempFile.tmp");
+        const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const tempFileUri = vscode.Uri.joinPath(tempFolder, `tempFile-${unique}.tmp`);
         await vscode.workspace.fs.writeFile(tempFileUri, Buffer.from("Temporary content"));
 
+        // File should exist immediately after write
         const stat = await vscode.workspace.fs.stat(tempFileUri);
         assert.ok(stat.type === vscode.FileType.File, "The temporary file should be created");
 
+        // Delete and verify it no longer exists
         await vscode.workspace.fs.delete(tempFileUri);
         await assert.rejects(
-            async () => await vscode.workspace.fs.stat(tempFileUri),
+            async () => vscode.workspace.fs.stat(tempFileUri),
             "The temporary file should be deleted"
         );
     });

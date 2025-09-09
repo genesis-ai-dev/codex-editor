@@ -1,4 +1,5 @@
 import * as assert from "assert";
+import sinon from "sinon";
 import * as vscode from "vscode";
 import * as path from "path";
 import * as os from "os";
@@ -778,6 +779,81 @@ suite("CodexCellEditorProvider Test Suite", () => {
             // Restore original executeCommand and SyncManager
             vscode.commands.executeCommand = originalExecuteCommand;
             (syncManagerModule as any).SyncManager.getInstance = originalGetInstance;
+        }
+    });
+
+    test("LLM completion records an LLM_GENERATION edit in edit history", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        // Minimal webviewPanel mock to register panel and currentDocument
+        let onDidReceiveMessageCallback: any = null;
+        const webviewPanel = {
+            webview: {
+                html: "",
+                options: { enableScripts: true },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: "https://example.com",
+                onDidReceiveMessage: (callback: (message: any) => void) => {
+                    if (!onDidReceiveMessageCallback) {
+                        onDidReceiveMessageCallback = callback;
+                    }
+                    return { dispose: () => { } };
+                },
+                postMessage: (_message: any) => Promise.resolve(),
+            },
+            onDidDispose: () => ({ dispose: () => { } }),
+            onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+        } as any as vscode.WebviewPanel;
+
+        await provider.resolveCustomEditor(
+            document,
+            webviewPanel,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+
+        // Stub the llmCompletion helper so performLLMCompletionInternal executes fully without UI calls
+        const llmModule = await import("../../providers/translationSuggestions/llmCompletion");
+        const llmStub = sinon.stub(llmModule, "llmCompletion").resolves({ variants: ["LLM VALUE"] } as any);
+
+        try {
+            // Enqueue translation which will call performLLMCompletionInternal → llmCompletion → callLLM(stub)
+            await provider.enqueueTranslation(cellId, document, true);
+
+            // Allow queue to process
+            await new Promise((r) => setTimeout(r, 100));
+
+            const parsed: CodexNotebookAsJSONData = JSON.parse(document.getText());
+            const updatedCell = parsed.cells.find((c: any) => c.metadata.id === cellId);
+            assert.ok(updatedCell, "Cell should exist after LLM completion");
+            assert.strictEqual(updatedCell.value, "LLM VALUE", "Cell value should be updated by LLM");
+
+            const edits = updatedCell.metadata?.edits || [];
+            assert.ok(edits.length > 0, "Edit history should have at least one entry");
+            const lastEdit = edits[edits.length - 1];
+            assert.strictEqual(
+                lastEdit.type,
+                EditType.LLM_GENERATION,
+                "Last edit should be recorded as LLM_GENERATION"
+            );
+            assert.strictEqual(
+                lastEdit.value,
+                "LLM VALUE",
+                "Last edit should have the correct value"
+            );
+            assert.deepStrictEqual(
+                lastEdit.editMap,
+                ["value"],
+                "Last edit should have the correct editMap"
+            );
+        } finally {
+            llmStub.restore();
         }
     });
 });
