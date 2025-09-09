@@ -149,12 +149,27 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
 
         // Edit history should include both label edits and both value edits
         const edits: any[] = shared.metadata.edits || [];
-        const isPath = (e: any, path: string) => Array.isArray(e.editMap) && e.editMap.join(".") === path;
-        assert.ok(edits.some((e) => isPath(e, "metadata.cellLabel") && e.value === earlierLabel));
-        assert.ok(edits.some((e) => isPath(e, "metadata.cellLabel") && e.value === latestLabel));
-        assert.ok(edits.some((e) => isPath(e, "value") && e.value === theirValue));
-        assert.ok(edits.some((e) => isPath(e, "value") && e.value === ourLatestValue));
+        const isEditPath = (e: any, path: string) => Array.isArray(e.editMap) && e.editMap.join(".") === path;
+        assert.ok(edits.some((e) => isEditPath(e, "metadata.cellLabel") && e.value === earlierLabel));
+        assert.ok(edits.some((e) => isEditPath(e, "metadata.cellLabel") && e.value === latestLabel));
+        assert.ok(edits.some((e) => isEditPath(e, "value") && e.value === theirValue));
+        assert.ok(edits.some((e) => isEditPath(e, "value") && e.value === ourLatestValue));
         // Skip asserting timestamp edit history
+
+        // Assert that each edit we performed produced an edit record with the correct editMap
+        const expectEditRecord = (path: string, value: string | number) => {
+            const match = edits.find((e) => isEditPath(e, path) && e.value === value);
+            assert.ok(match, `Expected edit record for ${path} with value ${String(value)}`);
+            assert.ok(Array.isArray(match.editMap), "editMap should be an array");
+        };
+
+        // Label edit records
+        expectEditRecord("metadata.cellLabel", earlierLabel);
+        expectEditRecord("metadata.cellLabel", latestLabel);
+
+        // Value edit records
+        expectEditRecord("value", theirValue);
+        expectEditRecord("value", ourLatestValue);
 
         // Unique cells from each side should be present
         const ourOnly = cellById(ourUniqueId);
