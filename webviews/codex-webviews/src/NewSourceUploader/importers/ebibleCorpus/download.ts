@@ -158,7 +158,9 @@ const downloadVerseContent = async (
         ebibleUrl = 'https://github.com/genesis-ai-dev/hebrew-greek-bible/raw/refs/heads/main/macula-ebible.txt';
     } else {
         // Use the correct eBible corpus URL format
-        ebibleUrl = `https://raw.githubusercontent.com/BibleNLP/ebible/main/corpus/${languageCode}-${translationId}.txt`;
+        // (a80bedcea96707e020eb04157f3ad3c2e7c02621 - updated with eBible Corpus Metadata)
+        // (062b7b4e5b970493d1ef94f7b3bfce76052e7361 - later Bibles, but lacking updates)
+        ebibleUrl = `https://raw.githubusercontent.com/BibleNLP/ebible/a80bedcea96707e020eb04157f3ad3c2e7c02621/corpus/${languageCode}-${translationId}.txt`;
     }
 
     let response: Response;
