@@ -78,19 +78,26 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
         const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
         const SLEEP_MS = 30;
 
+        // Test data constants for traceability
+        const earlierLabel = "first label";
+        const latestLabel = "second label";
+        const ourInitialValue = "<span>our content</span>";
+        const theirValue = "<span>their content</span>";
+        const ourLatestValue = "<span>our content v2</span>";
+
         // Labels: ours first, theirs later -> theirs label should win
-        (oursDoc as any).updateCellLabel(sharedCellId, "first label");
+        (oursDoc as any).updateCellLabel(sharedCellId, earlierLabel);
         await sleep(SLEEP_MS);
-        (theirsDoc as any).updateCellLabel(sharedCellId, "second label");
+        (theirsDoc as any).updateCellLabel(sharedCellId, latestLabel);
 
         // Values: theirs first, ours later -> our value should win
         await sleep(SLEEP_MS);
-        await (oursDoc as any).updateCellContent(sharedCellId, "<span>our content</span>", EditType.USER_EDIT);
+        await (oursDoc as any).updateCellContent(sharedCellId, ourInitialValue, EditType.USER_EDIT);
         await sleep(SLEEP_MS);
-        await (theirsDoc as any).updateCellContent(sharedCellId, "<span>their content</span>", EditType.USER_EDIT);
+        await (theirsDoc as any).updateCellContent(sharedCellId, theirValue, EditType.USER_EDIT);
         // Intentionally make our value the latest by updating once more
         await sleep(SLEEP_MS);
-        await (oursDoc as any).updateCellContent(sharedCellId, "<span>our content v2</span>", EditType.USER_EDIT);
+        await (oursDoc as any).updateCellContent(sharedCellId, ourLatestValue, EditType.USER_EDIT);
 
         // Timestamps: startTime -> ours latest; endTime -> theirs latest
         await sleep(SLEEP_MS);
@@ -133,20 +140,20 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
         assert.ok(shared, "Shared cell should exist in merged notebook");
 
         // Label should be from the later edit (theirs)
-        assert.strictEqual(shared.metadata.cellLabel, "second label");
+        assert.strictEqual(shared.metadata.cellLabel, latestLabel);
 
         // Value should be from the latest value edit (ours v2)
-        assert.strictEqual(shared.value, "<span>our content v2</span>");
+        assert.strictEqual(shared.value, ourLatestValue);
 
         // Timestamps checks skipped: only relevant for timestamped content types
 
         // Edit history should include both label edits and both value edits
         const edits: any[] = shared.metadata.edits || [];
         const isPath = (e: any, path: string) => Array.isArray(e.editMap) && e.editMap.join(".") === path;
-        assert.ok(edits.some((e) => isPath(e, "metadata.cellLabel") && e.value === "first label"));
-        assert.ok(edits.some((e) => isPath(e, "metadata.cellLabel") && e.value === "second label"));
-        assert.ok(edits.some((e) => isPath(e, "value") && e.value === "<span>their content</span>"));
-        assert.ok(edits.some((e) => isPath(e, "value") && e.value === "<span>our content v2</span>"));
+        assert.ok(edits.some((e) => isPath(e, "metadata.cellLabel") && e.value === earlierLabel));
+        assert.ok(edits.some((e) => isPath(e, "metadata.cellLabel") && e.value === latestLabel));
+        assert.ok(edits.some((e) => isPath(e, "value") && e.value === theirValue));
+        assert.ok(edits.some((e) => isPath(e, "value") && e.value === ourLatestValue));
         // Skip asserting timestamp edit history
 
         // Unique cells from each side should be present
