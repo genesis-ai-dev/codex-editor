@@ -258,15 +258,30 @@ export class CodexCellDocument implements vscode.CustomDocument {
             return; // Skip adding edit if normalized content hasn't changed
         }
 
+        // Prepare edit history array and capture previous value before any updates
+        if (!cellToUpdate.metadata.edits) {
+            cellToUpdate.metadata.edits = [];
+        }
+        const previousValue = cellToUpdate.value;
+        const currentTimestamp = Date.now();
+
+        // If editing a source file's value for the first time, ensure an INITIAL_IMPORT exists
+        if (cellToUpdate.metadata.edits.length === 0 && !!previousValue) {
+
+            cellToUpdate.metadata.edits.push({
+                editMap: EditMapUtils.value(),
+                value: previousValue,
+                timestamp: currentTimestamp,
+                type: EditType.INITIAL_IMPORT,
+                author: this._author,
+                validatedBy: [],
+            });
+        }
+
         // Update cell content and metadata in memory
         if (shouldUpdateValue) {
             cellToUpdate.value = newContent;
         }
-        if (!cellToUpdate.metadata.edits) {
-            cellToUpdate.metadata.edits = [];
-        }
-
-        const currentTimestamp = Date.now();
 
         // Use stored author instead of fetching it
         const validatedBy: ValidationEntry[] =

@@ -931,4 +931,63 @@ suite("CodexCellEditorProvider Test Suite", () => {
             llmStub.restore();
         }
     });
+
+    test("Source file value edit records INITIAL_IMPORT before USER_EDIT", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        // Create a .source temp file
+        const srcPath = path.join(os.tmpdir(), "test-source.source");
+        const srcUri = vscode.Uri.file(srcPath);
+        const base = JSON.parse(JSON.stringify(codexSubtitleContent));
+        // Ensure no initial-import in first cell edits
+        base.cells[0].metadata.edits = [];
+        await vscode.workspace.fs.writeFile(srcUri, Buffer.from(JSON.stringify(base, null, 2)));
+
+        const document = await provider.openCustomDocument(
+            srcUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        let onDidReceiveMessageCallback: any = null;
+        const webviewPanel = {
+            webview: {
+                html: "",
+                options: { enableScripts: true },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: "https://example.com",
+                onDidReceiveMessage: (callback: (message: any) => void) => {
+                    if (!onDidReceiveMessageCallback) onDidReceiveMessageCallback = callback;
+                    return { dispose: () => { } };
+                },
+                postMessage: (_message: any) => Promise.resolve(),
+            },
+            onDidDispose: () => ({ dispose: () => { } }),
+            onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+        } as any as vscode.WebviewPanel;
+
+        await provider.resolveCustomEditor(
+            document,
+            webviewPanel,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cellId = base.cells[0].metadata.id;
+        const newValue = "Updated SOURCE content";
+
+        // Simulate saveHtml (value change)
+        onDidReceiveMessageCallback!({
+            command: "saveHtml",
+            content: { cellMarkers: [cellId], cellContent: newValue },
+        });
+        await new Promise((r) => setTimeout(r, 60));
+
+        const parsed = JSON.parse(document.getText());
+        const cell = parsed.cells.find((c: any) => c.metadata.id === cellId);
+        const edits = cell.metadata.edits;
+        // Expect first an initial-import of the previous value, then a user-edit of the new value
+        const initialImport = edits.find((e: any) => e.type === "initial-import" && JSON.stringify(e.editMap) === JSON.stringify(["value"]));
+        const userEdit = edits.reverse().find((e: any) => e.type === "user-edit" && JSON.stringify(e.editMap) === JSON.stringify(["value"]));
+        assert.ok(initialImport, "Should create initial-import value edit before first user edit on source file");
+        assert.strictEqual(userEdit.value, newValue, "User edit should have the new value");
+    });
 });
