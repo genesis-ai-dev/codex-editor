@@ -5,6 +5,7 @@ import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import NotebookMetadataModal from "./NotebookMetadataModal";
 import { AutocompleteModal } from "./modals/AutocompleteModal";
 import { ChapterSelectorModal } from "./modals/ChapterSelectorModal";
+import { MobileHeaderMenu } from "./components/MobileHeaderMenu";
 import {
     type QuillCellContent,
     type CustomNotebookMetadata,
@@ -136,6 +137,7 @@ ChapterNavigationHeaderProps) {
     const [isNarrowWithPageField, setIsNarrowWithPageField] = useState(false);
     const [isNarrowWithoutPageField, setIsNarrowWithoutPageField] = useState(false);
     const chapterTitleRef = useRef<HTMLDivElement>(null);
+    const [truncatedBookName, setTruncatedBookName] = useState<string | null>(null);
 
     // Font size state - default to 14 if not set in metadata
     const [fontSize, setFontSize] = useState(metadata?.fontSize || 14);
@@ -149,46 +151,106 @@ ChapterNavigationHeaderProps) {
         }
     }, [metadata?.fontSize]);
 
-    const subsections = getSubsectionsForChapter(chapterNumber);
+    // Determine the display name using the map
+    const getDisplayTitle = () => {
+        const firstMarker = translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]; // e.g., "GEN 1"
+        if (!firstMarker) return "Chapter"; // Fallback title
 
-    // Simple responsive detection - only based on screen width
+        const parts = firstMarker.split(" ");
+        const bookAbbr = parts[0]; // e.g., "GEN"
+        const chapterNum = parts[1] || ""; // e.g., "1"
+
+        // Look up the localized name
+        const localizedName = bibleBookMap?.get(bookAbbr)?.name;
+
+        // Use localized name if found, otherwise use the abbreviation
+        const displayBookName = localizedName || bookAbbr;
+
+        return `${displayBookName}\u00A0${chapterNum}`;
+    };
+
+    // Dynamic title truncation based on available space
     useEffect(() => {
-        const checkScreenSize = () => {
-            setIsMobile(window.innerWidth < 430);
-            setIsExtraNarrow(window.innerWidth <= 350);
-            setIsNarrowWithPageField(window.innerWidth < 650);
-            setIsNarrowWithoutPageField(window.innerWidth < 430);
+        const handleTitleResize = () => {
+            const container = chapterTitleRef.current;
+            if (!container) return;
+
+            const fullTitle = getDisplayTitle();
+            const lastSpaceIndex = Math.max(
+                fullTitle.lastIndexOf('\u00A0'), 
+                fullTitle.lastIndexOf(' ')
+            );
+            const bookName = lastSpaceIndex > 0 ? fullTitle.substring(0, lastSpaceIndex) : fullTitle;
+            const chapterNum = lastSpaceIndex > 0 ? fullTitle.substring(lastSpaceIndex + 1) : "";
+
+            // Reset to full title first
+            setTruncatedBookName(null);
+
+            // Use requestAnimationFrame to ensure DOM has updated
+            requestAnimationFrame(() => {
+                const containerRect = container.getBoundingClientRect();
+                const parentRect = container.parentElement?.getBoundingClientRect();
+                
+                if (!parentRect) return;
+
+                // Calculate available width (with some buffer for safe spacing)
+                const availableWidth = Math.min(
+                    containerRect.width,
+                    window.innerWidth < 400 ? window.innerWidth * 0.5 : // On very small screens, limit to 50%
+                    window.innerWidth < 640 ? window.innerWidth * 0.6 : // On small screens, limit to 60%
+                    window.innerWidth * 0.4 // On larger screens, limit to 40%
+                );
+
+                // Create temporary element to measure text width
+                const temp = document.createElement('span');
+                temp.style.visibility = 'hidden';
+                temp.style.position = 'absolute';
+                temp.style.fontSize = window.getComputedStyle(container.querySelector('h1') || container).fontSize;
+                temp.style.fontFamily = window.getComputedStyle(container.querySelector('h1') || container).fontFamily;
+                temp.textContent = fullTitle;
+                document.body.appendChild(temp);
+
+                const fullWidth = temp.getBoundingClientRect().width;
+                document.body.removeChild(temp);
+
+                // If text is too wide, truncate the book name
+                if (fullWidth > availableWidth && bookName.length > 3) {
+                    // Calculate how many characters we can fit
+                    const avgCharWidth = fullWidth / fullTitle.length;
+                    const chapterNumWidth = chapterNum.length * avgCharWidth;
+                    const ellipsisWidth = 3 * avgCharWidth; // "..." width
+                    const availableForBookName = availableWidth - chapterNumWidth - ellipsisWidth;
+                    const maxBookNameChars = Math.floor(availableForBookName / avgCharWidth);
+                    
+                    if (maxBookNameChars > 0) {
+                        const truncated = bookName.substring(0, Math.max(1, maxBookNameChars - 1));
+                        setTruncatedBookName(truncated);
+                    }
+                }
+            });
         };
 
-        checkScreenSize();
-        window.addEventListener("resize", checkScreenSize);
+        // Initial calculation
+        handleTitleResize();
 
-        return () => window.removeEventListener("resize", checkScreenSize);
-    }, []);
+        // Add resize observer for container changes
+        let resizeObserver: ResizeObserver | null = null;
+        if (window.ResizeObserver && chapterTitleRef.current) {
+            resizeObserver = new ResizeObserver(handleTitleResize);
+            resizeObserver.observe(chapterTitleRef.current);
+        }
 
-    // Determine layout based on screen width
-    const hasPagination = subsections.length > 0;
+        // Add window resize listener as fallback
+        window.addEventListener('resize', handleTitleResize);
 
-    // Use 3-row layout if screen is 330px or less AND Page field is present
-    const shouldUseThreeRowLayout = isExtraNarrow && hasPagination;
+        return () => {
+            if (resizeObserver) {
+                resizeObserver.disconnect();
+            }
+            window.removeEventListener('resize', handleTitleResize);
+        };
+    }, [getDisplayTitle, translationUnitsForSection]);
 
-    // Use mobile layout with different breakpoints based on Page field presence
-    // When Page field is present: collapse at 700px (2 rows), then 330px (3 rows)
-    // When Page field is NOT present: collapse at 420px (2 rows)
-    const shouldUseMobileLayout = hasPagination ? isNarrowWithPageField : isNarrowWithoutPageField;
-
-    // Debug logging
-    console.log("ChapterNavigationHeader Debug:", {
-        windowWidth: window.innerWidth,
-        isExtraNarrow,
-        hasPagination,
-        subsectionsLength: subsections.length,
-        shouldUseThreeRowLayout,
-        shouldUseMobileLayout,
-        isMobile,
-        showPageFieldInCenter: subsections.length > 0 && !shouldUseThreeRowLayout,
-        showPageFieldInThirdRow: shouldUseThreeRowLayout && subsections.length > 0,
-    });
 
     // Helper to determine if any translation is in progress
     const isAnyTranslationInProgress = isAutocompletingChapter || isTranslatingCell;
@@ -276,23 +338,6 @@ ChapterNavigationHeaderProps) {
         }
     };
 
-    // Determine the display name using the map
-    const getDisplayTitle = () => {
-        const firstMarker = translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]; // e.g., "GEN 1"
-        if (!firstMarker) return "Chapter"; // Fallback title
-
-        const parts = firstMarker.split(" ");
-        const bookAbbr = parts[0]; // e.g., "GEN"
-        const chapterNum = parts[1] || ""; // e.g., "1"
-
-        // Look up the localized name
-        const localizedName = bibleBookMap?.get(bookAbbr)?.name;
-
-        // Use localized name if found, otherwise use the abbreviation
-        const displayBookName = localizedName || bookAbbr;
-
-        return `${displayBookName}\u00A0${chapterNum}`;
-    };
 
     const handleTogglePrimarySidebar = () => {
         if (vscode) {
@@ -382,6 +427,27 @@ ChapterNavigationHeaderProps) {
         }
     };
 
+    // Navigation functions for mobile menu
+    const handlePreviousChapter = () => {
+        if (!unsavedChanges) {
+            const newChapter = chapterNumber === 1 ? totalChapters : chapterNumber - 1;
+            jumpToChapter(newChapter);
+        }
+    };
+
+    const handleNextChapter = () => {
+        if (!unsavedChanges) {
+            const newChapter = chapterNumber === totalChapters ? 1 : chapterNumber + 1;
+            jumpToChapter(newChapter);
+        }
+    };
+
+    const subsections = getSubsectionsForChapter(chapterNumber);
+
+    // Define responsive layout variables
+    const shouldUseMobileLayout = window.innerWidth < 640;
+    const shouldUseThreeRowLayout = window.innerWidth < 400;
+
     // Calculate progress for each subsection/page
     const calculateSubsectionProgress = (subsection: Subsection) => {
         // Use allCellsForChapter if available, otherwise fall back to translationUnitsForSection
@@ -432,245 +498,43 @@ ChapterNavigationHeaderProps) {
     };
 
     return (
-        <div
-            className={`flex ${
-                shouldUseThreeRowLayout
-                    ? "flex-col"
-                    : shouldUseMobileLayout
-                    ? "flex-col"
-                    : "flex-row"
-            } p-2 max-w-full overflow-hidden`}
-        >
-            {/* Mobile Header Row */}
-            <div
-                className={`flex items-center justify-between ${
-                    shouldUseMobileLayout || shouldUseThreeRowLayout ? "mb-2" : "hidden"
-                }`}
-            >
-                <div className="flex items-center space-x-2">
-                    {isSourceText ? (
-                        <>
-                            <Button variant="outline" onClick={toggleScrollSync} size="sm">
-                                <i
-                                    className={`codicon ${
-                                        scrollSyncEnabled ? "codicon-lock" : "codicon-unlock"
-                                    }`}
-                                />
-                            </Button>
-                            {isCorrectionEditorMode ? (
-                                <span
-                                    className="text-xs"
-                                    style={{ color: "red", fontWeight: "bold" }}
-                                    title="Correction Editor Mode is active"
-                                >
-                                    Source Editing Mode
-                                </span>
-                            ) : (
-                                <span className="text-xs">Source Text</span>
-                            )}
-                        </>
-                    ) : (
-                        <Button
-                            variant="outline"
-                            onClick={() => openSourceText(chapterNumber)}
-                            size="sm"
-                        >
-                            <i className="codicon codicon-open-preview" />
-                        </Button>
-                    )}
-                </div>
-
-                {/* Mobile Right Side - Autocomplete + Settings */}
-                <div className="flex items-center space-x-2">
-                    {/* Show autocomplete button on the right side in mobile */}
-                    {!isSourceText && (
-                        <>
-                            {isAnyTranslationInProgress ? (
-                                <Button
-                                    variant="outline"
-                                    onClick={handleStopTranslation}
-                                    title={
-                                        isAutocompletingChapter
-                                            ? "Stop Autocomplete"
-                                            : "Stop Translation"
-                                    }
-                                    className="bg-editor-findMatchHighlight"
-                                    size="sm"
-                                >
-                                    <i className="codicon codicon-circle-slash" />
-                                </Button>
-                            ) : (
-                                <Button
-                                    variant="outline"
-                                    onClick={handleAutocompleteClick}
-                                    disabled={unsavedChanges}
-                                    title="Autocomplete Chapter"
-                                    size="sm"
-                                >
-                                    <i className="codicon codicon-sparkle" />
-                                </Button>
-                            )}
-                        </>
-                    )}
-
-                    {/* Mobile Settings Button - Always visible */}
-                    <DropdownMenu onOpenChange={handleDropdownOpenChange}>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="outline" title="Advanced Settings" size="sm">
-                                <i className="codicon codicon-settings-gear" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                            side="bottom"
-                            align="end"
-                            sideOffset={8}
-                            className="w-56"
-                            style={{
-                                zIndex: 99999,
-                            }}
-                        >
-                            <DropdownMenuItem
-                                onClick={() =>
-                                    onSetTextDirection(textDirection === "ltr" ? "rtl" : "ltr")
-                                }
-                                disabled={unsavedChanges}
-                                className="cursor-pointer"
-                            >
-                                <i className="codicon codicon-arrow-swap mr-2 h-4 w-4" />
-                                <span>Text Direction ({textDirection.toUpperCase()})</span>
-                            </DropdownMenuItem>
-
-                            <DropdownMenuItem
-                                onClick={() => {
-                                    const newMode =
-                                        cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                            ? CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
-                                            : CELL_DISPLAY_MODES.INLINE;
-                                    onSetCellDisplayMode(newMode);
-                                    (window as any).vscodeApi.postMessage({
-                                        command: "updateCellDisplayMode",
-                                        mode: newMode,
-                                    });
-                                }}
-                                disabled={unsavedChanges}
-                                className="cursor-pointer"
-                            >
-                                <i
-                                    className={`codicon ${
-                                        cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                            ? "codicon-symbol-enum"
-                                            : "codicon-symbol-constant"
-                                    } mr-2 h-4 w-4`}
-                                />
-                                <span>
-                                    Display Mode (
-                                    {cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                        ? "Inline"
-                                        : "One Line"}
-                                    )
-                                </span>
-                            </DropdownMenuItem>
-
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                                onClick={() => {
-                                    const currentValue = metadata?.lineNumbersEnabled ?? true;
-                                    const newValue = !currentValue;
-                                    onMetadataChange("lineNumbersEnabled", newValue.toString());
-
-                                    // Immediately save the metadata change
-                                    const updatedMetadata = {
-                                        ...metadata,
-                                        lineNumbersEnabled: newValue,
-                                        lineNumbersEnabledSource: "local" as const,
-                                    };
-                                    vscode.postMessage({
-                                        command: "updateNotebookMetadata",
-                                        content: updatedMetadata,
-                                    });
-                                }}
-                                className="cursor-pointer"
-                            >
-                                <i
-                                    className={`codicon ${
-                                        metadata?.lineNumbersEnabled ?? true
-                                            ? "codicon-eye-closed"
-                                            : "codicon-eye"
-                                    } mr-2 h-4 w-4`}
-                                />
-                                <span>
-                                    {metadata?.lineNumbersEnabled ?? true
-                                        ? "Hide Line Numbers"
-                                        : "Show Line Numbers"}
-                                </span>
-                            </DropdownMenuItem>
-
-                            {documentHasVideoAvailable && (
-                                <>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                        onClick={handleToggleVideoPlayer}
-                                        className="cursor-pointer"
-                                    >
-                                        <i
-                                            className={`codicon ${
-                                                shouldShowVideoPlayer
-                                                    ? "codicon-close"
-                                                    : "codicon-device-camera-video"
-                                            } mr-2 h-4 w-4`}
-                                        />
-                                        <span>
-                                            {shouldShowVideoPlayer ? "Hide Video" : "Show Video"}
-                                        </span>
-                                    </DropdownMenuItem>
-                                </>
-                            )}
-
-                            {metadata && (
-                                <>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                        onClick={handleOpenMetadataModal}
-                                        className="cursor-pointer"
-                                    >
-                                        <i className="codicon codicon-notebook mr-2 h-4 w-4" />
-                                        <span>Edit Metadata</span>
-                                    </DropdownMenuItem>
-                                </>
-                            )}
-                            <DropdownMenuSeparator />
-                            <div className="px-3 py-1">
-                                <div className="flex items-center justify-between mb-0.2">
-                                    <span className="text-sm text-muted-foreground">
-                                        {fontSize}px
-                                    </span>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                    <span style={{ fontSize: "10px" }}>A</span>
-                                    <div className="px-2 w-full">
-                                        <Slider
-                                            value={[fontSize]}
-                                            onValueChange={handleFontSizeChange}
-                                            max={24}
-                                            min={8}
-                                            step={1}
-                                            className="w-full"
-                                        />
-                                    </div>
-                                    <span style={{ fontSize: "20px" }}>A</span>
-                                </div>
-                            </div>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                </div>
+        <div className="relative flex flex-row p-2 max-w-full overflow-hidden items-center">
+            {/* Mobile hamburger menu - shows at very small screens */}
+            <div className="flex items-center min-[400px]:hidden">
+                <MobileHeaderMenu
+                    isAutocompletingChapter={isAutocompletingChapter}
+                    isTranslatingCell={isTranslatingCell}
+                    onAutocompleteClick={handleAutocompleteClick}
+                    onStopTranslation={handleStopTranslation}
+                    unsavedChanges={unsavedChanges}
+                    isSourceText={isSourceText}
+                    textDirection={textDirection}
+                    onSetTextDirection={onSetTextDirection}
+                    cellDisplayMode={cellDisplayMode}
+                    onSetCellDisplayMode={onSetCellDisplayMode}
+                    fontSize={fontSize}
+                    onFontSizeChange={handleFontSizeChange}
+                    metadata={metadata}
+                    onMetadataChange={onMetadataChange}
+                    documentHasVideoAvailable={documentHasVideoAvailable}
+                    shouldShowVideoPlayer={shouldShowVideoPlayer}
+                    onToggleVideoPlayer={handleToggleVideoPlayer}
+                    onOpenMetadataModal={handleOpenMetadataModal}
+                    subsections={subsections}
+                    currentSubsectionIndex={currentSubsectionIndex}
+                    setCurrentSubsectionIndex={setCurrentSubsectionIndex}
+                    chapterNumber={chapterNumber}
+                    totalChapters={totalChapters}
+                    jumpToChapter={jumpToChapter}
+                    onPreviousChapter={handlePreviousChapter}
+                    onNextChapter={handleNextChapter}
+                    getDisplayTitle={getDisplayTitle}
+                    vscode={vscode}
+                />
             </div>
 
-            {/* Desktop Left Section */}
-            <div
-                className={`${
-                    shouldUseMobileLayout || shouldUseThreeRowLayout ? "hidden" : "flex"
-                } items-center justify-start`}
-            >
+            {/* Desktop left controls */}
+            <div className="hidden min-[400px]:flex items-center justify-start flex-shrink-0">
                 {isSourceText ? (
                     <>
                         <Button variant="outline" onClick={toggleScrollSync}>
@@ -700,17 +564,11 @@ ChapterNavigationHeaderProps) {
                 )}
             </div>
 
-            {/* Center Navigation Section */}
-            <div
-                className={`flex items-center justify-center flex-grow-[2] ${
-                    shouldUseThreeRowLayout
-                        ? "hidden"
-                        : shouldUseMobileLayout
-                        ? "space-x-1"
-                        : "space-x-2"
-                } min-w-0`}
-            >
+            {/* Center navigation - flex centered */}
+            <div className="flex-1 flex items-center justify-center space-x-2 min-w-0 mx-2">
+                {/* Navigation arrows - hidden on very small screens (< 400px) */}
                 <Button
+                    className="hidden min-[400px]:inline-flex"
                     variant="outline"
                     size={shouldUseMobileLayout ? "sm" : "default"}
                     onClick={() => {
@@ -753,20 +611,20 @@ ChapterNavigationHeaderProps) {
 
                 <div
                     ref={chapterTitleRef}
-                    className="chapter-title-container flex items-center min-w-0 max-w-xs cursor-pointer"
+                    className="chapter-title-container flex items-center min-w-0 max-w-[40vw] min-[400px]:max-w-[50vw] sm:max-w-sm cursor-pointer min-[400px]:cursor-pointer"
                     onClick={() => {
-                        if (!unsavedChanges) {
+                        // Only allow chapter selector on larger screens
+                        if (!unsavedChanges && window.innerWidth >= 400) {
                             setShowChapterSelector(!showChapterSelector);
                         }
                     }}
                 >
-                    <h1
-                        className={`${
-                            shouldUseMobileLayout ? "text-lg" : "text-2xl"
-                        } flex items-center m-0 min-w-0`}
-                    >
+                    <h1 className="text-lg min-[400px]:text-2xl flex items-center m-0 min-w-0">
                         <span className="truncate">
                             {(() => {
+                                if (truncatedBookName !== null) {
+                                    return truncatedBookName + "...";
+                                }
                                 const fullTitle = getDisplayTitle();
                                 const lastSpaceIndex = Math.max(
                                     fullTitle.lastIndexOf("\u00A0"),
@@ -789,24 +647,22 @@ ChapterNavigationHeaderProps) {
                                     : "";
                             })()}
                         </span>
+                        {/* Show page info on mobile since page selector is hidden */}
                         {subsections.length > 0 && (
-                            <span
-                                className={`flex-shrink-0 ml-1 ${
-                                    shouldUseMobileLayout ? "text-xs" : ""
-                                }`}
-                            >
+                            <span className="flex-shrink-0 ml-1 text-sm md:text-base">
                                 ({subsections[currentSubsectionIndex]?.label || ""})
                             </span>
                         )}
                         <i
                             className={`codicon ${
                                 showChapterSelector ? "codicon-chevron-up" : "codicon-chevron-down"
-                            } ml-1 flex-shrink-0`}
+                            } ml-1 flex-shrink-0 hidden min-[400px]:inline`}
                         />
                     </h1>
                 </div>
 
                 <Button
+                    className="hidden min-[400px]:inline-flex"
                     variant="outline"
                     size={shouldUseMobileLayout ? "sm" : "default"}
                     onClick={() => {
@@ -845,14 +701,10 @@ ChapterNavigationHeaderProps) {
                     />
                 </Button>
 
-                {subsections.length > 0 && !shouldUseThreeRowLayout && (
-                    <div
-                        className={`flex items-center ${shouldUseMobileLayout ? "ml-2" : "ml-4"}`}
-                        data-page-field
-                    >
-                        <span className={`${shouldUseMobileLayout ? "text-xs mr-1" : "mr-2"}`}>
-                            Page:
-                        </span>
+                {/* Page selector - hidden on smaller screens */}
+                {subsections.length > 0 && (
+                    <div className="hidden min-[400px]:flex items-center ml-4">
+                        <span className="mr-2">Page:</span>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button
@@ -952,12 +804,8 @@ ChapterNavigationHeaderProps) {
                 )}
             </div>
 
-            {/* Desktop Right Section */}
-            <div
-                className={`${
-                    shouldUseMobileLayout || shouldUseThreeRowLayout ? "hidden" : "flex"
-                } items-center justify-end flex-1 space-x-2 min-w-0`}
-            >
+            {/* Desktop right controls */}
+            <div className="hidden min-[400px]:flex items-center justify-end ml-auto space-x-2">
                 {/* {getFileStatusButton()} // FIXME: we want to show the file status, but it needs to load immediately, and it needs to be more reliable. - test this and also think through UX */}
                 {/* Show left sidebar toggle only when editor is not leftmost
                 
