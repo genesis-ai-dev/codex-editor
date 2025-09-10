@@ -189,6 +189,9 @@ const CodexCellEditor: React.FC = () => {
     // Validation configuration (required validations) – requested once and derived for children
     const [requiredValidations, setRequiredValidations] = useState<number | null>(null);
 
+    // Track cells currently transcribing audio (to show the same loading effect as translations)
+    const [transcribingCells, setTranscribingCells] = useState<Set<string>>(new Set());
+
     // Temporary font size for preview - only applied when dropdown is open
     const [tempFontSize, setTempFontSize] = useState<number | null>(null);
 
@@ -282,11 +285,15 @@ const CodexCellEditor: React.FC = () => {
 
                     const wsEndpoint = asrConfig.endpoint || "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe";
 
-                    const max = Math.max(0, message.content.count | 0);
-                    const candidates = translationUnits.filter((u) => audioAttachments[u.cellMarkers[0]] === 'available');
-                    const units = (candidates.length > 0 ? candidates : translationUnits).slice(0, max > 0 ? max : translationUnits.length);
-                    for (const unit of units) {
+                    const targetCount = Math.max(0, message.content.count | 0);
+                    let completed = 0;
+                    for (const unit of translationUnits) {
+                        if (targetCount > 0 && completed >= targetCount) break;
                         const cellId = unit.cellMarkers[0];
+                        // Quick skip if we know there's no audio
+                        if (audioAttachments && audioAttachments[cellId] === 'none') {
+                            continue;
+                        }
                         // Request audio for cell
                         const audioInfo = await new Promise<{ audioData: string | null; hasTranscription: boolean }>((resolve) => {
                             let resolved = false;
@@ -330,6 +337,12 @@ const CodexCellEditor: React.FC = () => {
                         // Transcribe
                         const client = new WhisperTranscriptionClient(wsEndpoint);
                         try {
+                            // Mark cell as transcribing for UI feedback
+                            setTranscribingCells((prev) => {
+                                const next = new Set(prev);
+                                next.add(cellId);
+                                return next;
+                            });
                             const result = await client.transcribe(blob, meta, 30000);
                             const text = (result.text || '').trim();
                             if (text) {
@@ -346,6 +359,7 @@ const CodexCellEditor: React.FC = () => {
                                         content: { cellMarkers: [cellId], cellContent: html, cellChanged: true }
                                     } as unknown as EditorPostMessages);
                                 }
+                                completed += 1;
                             }
                         } catch (err) {
                             console.error('Batch transcription failed for', cellId, err);
@@ -353,6 +367,13 @@ const CodexCellEditor: React.FC = () => {
                                 command: 'showErrorMessage',
                                 text: `Transcription failed for ${cellId}: ${err instanceof Error ? err.message : String(err)}`,
                             } as any);
+                        } finally {
+                            // Clear transcribing state for this cell
+                            setTranscribingCells((prev) => {
+                                const next = new Set(prev);
+                                next.delete(cellId);
+                                return next;
+                            });
                         }
                     }
                 } catch (e) {
@@ -362,6 +383,23 @@ const CodexCellEditor: React.FC = () => {
             run();
         },
         [translationUnits, vscode]
+    );
+
+    // Handle local UI messages about single-cell transcription state from editors
+    useMessageHandler(
+        "codexCellEditor-transcriptionState",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message?.type === "transcriptionState" && message?.content?.cellId) {
+                const { cellId, inProgress } = message.content as { cellId: string; inProgress: boolean };
+                setTranscribingCells((prev) => {
+                    const next = new Set(prev);
+                    if (inProgress) next.add(cellId); else next.delete(cellId);
+                    return next;
+                });
+            }
+        },
+        []
     );
 
     // A/B test variant selection handler
@@ -2193,6 +2231,7 @@ const CodexCellEditor: React.FC = () => {
                             lineNumbersEnabled={metadata?.lineNumbersEnabled ?? true}
                             currentUsername={username}
                             requiredValidations={requiredValidations ?? undefined}
+                            transcribingCells={transcribingCells}
                         />
                     </div>
                 </div>

@@ -1140,6 +1140,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
         setTranscriptionStatus("Connecting to transcription service...");
 
         try {
+            // Notify parent UI to show loading effect on this source cell
+            try {
+                window.postMessage({ type: 'transcriptionState', content: { cellId: cellMarkers[0], inProgress: true } }, '*');
+            } catch { /* ignore */ }
             // Create transcription client using configured endpoint (fallback to legacy)
             const wsEndpoint =
                 asrConfig?.endpoint ||
@@ -1224,6 +1228,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
         } finally {
             setIsTranscribing(false);
             transcriptionClientRef.current = null;
+
+            // Clear UI loading effect
+            try {
+                window.postMessage({ type: 'transcriptionState', content: { cellId: cellMarkers[0], inProgress: false } }, '*');
+            } catch { /* ignore */ }
 
             // Clear status after a delay, but keep savedTranscription
             setTimeout(() => {

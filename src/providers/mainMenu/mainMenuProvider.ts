@@ -649,10 +649,23 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     break;
                 }
                 try {
-                    const url = endpoint.replace(/\/$/, '').replace(/\/ws\/.*/, '') + '/models';
+                    // Normalize endpoint: convert ws/wss to http/https and target /models
+                    let baseUrl: URL;
+                    try {
+                        baseUrl = new URL(endpoint);
+                    } catch (err) {
+                        throw new Error(`Invalid ASR endpoint: ${endpoint}`);
+                    }
+                    if (baseUrl.protocol === 'wss:') baseUrl.protocol = 'https:';
+                    if (baseUrl.protocol === 'ws:') baseUrl.protocol = 'http:';
+                    // Force path to /models
+                    baseUrl.pathname = '/models';
+                    baseUrl.search = '';
+                    const urlStr = baseUrl.toString();
+
                     const res = await new Promise<string>((resolve, reject) => {
-                        const lib = url.startsWith('https') ? https : http;
-                        lib.get(url, (resp) => {
+                        const lib = urlStr.startsWith('https') ? https : http;
+                        lib.get(urlStr, (resp) => {
                             let data = '';
                             resp.on('data', (chunk) => (data += chunk));
                             resp.on('end', () => resolve(data));
