@@ -132,16 +132,15 @@ ChapterNavigationHeaderProps) {
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
     const [showChapterSelector, setShowChapterSelector] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-    const [isMobile, setIsMobile] = useState(false);
-    const [isExtraNarrow, setIsExtraNarrow] = useState(false);
-    const [isNarrowWithPageField, setIsNarrowWithPageField] = useState(false);
-    const [isNarrowWithoutPageField, setIsNarrowWithoutPageField] = useState(false);
     const chapterTitleRef = useRef<HTMLDivElement>(null);
     const [truncatedBookName, setTruncatedBookName] = useState<string | null>(null);
 
     // Font size state - default to 14 if not set in metadata
     const [fontSize, setFontSize] = useState(metadata?.fontSize || 14);
     const [pendingFontSize, setPendingFontSize] = useState<number | null>(null);
+
+    // Get subsections early so it's available for all hooks
+    const subsections = getSubsectionsForChapter(chapterNumber);
 
     // Update font size when metadata changes
     useEffect(() => {
@@ -201,13 +200,18 @@ ChapterNavigationHeaderProps) {
                     window.innerWidth * 0.4 // On larger screens, limit to 40%
                 );
 
-                // Create temporary element to measure text width
+                // Create temporary element to measure text width including subsection label
                 const temp = document.createElement('span');
                 temp.style.visibility = 'hidden';
                 temp.style.position = 'absolute';
                 temp.style.fontSize = window.getComputedStyle(container.querySelector('h1') || container).fontSize;
                 temp.style.fontFamily = window.getComputedStyle(container.querySelector('h1') || container).fontFamily;
-                temp.textContent = fullTitle;
+                
+                // Account for subsection label like "(1-50)" if it exists
+                const subsectionLabel = subsections.length > 0 && subsections[currentSubsectionIndex]?.label 
+                    ? ` (${subsections[currentSubsectionIndex].label})` 
+                    : "";
+                temp.textContent = fullTitle + subsectionLabel;
                 document.body.appendChild(temp);
 
                 const fullWidth = temp.getBoundingClientRect().width;
@@ -216,10 +220,12 @@ ChapterNavigationHeaderProps) {
                 // If text is too wide, truncate the book name
                 if (fullWidth > availableWidth && bookName.length > 3) {
                     // Calculate how many characters we can fit
-                    const avgCharWidth = fullWidth / fullTitle.length;
+                    const totalTextLength = fullTitle.length + subsectionLabel.length;
+                    const avgCharWidth = fullWidth / totalTextLength;
                     const chapterNumWidth = chapterNum.length * avgCharWidth;
+                    const subsectionLabelWidth = subsectionLabel.length * avgCharWidth;
                     const ellipsisWidth = 3 * avgCharWidth; // "..." width
-                    const availableForBookName = availableWidth - chapterNumWidth - ellipsisWidth;
+                    const availableForBookName = availableWidth - chapterNumWidth - subsectionLabelWidth - ellipsisWidth;
                     const maxBookNameChars = Math.floor(availableForBookName / avgCharWidth);
                     
                     if (maxBookNameChars > 0) {
@@ -249,7 +255,7 @@ ChapterNavigationHeaderProps) {
             }
             window.removeEventListener('resize', handleTitleResize);
         };
-    }, [getDisplayTitle, translationUnitsForSection]);
+    }, [getDisplayTitle, translationUnitsForSection, subsections, currentSubsectionIndex]);
 
 
     // Helper to determine if any translation is in progress
@@ -442,8 +448,6 @@ ChapterNavigationHeaderProps) {
         }
     };
 
-    const subsections = getSubsectionsForChapter(chapterNumber);
-
     // Define responsive layout variables
     const shouldUseMobileLayout = window.innerWidth < 640;
     const shouldUseThreeRowLayout = window.innerWidth < 400;
@@ -498,7 +502,7 @@ ChapterNavigationHeaderProps) {
     };
 
     return (
-        <div className="relative flex flex-row p-2 max-w-full overflow-hidden items-center">
+        <div className="relative flex flex-row p-2 max-w-full items-center">
             {/* Mobile hamburger menu - shows at very small screens */}
             <div className="flex items-center min-[400px]:hidden">
                 <MobileHeaderMenu
@@ -570,7 +574,7 @@ ChapterNavigationHeaderProps) {
                 <Button
                     className="hidden min-[400px]:inline-flex"
                     variant="outline"
-                    size={shouldUseMobileLayout ? "sm" : "default"}
+                    size="default"
                     onClick={() => {
                         if (!unsavedChanges) {
                             // Check if we're on the first page of the current chapter
@@ -664,7 +668,7 @@ ChapterNavigationHeaderProps) {
                 <Button
                     className="hidden min-[400px]:inline-flex"
                     variant="outline"
-                    size={shouldUseMobileLayout ? "sm" : "default"}
+                    size="default"
                     onClick={() => {
                         if (!unsavedChanges) {
                             // Check if we're on the last page of the current chapter
@@ -709,7 +713,7 @@ ChapterNavigationHeaderProps) {
                             <DropdownMenuTrigger asChild>
                                 <Button
                                     variant="outline"
-                                    size={shouldUseMobileLayout ? "sm" : "default"}
+                                    size="default"
                                     className="flex items-center gap-2"
                                 >
                                     {(() => {
@@ -719,9 +723,6 @@ ChapterNavigationHeaderProps) {
                                         return (
                                             <>
                                                 <span
-                                                    className={
-                                                        shouldUseMobileLayout ? "text-xs" : ""
-                                                    }
                                                 >
                                                     {currentSection?.label || ""}
                                                 </span>
@@ -1011,235 +1012,7 @@ ChapterNavigationHeaderProps) {
                 </DropdownMenu>
             </div>
 
-            {/* Three-Row Layout: Chapter Navigation Row */}
-            {shouldUseThreeRowLayout && (
-                <div className="flex items-center justify-center space-x-1 mb-2">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                            if (!unsavedChanges) {
-                                // Check if we're on the first page of the current chapter
-                                if (currentSubsectionIndex > 0) {
-                                    // Move to previous page within the same chapter
-                                    setCurrentSubsectionIndex(currentSubsectionIndex - 1);
-                                } else {
-                                    // Move to previous chapter
-                                    const newChapter =
-                                        chapterNumber === 1 ? totalChapters : chapterNumber - 1;
-                                    jumpToChapter(newChapter);
 
-                                    // When jumping to a new chapter, check if it has subsections
-                                    // and if so, jump to the last page
-                                    const newChapterSubsections =
-                                        getSubsectionsForChapter(newChapter);
-                                    if (newChapterSubsections.length > 0) {
-                                        setCurrentSubsectionIndex(newChapterSubsections.length - 1);
-                                    }
-                                }
-                            }
-                        }}
-                        title={
-                            unsavedChanges
-                                ? "Save changes first to change chapter"
-                                : currentSubsectionIndex > 0
-                                ? "Previous Page"
-                                : "Previous Chapter"
-                        }
-                    >
-                        <i
-                            className={`codicon ${
-                                textDirection === "rtl"
-                                    ? "codicon-chevron-right"
-                                    : "codicon-chevron-left"
-                            }`}
-                        />
-                    </Button>
-
-                    <div
-                        ref={chapterTitleRef}
-                        className="chapter-title-container flex items-center min-w-0 max-w-xs cursor-pointer"
-                        onClick={() => {
-                            if (!unsavedChanges) {
-                                setShowChapterSelector(!showChapterSelector);
-                            }
-                        }}
-                    >
-                        <h1 className="text-lg flex items-center m-0 min-w-0">
-                            <span className="truncate">
-                                {(() => {
-                                    const fullTitle = getDisplayTitle();
-                                    const lastSpaceIndex = Math.max(
-                                        fullTitle.lastIndexOf("\u00A0"),
-                                        fullTitle.lastIndexOf(" ")
-                                    );
-                                    return lastSpaceIndex > 0
-                                        ? fullTitle.substring(0, lastSpaceIndex)
-                                        : fullTitle;
-                                })()}
-                            </span>
-                            <span className="flex-shrink-0 ml-1">
-                                {(() => {
-                                    const fullTitle = getDisplayTitle();
-                                    const lastSpaceIndex = Math.max(
-                                        fullTitle.lastIndexOf("\u00A0"),
-                                        fullTitle.lastIndexOf(" ")
-                                    );
-                                    return lastSpaceIndex > 0
-                                        ? fullTitle.substring(lastSpaceIndex + 1)
-                                        : "";
-                                })()}
-                            </span>
-                            <i
-                                className={`codicon ${
-                                    showChapterSelector
-                                        ? "codicon-chevron-up"
-                                        : "codicon-chevron-down"
-                                } ml-1 flex-shrink-0`}
-                            />
-                        </h1>
-                    </div>
-
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                            if (!unsavedChanges) {
-                                // Check if we're on the last page of the current chapter
-                                if (
-                                    subsections.length > 0 &&
-                                    currentSubsectionIndex < subsections.length - 1
-                                ) {
-                                    // Move to next page within the same chapter
-                                    setCurrentSubsectionIndex(currentSubsectionIndex + 1);
-                                } else {
-                                    // Move to next chapter and reset to first page
-                                    const newChapter =
-                                        chapterNumber === totalChapters ? 1 : chapterNumber + 1;
-                                    jumpToChapter(newChapter);
-                                    setCurrentSubsectionIndex(0);
-                                }
-                            }
-                        }}
-                        title={
-                            unsavedChanges
-                                ? "Save changes first to change chapter"
-                                : subsections.length > 0 &&
-                                  currentSubsectionIndex < subsections.length - 1
-                                ? "Next Page"
-                                : "Next Chapter"
-                        }
-                    >
-                        <i
-                            className={`codicon ${
-                                textDirection === "rtl"
-                                    ? "codicon-chevron-left"
-                                    : "codicon-chevron-right"
-                            }`}
-                        />
-                    </Button>
-                </div>
-            )}
-
-            {/* Three-Row Layout: Page Field Row */}
-            {shouldUseThreeRowLayout && subsections.length > 0 && (
-                <div className="flex items-center justify-center">
-                    <div className="flex items-center ml-2" data-page-field>
-                        <span className="text-xs mr-1">Page:</span>
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="flex items-center gap-2"
-                                >
-                                    {(() => {
-                                        const currentSection = subsections[currentSubsectionIndex];
-                                        const progress =
-                                            calculateSubsectionProgress(currentSection);
-                                        return (
-                                            <>
-                                                <span className="text-xs">
-                                                    {currentSection?.label || ""}
-                                                </span>
-                                                {progress.isFullyValidated && (
-                                                    <div
-                                                        className="w-2 h-2 rounded-full"
-                                                        style={{
-                                                            backgroundColor:
-                                                                "var(--vscode-editorWarning-foreground)",
-                                                        }}
-                                                        title="Page fully validated"
-                                                    />
-                                                )}
-                                                {!progress.isFullyValidated &&
-                                                    progress.isFullyTranslated && (
-                                                        <div
-                                                            className="w-2 h-2 rounded-full"
-                                                            style={{
-                                                                backgroundColor:
-                                                                    "var(--vscode-charts-blue)",
-                                                            }}
-                                                            title="Page fully translated"
-                                                        />
-                                                    )}
-                                                <i className="codicon codicon-chevron-down" />
-                                            </>
-                                        );
-                                    })()}
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent
-                                align="start"
-                                className="w-48"
-                                style={{ zIndex: 99999 }}
-                            >
-                                {subsections.map((section, index) => {
-                                    const progress = calculateSubsectionProgress(section);
-                                    return (
-                                        <DropdownMenuItem
-                                            key={section.id}
-                                            onClick={() => setCurrentSubsectionIndex(index)}
-                                            className="flex items-center justify-between cursor-pointer"
-                                        >
-                                            <span>{section.label}</span>
-                                            <div className="flex items-center gap-1">
-                                                {progress.isFullyValidated && (
-                                                    <div
-                                                        className="w-2 h-2 rounded-full"
-                                                        style={{
-                                                            backgroundColor:
-                                                                "var(--vscode-editorWarning-foreground)",
-                                                        }}
-                                                        title="Page fully validated"
-                                                    />
-                                                )}
-                                                {currentSubsectionIndex === index && (
-                                                    <i
-                                                        className="codicon codicon-check"
-                                                        style={{ fontSize: "12px" }}
-                                                    />
-                                                )}
-                                                {!progress.isFullyValidated &&
-                                                    progress.isFullyTranslated && (
-                                                        <div
-                                                            className="w-2 h-2 rounded-full"
-                                                            style={{
-                                                                backgroundColor:
-                                                                    "var(--vscode-charts-blue)",
-                                                            }}
-                                                            title="Page fully translated"
-                                                        />
-                                                    )}
-                                            </div>
-                                        </DropdownMenuItem>
-                                    );
-                                })}
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                    </div>
-                </div>
-            )}
 
             {metadata && (
                 <NotebookMetadataModal
