@@ -752,7 +752,10 @@
                     "codex-editor-extension.asrProvider": {
                         "title": "ASR Provider",
                         "type": "string",
-                        "enum": ["mms", "whisper"],
+                        "enum": [
+                            "mms",
+                            "whisper"
+                        ],
                         "default": "mms",
                         "description": "Provider for transcription. MMS requires a language code; Whisper auto-detects."
                     },
@@ -943,7 +946,8 @@
         "test:webviews:watch": "cd webviews/codex-webviews && pnpm run test:watch",
         "test:webviews:ui": "cd webviews/codex-webviews && pnpm run test:ui",
         "smart-watch": "cd webviews/codex-webviews && pnpm run smart-watch",
-        "wdio": "wdio run ./wdio.conf.ts"
+        "wdio": "wdio run ./wdio.conf.ts",
+        "prepare": "husky"
     },
     "devDependencies": {
         "@babel/plugin-proposal-private-property-in-object": "^7.16.7",
@@ -984,6 +988,8 @@
         "fts5-sql-bundle": "^1.0.2",
         "glob": "^7.1.4",
         "html-loader": "^5.1.0",
+        "https-browserify": "^1.0.0",
+        "husky": "^9.1.7",
         "install": "^0.13.0",
         "jszip": "^3.10.1",
         "lodash": "^4.17.21",
@@ -996,6 +1002,7 @@
         "process": "^0.11.10",
         "readline-browserify": "^0.0.4",
         "stream-browserify": "^3.0.0",
+        "stream-http": "^3.2.0",
         "timers-browserify": "^2.0.12",
         "ts-loader": "^9.5.1",
         "typescript": "^5.4.2",

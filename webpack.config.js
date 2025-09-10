@@ -195,6 +195,9 @@ const testConfig = {
             "@": path.resolve(__dirname, "src"),
             "fs/promises": "memfs",
             "process/browser": require.resolve("process/browser"),
+            // Map Node.js scheme imports to browser polyfills for the test bundle
+            "node:http": require.resolve("stream-http"),
+            "node:https": require.resolve("https-browserify"),
         },
         fallback: {
             assert: require.resolve("assert/"),
@@ -209,6 +212,9 @@ const testConfig = {
             readline: require.resolve("readline-browserify"),
             process: require.resolve("process/browser"),
             timers: require.resolve("timers-browserify"),
+            // Polyfills for Node HTTP modules used by code under test
+            http: require.resolve("stream-http"),
+            https: require.resolve("https-browserify"),
             child_process: false,
         },
     },
