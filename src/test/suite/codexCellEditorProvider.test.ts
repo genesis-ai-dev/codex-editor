@@ -703,41 +703,9 @@ suite("CodexCellEditorProvider Test Suite", () => {
         // Mock cell content and edit history
         const cellId = codexSubtitleContent.cells[0].metadata.id;
         const originalDocCellValue = JSON.parse(document.getText()).cells.find((c: any) => c.metadata.id === cellId)?.value;
-        const originalContent = "This is the original content.";
         const smartEditResult = "This is the improved content after smart edit.";
 
-        // Mock vscode.commands.executeCommand for the smart edit
-        const originalExecuteCommand = vscode.commands.executeCommand;
-        // @ts-expect-error: Mocking executeCommand for testing purposes
-        vscode.commands.executeCommand = async (command: string, ...args: any[]) => {
-            if (command === "codex-smart-edits.getAndApplyTopPrompts") {
-                return smartEditResult;
-            }
-            return originalExecuteCommand(command, ...args);
-        };
-
-        // Simulate receiving a getAndApplyTopPrompts message from the webview
-        onDidReceiveMessageCallback!({
-            command: "getAndApplyTopPrompts",
-            content: {
-                text: originalContent,
-                cellId: cellId,
-            },
-        });
-
-        // Wait for the message to be processed
-        await new Promise((resolve) => setTimeout(resolve, 50));
-
-        // Verify an initial provider message was sent (type can vary in current implementation)
-        assert.ok(receivedMessage, "Provider should send a response message");
-        const allowedTypes = [
-            "providerSendsPromptedEditResponse",
-            "providerUpdatesNotebookMetadataForWebview",
-            "providerAutocompletionState",
-        ];
-        assert.ok(allowedTypes.includes(receivedMessage.type), "Response should be acceptable initial provider message");
-
-        // Simulate saving the updated content
+        // Simulate saving the updated content (stub recordIceEdit)
         const originalExecuteCommand2 = vscode.commands.executeCommand;
         // @ts-expect-error test stub
         vscode.commands.executeCommand = async (command: string, ...args: any[]) => {

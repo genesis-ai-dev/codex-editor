@@ -746,28 +746,3 @@ export async function migrateSourceFiles() {
     console.log("Source file migration completed.");
 }
 
-
-export async function splitSourceFile(uri: vscode.Uri): Promise<void> {
-    try {
-        const content = await vscode.workspace.fs.readFile(uri);
-        const text = content.toString();
-        const books = text.split(/\\id /).filter(Boolean);
-
-        for (const book of books) {
-            const bookId = book.substring(0, 3).toLowerCase();
-            const parentDirPath = uri.fsPath.substring(0, uri.fsPath.lastIndexOf("/"));
-            const bookFilePath = `${parentDirPath}/${bookId}.source`;
-            const bookUri = vscode.Uri.file(bookFilePath);
-            // Create dir and write directly; atomicity not required for split outputs
-            try {
-                await vscode.workspace.fs.createDirectory(vscode.Uri.file(parentDirPath));
-            } catch (e) {
-                // Directory may already exist; ignore
-            }
-            await vscode.workspace.fs.writeFile(bookUri, Buffer.from(`\\id ${book}`));
-        }
-    } catch (error) {
-        console.error("Error splitting file:", error);
-        throw error;
-    }
-}
