@@ -161,24 +161,24 @@ ChapterNavigationHeaderProps) {
         };
 
         checkScreenSize();
-        window.addEventListener('resize', checkScreenSize);
-        
-        return () => window.removeEventListener('resize', checkScreenSize);
+        window.addEventListener("resize", checkScreenSize);
+
+        return () => window.removeEventListener("resize", checkScreenSize);
     }, []);
 
     // Determine layout based on screen width
     const hasPagination = subsections.length > 0;
-    
+
     // Use 3-row layout if screen is 330px or less AND Page field is present
     const shouldUseThreeRowLayout = isExtraNarrow && hasPagination;
-    
+
     // Use mobile layout with different breakpoints based on Page field presence
     // When Page field is present: collapse at 700px (2 rows), then 330px (3 rows)
     // When Page field is NOT present: collapse at 420px (2 rows)
     const shouldUseMobileLayout = hasPagination ? isNarrowWithPageField : isNarrowWithoutPageField;
-    
+
     // Debug logging
-    console.log('ChapterNavigationHeader Debug:', {
+    console.log("ChapterNavigationHeader Debug:", {
         windowWidth: window.innerWidth,
         isExtraNarrow,
         hasPagination,
@@ -187,7 +187,7 @@ ChapterNavigationHeaderProps) {
         shouldUseMobileLayout,
         isMobile,
         showPageFieldInCenter: subsections.length > 0 && !shouldUseThreeRowLayout,
-        showPageFieldInThirdRow: shouldUseThreeRowLayout && subsections.length > 0
+        showPageFieldInThirdRow: shouldUseThreeRowLayout && subsections.length > 0,
     });
 
     // Helper to determine if any translation is in progress
@@ -381,7 +381,7 @@ ChapterNavigationHeaderProps) {
             setCurrentSubsectionIndex(0);
         }
     };
-    
+
     // Calculate progress for each subsection/page
     const calculateSubsectionProgress = (subsection: Subsection) => {
         // Use allCellsForChapter if available, otherwise fall back to translationUnitsForSection
@@ -432,9 +432,21 @@ ChapterNavigationHeaderProps) {
     };
 
     return (
-        <div className={`flex ${shouldUseThreeRowLayout ? 'flex-col' : shouldUseMobileLayout ? 'flex-col' : 'flex-row'} p-2 max-w-full overflow-hidden`}>
+        <div
+            className={`flex ${
+                shouldUseThreeRowLayout
+                    ? "flex-col"
+                    : shouldUseMobileLayout
+                    ? "flex-col"
+                    : "flex-row"
+            } p-2 max-w-full overflow-hidden`}
+        >
             {/* Mobile Header Row */}
-            <div className={`flex items-center justify-between ${shouldUseMobileLayout || shouldUseThreeRowLayout ? 'mb-2' : 'hidden'}`}>
+            <div
+                className={`flex items-center justify-between ${
+                    shouldUseMobileLayout || shouldUseThreeRowLayout ? "mb-2" : "hidden"
+                }`}
+            >
                 <div className="flex items-center space-x-2">
                     {isSourceText ? (
                         <>
@@ -458,12 +470,16 @@ ChapterNavigationHeaderProps) {
                             )}
                         </>
                     ) : (
-                        <Button variant="outline" onClick={() => openSourceText(chapterNumber)} size="sm">
+                        <Button
+                            variant="outline"
+                            onClick={() => openSourceText(chapterNumber)}
+                            size="sm"
+                        >
                             <i className="codicon codicon-open-preview" />
                         </Button>
                     )}
                 </div>
-                
+
                 {/* Mobile Right Side - Autocomplete + Settings */}
                 <div className="flex items-center space-x-2">
                     {/* Show autocomplete button on the right side in mobile */}
@@ -496,7 +512,7 @@ ChapterNavigationHeaderProps) {
                             )}
                         </>
                     )}
-                    
+
                     {/* Mobile Settings Button - Always visible */}
                     <DropdownMenu onOpenChange={handleDropdownOpenChange}>
                         <DropdownMenuTrigger asChild>
@@ -504,151 +520,157 @@ ChapterNavigationHeaderProps) {
                                 <i className="codicon codicon-settings-gear" />
                             </Button>
                         </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                        side="bottom"
-                        align="end"
-                        sideOffset={8}
-                        className="w-56"
-                        style={{
-                            zIndex: 99999,
-                        }}
-                    >
-                        <DropdownMenuItem
-                            onClick={() =>
-                                onSetTextDirection(textDirection === "ltr" ? "rtl" : "ltr")
-                            }
-                            disabled={unsavedChanges}
-                            className="cursor-pointer"
-                        >
-                            <i className="codicon codicon-arrow-swap mr-2 h-4 w-4" />
-                            <span>Text Direction ({textDirection.toUpperCase()})</span>
-                        </DropdownMenuItem>
-
-                        <DropdownMenuItem
-                            onClick={() => {
-                                const newMode =
-                                    cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                        ? CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
-                                        : CELL_DISPLAY_MODES.INLINE;
-                                onSetCellDisplayMode(newMode);
-                                (window as any).vscodeApi.postMessage({
-                                    command: "updateCellDisplayMode",
-                                    mode: newMode,
-                                });
+                        <DropdownMenuContent
+                            side="bottom"
+                            align="end"
+                            sideOffset={8}
+                            className="w-56"
+                            style={{
+                                zIndex: 99999,
                             }}
-                            disabled={unsavedChanges}
-                            className="cursor-pointer"
                         >
-                            <i
-                                className={`codicon ${
-                                    cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                        ? "codicon-symbol-enum"
-                                        : "codicon-symbol-constant"
-                                } mr-2 h-4 w-4`}
-                            />
-                            <span>
-                                Display Mode (
-                                {cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                    ? "Inline"
-                                    : "One Line"}
-                                )
-                            </span>
-                        </DropdownMenuItem>
+                            <DropdownMenuItem
+                                onClick={() =>
+                                    onSetTextDirection(textDirection === "ltr" ? "rtl" : "ltr")
+                                }
+                                disabled={unsavedChanges}
+                                className="cursor-pointer"
+                            >
+                                <i className="codicon codicon-arrow-swap mr-2 h-4 w-4" />
+                                <span>Text Direction ({textDirection.toUpperCase()})</span>
+                            </DropdownMenuItem>
 
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                            onClick={() => {
-                                const currentValue = metadata?.lineNumbersEnabled ?? true;
-                                const newValue = !currentValue;
-                                onMetadataChange("lineNumbersEnabled", newValue.toString());
+                            <DropdownMenuItem
+                                onClick={() => {
+                                    const newMode =
+                                        cellDisplayMode === CELL_DISPLAY_MODES.INLINE
+                                            ? CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
+                                            : CELL_DISPLAY_MODES.INLINE;
+                                    onSetCellDisplayMode(newMode);
+                                    (window as any).vscodeApi.postMessage({
+                                        command: "updateCellDisplayMode",
+                                        mode: newMode,
+                                    });
+                                }}
+                                disabled={unsavedChanges}
+                                className="cursor-pointer"
+                            >
+                                <i
+                                    className={`codicon ${
+                                        cellDisplayMode === CELL_DISPLAY_MODES.INLINE
+                                            ? "codicon-symbol-enum"
+                                            : "codicon-symbol-constant"
+                                    } mr-2 h-4 w-4`}
+                                />
+                                <span>
+                                    Display Mode (
+                                    {cellDisplayMode === CELL_DISPLAY_MODES.INLINE
+                                        ? "Inline"
+                                        : "One Line"}
+                                    )
+                                </span>
+                            </DropdownMenuItem>
 
-                                // Immediately save the metadata change
-                                const updatedMetadata = {
-                                    ...metadata,
-                                    lineNumbersEnabled: newValue,
-                                    lineNumbersEnabledSource: "local" as const,
-                                };
-                                vscode.postMessage({
-                                    command: "updateNotebookMetadata",
-                                    content: updatedMetadata,
-                                });
-                            }}
-                            className="cursor-pointer"
-                        >
-                            <i
-                                className={`codicon ${
-                                    metadata?.lineNumbersEnabled ?? true
-                                        ? "codicon-eye-closed"
-                                        : "codicon-eye"
-                                } mr-2 h-4 w-4`}
-                            />
-                            <span>
-                                {metadata?.lineNumbersEnabled ?? true
-                                    ? "Hide Line Numbers"
-                                    : "Show Line Numbers"}
-                            </span>
-                        </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                                onClick={() => {
+                                    const currentValue = metadata?.lineNumbersEnabled ?? true;
+                                    const newValue = !currentValue;
+                                    onMetadataChange("lineNumbersEnabled", newValue.toString());
 
-                        {documentHasVideoAvailable && (
-                            <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                    onClick={handleToggleVideoPlayer}
-                                    className="cursor-pointer"
-                                >
-                                    <i
-                                        className={`codicon ${
-                                            shouldShowVideoPlayer
-                                                ? "codicon-close"
-                                                : "codicon-device-camera-video"
-                                        } mr-2 h-4 w-4`}
-                                    />
-                                    <span>
-                                        {shouldShowVideoPlayer ? "Hide Video" : "Show Video"}
+                                    // Immediately save the metadata change
+                                    const updatedMetadata = {
+                                        ...metadata,
+                                        lineNumbersEnabled: newValue,
+                                        lineNumbersEnabledSource: "local" as const,
+                                    };
+                                    vscode.postMessage({
+                                        command: "updateNotebookMetadata",
+                                        content: updatedMetadata,
+                                    });
+                                }}
+                                className="cursor-pointer"
+                            >
+                                <i
+                                    className={`codicon ${
+                                        metadata?.lineNumbersEnabled ?? true
+                                            ? "codicon-eye-closed"
+                                            : "codicon-eye"
+                                    } mr-2 h-4 w-4`}
+                                />
+                                <span>
+                                    {metadata?.lineNumbersEnabled ?? true
+                                        ? "Hide Line Numbers"
+                                        : "Show Line Numbers"}
+                                </span>
+                            </DropdownMenuItem>
+
+                            {documentHasVideoAvailable && (
+                                <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                        onClick={handleToggleVideoPlayer}
+                                        className="cursor-pointer"
+                                    >
+                                        <i
+                                            className={`codicon ${
+                                                shouldShowVideoPlayer
+                                                    ? "codicon-close"
+                                                    : "codicon-device-camera-video"
+                                            } mr-2 h-4 w-4`}
+                                        />
+                                        <span>
+                                            {shouldShowVideoPlayer ? "Hide Video" : "Show Video"}
+                                        </span>
+                                    </DropdownMenuItem>
+                                </>
+                            )}
+
+                            {metadata && (
+                                <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                        onClick={handleOpenMetadataModal}
+                                        className="cursor-pointer"
+                                    >
+                                        <i className="codicon codicon-notebook mr-2 h-4 w-4" />
+                                        <span>Edit Metadata</span>
+                                    </DropdownMenuItem>
+                                </>
+                            )}
+                            <DropdownMenuSeparator />
+                            <div className="px-3 py-1">
+                                <div className="flex items-center justify-between mb-0.2">
+                                    <span className="text-sm text-muted-foreground">
+                                        {fontSize}px
                                     </span>
-                                </DropdownMenuItem>
-                            </>
-                        )}
-
-                        {metadata && (
-                            <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                    onClick={handleOpenMetadataModal}
-                                    className="cursor-pointer"
-                                >
-                                    <i className="codicon codicon-notebook mr-2 h-4 w-4" />
-                                    <span>Edit Metadata</span>
-                                </DropdownMenuItem>
-                            </>
-                        )}
-                        <DropdownMenuSeparator />
-                        <div className="px-3 py-1">
-                            <div className="flex items-center justify-between mb-0.2">
-                                <span className="text-sm text-muted-foreground">{fontSize}px</span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                                <span style={{ fontSize: "10px" }}>A</span>
-                                <div className="px-2 w-full">
-                                    <Slider
-                                        value={[fontSize]}
-                                        onValueChange={handleFontSizeChange}
-                                        max={24}
-                                        min={8}
-                                        step={1}
-                                        className="w-full"
-                                    />
                                 </div>
-                                <span style={{ fontSize: "20px" }}>A</span>
+                                <div className="flex items-center gap-1">
+                                    <span style={{ fontSize: "10px" }}>A</span>
+                                    <div className="px-2 w-full">
+                                        <Slider
+                                            value={[fontSize]}
+                                            onValueChange={handleFontSizeChange}
+                                            max={24}
+                                            min={8}
+                                            step={1}
+                                            className="w-full"
+                                        />
+                                    </div>
+                                    <span style={{ fontSize: "20px" }}>A</span>
+                                </div>
                             </div>
-                        </div>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                 </div>
             </div>
 
             {/* Desktop Left Section */}
-            <div className={`${shouldUseMobileLayout || shouldUseThreeRowLayout ? 'hidden' : 'flex'} items-center justify-start`}>
+            <div
+                className={`${
+                    shouldUseMobileLayout || shouldUseThreeRowLayout ? "hidden" : "flex"
+                } items-center justify-start`}
+            >
                 {isSourceText ? (
                     <>
                         <Button variant="outline" onClick={toggleScrollSync}>
@@ -679,7 +701,15 @@ ChapterNavigationHeaderProps) {
             </div>
 
             {/* Center Navigation Section */}
-            <div className={`flex items-center justify-center flex-grow-[2] ${shouldUseThreeRowLayout ? 'hidden' : shouldUseMobileLayout ? 'space-x-1' : 'space-x-2'} min-w-0`}>
+            <div
+                className={`flex items-center justify-center flex-grow-[2] ${
+                    shouldUseThreeRowLayout
+                        ? "hidden"
+                        : shouldUseMobileLayout
+                        ? "space-x-1"
+                        : "space-x-2"
+                } min-w-0`}
+            >
                 <Button
                     variant="outline"
                     size={shouldUseMobileLayout ? "sm" : "default"}
@@ -730,29 +760,41 @@ ChapterNavigationHeaderProps) {
                         }
                     }}
                 >
-                    <h1 className={`${shouldUseMobileLayout ? "text-lg" : "text-2xl"} flex items-center m-0 min-w-0`}>
+                    <h1
+                        className={`${
+                            shouldUseMobileLayout ? "text-lg" : "text-2xl"
+                        } flex items-center m-0 min-w-0`}
+                    >
                         <span className="truncate">
                             {(() => {
                                 const fullTitle = getDisplayTitle();
                                 const lastSpaceIndex = Math.max(
-                                    fullTitle.lastIndexOf('\u00A0'), 
-                                    fullTitle.lastIndexOf(' ')
+                                    fullTitle.lastIndexOf("\u00A0"),
+                                    fullTitle.lastIndexOf(" ")
                                 );
-                                return lastSpaceIndex > 0 ? fullTitle.substring(0, lastSpaceIndex) : fullTitle;
+                                return lastSpaceIndex > 0
+                                    ? fullTitle.substring(0, lastSpaceIndex)
+                                    : fullTitle;
                             })()}
                         </span>
                         <span className="flex-shrink-0 ml-1">
                             {(() => {
                                 const fullTitle = getDisplayTitle();
                                 const lastSpaceIndex = Math.max(
-                                    fullTitle.lastIndexOf('\u00A0'), 
-                                    fullTitle.lastIndexOf(' ')
+                                    fullTitle.lastIndexOf("\u00A0"),
+                                    fullTitle.lastIndexOf(" ")
                                 );
-                                return lastSpaceIndex > 0 ? fullTitle.substring(lastSpaceIndex + 1) : "";
+                                return lastSpaceIndex > 0
+                                    ? fullTitle.substring(lastSpaceIndex + 1)
+                                    : "";
                             })()}
                         </span>
                         {subsections.length > 0 && (
-                            <span className={`flex-shrink-0 ml-1 ${shouldUseMobileLayout ? "text-xs" : ""}`}>
+                            <span
+                                className={`flex-shrink-0 ml-1 ${
+                                    shouldUseMobileLayout ? "text-xs" : ""
+                                }`}
+                            >
                                 ({subsections[currentSubsectionIndex]?.label || ""})
                             </span>
                         )}
@@ -804,12 +846,17 @@ ChapterNavigationHeaderProps) {
                 </Button>
 
                 {subsections.length > 0 && !shouldUseThreeRowLayout && (
-                    <div className={`flex items-center ${shouldUseMobileLayout ? "ml-2" : "ml-4"}`} data-page-field>
-                        <span className={`${shouldUseMobileLayout ? "text-xs mr-1" : "mr-2"}`}>Page:</span>
+                    <div
+                        className={`flex items-center ${shouldUseMobileLayout ? "ml-2" : "ml-4"}`}
+                        data-page-field
+                    >
+                        <span className={`${shouldUseMobileLayout ? "text-xs mr-1" : "mr-2"}`}>
+                            Page:
+                        </span>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <Button 
-                                    variant="outline" 
+                                <Button
+                                    variant="outline"
                                     size={shouldUseMobileLayout ? "sm" : "default"}
                                     className="flex items-center gap-2"
                                 >
@@ -819,7 +866,13 @@ ChapterNavigationHeaderProps) {
                                             calculateSubsectionProgress(currentSection);
                                         return (
                                             <>
-                                                <span className={shouldUseMobileLayout ? "text-xs" : ""}>{currentSection?.label || ""}</span>
+                                                <span
+                                                    className={
+                                                        shouldUseMobileLayout ? "text-xs" : ""
+                                                    }
+                                                >
+                                                    {currentSection?.label || ""}
+                                                </span>
                                                 {progress.isFullyValidated && (
                                                     <div
                                                         className="w-2 h-2 rounded-full"
@@ -900,7 +953,11 @@ ChapterNavigationHeaderProps) {
             </div>
 
             {/* Desktop Right Section */}
-            <div className={`${shouldUseMobileLayout || shouldUseThreeRowLayout ? 'hidden' : 'flex'} items-center justify-end flex-1 space-x-2 min-w-0`}>
+            <div
+                className={`${
+                    shouldUseMobileLayout || shouldUseThreeRowLayout ? "hidden" : "flex"
+                } items-center justify-end flex-1 space-x-2 min-w-0`}
+            >
                 {/* {getFileStatusButton()} // FIXME: we want to show the file status, but it needs to load immediately, and it needs to be more reliable. - test this and also think through UX */}
                 {/* Show left sidebar toggle only when editor is not leftmost
                 
@@ -1126,7 +1183,8 @@ ChapterNavigationHeaderProps) {
 
                                     // When jumping to a new chapter, check if it has subsections
                                     // and if so, jump to the last page
-                                    const newChapterSubsections = getSubsectionsForChapter(newChapter);
+                                    const newChapterSubsections =
+                                        getSubsectionsForChapter(newChapter);
                                     if (newChapterSubsections.length > 0) {
                                         setCurrentSubsectionIndex(newChapterSubsections.length - 1);
                                     }
@@ -1164,25 +1222,31 @@ ChapterNavigationHeaderProps) {
                                 {(() => {
                                     const fullTitle = getDisplayTitle();
                                     const lastSpaceIndex = Math.max(
-                                        fullTitle.lastIndexOf('\u00A0'), 
-                                        fullTitle.lastIndexOf(' ')
+                                        fullTitle.lastIndexOf("\u00A0"),
+                                        fullTitle.lastIndexOf(" ")
                                     );
-                                    return lastSpaceIndex > 0 ? fullTitle.substring(0, lastSpaceIndex) : fullTitle;
+                                    return lastSpaceIndex > 0
+                                        ? fullTitle.substring(0, lastSpaceIndex)
+                                        : fullTitle;
                                 })()}
                             </span>
                             <span className="flex-shrink-0 ml-1">
                                 {(() => {
                                     const fullTitle = getDisplayTitle();
                                     const lastSpaceIndex = Math.max(
-                                        fullTitle.lastIndexOf('\u00A0'), 
-                                        fullTitle.lastIndexOf(' ')
+                                        fullTitle.lastIndexOf("\u00A0"),
+                                        fullTitle.lastIndexOf(" ")
                                     );
-                                    return lastSpaceIndex > 0 ? fullTitle.substring(lastSpaceIndex + 1) : "";
+                                    return lastSpaceIndex > 0
+                                        ? fullTitle.substring(lastSpaceIndex + 1)
+                                        : "";
                                 })()}
                             </span>
                             <i
                                 className={`codicon ${
-                                    showChapterSelector ? "codicon-chevron-up" : "codicon-chevron-down"
+                                    showChapterSelector
+                                        ? "codicon-chevron-up"
+                                        : "codicon-chevron-down"
                                 } ml-1 flex-shrink-0`}
                             />
                         </h1>
@@ -1236,8 +1300,8 @@ ChapterNavigationHeaderProps) {
                         <span className="text-xs mr-1">Page:</span>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <Button 
-                                    variant="outline" 
+                                <Button
+                                    variant="outline"
                                     size="sm"
                                     className="flex items-center gap-2"
                                 >
@@ -1247,7 +1311,9 @@ ChapterNavigationHeaderProps) {
                                             calculateSubsectionProgress(currentSection);
                                         return (
                                             <>
-                                                <span className="text-xs">{currentSection?.label || ""}</span>
+                                                <span className="text-xs">
+                                                    {currentSection?.label || ""}
+                                                </span>
                                                 {progress.isFullyValidated && (
                                                     <div
                                                         className="w-2 h-2 rounded-full"

@@ -88,7 +88,7 @@ interface MessageHandlerContext {
 
 // Individual message handlers
 const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<void> | void> = {
-    webviewReady: () => { },
+    webviewReady: () => { /* no-op */ },
     getAsrConfig: async ({ webviewPanel }) => {
         try {
             const config = vscode.workspace.getConfiguration("codex-editor-extension");
@@ -139,7 +139,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
                     }
                 }
-            } catch { }
+            } catch (err) {
+                console.warn("Failed to parse notebook data when initializing audioCells", err);
+            }
             for (const cid of Object.keys(updatedAudioAttachments)) {
                 audioCells[cid] = "available";
             }
@@ -155,7 +157,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         if (hasDeletedAudio) audioCells[id] = "deletedOnly";
                     }
                 }
-            } catch { }
+            } catch (err) {
+                console.warn("Failed to parse notebook data when computing deleted-only audio cells", err);
+            }
             provider.postMessageToWebview(webviewPanel, {
                 type: "providerSendsAudioAttachments",
                 attachments: audioCells as any,

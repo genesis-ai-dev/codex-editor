@@ -258,13 +258,31 @@ export class CodexCellDocument implements vscode.CustomDocument {
             return; // Skip adding edit if normalized content hasn't changed
         }
 
-        // Special case: for non-persisting LLM previews, do not record a value edit
-        // This avoids unintended persistence during merge/save when the user discards changes in the editor
+        // Special case: for non-persisting LLM previews, do not update the cell value
+        // but DO record an LLM_GENERATION edit in metadata so history/auditing is preserved
         if (editType === EditType.LLM_GENERATION && !shouldUpdateValue) {
-            // Notify webview-only so UI can reflect previewed content without marking file dirty
+            // Ensure edit history array exists
+            if (!cellToUpdate.metadata.edits) {
+                cellToUpdate.metadata.edits = [];
+            }
+
+            const currentTimestamp = Date.now();
+
+            cellToUpdate.metadata.edits.push({
+                editMap: EditMapUtils.value(),
+                value: newContent,
+                timestamp: currentTimestamp,
+                type: editType,
+                author: this._author,
+                validatedBy: [],
+            });
+
+            // Notify webview so UI can reflect previewed content without marking file dirty
             this._onDidChangeForWebview.fire({
                 edits: [{ cellId, newContent, editType }],
             });
+
+            // Intentionally do not mark the document dirty or update value/index
             return;
         }
 
@@ -315,7 +333,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
             validatedBy,
         });
 
-        // Record the edit
+        // Record the edit 
+        // not being used ???
         this._edits.push({
             type: "updateCellContent",
             cellId,
@@ -333,6 +352,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         if (editType === EditType.LLM_GENERATION || editType === EditType.USER_EDIT) {
             this.addCellToIndexImmediately(cellId, newContent, editType);
         }
+
     }
 
     // Helper function to sanitize HTML content using enhanced parsing

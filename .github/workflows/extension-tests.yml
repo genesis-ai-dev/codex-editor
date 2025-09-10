@@ -13,6 +13,7 @@ jobs:
         defaults:
             run:
                 shell: bash
+                working-directory: ${{ github.workspace }}
         strategy:
             fail-fast: false
             matrix:
