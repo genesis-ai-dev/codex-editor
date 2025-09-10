@@ -1245,18 +1245,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const handleInsertTranscription = () => {
         if (!savedTranscription) return;
 
-        // Get current content from the editor
+        // Get current content text-only (we intentionally simplify to keep codebase simple)
         const currentContent = editorContent;
         const doc = new DOMParser().parseFromString(currentContent, "text/html");
         const currentText = doc.body.textContent || "";
 
-        // Append transcribed text with a space if there's existing content
-        const newText = currentText
-            ? `${currentText} ${savedTranscription.content}`
-            : savedTranscription.content;
-
-        // Update the content as HTML
-        const newContent = `<span>${newText}</span>`;
+        // Build HTML with transcription visually de-emphasized
+        const transcriptionSpan = `<span data-transcription="true" style="opacity:0.6" title="Transcription">${savedTranscription.content}</span>`;
+        const newContent = currentText
+            ? `<span>${currentText} </span>${transcriptionSpan}`
+            : transcriptionSpan;
 
         // Update the editor content directly using the editor's updateContent method
         if (editorHandlesRef.current) {

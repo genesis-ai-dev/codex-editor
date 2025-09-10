@@ -353,7 +353,8 @@ const CodexCellEditor: React.FC = () => {
 
                                 // If editing a source file, also update the cell's main text content
                                 if (isSourceText) {
-                                    const html = `<span>${text}</span>`;
+                                    // Insert transcription with a subtle visual cue (reduced opacity)
+                                    const html = `<span data-transcription="true" style="opacity:0.6" title="Transcription">${text}</span>`;
                                     vscode.postMessage({
                                         command: 'saveHtml',
                                         content: { cellMarkers: [cellId], cellContent: html, cellChanged: true }

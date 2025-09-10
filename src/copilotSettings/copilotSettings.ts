@@ -117,6 +117,86 @@ export async function openSystemMessageEditor() {
                 });
                 break;
             }
+            case "getAsrSettings": {
+                try {
+                    const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                    const settings = {
+                        endpoint: config.get<string>("asrEndpoint", "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe"),
+                        provider: config.get<string>("asrProvider", "mms"),
+                        model: config.get<string>("asrModel", "facebook/mms-1b-all"),
+                        language: config.get<string>("asrLanguage", "eng"),
+                        phonetic: config.get<boolean>("asrPhonetic", false),
+                    };
+                    panel.webview.postMessage({ command: "asrSettings", data: settings });
+                } catch (error) {
+                    console.error("[CopilotSettings] Failed to get ASR settings:", error);
+                    panel.webview.postMessage({ command: "asrSettings", data: {} });
+                }
+                break;
+            }
+            case "saveAsrSettings": {
+                try {
+                    const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                    const target = vscode.ConfigurationTarget.Workspace;
+                    await config.update("asrEndpoint", message.data?.endpoint, target);
+                    await config.update("asrProvider", message.data?.provider, target);
+                    await config.update("asrModel", message.data?.model, target);
+                    await config.update("asrLanguage", message.data?.language, target);
+                    await config.update("asrPhonetic", !!message.data?.phonetic, target);
+                    panel.webview.postMessage({ command: "asrSettingsSaved" });
+                } catch (error) {
+                    console.error("[CopilotSettings] Failed to save ASR settings:", error);
+                    panel.webview.postMessage({ command: "asrSettingsSaved" });
+                }
+                break;
+            }
+            case "fetchAsrModels": {
+                const endpoint: string | undefined = message.data?.endpoint;
+                if (!endpoint) {
+                    panel.webview.postMessage({ command: "asrModels", data: [] });
+                    break;
+                }
+                try {
+                    let baseUrl: URL;
+                    try {
+                        baseUrl = new URL(endpoint);
+                    } catch (err) {
+                        throw new Error(`Invalid ASR endpoint: ${endpoint}`);
+                    }
+                    if (baseUrl.protocol === 'wss:') baseUrl.protocol = 'https:';
+                    if (baseUrl.protocol === 'ws:') baseUrl.protocol = 'http:';
+                    baseUrl.pathname = '/models';
+                    baseUrl.search = '';
+                    const urlStr = baseUrl.toString();
+
+                    let resText: string;
+                    if (typeof (globalThis as any).fetch === 'function') {
+                        const r = await (globalThis as any).fetch(urlStr);
+                        resText = await r.text();
+                    } else {
+                        const lib = urlStr.startsWith('https') ? require('https') : require('http');
+                        resText = await new Promise<string>((resolve, reject) => {
+                            lib.get(urlStr, (resp: any) => {
+                                let data = '';
+                                resp.on('data', (chunk: any) => (data += chunk));
+                                resp.on('end', () => resolve(data));
+                            }).on('error', (err: any) => reject(err));
+                        });
+                    }
+                    let models: any[] = [];
+                    try {
+                        const parsed = JSON.parse(resText);
+                        models = Array.isArray(parsed) ? parsed : parsed?.models || [];
+                    } catch {
+                        models = [];
+                    }
+                    panel.webview.postMessage({ command: "asrModels", data: models });
+                } catch (e) {
+                    console.error("[CopilotSettings] Failed to fetch ASR models:", e);
+                    panel.webview.postMessage({ command: "asrModels", data: [] });
+                }
+                break;
+            }
             case "save":
                 await config.update(
                     "chatSystemMessage",

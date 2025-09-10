@@ -90,6 +90,7 @@ const CellList: React.FC<CellListProps> = ({
     lineNumbersEnabled = true,
     currentUsername,
     requiredValidations,
+    transcribingCells,
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);

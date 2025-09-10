@@ -16,8 +16,7 @@ import {
 import { createNewWorkspaceAndProject, openProject, createNewProject } from "../../utils/projectCreationUtils/projectCreationUtils";
 import { FrontierAPI } from "webviews/codex-webviews/src/StartupFlow/types";
 import git from "isomorphic-git";
-import * as https from "https";
-import * as http from "http";
+// Note: avoid top-level http(s) imports to keep test bundling simple
 import * as fs from "fs";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { SyncManager } from "../../projectManager/syncManager";
@@ -663,14 +662,22 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     baseUrl.search = '';
                     const urlStr = baseUrl.toString();
 
-                    const res = await new Promise<string>((resolve, reject) => {
-                        const lib = urlStr.startsWith('https') ? https : http;
-                        lib.get(urlStr, (resp) => {
-                            let data = '';
-                            resp.on('data', (chunk) => (data += chunk));
-                            resp.on('end', () => resolve(data));
-                        }).on('error', (err) => reject(err));
-                    });
+                    // Prefer global fetch (available in recent VS Code/Node); fallback to http(s)
+                    let res: string;
+                    if (typeof (globalThis as any).fetch === 'function') {
+                        const r = await (globalThis as any).fetch(urlStr);
+                        res = await r.text();
+                    } else {
+                        // Lazy-require to avoid bundler resolving node: scheme
+                        const lib = urlStr.startsWith('https') ? require('https') : require('http');
+                        res = await new Promise<string>((resolve, reject) => {
+                            lib.get(urlStr, (resp: any) => {
+                                let data = '';
+                                resp.on('data', (chunk: any) => (data += chunk));
+                                resp.on('end', () => resolve(data));
+                            }).on('error', (err: any) => reject(err));
+                        });
+                    }
                     let models: any[] = [];
                     try {
                         const parsed = JSON.parse(res);
