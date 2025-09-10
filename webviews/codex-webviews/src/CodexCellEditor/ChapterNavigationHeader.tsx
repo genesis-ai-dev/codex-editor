@@ -503,8 +503,8 @@ ChapterNavigationHeaderProps) {
 
     return (
         <div className="relative flex flex-row p-2 max-w-full items-center">
-            {/* Mobile hamburger menu - shows at very small screens */}
-            <div className="flex items-center min-[400px]:hidden">
+            {/* Mobile hamburger menu - shows when page dropdown is hidden */}
+            <div className={`hidden items-center ${subsections.length > 0 ? "max-[639px]:flex" : "max-[399px]:flex"}`}>
                 <MobileHeaderMenu
                     isAutocompletingChapter={isAutocompletingChapter}
                     isTranslatingCell={isTranslatingCell}
@@ -538,7 +538,7 @@ ChapterNavigationHeaderProps) {
             </div>
 
             {/* Desktop left controls */}
-            <div className="hidden min-[400px]:flex items-center justify-start flex-shrink-0">
+            <div className={`${subsections.length > 0 ? "hidden min-[640px]:flex" : "hidden min-[400px]:flex"} items-center justify-start flex-shrink-0`}>
                 {isSourceText ? (
                     <>
                         <Button variant="outline" onClick={toggleScrollSync}>
@@ -651,9 +651,9 @@ ChapterNavigationHeaderProps) {
                                     : "";
                             })()}
                         </span>
-                        {/* Show page info on mobile since page selector is hidden */}
+                        {/* Show page info - hide on narrow screens to prevent collisions */}
                         {subsections.length > 0 && (
-                            <span className="flex-shrink-0 ml-1 text-sm md:text-base">
+                            <span className="flex-shrink-0 ml-1 text-sm md:text-base hidden min-[500px]:inline">
                                 ({subsections[currentSubsectionIndex]?.label || ""})
                             </span>
                         )}
@@ -705,9 +705,9 @@ ChapterNavigationHeaderProps) {
                     />
                 </Button>
 
-                {/* Page selector - hidden on smaller screens */}
+                {/* Page selector - dynamic threshold: higher for long chapters (50+ verses) */}
                 {subsections.length > 0 && (
-                    <div className="hidden min-[400px]:flex items-center ml-4">
+                    <div className="hidden min-[640px]:flex items-center ml-4">
                         <span className="mr-2">Page:</span>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -806,7 +806,7 @@ ChapterNavigationHeaderProps) {
             </div>
 
             {/* Desktop right controls */}
-            <div className="hidden min-[400px]:flex items-center justify-end ml-auto space-x-2">
+            <div className={`${subsections.length > 0 ? "hidden min-[640px]:flex" : "hidden min-[400px]:flex"} items-center justify-end ml-auto space-x-2`}>
                 {/* {getFileStatusButton()} // FIXME: we want to show the file status, but it needs to load immediately, and it needs to be more reliable. - test this and also think through UX */}
                 {/* Show left sidebar toggle only when editor is not leftmost
                 

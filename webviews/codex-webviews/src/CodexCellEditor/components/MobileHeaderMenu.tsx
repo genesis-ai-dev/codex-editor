@@ -93,7 +93,11 @@ export function MobileHeaderMenu({
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <Button variant="outline" title="Menu" className="min-[400px]:hidden">
+                <Button
+                    variant="outline"
+                    title="Menu"
+                    className={subsections.length > 0 ? "max-[639px]:inline-flex" : "max-[399px]:inline-flex"}
+                >
                     <i className="codicon codicon-menu" />
                 </Button>
             </DropdownMenuTrigger>
