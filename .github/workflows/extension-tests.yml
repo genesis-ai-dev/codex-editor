@@ -65,7 +65,20 @@ jobs:
                   echo "C:\\Program Files\\nodejs" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
             - name: Install deps
-              run: npm ci
+              run: |
+                  set -euo pipefail
+                  echo "Working directory: $(pwd)"
+                  echo "Git status:"
+                  git status --porcelain=v1 || true
+                  echo "Top-level files:"
+                  ls -la
+                  if [ -f package-lock.json ]; then
+                    echo "Found package-lock.json; running npm ci"
+                    npm ci --no-audit --no-fund
+                  else
+                    echo "package-lock.json missing; running npm install as fallback"
+                    npm install --no-audit --no-fund
+                  fi
 
             # Build is handled by npm pretest (compile + lint); no separate build step needed
 
