@@ -1,3 +1,15 @@
+export type AsrMeta =
+    | { type: 'meta'; mime: string }
+    | {
+          type: 'meta';
+          provider: 'mms' | 'whisper' | string;
+          model: string;
+          mime: string;
+          language?: string;
+          task?: 'transcribe' | 'translate';
+          phonetic?: boolean;
+      };
+
 export class WhisperTranscriptionClient {
     private ws: WebSocket | null = null;
     private url: string;
@@ -9,7 +21,11 @@ export class WhisperTranscriptionClient {
         this.url = url;
     }
 
-    async transcribe(audioBlob: Blob): Promise<{ text: string; language: string }> {
+    async transcribe(
+        audioBlob: Blob,
+        meta: AsrMeta,
+        timeoutMs: number = 30000
+    ): Promise<{ text: string; language: string; provider?: string; model?: string; phonetic?: string | null }> {
         return new Promise((resolve, reject) => {
             try {
                 // Create WebSocket connection
@@ -17,9 +33,9 @@ export class WhisperTranscriptionClient {
 
                 this.ws.onopen = () => {
                     console.log('WebSocket connection opened for transcription');
-                    // 1. Send MIME type as JSON
-                    const meta = { type: 'meta', mime: audioBlob.type || 'audio/webm' };
-                    this.ws?.send(JSON.stringify(meta));
+                    // 1. Send metadata JSON (provider-specific if provided)
+                    const metaToSend: AsrMeta = meta ?? { type: 'meta', mime: audioBlob.type || 'audio/webm' };
+                    this.ws?.send(JSON.stringify(metaToSend));
                     // 2. Send the audio blob as binary data
                     this.ws?.send(audioBlob);
                 };
@@ -39,7 +55,10 @@ export class WhisperTranscriptionClient {
                                 this.cleanup();
                                 resolve({
                                     text: message.text,
-                                    language: message.language
+                                    language: message.language,
+                                    provider: message.provider,
+                                    model: message.model,
+                                    phonetic: message.phonetic ?? null,
                                 });
                                 break;
 
@@ -83,7 +102,7 @@ export class WhisperTranscriptionClient {
                     }
                 };
 
-                // Add timeout
+                // Add timeout (default 30s, configurable)
                 setTimeout(() => {
                     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
                         this.cleanup();
@@ -93,7 +112,7 @@ export class WhisperTranscriptionClient {
                         }
                         reject(new Error(errorMsg));
                     }
-                }, 300000); // 5 minute timeout
+                }, timeoutMs);
 
             } catch (error) {
                 this.cleanup();

@@ -32,6 +32,7 @@ import { getVSCodeAPI } from "../shared/vscodeApi";
 import { Subsection } from "../lib/types";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
+import { WhisperTranscriptionClient, type AsrMeta } from "./WhisperTranscriptionClient";
 
 // eslint-disable-next-line react-refresh/only-export-components
 export enum CELL_DISPLAY_MODES {
@@ -237,6 +238,131 @@ const CodexCellEditor: React.FC = () => {
 
     // Acquire VS Code API once at component initialization
     const vscode = useMemo(() => getVSCodeAPI(), []);
+
+    // Batch transcription handler
+    useMessageHandler(
+        "codexCellEditor-startBatchTranscription",
+        (event: MessageEvent) => {
+            const message = event.data as EditorReceiveMessages;
+            if (message.type !== "startBatchTranscription") return;
+            const run = async () => {
+                try {
+                    // Fetch ASR config
+                    const asrConfig = await new Promise<{ endpoint: string; provider: string; model: string; language: string; phonetic: boolean }>((resolve) => {
+                        let resolved = false;
+                        const onMsg = (ev: MessageEvent) => {
+                            if (ev.data?.type === "asrConfig") {
+                                window.removeEventListener("message", onMsg);
+                                resolved = true;
+                                resolve(ev.data.content);
+                            }
+                        };
+                        window.addEventListener("message", onMsg);
+                        vscode.postMessage({ command: "getAsrConfig" });
+                        setTimeout(() => {
+                            if (!resolved) {
+                                window.removeEventListener("message", onMsg);
+                                resolve({
+                                    endpoint: "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe",
+                                    provider: "mms",
+                                    model: "facebook/mms-1b-all",
+                                    language: "eng",
+                                    phonetic: false,
+                                });
+                            }
+                        }, 2000);
+                    });
+
+                    const toIso3 = (code?: string) => {
+                        const ISO2_TO_ISO3: Record<string, string> = { en: "eng", fr: "fra", es: "spa", de: "deu", pt: "por", it: "ita", nl: "nld", ru: "rus", zh: "zho", ja: "jpn", ko: "kor" };
+                        if (!code) return "eng";
+                        const norm = code.toLowerCase();
+                        return norm.length === 2 ? (ISO2_TO_ISO3[norm] ?? "eng") : norm;
+                    };
+
+                    const wsEndpoint = asrConfig.endpoint || "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe";
+
+                    const max = Math.max(0, message.content.count | 0);
+                    const candidates = translationUnits.filter((u) => audioAttachments[u.cellMarkers[0]] === 'available');
+                    const units = (candidates.length > 0 ? candidates : translationUnits).slice(0, max > 0 ? max : translationUnits.length);
+                    for (const unit of units) {
+                        const cellId = unit.cellMarkers[0];
+                        // Request audio for cell
+                        const audioInfo = await new Promise<{ audioData: string | null; hasTranscription: boolean }>((resolve) => {
+                            let resolved = false;
+                            const handler = (ev: MessageEvent) => {
+                                if (ev.data?.type === "providerSendsAudioData" && ev.data.content?.cellId === cellId) {
+                                    window.removeEventListener("message", handler);
+                                    resolved = true;
+                                    resolve({
+                                        audioData: ev.data.content.audioData || null,
+                                        hasTranscription: !!ev.data.content.transcription,
+                                    });
+                                }
+                            };
+                            window.addEventListener("message", handler);
+                            vscode.postMessage({ command: "requestAudioForCell", content: { cellId } } as EditorPostMessages);
+                            // Timeout after 5s
+                            setTimeout(() => { if (!resolved) { window.removeEventListener("message", handler); resolve({ audioData: null, hasTranscription: false }); } }, 5000);
+                        });
+                        if (!audioInfo.audioData) continue; // no audio to transcribe
+                        if (audioInfo.hasTranscription) continue; // already transcribed
+
+                        // Convert data URL to Blob
+                        const blob = await (await fetch(audioInfo.audioData)).blob();
+
+                        // Build meta
+                        const mime = blob.type || "audio/webm";
+                        const provider = (asrConfig.provider || "mms").toLowerCase();
+                        let meta: AsrMeta = { type: 'meta', mime };
+                        if (provider === "mms") {
+                            meta = {
+                                type: 'meta',
+                                provider: 'mms',
+                                model: asrConfig.model || 'facebook/mms-1b-all',
+                                mime,
+                                language: toIso3(asrConfig.language || 'eng'),
+                                task: 'transcribe',
+                                phonetic: !!asrConfig.phonetic,
+                            };
+                        }
+
+                        // Transcribe
+                        const client = new WhisperTranscriptionClient(wsEndpoint);
+                        try {
+                            const result = await client.transcribe(blob, meta, 30000);
+                            const text = (result.text || '').trim();
+                            if (text) {
+                                vscode.postMessage({
+                                    command: 'updateCellAfterTranscription',
+                                    content: { cellId, transcribedText: text, language: result.language || 'unknown' }
+                                } as unknown as EditorPostMessages);
+
+                                // If editing a source file, also update the cell's main text content
+                                if (isSourceText) {
+                                    const html = `<span>${text}</span>`;
+                                    vscode.postMessage({
+                                        command: 'saveHtml',
+                                        content: { cellMarkers: [cellId], cellContent: html, cellChanged: true }
+                                    } as unknown as EditorPostMessages);
+                                }
+                            }
+                        } catch (err) {
+                            console.error('Batch transcription failed for', cellId, err);
+                            vscode.postMessage({
+                                command: 'showErrorMessage',
+                                text: `Transcription failed for ${cellId}: ${err instanceof Error ? err.message : String(err)}`,
+                            } as any);
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error during batch transcription:', e);
+                }
+            };
+            run();
+        },
+        [translationUnits, vscode]
+    );
 
     // A/B test variant selection handler
     const handleVariantSelected = (selectedIndex: number, selectionTimeMs: number) => {
@@ -2065,6 +2191,8 @@ const CodexCellEditor: React.FC = () => {
                                 tempFontSize !== null ? tempFontSize : metadata?.fontSize || 14
                             }
                             lineNumbersEnabled={metadata?.lineNumbersEnabled ?? true}
+                            currentUsername={username}
+                            requiredValidations={requiredValidations ?? undefined}
                         />
                     </div>
                 </div>

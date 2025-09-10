@@ -97,6 +97,15 @@ function MainMenu() {
     });
 
     const [isTextDisplaySettingsOpen, setIsTextDisplaySettingsOpen] = useState(false);
+    const [asrSettings, setAsrSettings] = useState<{
+        endpoint: string;
+        provider: 'mms' | 'whisper' | string;
+        model: string;
+        language: string;
+        phonetic: boolean;
+    }>({ endpoint: "", provider: "mms", model: "facebook/mms-1b-all", language: "eng", phonetic: false });
+    const [asrModels, setAsrModels] = useState<string[]>([]);
+    const [isFetchingModels, setIsFetchingModels] = useState(false);
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -166,6 +175,16 @@ function MainMenu() {
                         },
                     }));
                     break;
+                case "asrSettings":
+                    setAsrSettings((prev) => ({ ...prev, ...message.data }));
+                    break;
+                case "asrModels":
+                    setAsrModels(Array.isArray(message.data) ? message.data.map(String) : []);
+                    setIsFetchingModels(false);
+                    break;
+                case "asrSettingsSaved":
+                    // Optional: show a quick confirmation UI if desired
+                    break;
             }
         };
 
@@ -178,6 +197,8 @@ function MainMenu() {
             vscode.postMessage({ command: "getSyncSettings" });
             // Request progress data
             vscode.postMessage({ command: "getProjectProgress" });
+            // Request ASR settings
+            vscode.postMessage({ command: "getAsrSettings" });
         } catch (error) {
             console.error("Could not send webviewReady message:", error);
         }
@@ -247,6 +268,15 @@ function MainMenu() {
 
     const handleTriggerSync = () => {
         handleProjectAction("triggerSync");
+    };
+
+    const handleFetchModels = () => {
+        setIsFetchingModels(true);
+        vscode.postMessage({ command: "fetchAsrModels", data: { endpoint: asrSettings.endpoint } });
+    };
+
+    const handleSaveAsr = () => {
+        vscode.postMessage({ command: "saveAsrSettings", data: asrSettings });
     };
 
     const handleApplyTextDisplaySettings = (settings: TextDisplaySettings) => {
@@ -994,6 +1024,82 @@ function MainMenu() {
                         </Alert>
                     )}
                 </div>
+            )}
+
+            {/* Speech to Text Settings */}
+            {projectState.workspaceIsOpen && (
+                <Card
+                    className="card border-2 shadow-lg hover:shadow-xl transition-all duration-200"
+                    style={{ borderColor: "var(--ring)", backgroundColor: "var(--card)" }}
+                >
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <i className="codicon codicon-mic" /> Speech to Text
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1">
+                                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Endpoint</label>
+                                <input
+                                    className="w-full rounded border px-2 py-1 text-sm"
+                                    value={asrSettings.endpoint}
+                                    onChange={(e) => setAsrSettings((s) => ({ ...s, endpoint: e.target.value }))}
+                                    placeholder="wss://.../ws/transcribe"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Provider</label>
+                                <select
+                                    className="w-full rounded border px-2 py-1 text-sm"
+                                    value={asrSettings.provider}
+                                    onChange={(e) => setAsrSettings((s) => ({ ...s, provider: e.target.value as any }))}
+                                >
+                                    <option value="mms">MMS</option>
+                                    <option value="whisper">Whisper</option>
+                                </select>
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Model</label>
+                                <div className="flex gap-2">
+                                    <select
+                                        className="flex-1 rounded border px-2 py-1 text-sm"
+                                        value={asrSettings.model}
+                                        onChange={(e) => setAsrSettings((s) => ({ ...s, model: e.target.value }))}
+                                    >
+                                        {[asrSettings.model, ...asrModels.filter((m) => m !== asrSettings.model)].map((m) => (
+                                            <option key={m} value={m}>{m}</option>
+                                        ))}
+                                    </select>
+                                    <Button size="sm" variant="outline" onClick={handleFetchModels} disabled={isFetchingModels}>
+                                        {isFetchingModels ? <i className="codicon codicon-loading codicon-modifier-spin" /> : <i className="codicon codicon-refresh" />}
+                                    </Button>
+                                </div>
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Language (ISO-639-3)</label>
+                                <input
+                                    className="w-full rounded border px-2 py-1 text-sm"
+                                    value={asrSettings.language}
+                                    onChange={(e) => setAsrSettings((s) => ({ ...s, language: e.target.value }))}
+                                    placeholder="eng"
+                                />
+                            </div>
+                            <div className="flex items-center gap-2 mt-2">
+                                <input
+                                    id="phonetic"
+                                    type="checkbox"
+                                    checked={asrSettings.phonetic}
+                                    onChange={(e) => setAsrSettings((s) => ({ ...s, phonetic: e.target.checked }))}
+                                />
+                                <label htmlFor="phonetic" className="text-sm">Return phonetic (IPA) if supported</label>
+                            </div>
+                        </div>
+                        <div className="flex justify-end">
+                            <Button onClick={handleSaveAsr} className="h-8 px-3 text-sm">Save</Button>
+                        </div>
+                    </CardContent>
+                </Card>
             )}
 
             <div className="mt-auto pt-6 text-center border-t border-border">

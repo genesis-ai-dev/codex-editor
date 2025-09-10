@@ -61,8 +61,9 @@ export async function callLLM(
         if (model === "custom") {
             model = config.customModel;
         }
-
-        console.log("model", model);
+        if ((config as any)?.debugMode) {
+            console.debug("[callLLM] model", model);
+        }
 
         try {
             // Check for cancellation before making the API call
@@ -142,11 +143,25 @@ export async function callLLM(
                 throw error; // Re-throw cancellation errors as-is
             }
 
-            if (error.response && error.response.status === 401) {
-                vscode.window.showErrorMessage(
-                    "Authentication failed. Please add a valid API key for the copilot if you are using a remote LLM."
-                );
-                return "";
+            const status = (error?.response?.status ?? error?.status) as number | undefined;
+            const isAuthError = status === 401 || String(error?.message || "").includes("401");
+            if (isAuthError) {
+                // Throttle the auth error toast
+                try {
+                    const now = Date.now();
+                    const key = "codex.lastAuthErrorTs";
+                    const last = (globalThis as any)[key] as number | undefined;
+                    if (!last || now - last > 5000) {
+                        vscode.window.showErrorMessage(
+                            "Authentication failed for LLM. Set an API key or sign in to your LLM provider."
+                        );
+                        (globalThis as any)[key] = now;
+                    }
+                } catch {
+                    // no-op
+                }
+                // Treat as a cancellation to avoid noisy error logs up the stack
+                throw new vscode.CancellationError();
             }
             throw error;
         }
@@ -155,7 +170,7 @@ export async function callLLM(
             throw error; // Re-throw cancellation errors as-is
         }
 
-        console.error("Error calling LLM:", error);
+        console.error("[callLLM] Error calling LLM:", error);
         throw new Error("Failed to get a response from the LLM; callLLM() failed - case 2");
     }
 }
