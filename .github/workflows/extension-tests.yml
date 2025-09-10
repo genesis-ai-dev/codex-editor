@@ -27,20 +27,47 @@ jobs:
                   git init .
                   git config --global --add safe.directory "$PWD"
                   git remote add origin "$REPO_URL"
-                  git fetch --no-tags --prune --progress --depth=1 origin ${{ github.sha }}
-                  git checkout --progress --force ${{ github.sha }}
+                  if [ "${{ github.event_name }}" = "pull_request" ]; then
+                    echo "Fetching PR merge ref: refs/pull/${{ github.event.pull_request.number }}/merge"
+                    git fetch --no-tags --prune --progress --depth=1 origin "refs/pull/${{ github.event.pull_request.number }}/merge"
+                    git checkout --progress --force FETCH_HEAD
+                  else
+                    echo "Fetching ref: ${{ github.ref }} (sha: ${{ github.sha }})"
+                    git fetch --no-tags --prune --progress --depth=1 origin "${{ github.ref }}"
+                    git checkout --progress --force ${{ github.sha }}
+                  fi
 
             # Use preinstalled Node on GitHub-hosted runners (Node ${{ matrix.node }} available on latest images)
-            - name: Show Node version
-              run: node -v
+            - name: Use Node 20 (Linux/macOS)
+              if: runner.os != 'Windows'
+              run: |
+                  set -euo pipefail
+                  export NVM_DIR="$HOME/.nvm"
+                  if [ ! -s "$NVM_DIR/nvm.sh" ]; then
+                    curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+                  fi
+                  . "$NVM_DIR/nvm.sh"
+                  nvm install 20
+                  nvm use 20
+                  node -v
+                  npm -v
+                  echo "$(dirname $(which node))" >> "$GITHUB_PATH"
+
+            - name: Use Node 20 (Windows)
+              if: runner.os == 'Windows'
+              shell: pwsh
+              run: |
+                  Set-StrictMode -Version Latest
+                  choco install nodejs-lts --version=20.17.0 -y --no-progress
+                  $env:Path = "C:\\Program Files\\nodejs;" + $env:Path
+                  node -v
+                  npm -v
+                  echo "C:\\Program Files\\nodejs" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
             - name: Install deps
               run: npm ci
 
-            # If you build TypeScript before running tests, keep this step.
-            - name: Build
-              run: npm run -s build
-              if: ${{ hashFiles('tsconfig.json') != '' }}
+            # Build is handled by npm pretest (compile + lint); no separate build step needed
 
             # On Linux, VS Code tests need an X server; run them under xvfb
             - name: Test (Linux)
