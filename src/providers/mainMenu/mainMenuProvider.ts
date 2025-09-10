@@ -16,8 +16,8 @@ import {
 import { createNewWorkspaceAndProject, openProject, createNewProject } from "../../utils/projectCreationUtils/projectCreationUtils";
 import { FrontierAPI } from "webviews/codex-webviews/src/StartupFlow/types";
 import git from "isomorphic-git";
-import * as https from "node:https";
-import * as http from "node:http";
+import * as https from "https";
+import * as http from "http";
 import * as fs from "fs";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { SyncManager } from "../../projectManager/syncManager";
@@ -1736,21 +1736,21 @@ export class MainMenuProvider extends BaseWebviewProvider {
 
             // Check existing settings to determine if we should skip
             let shouldSkip = false;
-            
+
             if (settings.updateBehavior === "skip") {
                 // Check each setting individually
-                if (settings.fontSize !== undefined && 
-                    fileData.metadata?.fontSize !== undefined && 
+                if (settings.fontSize !== undefined &&
+                    fileData.metadata?.fontSize !== undefined &&
                     fileData.metadata?.fontSizeSource === "local") {
                     shouldSkip = true;
                 }
-                if (settings.enableLineNumbers !== undefined && 
-                    fileData.metadata?.lineNumbersEnabled !== undefined && 
+                if (settings.enableLineNumbers !== undefined &&
+                    fileData.metadata?.lineNumbersEnabled !== undefined &&
                     fileData.metadata?.lineNumbersEnabledSource === "local") {
                     shouldSkip = true;
                 }
-                if (settings.textDirection !== undefined && 
-                    fileData.metadata?.textDirection !== undefined && 
+                if (settings.textDirection !== undefined &&
+                    fileData.metadata?.textDirection !== undefined &&
                     fileData.metadata?.textDirectionSource === "local") {
                     shouldSkip = true;
                 }
