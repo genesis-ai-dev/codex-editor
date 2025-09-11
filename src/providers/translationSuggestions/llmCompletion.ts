@@ -355,25 +355,3 @@ async function logDebugMessages(messages: ChatMessage[], completion: string, var
         throw new Error("Failed to write messages to copilot-messages.log");
     }
 }
-
-function showNoResultsWarning() {
-    const warningMessage = "No relevant translated cells found for context.";
-    const detailedWarning =
-        "Unable to find any relevant cells that have already been translated. This may affect the quality of the translation suggestion.";
-
-    vscode.window.showWarningMessage(warningMessage, "More Info", "Dismiss").then((selection) => {
-        if (selection === "More Info") {
-            vscode.window
-                .showInformationMessage(detailedWarning, "Refresh Index", "How to Fix")
-                .then((selection) => {
-                    if (selection === "Refresh Index") {
-                        vscode.commands.executeCommand("codex-editor-extension.forceReindex");
-                    } else if (selection === "How to Fix") {
-                        vscode.window.showInformationMessage(
-                            "Try translating more cells in nearby sections or chapters to provide better context for future suggestions."
-                        );
-                    }
-                });
-        }
-    });
-}

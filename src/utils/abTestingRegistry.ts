@@ -1,5 +1,3 @@
-import * as vscode from "vscode";
-
 type ABTestResultPayload<TVariant> = TVariant[] | { variants: TVariant[]; names?: string[] };
 type ABTestHandler<TContext, TVariant> = (context: TContext) => Promise<ABTestResultPayload<TVariant>>;
 
@@ -53,17 +51,5 @@ class ABTestingRegistry {
 }
 
 export const abTestingRegistry = new ABTestingRegistry();
-
-// Simple helper to log decisions (can be expanded later)
-export function logABDecision(name: string, ran: boolean) {
-  try {
-    const output = vscode.window.createOutputChannel("Codex A/B Testing");
-    output.appendLine(`${new Date().toISOString()} - ${name}: ${ran ? "ran" : "skipped"}`);
-  } catch {
-    // no-op if output channels unavailable
-  }
-}
-
 export type { ABTestHandler };
-
 
