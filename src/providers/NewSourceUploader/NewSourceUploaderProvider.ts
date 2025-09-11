@@ -252,24 +252,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         const conflicts = await this.checkForFileConflicts(message.notebookPairs.map(pair => pair.source));
 
         if (conflicts.length > 0) {
-            // Show confirmation dialog
-            const filesList = conflicts.map(conflict => {
-                const parts = [];
-                if (conflict.sourceExists) parts.push("source file");
-                if (conflict.targetExists) parts.push("target file");
-                if (conflict.hasTranslations) parts.push("with translations");
-                return `• ${conflict.name} (${parts.join(", ")})`;
-            }).join("\n");
-
-            const action = await vscode.window.showWarningMessage(
-                `The following files already exist and will be overwritten:\n\n${filesList}\n\nThis will permanently delete any existing translations for this file. Do you want to continue?`,
-                { modal: true },
-                "Overwrite Files",
-                "Abort Import"
-            );
-
-            if (action !== "Overwrite Files") {
-                // User cancelled
+            const confirmed = await this.confirmOverwriteWithTruncation(conflicts);
+            if (!confirmed) {
                 webviewPanel.webview.postMessage({
                     command: "notification",
                     type: "info",
@@ -388,21 +372,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         // Reuse conflict checks from handleWriteNotebooks
         const conflicts = await this.checkForFileConflicts(message.notebookPairs.map(pair => pair.source));
         if (conflicts.length > 0) {
-            const filesList = conflicts.map(conflict => {
-                const parts = [] as string[];
-                if (conflict.sourceExists) parts.push("source file");
-                if (conflict.targetExists) parts.push("target file");
-                if (conflict.hasTranslations) parts.push("with translations");
-                return `• ${conflict.name} (${parts.join(", ")})`;
-            }).join("\n");
-
-            const action = await vscode.window.showWarningMessage(
-                `The following files already exist and will be overwritten:\n\n${filesList}\n\nThis will permanently delete any existing translations for this file. Do you want to continue?`,
-                { modal: true },
-                "Overwrite Files",
-                "Abort Import"
-            );
-            if (action !== "Overwrite Files") {
+            const confirmed = await this.confirmOverwriteWithTruncation(conflicts);
+            if (!confirmed) {
                 webviewPanel.webview.postMessage({
                     command: "notification",
                     type: "info",
@@ -860,6 +831,11 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         }
     }
 
+    // Presents a concise overwrite confirmation with truncation and optional details view
+    private async confirmOverwriteWithTruncation(items: Array<{ name: string; sourceExists: boolean; targetExists: boolean; hasTranslations: boolean; }>): Promise<boolean> {
+        return confirmOverwriteWithDetails(items);
+    }
+
     private async fetchProjectInventory(): Promise<{
         sourceFiles: Array<{
             name: string;
@@ -1044,3 +1020,53 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         });
     }
 }
+
+// Helper to present a concise overwrite confirmation with truncation and an Output Channel for details
+async function confirmOverwriteWithDetails(
+    items: Array<{ name: string; sourceExists: boolean; targetExists: boolean; hasTranslations: boolean; }>,
+    options?: { maxItems?: number; }
+): Promise<boolean> {
+    const maxItems = options?.maxItems ?? 15;
+
+    const makeLine = (c: { name: string; sourceExists: boolean; targetExists: boolean; hasTranslations: boolean; }) => {
+        const parts: string[] = [];
+        if (c.sourceExists) parts.push("source file");
+        if (c.targetExists) parts.push("target file");
+        if (c.hasTranslations) parts.push("with translations");
+        return `• ${c.name} (${parts.join(", ")})`;
+    };
+
+    const fullList = items.map(makeLine).join("\n");
+    const truncatedList = items.slice(0, maxItems).map(makeLine).join("\n");
+    const hasMore = items.length > maxItems;
+
+    const baseMessage = hasMore
+        ? `The following files already exist and will be overwritten (showing first ${maxItems} of ${items.length}):\n\n${truncatedList}\n\nThis will permanently delete any existing translations for these files. Continue?`
+        : `The following files already exist and will be overwritten:\n\n${truncatedList}\n\nThis will permanently delete any existing translations for these files. Continue?`;
+
+    const choices = hasMore ? ["Overwrite Files", "View Details", "Abort Import"] : ["Overwrite Files", "Abort Import"];
+    const action = await vscode.window.showWarningMessage<string>(
+        baseMessage,
+        { modal: true },
+        ...choices
+    );
+
+    if (action === "View Details") {
+        const channel = vscode.window.createOutputChannel("Codex Import Conflicts");
+        channel.clear();
+        channel.appendLine("The following files already exist and will be overwritten:\n");
+        channel.appendLine(fullList);
+        channel.show(true);
+
+        const confirmAfterView = await vscode.window.showWarningMessage<string>(
+            "Proceed with overwriting the files listed in the 'Codex Import Conflicts' output?",
+            { modal: true },
+            "Overwrite Files",
+            "Abort Import"
+        );
+        return confirmAfterView === "Overwrite Files";
+    }
+
+    return action === "Overwrite Files";
+}
+
