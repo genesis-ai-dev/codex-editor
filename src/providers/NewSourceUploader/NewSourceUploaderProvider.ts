@@ -224,6 +224,9 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             corpusMarker: processedNotebook.metadata.importerType,
             textDirection: "ltr",
             ...(processedNotebook.metadata.videoUrl && { videoUrl: processedNotebook.metadata.videoUrl }),
+            ...(processedNotebook.metadata as any)?.audioOnly !== undefined
+                ? { audioOnly: (processedNotebook.metadata as any).audioOnly as boolean }
+                : {},
             // Preserve document structure metadata and other custom fields
             ...(processedNotebook.metadata.documentStructure && {
                 documentStructure: processedNotebook.metadata.documentStructure

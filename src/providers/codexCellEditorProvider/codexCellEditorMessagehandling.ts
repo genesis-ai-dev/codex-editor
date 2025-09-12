@@ -439,11 +439,97 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const cellId = typedEvent.content.currentLineId;
         const addContentToValue = typedEvent.content.addContentToValue;
 
-        // Add cell to the single cell queue (accumulate cells like autocomplete chapter does)
-        await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
+        try {
+            const isAudioOnly = Boolean((document as any)._documentData?.metadata?.audioOnly);
+            if (isAudioOnly) {
+                const sourceCell = await vscode.commands.executeCommand(
+                    "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+                    cellId
+                ) as { cellId: string; content: string; } | null;
+                const contentIsEmpty = !sourceCell || !sourceCell.content || (sourceCell.content.replace(/<[^>]*>/g, "").trim() === "");
 
-        // Note: The response is now handled by the queue system's completion callback
-        // The old direct response is no longer needed since the queue system manages state
+                if (contentIsEmpty) {
+                    try {
+                        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+                        if (workspaceFolder) {
+                            const normalizedPath = document.uri.fsPath.replace(/\\/g, "/");
+                            const baseFileName = path.basename(normalizedPath);
+                            const sourceFileName = baseFileName.endsWith(".codex")
+                                ? baseFileName.replace(".codex", ".source")
+                                : baseFileName;
+                            const sourcePath = vscode.Uri.joinPath(
+                                workspaceFolder.uri,
+                                ".project",
+                                "sourceTexts",
+                                sourceFileName
+                            );
+
+                            await vscode.commands.executeCommand(
+                                "vscode.openWith",
+                                sourcePath,
+                                "codex.cellEditor",
+                                { viewColumn: vscode.ViewColumn.One }
+                            );
+
+                            const sourcePanel = provider.getWebviewPanels().get(sourcePath.toString());
+                            if (sourcePanel) {
+                                const NUMBER_OF_CELLS_TO_TRANSCRIBE_AHEAD = 1;
+                                await vscode.window.withProgress(
+                                    {
+                                        location: vscode.ProgressLocation.Notification,
+                                        title: "Transcribing source audio…",
+                                        cancellable: false,
+                                    },
+                                    async (progress) => {
+                                        // Start transcription for the specific cell only
+                                        safePostMessageToPanel(sourcePanel, {
+                                            type: "startBatchTranscription",
+                                            content: { count: NUMBER_OF_CELLS_TO_TRANSCRIBE_AHEAD, cellId }
+                                        } as any);
+
+                                        // Mock progress while polling for source content availability
+                                        let progressValue = 0;
+                                        const timer = setInterval(() => {
+                                            progressValue = Math.min(progressValue + 3, 95);
+                                            progress.report({ increment: 3 });
+                                        }, 500);
+
+                                        try {
+                                            const timeoutMs = 30000;
+                                            const start = Date.now();
+                                            for (; ;) {
+                                                const src = await vscode.commands.executeCommand(
+                                                    "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+                                                    cellId
+                                                ) as { cellId: string; content: string; } | null;
+                                                const hasText = !!src && !!src.content && src.content.replace(/<[^>]*>/g, "").trim() !== "";
+                                                if (hasText) break;
+                                                if (Date.now() - start > timeoutMs) break;
+                                                await new Promise((r) => setTimeout(r, 400));
+                                            }
+                                        } finally {
+                                            clearInterval(timer);
+                                            progress.report({ increment: 100 - progressValue });
+                                        }
+                                    }
+                                );
+
+                                // After transcription completes (or timeout), proceed with LLM completion automatically
+                                await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
+                                return;
+                            }
+                        }
+                    } catch (e) {
+                        console.warn("Failed to initialize transcription before LLM completion", e);
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn("Audio-only preflight failed; proceeding with normal completion", e);
+        }
+
+        // Default: enqueue translation now
+        await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
     },
 
     stopAutocompleteChapter: ({ provider }) => {

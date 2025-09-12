@@ -47,6 +47,7 @@ interface CellContentDisplayProps {
     // Derived, shared state to avoid per-cell lookups
     currentUsername?: string;
     requiredValidations?: number;
+    isAudioOnly?: boolean;
 }
 
 const DEBUG_ENABLED = false;
@@ -280,6 +281,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         unresolvedCommentsCount: initialUnresolvedCommentsCount = 0,
         currentUsername,
         requiredValidations,
+        isAudioOnly = false,
     }) => {
         // const { cellContent, timestamps, editHistory } = cell; // I don't think we use this
         const cellIds = cell.cellMarkers;
@@ -601,7 +603,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         // Function to render the content with footnote markers and proper spacing
         const renderContent = () => {
             // Handle empty cell case
-            if (!cell.cellContent || cell.cellContent.trim() === "") {
+            if (
+                (!cell.cellContent || cell.cellContent.trim() === "") &&
+                // don't show empty cell for source text with audio only
+                (!isSourceText || !isAudioOnly)
+            ) {
                 return (
                     <div
                         ref={contentRef}
