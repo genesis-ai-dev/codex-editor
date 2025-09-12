@@ -1145,6 +1145,7 @@ export interface CustomNotebookMetadata {
     codexFsPath: string | undefined;
     navigation: NavigationCell[];
     videoUrl?: string;
+    audioOnly?: boolean; // When true, the document contains only audio segments with no source text
     sourceCreatedAt: string;
     codexLastModified?: string;
     corpusMarker: string;

@@ -15,24 +15,39 @@ function parseTimeToSeconds(t: string): number {
     }
 }
 
-export function processVttOrTsv(text: string): Array<{ startSec: number; endSec: number; }> {
+export function processVttOrTsv(text: string): Array<{ startSec: number; endSec: number; text?: string; }> {
     const trimmed = text.trim();
     // WebVTT detection
     if (/^WEBVTT/m.test(trimmed) || /-->/.test(trimmed)) {
         const lines = trimmed.split(/\r?\n/);
-        const segments: Array<{ startSec: number; endSec: number; }> = [];
-        for (const line of lines) {
+        const segments: Array<{ startSec: number; endSec: number; text?: string; }> = [];
+        let i = 0;
+        while (i < lines.length) {
+            const line = lines[i];
             const m = line.match(/(\d{1,2}:)?\d{1,2}:\d{1,2}[\.,]\d{1,3}\s+-->\s+(\d{1,2}:)?\d{1,2}:\d{1,2}[\.,]\d{1,3}/);
             if (m) {
                 const [lhs, rhs] = line.split(/\s+-->\s+/);
-                segments.push({ startSec: parseTimeToSeconds(lhs), endSec: parseTimeToSeconds(rhs) });
+                i++;
+                const textLines: string[] = [];
+                while (i < lines.length && lines[i].trim() !== "") {
+                    textLines.push(lines[i]);
+                    i++;
+                }
+                const cueText = textLines.join("\n").trim();
+                segments.push({
+                    startSec: parseTimeToSeconds(lhs),
+                    endSec: parseTimeToSeconds(rhs),
+                    text: cueText || undefined,
+                });
+            } else {
+                i++;
             }
         }
         return segments;
     }
 
     // TSV/CSV blocks: either start\tend or boundaries per line
-    const segments: Array<{ startSec: number; endSec: number; }> = [];
+    const segments: Array<{ startSec: number; endSec: number; text?: string; }> = [];
     const times: number[] = [];
     for (const line of trimmed.split(/\r?\n/)) {
         const l = line.trim();

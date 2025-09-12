@@ -4,6 +4,7 @@ import { safePostMessageToPanel } from "../../utils/webviewUtils";
 // Use type-only import to break circular dependency
 import type { CodexCellEditorProvider } from "./codexCellEditorProvider";
 import { GlobalMessage, EditorPostMessages, EditHistory, CodexNotebookAsJSONData } from "../../../types";
+import path from "path";
 import { EditMapUtils } from "../../utils/editMapUtils";
 import { EditType } from "../../../types/enums";
 import {
@@ -439,11 +440,60 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const cellId = typedEvent.content.currentLineId;
         const addContentToValue = typedEvent.content.addContentToValue;
 
-        // Add cell to the single cell queue (accumulate cells like autocomplete chapter does)
-        await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
+        try {
+            const isAudioOnly = Boolean((document as any)._documentData?.metadata?.audioOnly);
+            if (isAudioOnly) {
+                const sourceCell = await vscode.commands.executeCommand(
+                    "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+                    cellId
+                ) as { cellId: string; content: string; } | null;
+                const contentIsEmpty = !sourceCell || !sourceCell.content || (sourceCell.content.replace(/<[^>]*>/g, "").trim() === "");
 
-        // Note: The response is now handled by the queue system's completion callback
-        // The old direct response is no longer needed since the queue system manages state
+                if (contentIsEmpty) {
+                    try {
+                        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+                        if (workspaceFolder) {
+                            const normalizedPath = document.uri.fsPath.replace(/\\/g, "/");
+                            const baseFileName = path.basename(normalizedPath);
+                            const sourceFileName = baseFileName.endsWith(".codex")
+                                ? baseFileName.replace(".codex", ".source")
+                                : baseFileName;
+                            const sourcePath = vscode.Uri.joinPath(
+                                workspaceFolder.uri,
+                                ".project",
+                                "sourceTexts",
+                                sourceFileName
+                            );
+
+                            await vscode.commands.executeCommand(
+                                "vscode.openWith",
+                                sourcePath,
+                                "codex.cellEditor",
+                                { viewColumn: vscode.ViewColumn.One }
+                            );
+
+                            const sourcePanel = provider.getWebviewPanels().get(sourcePath.toString());
+                            if (sourcePanel) {
+                                safePostMessageToPanel(sourcePanel, {
+                                    type: "startBatchTranscription",
+                                    content: { count: 10 }
+                                } as any);
+                                vscode.window.setStatusBarMessage("Transcribing source audio…", 2000);
+                                // Defer LLM completion until source content exists; user can click again or batch will fill ahead
+                                return;
+                            }
+                        }
+                    } catch (e) {
+                        console.warn("Failed to initialize transcription before LLM completion", e);
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn("Audio-only preflight failed; proceeding with normal completion", e);
+        }
+
+        // Default: enqueue translation now
+        await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
     },
 
     stopAutocompleteChapter: ({ provider }) => {
