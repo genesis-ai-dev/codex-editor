@@ -100,7 +100,26 @@ export const useVSCodeMessageHandler = ({
             switch (message.type) {
                 case "providerSendsInitialContent":
                     setContent(message.content, message.isSourceText, message.sourceCellMap);
-                    // Bundled metadata (username, validationCount) is handled separately in CodexCellEditor.tsx
+                    // Derive simple availability boolean map for AB handler variant
+                    try {
+                        const units = (message.content || []) as QuillCellContent[];
+                        const availability: { [cellId: string]: boolean; } = {};
+                        for (const unit of units) {
+                            const cellId = unit?.cellMarkers?.[0];
+                            if (!cellId) continue;
+                            let hasAvailable = false;
+                            const atts = unit?.attachments || {} as any;
+                            for (const key of Object.keys(atts)) {
+                                const att = (atts as any)[key];
+                                if (att && att.type === "audio" && !att.isDeleted) {
+                                    hasAvailable = true;
+                                    break;
+                                }
+                            }
+                            availability[cellId] = hasAvailable;
+                        }
+                        setAudioAttachments(availability);
+                    } catch { }
                     break;
                 case "providerSendsSpellCheckResponse":
                     setSpellCheckResponse(message.content);
@@ -201,11 +220,7 @@ export const useVSCodeMessageHandler = ({
                         setChapterNumber(message.content);
                     }
                     break;
-                case "providerSendsAudioAttachments":
-                    if (message.attachments) {
-                        setAudioAttachments(message.attachments);
-                    }
-                    break;
+                // providerSendsAudioAttachments no longer sent
                 case "providerSendsABTestVariants":
                     if (showABTestVariants) {
                         showABTestVariants(message.content);
