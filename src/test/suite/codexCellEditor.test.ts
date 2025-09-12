@@ -6,6 +6,7 @@ import { codexSubtitleContent } from "./mocks/codexSubtitleContent";
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { CodexNotebookAsJSONData, QuillCellContent, Timestamps } from "../../../types";
 import { swallowDuplicateCommandRegistrations, createTempCodexFile, deleteIfExists, createMockExtensionContext, primeProviderWorkspaceStateForHtml, sleep } from "../testUtils";
+import { shouldDisableValidation, hasTextContent, hasAudioAvailable } from "../../../sharedUtils";
 
 suite("CodexCellEditorProvider Test Suite", () => {
     vscode.window.showInformationMessage("Start all tests for CodexCellEditorProvider.");
@@ -729,5 +730,28 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
         // Restore
         vscode.commands.executeCommand = originalExecuteCommand2;
+    });
+
+    test("validation enablement uses text OR audio (disabled only if neither)", () => {
+        // Text only
+        assert.strictEqual(shouldDisableValidation("<p>hello</p>", "none"), false);
+        assert.strictEqual(shouldDisableValidation("Some text", undefined), false);
+
+        // Audio only (string state path)
+        assert.strictEqual(shouldDisableValidation("", "available"), false);
+        // Audio only (boolean path)
+        assert.strictEqual(shouldDisableValidation(undefined as any, true), false);
+
+        // Neither text nor audio
+        assert.strictEqual(shouldDisableValidation("", "none"), true);
+        assert.strictEqual(shouldDisableValidation("   &nbsp;   ", undefined), true);
+
+        // Sanity checks for helpers
+        assert.strictEqual(hasTextContent("<p>&nbsp;</p>"), false);
+        assert.strictEqual(hasTextContent("<p>hi</p>"), true);
+        assert.strictEqual(hasAudioAvailable("available"), true);
+        assert.strictEqual(hasAudioAvailable("deletedOnly"), false);
+        assert.strictEqual(hasAudioAvailable(true), true);
+        assert.strictEqual(hasAudioAvailable(false), false);
     });
 });
