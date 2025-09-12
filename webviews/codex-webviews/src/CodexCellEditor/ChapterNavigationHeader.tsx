@@ -617,8 +617,8 @@ ChapterNavigationHeaderProps) {
                     ref={chapterTitleRef}
                     className="chapter-title-container flex items-center min-w-0 max-w-[40vw] min-[400px]:max-w-[50vw] sm:max-w-sm cursor-pointer min-[400px]:cursor-pointer"
                     onClick={() => {
-                        // Only allow chapter selector on larger screens
-                        if (!unsavedChanges && window.innerWidth >= 400) {
+                        // Always allow opening the chapter selector when there are no unsaved changes
+                        if (!unsavedChanges) {
                             setShowChapterSelector(!showChapterSelector);
                         }
                     }}
