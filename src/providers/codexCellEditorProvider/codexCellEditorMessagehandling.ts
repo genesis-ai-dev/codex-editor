@@ -1310,37 +1310,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
         });
 
-        const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
-        const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {} as any;
-        try {
-            const notebookData = JSON.parse(document.getText());
-            if (Array.isArray(notebookData?.cells)) {
-                for (const cell of notebookData.cells) {
-                    if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
-                }
-            }
-        } catch (err) { console.warn('Failed to initialize audio cell statuses', err); }
-        for (const cellId of Object.keys(updatedAudioAttachments)) {
-            audioCells[cellId] = "available";
-        }
-        try {
-            const notebookData = JSON.parse(document.getText());
-            if (Array.isArray(notebookData?.cells)) {
-                for (const cell of notebookData.cells) {
-                    const id = cell?.metadata?.id;
-                    if (!id) continue;
-                    if (audioCells[id] === "available") continue;
-                    const attachments = cell?.metadata?.attachments || {};
-                    const hasDeletedAudio = Object.values(attachments).some((att: any) => att?.type === "audio" && att?.isDeleted === true);
-                    if (hasDeletedAudio) audioCells[id] = "deletedOnly";
-                }
-            }
-        } catch (err) { console.warn('Failed to compute deleted-only audio cells', err); }
-
-        provider.postMessageToWebview(webviewPanel, {
-            type: "providerSendsAudioAttachments",
-            attachments: audioCells as any,
-        });
+        // Refresh full content; webview derives attachment availability from content
+        provider.refreshWebview(webviewPanel, document);
 
         debug("Audio attachment saved successfully:", { pointersPath, filesPath });
     },
@@ -1364,37 +1335,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
         });
 
-        const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
-        const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {} as any;
-        try {
-            const notebookData = JSON.parse(document.getText());
-            if (Array.isArray(notebookData?.cells)) {
-                for (const cell of notebookData.cells) {
-                    if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
-                }
-            }
-        } catch (err) { console.warn('Failed to initialize audio cells after save', err); }
-        for (const cellId of Object.keys(updatedAudioAttachments)) {
-            audioCells[cellId] = "available";
-        }
-        try {
-            const notebookData = JSON.parse(document.getText());
-            if (Array.isArray(notebookData?.cells)) {
-                for (const cell of notebookData.cells) {
-                    const id = cell?.metadata?.id;
-                    if (!id) continue;
-                    if (audioCells[id] === "available") continue;
-                    const attachments = cell?.metadata?.attachments || {};
-                    const hasDeletedAudio = Object.values(attachments).some((att: any) => att?.type === "audio" && att?.isDeleted === true);
-                    if (hasDeletedAudio) audioCells[id] = "deletedOnly";
-                }
-            }
-        } catch (err) { console.warn('Failed to compute deleted-only cells after save', err); }
-
-        provider.postMessageToWebview(webviewPanel, {
-            type: "providerSendsAudioAttachments",
-            attachments: audioCells as any,
-        });
+        // Refresh full content; webview derives attachment availability from content
+        provider.refreshWebview(webviewPanel, document);
 
         debug("Audio attachment soft deleted successfully");
     },
@@ -1448,16 +1390,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
         });
 
-        const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
-        const audioCells: { [cellId: string]: boolean; } = {};
-        for (const cellId of Object.keys(updatedAudioAttachments)) {
-            audioCells[cellId] = true;
-        }
-
-        provider.postMessageToWebview(webviewPanel, {
-            type: "providerSendsAudioAttachments",
-            attachments: audioCells as any,
-        });
+        // Refresh content so client recomputes availability
+        provider.refreshWebview(webviewPanel, document);
 
         debug("Audio attachment restored successfully");
     },
@@ -1482,17 +1416,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             });
 
-            // Refresh audio attachments to reflect the new selection
-            const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
-            const audioCells: { [cellId: string]: boolean; } = {};
-            for (const cellId of Object.keys(updatedAudioAttachments)) {
-                audioCells[cellId] = true;
-            }
-
-            provider.postMessageToWebview(webviewPanel, {
-                type: "providerSendsAudioAttachments",
-                attachments: audioCells as any,
-            });
+            // Refresh content so client recomputes availability/selection state
+            provider.refreshWebview(webviewPanel, document);
 
             debug("Audio attachment selected successfully");
         } catch (error) {
