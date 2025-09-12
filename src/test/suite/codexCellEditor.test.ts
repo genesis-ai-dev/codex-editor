@@ -5,6 +5,8 @@ import { CodexCellEditorProvider } from "../../providers/codexCellEditorProvider
 import { codexSubtitleContent } from "./mocks/codexSubtitleContent";
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { CodexNotebookAsJSONData, QuillCellContent, Timestamps } from "../../../types";
+import { swallowDuplicateCommandRegistrations, createTempCodexFile, deleteIfExists, createMockExtensionContext, primeProviderWorkspaceStateForHtml, sleep } from "../testUtils";
+import { shouldDisableValidation, hasTextContent, hasAudioAvailable } from "../../../sharedUtils";
 
 suite("CodexCellEditorProvider Test Suite", () => {
     vscode.window.showInformationMessage("Start all tests for CodexCellEditorProvider.");
@@ -13,65 +15,16 @@ suite("CodexCellEditorProvider Test Suite", () => {
     let tempUri: vscode.Uri;
 
     suiteSetup(async () => {
-        // Swallow duplicate command registrations
-        const originalRegister = vscode.commands.registerCommand;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (vscode.commands as any).registerCommand = ((command: string, callback: (...args: any[]) => any) => {
-            try {
-                return originalRegister(command, callback);
-            } catch (e: any) {
-                if (e && String(e).includes("already exists")) {
-                    return { dispose: () => { } } as vscode.Disposable;
-                }
-                throw e;
-            }
-        }) as typeof vscode.commands.registerCommand;
-        // Create a temporary file in the system's temp directory
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const os = require("os");
-        const tempDir = os.tmpdir();
-        const tempFilePath = path.join(tempDir, "test2.codex");
-        tempUri = vscode.Uri.file(tempFilePath);
-
-        // Write content to the temporary file
-        const encoder = new TextEncoder();
-        const fileContent = JSON.stringify(codexSubtitleContent, null, 2);
-        await vscode.workspace.fs.writeFile(tempUri, encoder.encode(fileContent));
+        swallowDuplicateCommandRegistrations();
+        tempUri = await createTempCodexFile("test2.codex", codexSubtitleContent);
     });
 
     suiteTeardown(async () => {
-        // Clean up the temporary file
-        if (tempUri) {
-            try {
-                await vscode.workspace.fs.delete(tempUri);
-            } catch (error) {
-                console.error("Failed to delete temporary file:", error);
-            }
-        }
+        if (tempUri) await deleteIfExists(tempUri);
     });
 
     setup(() => {
-        class MockMemento implements vscode.Memento {
-            private storage = new Map<string, any>();
-            get<T>(key: string): T | undefined;
-            get<T>(key: string, defaultValue: T): T;
-            get<T>(key: string, defaultValue?: T): T | undefined {
-                return this.storage.get(key) ?? defaultValue;
-            }
-            update(key: string, value: any): Thenable<void> {
-                this.storage.set(key, value);
-                return Promise.resolve();
-            }
-            keys(): readonly string[] { return Array.from(this.storage.keys()); }
-            setKeysForSync(_: readonly string[]): void { }
-        }
-        // @ts-expect-error: test
-        context = {
-            extensionUri: vscode.Uri.file(__dirname),
-            subscriptions: [],
-            workspaceState: new MockMemento(),
-            globalState: new MockMemento(),
-        } as vscode.ExtensionContext;
+        context = createMockExtensionContext();
         provider = new CodexCellEditorProvider(context);
     });
 
@@ -117,9 +70,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             cspSource: "https://example.com",
         } as any as vscode.Webview;
 
-        // Prime cached chapter and preferred tab
-        (provider as any).context.workspaceState.update(`chapter-cache-${document.uri.toString()}`, 1);
-        (provider as any).context.workspaceState.update(`codex-editor-preferred-tab`, "source");
+        await primeProviderWorkspaceStateForHtml(provider as any, document, "source");
 
         const html = provider["getHtmlForWebview"](webview, document, "ltr", false);
 
@@ -164,7 +115,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         );
 
         // Wait for the simulated message to be processed
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await sleep(50);
 
         assert.ok(receivedMessage, "Webview should receive a message");
         const allowedInitial = ["providerSendsInitialContent", "providerUpdatesNotebookMetadataForWebview"];
@@ -183,6 +134,146 @@ suite("CodexCellEditorProvider Test Suite", () => {
         const updatedContent = await document.getText();
         const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
         assert.strictEqual(cell.value, contentForUpdate, "Cell content should be updated");
+    });
+
+    test("updateCellContent (USER_EDIT) is a no-op when content unchanged", async () => {
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+        const before = JSON.parse(document.getText());
+        const beforeCell = before.cells.find((c: any) => c.metadata.id === cellId);
+        const beforeValue = beforeCell.value;
+        const beforeEditsLen = (beforeCell.metadata.edits || []).length;
+
+        await (document as any).updateCellContent(cellId, beforeValue, EditType.USER_EDIT);
+        await sleep(10);
+
+        const after = JSON.parse(document.getText());
+        const afterCell = after.cells.find((c: any) => c.metadata.id === cellId);
+        const afterEditsLen = (afterCell.metadata.edits || []).length;
+
+        assert.strictEqual(afterCell.value, beforeValue, "Value should remain unchanged");
+        assert.strictEqual(afterEditsLen, beforeEditsLen, "No new edit should be added");
+        assert.strictEqual((document as any).isDirty, false, "Document should not be marked dirty");
+    });
+
+    test("updateCellContent (LLM_GENERATION preview) records edit without changing value or indexing", async () => {
+        // Ensure a fresh baseline file to avoid undefined cells on slow/parallel runs
+        await vscode.workspace.fs.writeFile(
+            tempUri,
+            Buffer.from(JSON.stringify(codexSubtitleContent, null, 2), "utf-8")
+        );
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+        // Use a cell with an existing value
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+        const original = JSON.parse(document.getText());
+        const originalCell = original.cells.find((c: any) => c.metadata.id === cellId);
+        const originalValue = originalCell.value;
+        const originalEditsLen = (originalCell.metadata.edits || []).length;
+
+        // Spy on immediate indexing to ensure it is NOT called for preview
+        let indexingCalled = false;
+        const originalIndexer = (document as any).addCellToIndexImmediately;
+        (document as any).addCellToIndexImmediately = (..._args: any[]) => {
+            indexingCalled = true;
+        };
+
+        await (document as any).updateCellContent(
+            cellId,
+            "<span>preview content</span>",
+            EditType.LLM_GENERATION,
+            false
+        );
+
+        await sleep(30);
+
+        const after = JSON.parse(document.getText());
+        const afterCell = after.cells.find((c: any) => c.metadata.id === cellId);
+        const afterEditsLen = (afterCell.metadata.edits || []).length;
+        const lastEdit = afterCell.metadata.edits[afterEditsLen - 1];
+
+        assert.strictEqual(afterCell.value, originalValue, "Preview should not change stored value");
+        assert.strictEqual(afterEditsLen, originalEditsLen + 1, "A new edit should be recorded");
+        assert.strictEqual(lastEdit.type, EditType.LLM_GENERATION, "Edit type should be LLM_GENERATION");
+        assert.strictEqual(indexingCalled, false, "Immediate indexing should not be called for preview");
+
+        // Restore indexer
+        (document as any).addCellToIndexImmediately = originalIndexer;
+    });
+
+    test("LLM_GENERATION preview should fire onDidChangeForVsCodeAndWebview (to mark dirty/autosave)", async () => {
+        // Ensure the temp file has baseline content to avoid flakiness from prior tests
+        await vscode.workspace.fs.writeFile(
+            tempUri,
+            Buffer.from(JSON.stringify(codexSubtitleContent, null, 2), "utf-8")
+        );
+
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+
+        let fired = false;
+        const disposable = (document as any).onDidChangeForVsCodeAndWebview?.(() => {
+            fired = true;
+        });
+
+        await (document as any).updateCellContent(
+            cellId,
+            "<span>preview content</span>",
+            EditType.LLM_GENERATION,
+            false
+        );
+
+        await sleep(30);
+
+        if (disposable && typeof disposable.dispose === "function") {
+            disposable.dispose();
+        }
+
+        assert.strictEqual(fired, true, "Preview updates should notify provider to mark document dirty");
+    });
+
+    test("updateCellContent creates INITIAL_IMPORT on first edit then USER_EDIT", async () => {
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+        // Choose a cell in the mock with no prior edits
+        const cellId = "sample 1:cue-89.256-91.633";
+        const before = JSON.parse(document.getText());
+        const target = before.cells.find((c: any) => c.metadata.id === cellId);
+        assert.ok(target, "Target cell should exist");
+        assert.ok(!target.metadata.edits || target.metadata.edits.length === 0, "Cell should have no prior edits");
+
+        const previousValue = target.value;
+        const newValue = previousValue + " updated";
+
+        await (document as any).updateCellContent(cellId, newValue, EditType.USER_EDIT);
+        await sleep(20);
+
+        const after = JSON.parse(document.getText());
+        const afterCell = after.cells.find((c: any) => c.metadata.id === cellId);
+        const edits = afterCell.metadata.edits || [];
+
+        assert.ok(edits.length >= 2, "Should create INITIAL_IMPORT and then USER_EDIT");
+        const initialImport = edits[0];
+        const userEdit = edits[edits.length - 1];
+
+        assert.strictEqual(initialImport.type, EditType.INITIAL_IMPORT, "First edit should be INITIAL_IMPORT");
+        assert.strictEqual(initialImport.value, previousValue, "INITIAL_IMPORT should capture previous value");
+        assert.strictEqual(userEdit.type, EditType.USER_EDIT, "Last edit should be USER_EDIT");
+        assert.strictEqual(afterCell.value, newValue, "Cell value should be updated to new value");
     });
 
     test("updateCellTimestamps updates the cell timestamps", async () => {
@@ -355,8 +446,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             },
         });
 
-        // Wait for the update to be processed
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        await sleep(10);
 
         // Verify that the document was updated (retry for async processing)
         let updatedValue: string | undefined;
@@ -390,8 +480,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             },
         });
 
-        // Wait for queueing to occur
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await sleep(50);
         assert.strictEqual(queuedCellId, cellId, "llmCompletion should enqueue the correct cell id");
         (provider as any).addCellToSingleCellQueue = originalAddCellToSingleCellQueue;
 
@@ -406,8 +495,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             },
         });
 
-        // Wait for the update to be processed
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await sleep(50);
 
         // Verify that the timestamps were updated
         const updatedTimestamps = JSON.parse(document.getText()).cells[0].metadata.data;
@@ -487,13 +575,13 @@ suite("CodexCellEditorProvider Test Suite", () => {
         );
 
         // test updateTextDirection message
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        await sleep(10);
 
         onDidReceiveMessageCallback!({
             command: "updateTextDirection",
             direction: "rtl",
         });
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        await sleep(10);
         const updatedTextDirection = JSON.parse(document.getText()).metadata.textDirection;
         assert.strictEqual(
             updatedTextDirection,
@@ -541,7 +629,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         );
 
         // test updateTextDirection message
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        await sleep(10);
         const childCellId = codexSubtitleContent.cells[0].metadata.id + ":child";
         onDidReceiveMessageCallback!({
             command: "makeChildOfCell",
@@ -625,13 +713,12 @@ suite("CodexCellEditorProvider Test Suite", () => {
             },
         });
 
-        // Wait for the save to be processed
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        await sleep(10);
 
         // Verify that the document content was updated (retry for async)
         let updatedValue: string | undefined;
         for (let i = 0; i < 5; i++) {
-            await new Promise((resolve) => setTimeout(resolve, 60));
+            await sleep(60);
             const updatedContent = JSON.parse(document.getText());
             updatedValue = updatedContent.cells.find((c: any) => c.metadata.id === cellId)?.value;
             if (updatedValue === smartEditResult) break;
@@ -643,5 +730,28 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
         // Restore
         vscode.commands.executeCommand = originalExecuteCommand2;
+    });
+
+    test("validation enablement uses text OR audio (disabled only if neither)", () => {
+        // Text only
+        assert.strictEqual(shouldDisableValidation("<p>hello</p>", "none"), false);
+        assert.strictEqual(shouldDisableValidation("Some text", undefined), false);
+
+        // Audio only (string state path)
+        assert.strictEqual(shouldDisableValidation("", "available"), false);
+        // Audio only (boolean path)
+        assert.strictEqual(shouldDisableValidation(undefined as any, true), false);
+
+        // Neither text nor audio
+        assert.strictEqual(shouldDisableValidation("", "none"), true);
+        assert.strictEqual(shouldDisableValidation("   &nbsp;   ", undefined), true);
+
+        // Sanity checks for helpers
+        assert.strictEqual(hasTextContent("<p>&nbsp;</p>"), false);
+        assert.strictEqual(hasTextContent("<p>hi</p>"), true);
+        assert.strictEqual(hasAudioAvailable("available"), true);
+        assert.strictEqual(hasAudioAvailable("deletedOnly"), false);
+        assert.strictEqual(hasAudioAvailable(true), true);
+        assert.strictEqual(hasAudioAvailable(false), false);
     });
 });

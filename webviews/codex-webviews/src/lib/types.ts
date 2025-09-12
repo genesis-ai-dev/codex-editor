@@ -30,6 +30,7 @@ export interface CustomNotebookMetadata {
     codexFsPath: string | undefined;
     navigation: NavigationCell[];
     videoUrl?: string;
+    audioOnly?: boolean;
     sourceCreatedAt: string;
     codexLastModified?: string;
     corpusMarker: string;

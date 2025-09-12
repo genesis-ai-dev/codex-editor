@@ -215,7 +215,9 @@ const CodexCellEditor: React.FC = () => {
     const [currentSubsectionIndex, setCurrentSubsectionIndex] = useState(0);
 
     // Add audio attachments state
-    const [audioAttachments, setAudioAttachments] = useState<{ [cellId: string]: "available" | "deletedOnly" | "none" }>({});
+    const [audioAttachments, setAudioAttachments] = useState<{
+        [cellId: string]: "available" | "deletedOnly" | "none";
+    }>({});
 
     // Add cells per page configuration
     const [cellsPerPage] = useState<number>((window as any).initialData?.cellsPerPage || 50);
@@ -251,7 +253,13 @@ const CodexCellEditor: React.FC = () => {
             const run = async () => {
                 try {
                     // Fetch ASR config
-                    const asrConfig = await new Promise<{ endpoint: string; provider: string; model: string; language: string; phonetic: boolean }>((resolve) => {
+                    const asrConfig = await new Promise<{
+                        endpoint: string;
+                        provider: string;
+                        model: string;
+                        language: string;
+                        phonetic: boolean;
+                    }>((resolve) => {
                         let resolved = false;
                         const onMsg = (ev: MessageEvent) => {
                             if (ev.data?.type === "asrConfig") {
@@ -266,7 +274,8 @@ const CodexCellEditor: React.FC = () => {
                             if (!resolved) {
                                 window.removeEventListener("message", onMsg);
                                 resolve({
-                                    endpoint: "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe",
+                                    endpoint:
+                                        "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe",
                                     provider: "mms",
                                     model: "facebook/mms-1b-all",
                                     language: "eng",
@@ -277,28 +286,52 @@ const CodexCellEditor: React.FC = () => {
                     });
 
                     const toIso3 = (code?: string) => {
-                        const ISO2_TO_ISO3: Record<string, string> = { en: "eng", fr: "fra", es: "spa", de: "deu", pt: "por", it: "ita", nl: "nld", ru: "rus", zh: "zho", ja: "jpn", ko: "kor" };
+                        const ISO2_TO_ISO3: Record<string, string> = {
+                            en: "eng",
+                            fr: "fra",
+                            es: "spa",
+                            de: "deu",
+                            pt: "por",
+                            it: "ita",
+                            nl: "nld",
+                            ru: "rus",
+                            zh: "zho",
+                            ja: "jpn",
+                            ko: "kor",
+                        };
                         if (!code) return "eng";
                         const norm = code.toLowerCase();
-                        return norm.length === 2 ? (ISO2_TO_ISO3[norm] ?? "eng") : norm;
+                        return norm.length === 2 ? ISO2_TO_ISO3[norm] ?? "eng" : norm;
                     };
 
-                    const wsEndpoint = asrConfig.endpoint || "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe";
+                    const wsEndpoint =
+                        asrConfig.endpoint ||
+                        "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe";
 
                     const targetCount = Math.max(0, message.content.count | 0);
+                    const specificCellId: string | undefined = (message as any)?.content?.cellId;
                     let completed = 0;
                     for (const unit of translationUnits) {
                         if (targetCount > 0 && completed >= targetCount) break;
                         const cellId = unit.cellMarkers[0];
+                        if (specificCellId && cellId !== specificCellId) {
+                            continue; // Only transcribe the requested cell
+                        }
                         // Quick skip if we know there's no audio
-                        if (audioAttachments && audioAttachments[cellId] === 'none') {
+                        if (audioAttachments && audioAttachments[cellId] === "none") {
                             continue;
                         }
                         // Request audio for cell
-                        const audioInfo = await new Promise<{ audioData: string | null; hasTranscription: boolean }>((resolve) => {
+                        const audioInfo = await new Promise<{
+                            audioData: string | null;
+                            hasTranscription: boolean;
+                        }>((resolve) => {
                             let resolved = false;
                             const handler = (ev: MessageEvent) => {
-                                if (ev.data?.type === "providerSendsAudioData" && ev.data.content?.cellId === cellId) {
+                                if (
+                                    ev.data?.type === "providerSendsAudioData" &&
+                                    ev.data.content?.cellId === cellId
+                                ) {
                                     window.removeEventListener("message", handler);
                                     resolved = true;
                                     resolve({
@@ -308,9 +341,17 @@ const CodexCellEditor: React.FC = () => {
                                 }
                             };
                             window.addEventListener("message", handler);
-                            vscode.postMessage({ command: "requestAudioForCell", content: { cellId } } as EditorPostMessages);
+                            vscode.postMessage({
+                                command: "requestAudioForCell",
+                                content: { cellId },
+                            } as EditorPostMessages);
                             // Timeout after 5s
-                            setTimeout(() => { if (!resolved) { window.removeEventListener("message", handler); resolve({ audioData: null, hasTranscription: false }); } }, 5000);
+                            setTimeout(() => {
+                                if (!resolved) {
+                                    window.removeEventListener("message", handler);
+                                    resolve({ audioData: null, hasTranscription: false });
+                                }
+                            }, 5000);
                         });
                         if (!audioInfo.audioData) continue; // no audio to transcribe
                         if (audioInfo.hasTranscription) continue; // already transcribed
@@ -321,15 +362,15 @@ const CodexCellEditor: React.FC = () => {
                         // Build meta
                         const mime = blob.type || "audio/webm";
                         const provider = (asrConfig.provider || "mms").toLowerCase();
-                        let meta: AsrMeta = { type: 'meta', mime };
+                        let meta: AsrMeta = { type: "meta", mime };
                         if (provider === "mms") {
                             meta = {
-                                type: 'meta',
-                                provider: 'mms',
-                                model: asrConfig.model || 'facebook/mms-1b-all',
+                                type: "meta",
+                                provider: "mms",
+                                model: asrConfig.model || "facebook/mms-1b-all",
                                 mime,
-                                language: toIso3(asrConfig.language || 'eng'),
-                                task: 'transcribe',
+                                language: toIso3(asrConfig.language || "eng"),
+                                task: "transcribe",
                                 phonetic: !!asrConfig.phonetic,
                             };
                         }
@@ -344,11 +385,15 @@ const CodexCellEditor: React.FC = () => {
                                 return next;
                             });
                             const result = await client.transcribe(blob, meta, 30000);
-                            const text = (result.text || '').trim();
+                            const text = (result.text || "").trim();
                             if (text) {
                                 vscode.postMessage({
-                                    command: 'updateCellAfterTranscription',
-                                    content: { cellId, transcribedText: text, language: result.language || 'unknown' }
+                                    command: "updateCellAfterTranscription",
+                                    content: {
+                                        cellId,
+                                        transcribedText: text,
+                                        language: result.language || "unknown",
+                                    },
                                 } as unknown as EditorPostMessages);
 
                                 // If editing a source file, also update the cell's main text content
@@ -356,17 +401,23 @@ const CodexCellEditor: React.FC = () => {
                                     // Insert transcription with a subtle visual cue (reduced opacity)
                                     const html = `<span data-transcription="true" style="opacity:0.6" title="Transcription">${text}</span>`;
                                     vscode.postMessage({
-                                        command: 'saveHtml',
-                                        content: { cellMarkers: [cellId], cellContent: html, cellChanged: true }
+                                        command: "saveHtml",
+                                        content: {
+                                            cellMarkers: [cellId],
+                                            cellContent: html,
+                                            cellChanged: true,
+                                        },
                                     } as unknown as EditorPostMessages);
                                 }
                                 completed += 1;
                             }
                         } catch (err) {
-                            console.error('Batch transcription failed for', cellId, err);
+                            console.error("Batch transcription failed for", cellId, err);
                             vscode.postMessage({
-                                command: 'showErrorMessage',
-                                text: `Transcription failed for ${cellId}: ${err instanceof Error ? err.message : String(err)}`,
+                                command: "showErrorMessage",
+                                text: `Transcription failed for ${cellId}: ${
+                                    err instanceof Error ? err.message : String(err)
+                                }`,
                             } as any);
                         } finally {
                             // Clear transcribing state for this cell
@@ -378,7 +429,7 @@ const CodexCellEditor: React.FC = () => {
                         }
                     }
                 } catch (e) {
-                    console.error('Error during batch transcription:', e);
+                    console.error("Error during batch transcription:", e);
                 }
             };
             run();
@@ -392,10 +443,14 @@ const CodexCellEditor: React.FC = () => {
         (event: MessageEvent) => {
             const message = event.data;
             if (message?.type === "transcriptionState" && message?.content?.cellId) {
-                const { cellId, inProgress } = message.content as { cellId: string; inProgress: boolean };
+                const { cellId, inProgress } = message.content as {
+                    cellId: string;
+                    inProgress: boolean;
+                };
                 setTranscribingCells((prev) => {
                     const next = new Set(prev);
-                    if (inProgress) next.add(cellId); else next.delete(cellId);
+                    if (inProgress) next.add(cellId);
+                    else next.delete(cellId);
                     return next;
                 });
             }
@@ -507,83 +562,95 @@ const CodexCellEditor: React.FC = () => {
     };
 
     // Initialize state store after webview is ready
-    useMessageHandler("codexCellEditor-webviewReady", (event: MessageEvent) => {
-        if (event.data.type === "webviewReady") {
-            debug("init", "Webview is ready");
-            setIsWebviewReady(true);
-        }
-    }, []);
+    useMessageHandler(
+        "codexCellEditor-webviewReady",
+        (event: MessageEvent) => {
+            if (event.data.type === "webviewReady") {
+                debug("init", "Webview is ready");
+                setIsWebviewReady(true);
+            }
+        },
+        []
+    );
 
     // Listen for highlight messages from the extension
-    useMessageHandler("codexCellEditor-highlightAndValidation", (event: MessageEvent) => {
-        const message = event.data;
-        if (message.type === "highlightCell") {
-            // Set the highlighted cell ID (null clears the highlight)
-            setHighlightedCellId(message.cellId);
+    useMessageHandler(
+        "codexCellEditor-highlightAndValidation",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "highlightCell") {
+                // Set the highlighted cell ID (null clears the highlight)
+                setHighlightedCellId(message.cellId);
 
-            // Reset manual navigation tracking when highlight is cleared
-            if (!message.cellId) {
-                setHasManuallyNavigatedAway(false);
-                setLastHighlightedChapter(null);
-                setChapterWhenHighlighted(null);
+                // Reset manual navigation tracking when highlight is cleared
+                if (!message.cellId) {
+                    setHasManuallyNavigatedAway(false);
+                    setLastHighlightedChapter(null);
+                    setChapterWhenHighlighted(null);
+                }
             }
-        }
 
-        // Add handler for pending validations updates
-        if (message.type === "pendingValidationsUpdate") {
-            setPendingValidationsCount(
-                message.type === "pendingValidationsUpdate" ? message.content.count : 0
-            );
+            // Add handler for pending validations updates
+            if (message.type === "pendingValidationsUpdate") {
+                setPendingValidationsCount(
+                    message.type === "pendingValidationsUpdate" ? message.content.count : 0
+                );
 
-            // If validation count is zero, reset the applying state
-            if (message.content.count === 0) {
+                // If validation count is zero, reset the applying state
+                if (message.content.count === 0) {
+                    setIsApplyingValidations(false);
+                }
+            }
+
+            // Also listen for validation completion message
+            if (message.type === "validationsApplied") {
                 setIsApplyingValidations(false);
             }
-        }
 
-        // Also listen for validation completion message
-        if (message.type === "validationsApplied") {
-            setIsApplyingValidations(false);
-        }
+            // Handle file status updates
+            if (message.type === "updateFileStatus") {
+                setFileStatus(message.status);
+            }
 
-        // Handle file status updates
-        if (message.type === "updateFileStatus") {
-            setFileStatus(message.status);
-        }
+            // Handle cells per page update
+            if (message.type === "updateCellsPerPage") {
+                // Force re-render by updating subsection when cells per page changes
+                setCurrentSubsectionIndex(0);
+                // You could also update cellsPerPage state here if needed
+                // setCellsPerPage(message.cellsPerPage);
+            }
 
-        // Handle cells per page update
-        if (message.type === "updateCellsPerPage") {
-            // Force re-render by updating subsection when cells per page changes
-            setCurrentSubsectionIndex(0);
-            // You could also update cellsPerPage state here if needed
-            // setCellsPerPage(message.cellsPerPage);
-        }
+            // Handle correction editor mode changes from provider
+            if (message.type === "correctionEditorModeChanged") {
+                setIsCorrectionEditorMode(message.enabled);
+            }
 
-        // Handle correction editor mode changes from provider
-        if (message.type === "correctionEditorModeChanged") {
-            setIsCorrectionEditorMode(message.enabled);
-        }
-
-        // Handle metadata refresh requests (font size, text direction, etc.)
-        if (message.type === "refreshFontSizes" || message.type === "refreshMetadata") {
-            // Clear temporary font size to ensure new metadata takes effect
-            setTempFontSize(null);
-            // Request updated content to get the new font sizes and metadata
-            vscode.postMessage({ command: "getContent" } as EditorPostMessages);
-        }
-    }, [vscode]);
+            // Handle metadata refresh requests (font size, text direction, etc.)
+            if (message.type === "refreshFontSizes" || message.type === "refreshMetadata") {
+                // Clear temporary font size to ensure new metadata takes effect
+                setTempFontSize(null);
+                // Request updated content to get the new font sizes and metadata
+                vscode.postMessage({ command: "getContent" } as EditorPostMessages);
+            }
+        },
+        [vscode]
+    );
 
     // Listen for validation count updates (initial value comes bundled with content)
-    useMessageHandler("codexCellEditor-validationConfig", (event: MessageEvent) => {
-        const message = event.data;
-        if (message?.type === "validationCount") {
-            setRequiredValidations(message.content);
-        }
-        if (message?.type === "configurationChanged") {
-            // Configuration changes now send validationCount directly, no need to re-request
-            console.log("Configuration changed - validation count will be sent directly");
-        }
-    }, []);
+    useMessageHandler(
+        "codexCellEditor-validationConfig",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message?.type === "validationCount") {
+                setRequiredValidations(message.content);
+            }
+            if (message?.type === "configurationChanged") {
+                // Configuration changes now send validationCount directly, no need to re-request
+                console.log("Configuration changed - validation count will be sent directly");
+            }
+        },
+        []
+    );
 
     useEffect(() => {
         if (highlightedCellId && scrollSyncEnabled && isSourceText) {
@@ -1264,7 +1331,7 @@ const CodexCellEditor: React.FC = () => {
             // Show a more permanent error state but still allow manual retry
             vscode.postMessage({
                 command: "showErrorMessage",
-                text: `Save failed after ${MAX_SAVE_RETRIES} attempts. Please check your connection and try again.`,
+                text: `Save failed after ${MAX_SAVE_RETRIES} attempts.`,
             } as EditorPostMessages);
             return;
         }
@@ -1303,40 +1370,48 @@ const CodexCellEditor: React.FC = () => {
         debug("auth", "Username will be provided with initial content");
     }, [vscode]); // Only run this once with vscode reference as the dependency
 
-    useMessageHandler("codexCellEditor-username", (event: MessageEvent) => {
-        try {
-            debug("auth", "Message received:", event.data);
-            const message = event.data;
+    useMessageHandler(
+        "codexCellEditor-username",
+        (event: MessageEvent) => {
+            try {
+                debug("auth", "Message received:", event.data);
+                const message = event.data;
 
-            if (message.type === "setUsername" || message.command === "setUsername") {
-                const newUsername = message.username || message.value;
-                debug("auth", "Username set to:", newUsername);
-                setUsername(newUsername || "anonymous");
-            } else if (message.type === "currentUsername") {
-                debug("auth", "Current username received:", message.content?.username);
-                setUsername(message.content?.username || "anonymous");
-            } else if (message.type === "error" && message.errorType === "authentication") {
-                // Handle authentication errors by setting a default username
-                debug("auth", "Authentication error, using default username");
-                setUsername("anonymous");
+                if (message.type === "setUsername" || message.command === "setUsername") {
+                    const newUsername = message.username || message.value;
+                    debug("auth", "Username set to:", newUsername);
+                    setUsername(newUsername || "anonymous");
+                } else if (message.type === "currentUsername") {
+                    debug("auth", "Current username received:", message.content?.username);
+                    setUsername(message.content?.username || "anonymous");
+                } else if (message.type === "error" && message.errorType === "authentication") {
+                    // Handle authentication errors by setting a default username
+                    debug("auth", "Authentication error, using default username");
+                    setUsername("anonymous");
+                }
+            } catch (error) {
+                // Prevent any errors in message handling from breaking the component
+                debug("auth", "Error handling message:", error);
             }
-        } catch (error) {
-            // Prevent any errors in message handling from breaking the component
-            debug("auth", "Error handling message:", error);
-        }
-    }, []);
+        },
+        []
+    );
 
     // Handle bundled metadata from initial content (username and validation count)
-    useMessageHandler("codexCellEditor-bundledMetadata", (event: MessageEvent) => {
-        if (event.data.type === "providerSendsInitialContent") {
-            if (event.data.username !== undefined) {
-                setUsername(event.data.username);
+    useMessageHandler(
+        "codexCellEditor-bundledMetadata",
+        (event: MessageEvent) => {
+            if (event.data.type === "providerSendsInitialContent") {
+                if (event.data.username !== undefined) {
+                    setUsername(event.data.username);
+                }
+                if (event.data.validationCount !== undefined) {
+                    setRequiredValidations(event.data.validationCount);
+                }
             }
-            if (event.data.validationCount !== undefined) {
-                setRequiredValidations(event.data.validationCount);
-            }
-        }
-    }, []);
+        },
+        []
+    );
 
     // Cleanup save timeout on unmount
     useEffect(() => {
@@ -1756,22 +1831,36 @@ const CodexCellEditor: React.FC = () => {
     const videoPlayerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        const handleResize = () => {
-            setWindowHeight(window.innerHeight);
-            if (headerRef.current && navigationRef.current && videoPlayerRef.current) {
-                const totalHeaderHeight =
-                    headerRef.current.offsetHeight +
-                    navigationRef.current.offsetHeight +
-                    (shouldShowVideoPlayer ? videoPlayerRef.current.offsetHeight : 0);
-                setHeaderHeight(totalHeaderHeight);
-            }
+        const measureHeights = () => {
+            const headerOffset = headerRef.current?.offsetHeight || 0;
+            const videoOffset =
+                shouldShowVideoPlayer && videoPlayerRef.current
+                    ? videoPlayerRef.current.offsetHeight
+                    : 0;
+            setHeaderHeight(headerOffset + videoOffset);
         };
 
-        window.addEventListener("resize", handleResize);
-        handleResize(); // Initial calculation
+        const handleResize = () => {
+            setWindowHeight(window.innerHeight);
+            measureHeights();
+        };
 
-        return () => window.removeEventListener("resize", handleResize);
-    }, [shouldShowVideoPlayer]); // Add shouldShowVideoPlayer as a dependency
+        const resizeObserver = new ResizeObserver(() => {
+            measureHeights();
+        });
+
+        if (headerRef.current) resizeObserver.observe(headerRef.current);
+        if (videoPlayerRef.current) resizeObserver.observe(videoPlayerRef.current);
+
+        window.addEventListener("resize", handleResize);
+        // Initial measurement after mount
+        measureHeights();
+
+        return () => {
+            window.removeEventListener("resize", handleResize);
+            resizeObserver.disconnect();
+        };
+    }, [shouldShowVideoPlayer]);
 
     useEffect(() => {
         vscode.postMessage({
@@ -1938,20 +2027,24 @@ const CodexCellEditor: React.FC = () => {
     };
 
     // Listen for the bible book map from the provider
-    useMessageHandler("codexCellEditor-bibleBookMap", (event: MessageEvent) => {
-        const message = event.data;
-        if (message.type === "setBibleBookMap" && message.data) {
-            debug("map", "Received Bible Book Map from provider", message.data);
-            try {
-                // Convert the array of entries back into a Map
-                const newMap = new Map<string, BibleBookInfo>(message.data);
-                setBibleBookMap(newMap);
-                debug("map", "Successfully set Bible Book Map in state", newMap);
-            } catch (error) {
-                console.error("Error processing bible book map data:", error);
+    useMessageHandler(
+        "codexCellEditor-bibleBookMap",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "setBibleBookMap" && message.data) {
+                debug("map", "Received Bible Book Map from provider", message.data);
+                try {
+                    // Convert the array of entries back into a Map
+                    const newMap = new Map<string, BibleBookInfo>(message.data);
+                    setBibleBookMap(newMap);
+                    debug("map", "Successfully set Bible Book Map in state", newMap);
+                } catch (error) {
+                    console.error("Error processing bible book map data:", error);
+                }
             }
-        }
-    }, []);
+        },
+        []
+    );
 
     // Update toggle functions to use the shared VS Code API instance
     const togglePrimarySidebar = () => {
@@ -2004,15 +2097,19 @@ const CodexCellEditor: React.FC = () => {
     }, [vscode]);
 
     // Listen for editor position and file status updates
-    useMessageHandler("codexCellEditor-editorPosition", (event: MessageEvent) => {
-        const message = event.data;
-        if (message.type === "editorPosition") {
-            setEditorPosition(message.position);
-        }
-        if (message.type === "updateFileStatus") {
-            setFileStatus(message.status);
-        }
-    }, []);
+    useMessageHandler(
+        "codexCellEditor-editorPosition",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "editorPosition") {
+                setEditorPosition(message.position);
+            }
+            if (message.type === "updateFileStatus") {
+                setFileStatus(message.status);
+            }
+        },
+        []
+    );
 
     if (duplicateCellsExist) {
         return (
@@ -2026,7 +2123,10 @@ const CodexCellEditor: React.FC = () => {
     }
 
     return (
-        <div className="cell-editor-container max-w-full overflow-hidden" style={{ direction: textDirection as any }}>
+        <div
+            className="cell-editor-container max-w-full overflow-hidden"
+            style={{ direction: textDirection as any }}
+        >
             {/* Menu toggle button */}
             <div
                 className="sidebar-toggle menu-toggle"
@@ -2222,6 +2322,7 @@ const CodexCellEditor: React.FC = () => {
                             }
                             successfulCompletions={successfulCompletions}
                             audioAttachments={audioAttachments}
+                            isAudioOnly={Boolean(metadata?.audioOnly)}
                             isSaving={isSaving}
                             saveError={saveError}
                             saveRetryCount={saveRetryCount}

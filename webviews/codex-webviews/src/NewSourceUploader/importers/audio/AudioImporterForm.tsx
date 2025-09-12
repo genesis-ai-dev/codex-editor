@@ -37,7 +37,7 @@ type MediaRow = {
     file: File;
     name: string;
     durationSec?: number;
-    segments: Array<{ startSec: number; endSec: number }>;
+    segments: Array<{ startSec: number; endSec: number; text?: string }>;
     status: "new" | "segmented";
     expanded?: boolean;
     isVideo?: boolean;
@@ -166,7 +166,13 @@ function formatFileSize(bytes: number): string {
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
 
-const processedNotebook = (name: string, cells: any[], nowIso: string, videoUrl?: string) => ({
+const processedNotebook = (
+    name: string,
+    cells: any[],
+    nowIso: string,
+    videoUrl?: string,
+    audioOnly?: boolean
+) => ({
     name,
     cells: cells.map((c) => ({
         id: c.metadata.id,
@@ -180,6 +186,7 @@ const processedNotebook = (name: string, cells: any[], nowIso: string, videoUrl?
         importerType: "audio", // Keep as "audio" for compatibility
         createdAt: nowIso,
         ...(videoUrl && { videoUrl }),
+        ...(audioOnly !== undefined ? { audioOnly } : {}),
     },
 });
 
@@ -254,9 +261,18 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                 const segments = processVttOrTsv(text);
                 if (segments.length > 0) {
                     setRows((prev) =>
-                        prev.map((r) =>
-                            r.id === rowId ? { ...r, segments, status: "segmented" } : r
-                        )
+                        prev.map((r) => {
+                            if (r.id !== rowId) return r;
+                            return {
+                                ...r,
+                                segments: segments.map((s) => ({
+                                    startSec: s.startSec,
+                                    endSec: s.endSec,
+                                    text: s.text,
+                                })),
+                                status: "segmented",
+                            };
+                        })
                     );
                 } else {
                     alert("No valid timestamps found in the file");
@@ -364,6 +380,13 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
             videoUrl = `.project/attachments/files/${docId}/${firstVideoFile.name}.${ext}`;
         }
 
+        // Calculate total segments for local preprocessing progress (approximate)
+        const totalSegmentsToProcess = rows.reduce(
+            (sum, r) => sum + Math.max(1, r.segments.length),
+            0
+        );
+        let processedSegmentsSoFar = 0;
+
         if (mergeFiles) {
             // MERGE MODE: Create one notebook with all files as sections
             const docId = documentName.replace(/\.[^/.]+$/, "").replace(/\s+/g, "");
@@ -377,6 +400,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
             }
 
             let sectionIndex = 0;
+            let anyTextProvided = false;
             for (const row of rows) {
                 sectionIndex++;
 
@@ -392,6 +416,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                 const rawSegs = row.segments.map((s) => ({
                     startSec: s.startSec ?? 0,
                     endSec: isFinite(s.endSec) ? s.endSec : Number.NaN,
+                    text: s.text,
                 }));
 
                 // Filter out invalid segments
@@ -496,6 +521,15 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                         });
                     }
 
+                    // Update local preprocessing progress
+                    processedSegmentsSoFar++;
+                    setAttachmentProgress({
+                        current: processedSegmentsSoFar,
+                        total: totalSegmentsToProcess,
+                        message: `Preparing segments (${processedSegmentsSoFar}/${totalSegmentsToProcess})…`,
+                        isVisible: true,
+                    });
+
                     const url = `.project/attachments/files/${docId}/${fileName}`;
                     populateCellObjects(
                         sourceCells,
@@ -509,9 +543,10 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                 }
             }
 
+            const hasAnyText = sourceCells.some((c: any) => (c.value || "").trim().length > 0);
             notebookPairs.push({
-                source: processedNotebook(docId, sourceCells, nowIso, videoUrl),
-                codex: processedNotebook(docId, codexCells, nowIso, videoUrl),
+                source: processedNotebook(docId, sourceCells, nowIso, videoUrl, !hasAnyText),
+                codex: processedNotebook(docId, codexCells, nowIso, videoUrl, !hasAnyText),
             });
         } else {
             // INDIVIDUAL MODE: Create separate notebook for each file
@@ -536,6 +571,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                 const rawSegs = row.segments.map((s) => ({
                     startSec: s.startSec ?? 0,
                     endSec: isFinite(s.endSec) ? s.endSec : Number.NaN,
+                    text: s.text,
                 }));
 
                 // Filter out invalid segments
@@ -563,6 +599,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                 const segs = validSegs.map((s) => ({
                     startSec: s.startSec - earliestStart,
                     endSec: isFinite(s.endSec) ? s.endSec - earliestStart : Number.NaN,
+                    text: s.text,
                 }));
 
                 console.log(`File ${row.name} has ${segs.length} valid segments`);
@@ -660,6 +697,15 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                         });
                     }
 
+                    // Update local preprocessing progress
+                    processedSegmentsSoFar++;
+                    setAttachmentProgress({
+                        current: processedSegmentsSoFar,
+                        total: totalSegmentsToProcess,
+                        message: `Preparing segments (${processedSegmentsSoFar}/${totalSegmentsToProcess})…`,
+                        isVisible: true,
+                    });
+
                     const url = `.project/attachments/files/${fileDocId}/${fileName}`;
                     populateCellObjects(
                         sourceCells,
@@ -673,8 +719,20 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                 }
 
                 notebookPairs.push({
-                    source: processedNotebook(fileDocId, sourceCells, nowIso, fileVideoUrl),
-                    codex: processedNotebook(fileDocId, codexCells, nowIso, fileVideoUrl),
+                    source: processedNotebook(
+                        fileDocId,
+                        sourceCells,
+                        nowIso,
+                        fileVideoUrl,
+                        !sourceCells.some((c: any) => (c.value || "").trim().length > 0)
+                    ),
+                    codex: processedNotebook(
+                        fileDocId,
+                        codexCells,
+                        nowIso,
+                        fileVideoUrl,
+                        !sourceCells.some((c: any) => (c.value || "").trim().length > 0)
+                    ),
                 });
             }
         }
@@ -724,7 +782,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
         function populateCellObjects(
             sourceCells: any[],
             cellId: string,
-            seg: { startSec: number; endSec: number },
+            seg: { startSec: number; endSec: number; text?: string },
             segmentAttachmentId: string,
             url: string,
             codexCells: any[],
@@ -735,7 +793,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
 
             sourceCells.push({
                 kind: 2,
-                value: "",
+                value: seg.text || "",
                 languageId: "html",
                 metadata: {
                     type: "text",

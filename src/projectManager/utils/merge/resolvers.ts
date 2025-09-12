@@ -316,13 +316,13 @@ function resolveMetadataConflictsUsingEditHistory(
     theirCell: CustomNotebookCellData
 ): CustomNotebookCellData {
     // Combine all edits from both cells
-    const allEdits = [
+    const allEdits: EditHistory[] = [
         ...(ourCell.metadata?.edits || []),
         ...(theirCell.metadata?.edits || [])
     ].sort((a, b) => a.timestamp - b.timestamp);
 
     // Group edits by their editMap path
-    const editsByPath = new Map<string, any[]>();
+    const editsByPath = new Map<string, EditHistory[]>();
     for (const edit of allEdits) {
         if (edit.editMap && Array.isArray(edit.editMap)) {
             const pathKey = edit.editMap.join('.');
@@ -340,11 +340,23 @@ function resolveMetadataConflictsUsingEditHistory(
     for (const [pathKey, edits] of editsByPath.entries()) {
         if (edits.length === 0) continue;
 
-        // Find the most recent edit for this path
-        const mostRecentEdit = edits.sort((a, b) => b.timestamp - a.timestamp)[0];
+        // Find the most recent edit for this path, ignoring preview-only edits
+        const sorted = edits.sort((a, b) => b.timestamp - a.timestamp);
+        let mostRecentEdit = sorted.find((e) => !e.preview);
+        const allWerePreviews = !mostRecentEdit;
+        if (!mostRecentEdit) {
+            // Fallback to raw most recent if all were previews
+            mostRecentEdit = sorted[0];
+        }
 
         // Apply the edit to the resolved cell based on the path
-        applyEditToCell(resolvedCell, mostRecentEdit);
+        // Special rule: do NOT apply preview-only value edits to the resolved value.
+        // Keep the edit in history but leave the cell.value unchanged until a non-preview edit occurs.
+        if (allWerePreviews && pathKey === 'value') {
+            debugLog(`Skipping application of preview-only value edit for cell ${resolvedCell.metadata?.id}`);
+        } else {
+            applyEditToCell(resolvedCell, mostRecentEdit);
+        }
 
         debugLog(`Applied most recent edit for ${pathKey}: ${mostRecentEdit.value}`);
     }
@@ -355,7 +367,7 @@ function resolveMetadataConflictsUsingEditHistory(
 /**
  * Helper function to merge validatedBy arrays between duplicate edits
  */
-function mergeValidatedByArrays(existingEdit: any, newEdit: any): void {
+function mergeValidatedByArrays(existingEdit: EditHistory, newEdit: EditHistory): void {
     // Initialize validatedBy arrays if they don't exist
     if (!existingEdit.validatedBy) existingEdit.validatedBy = [];
     if (!newEdit.validatedBy) newEdit.validatedBy = [];
@@ -384,7 +396,7 @@ function mergeValidatedByArrays(existingEdit: any, newEdit: any): void {
             }
 
             // Find if this user already has a validation entry
-            const existingEntryIndex = existingEdit.validatedBy.findIndex(
+            const existingEntryIndex = existingEdit.validatedBy!.findIndex(
                 (existingEntry: any) => {
                     if (typeof existingEntry === "string") {
                         return existingEntry === validationEntry.username;
@@ -398,16 +410,16 @@ function mergeValidatedByArrays(existingEdit: any, newEdit: any): void {
 
             if (existingEntryIndex === -1) {
                 // User doesn't have an entry yet, add it
-                existingEdit.validatedBy.push(validationEntry);
+                existingEdit.validatedBy!.push(validationEntry);
             } else {
                 // User already has an entry, update if the new one is more recent
-                const existingEntryItem = existingEdit.validatedBy[existingEntryIndex];
+                const existingEntryItem = existingEdit.validatedBy![existingEntryIndex];
                 if (typeof existingEntryItem === "string") {
-                    existingEdit.validatedBy[existingEntryIndex] = validationEntry;
+                    existingEdit.validatedBy![existingEntryIndex] = validationEntry;
                 } else if (
                     validationEntry.updatedTimestamp > existingEntryItem.updatedTimestamp
                 ) {
-                    existingEdit.validatedBy[existingEntryIndex] = {
+                    existingEdit.validatedBy![existingEntryIndex] = {
                         ...validationEntry,
                         creationTimestamp: existingEntryItem.creationTimestamp,
                     };
@@ -418,7 +430,7 @@ function mergeValidatedByArrays(existingEdit: any, newEdit: any): void {
 
     // Ensure the validatedBy array only contains ValidationEntry objects
     if (existingEdit.validatedBy && existingEdit.validatedBy.length > 0) {
-        existingEdit.validatedBy = existingEdit.validatedBy.filter(
+        existingEdit.validatedBy = existingEdit.validatedBy!.filter(
             (entry: any) => typeof entry !== "string"
         );
     }
@@ -427,7 +439,7 @@ function mergeValidatedByArrays(existingEdit: any, newEdit: any): void {
 /**
  * Helper function to apply an edit to a cell based on its editMap path
  */
-function applyEditToCell(cell: CustomNotebookCellData, edit: any): void {
+function applyEditToCell(cell: CustomNotebookCellData, edit: EditHistory): void {
     if (!edit.editMap || !Array.isArray(edit.editMap)) {
         return;
     }
@@ -447,18 +459,18 @@ function applyEditToCell(cell: CustomNotebookCellData, edit: any): void {
     try {
         if (path.length === 1 && path[0] === 'value') {
             // Direct cell value edit
-            cell.value = value;
+            cell.value = value as string;
         } else if (path.length >= 2 && path[0] === 'metadata') {
             // Metadata field edit
             if (path.length === 2) {
                 // Direct metadata field (e.g., cellLabel)
                 const field = path[1];
                 if (field === 'cellLabel') {
-                    cell.metadata.cellLabel = value;
+                    cell.metadata.cellLabel = value as string;
                 } else if (field === 'selectedAudioId') {
-                    cell.metadata.selectedAudioId = value;
+                    cell.metadata.selectedAudioId = value as string;
                 } else if (field === 'selectionTimestamp') {
-                    cell.metadata.selectionTimestamp = value;
+                    cell.metadata.selectionTimestamp = value as number;
                 }
             } else if (path.length === 3 && path[1] === 'data') {
                 // Data field edit (e.g., startTime, endTime)
@@ -468,14 +480,14 @@ function applyEditToCell(cell: CustomNotebookCellData, edit: any): void {
                 }
 
                 if (dataField === 'startTime') {
-                    cell.metadata.data.startTime = value;
+                    cell.metadata.data.startTime = value as number;
                 } else if (dataField === 'endTime') {
-                    cell.metadata.data.endTime = value;
+                    cell.metadata.data.endTime = value as number;
                 } else if (dataField === 'deleted') {
-                    cell.metadata.data.deleted = value;
+                    cell.metadata.data.deleted = value as boolean;
                 } else {
                     // Generic data field assignment
-                    (cell.metadata.data as any)[dataField] = value;
+                    (cell.metadata.data as any)[dataField] = value as any;
                 }
             }
         }

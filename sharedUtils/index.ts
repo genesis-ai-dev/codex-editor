@@ -68,3 +68,27 @@ export const getCellValueData = (cell: QuillCellContent) => {
         cellLabel: cell.cellLabel || "",
     };
 };
+
+// Validation enablement helpers (shared between webview and tests)
+export type AudioAvailabilityState = boolean | "available" | "deletedOnly" | "none" | undefined;
+
+export const hasTextContent = (htmlContent: string | undefined | null): boolean => {
+    if (!htmlContent) return false;
+    const text = removeHtmlTags(htmlContent);
+    return text.length > 0;
+};
+
+export const hasAudioAvailable = (state: AudioAvailabilityState): boolean => {
+    if (typeof state === "boolean") return state;
+    return state === "available";
+};
+
+export const shouldDisableValidation = (
+    htmlContent: string | undefined | null,
+    audioState: AudioAvailabilityState
+): boolean => {
+    const textPresent = hasTextContent(htmlContent);
+    const audioPresent = hasAudioAvailable(audioState);
+    // Disabled only if neither text nor audio is present
+    return !(textPresent || audioPresent);
+};

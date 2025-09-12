@@ -1046,7 +1046,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         autocomplete: () => {
             window.vscodeApi.postMessage({
                 command: "llmCompletion",
-                content: { currentLineId: props.currentLineId },
+                content: { currentLineId: props.currentLineId, addContentToValue: false },
             });
         },
         openLibrary: () => {

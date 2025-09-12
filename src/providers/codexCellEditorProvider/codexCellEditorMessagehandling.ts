@@ -439,11 +439,97 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const cellId = typedEvent.content.currentLineId;
         const addContentToValue = typedEvent.content.addContentToValue;
 
-        // Add cell to the single cell queue (accumulate cells like autocomplete chapter does)
-        await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
+        try {
+            const isAudioOnly = Boolean((document as any)._documentData?.metadata?.audioOnly);
+            if (isAudioOnly) {
+                const sourceCell = await vscode.commands.executeCommand(
+                    "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+                    cellId
+                ) as { cellId: string; content: string; } | null;
+                const contentIsEmpty = !sourceCell || !sourceCell.content || (sourceCell.content.replace(/<[^>]*>/g, "").trim() === "");
 
-        // Note: The response is now handled by the queue system's completion callback
-        // The old direct response is no longer needed since the queue system manages state
+                if (contentIsEmpty) {
+                    try {
+                        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+                        if (workspaceFolder) {
+                            const normalizedPath = document.uri.fsPath.replace(/\\/g, "/");
+                            const baseFileName = path.basename(normalizedPath);
+                            const sourceFileName = baseFileName.endsWith(".codex")
+                                ? baseFileName.replace(".codex", ".source")
+                                : baseFileName;
+                            const sourcePath = vscode.Uri.joinPath(
+                                workspaceFolder.uri,
+                                ".project",
+                                "sourceTexts",
+                                sourceFileName
+                            );
+
+                            await vscode.commands.executeCommand(
+                                "vscode.openWith",
+                                sourcePath,
+                                "codex.cellEditor",
+                                { viewColumn: vscode.ViewColumn.One }
+                            );
+
+                            const sourcePanel = provider.getWebviewPanels().get(sourcePath.toString());
+                            if (sourcePanel) {
+                                const NUMBER_OF_CELLS_TO_TRANSCRIBE_AHEAD = 1;
+                                await vscode.window.withProgress(
+                                    {
+                                        location: vscode.ProgressLocation.Notification,
+                                        title: "Transcribing source audio…",
+                                        cancellable: false,
+                                    },
+                                    async (progress) => {
+                                        // Start transcription for the specific cell only
+                                        safePostMessageToPanel(sourcePanel, {
+                                            type: "startBatchTranscription",
+                                            content: { count: NUMBER_OF_CELLS_TO_TRANSCRIBE_AHEAD, cellId }
+                                        } as any);
+
+                                        // Mock progress while polling for source content availability
+                                        let progressValue = 0;
+                                        const timer = setInterval(() => {
+                                            progressValue = Math.min(progressValue + 3, 95);
+                                            progress.report({ increment: 3 });
+                                        }, 500);
+
+                                        try {
+                                            const timeoutMs = 30000;
+                                            const start = Date.now();
+                                            for (; ;) {
+                                                const src = await vscode.commands.executeCommand(
+                                                    "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+                                                    cellId
+                                                ) as { cellId: string; content: string; } | null;
+                                                const hasText = !!src && !!src.content && src.content.replace(/<[^>]*>/g, "").trim() !== "";
+                                                if (hasText) break;
+                                                if (Date.now() - start > timeoutMs) break;
+                                                await new Promise((r) => setTimeout(r, 400));
+                                            }
+                                        } finally {
+                                            clearInterval(timer);
+                                            progress.report({ increment: 100 - progressValue });
+                                        }
+                                    }
+                                );
+
+                                // After transcription completes (or timeout), proceed with LLM completion automatically
+                                await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
+                                return;
+                            }
+                        }
+                    } catch (e) {
+                        console.warn("Failed to initialize transcription before LLM completion", e);
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn("Audio-only preflight failed; proceeding with normal completion", e);
+        }
+
+        // Default: enqueue translation now
+        await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
     },
 
     stopAutocompleteChapter: ({ provider }) => {
@@ -1224,47 +1310,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
         });
 
-        const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
-        const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {} as any;
-        try {
-            const notebookData = JSON.parse(document.getText());
-            if (Array.isArray(notebookData?.cells)) {
-                for (const cell of notebookData.cells) {
-                    if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
-                }
-            }
-        } catch (err) { console.warn('Failed to initialize audio cell statuses', err); }
-        for (const cellId of Object.keys(updatedAudioAttachments)) {
-            audioCells[cellId] = "available";
-        }
-        try {
-            const notebookData = JSON.parse(document.getText());
-            if (Array.isArray(notebookData?.cells)) {
-                for (const cell of notebookData.cells) {
-                    const id = cell?.metadata?.id;
-                    if (!id) continue;
-                    if (audioCells[id] === "available") continue;
-                    const attachments = cell?.metadata?.attachments || {};
-                    const hasDeletedAudio = Object.values(attachments).some((att: any) => att?.type === "audio" && att?.isDeleted === true);
-                    if (hasDeletedAudio) audioCells[id] = "deletedOnly";
-                }
-            }
-        } catch (err) { console.warn('Failed to compute deleted-only audio cells', err); }
-
-        provider.postMessageToWebview(webviewPanel, {
-            type: "providerSendsAudioAttachments",
-            attachments: audioCells as any,
-        });
+        // Refresh full content; webview derives attachment availability from content
+        provider.refreshWebview(webviewPanel, document);
 
         debug("Audio attachment saved successfully:", { pointersPath, filesPath });
     },
 
     deleteAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "deleteAudioAttachment"; }>;
-        console.log("deleteAudioAttachment message received", {
-            cellId: typedEvent.content.cellId,
-            audioId: typedEvent.content.audioId
-        });
+
 
         // Soft delete the attachment (set isDeleted: true) instead of hard deleting files
         await document.softDeleteCellAttachment(typedEvent.content.cellId, typedEvent.content.audioId);
@@ -1278,37 +1332,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
         });
 
-        const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
-        const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {} as any;
-        try {
-            const notebookData = JSON.parse(document.getText());
-            if (Array.isArray(notebookData?.cells)) {
-                for (const cell of notebookData.cells) {
-                    if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
-                }
-            }
-        } catch (err) { console.warn('Failed to initialize audio cells after save', err); }
-        for (const cellId of Object.keys(updatedAudioAttachments)) {
-            audioCells[cellId] = "available";
-        }
-        try {
-            const notebookData = JSON.parse(document.getText());
-            if (Array.isArray(notebookData?.cells)) {
-                for (const cell of notebookData.cells) {
-                    const id = cell?.metadata?.id;
-                    if (!id) continue;
-                    if (audioCells[id] === "available") continue;
-                    const attachments = cell?.metadata?.attachments || {};
-                    const hasDeletedAudio = Object.values(attachments).some((att: any) => att?.type === "audio" && att?.isDeleted === true);
-                    if (hasDeletedAudio) audioCells[id] = "deletedOnly";
-                }
-            }
-        } catch (err) { console.warn('Failed to compute deleted-only cells after save', err); }
-
-        provider.postMessageToWebview(webviewPanel, {
-            type: "providerSendsAudioAttachments",
-            attachments: audioCells as any,
-        });
+        // Refresh full content; webview derives attachment availability from content
+        provider.refreshWebview(webviewPanel, document);
 
         debug("Audio attachment soft deleted successfully");
     },
@@ -1362,16 +1387,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
         });
 
-        const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
-        const audioCells: { [cellId: string]: boolean; } = {};
-        for (const cellId of Object.keys(updatedAudioAttachments)) {
-            audioCells[cellId] = true;
-        }
-
-        provider.postMessageToWebview(webviewPanel, {
-            type: "providerSendsAudioAttachments",
-            attachments: audioCells as any,
-        });
+        // Refresh content so client recomputes availability
+        provider.refreshWebview(webviewPanel, document);
 
         debug("Audio attachment restored successfully");
     },
@@ -1396,17 +1413,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             });
 
-            // Refresh audio attachments to reflect the new selection
-            const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
-            const audioCells: { [cellId: string]: boolean; } = {};
-            for (const cellId of Object.keys(updatedAudioAttachments)) {
-                audioCells[cellId] = true;
-            }
-
-            provider.postMessageToWebview(webviewPanel, {
-                type: "providerSendsAudioAttachments",
-                attachments: audioCells as any,
-            });
+            // Refresh content so client recomputes availability/selection state
+            provider.refreshWebview(webviewPanel, document);
 
             debug("Audio attachment selected successfully");
         } catch (error) {
