@@ -7,6 +7,7 @@ import { CodexCellEditorProvider } from "../../providers/codexCellEditorProvider
 import { codexSubtitleContent } from "./mocks/codexSubtitleContent";
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { CodexNotebookAsJSONData, QuillCellContent, Timestamps } from "../../../types";
+import { swallowDuplicateCommandRegistrations, createTempCodexFile, deleteIfExists, createMockExtensionContext, primeProviderWorkspaceStateForHtml, sleep } from "../testUtils";
 
 suite("CodexCellEditorProvider Test Suite", () => {
     vscode.window.showInformationMessage("Start all tests for CodexCellEditorProvider.");
@@ -15,81 +16,23 @@ suite("CodexCellEditorProvider Test Suite", () => {
     let tempUri: vscode.Uri;
 
     suiteSetup(async () => {
-        // Swallow duplicate command registrations when running under the extension host test runner
-        const originalRegister = vscode.commands.registerCommand;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (vscode.commands as any).registerCommand = ((command: string, callback: (...args: any[]) => any) => {
-            try {
-                return originalRegister(command, callback);
-            } catch (e: any) {
-                if (e && String(e).includes("already exists")) {
-                    return { dispose: () => { } } as vscode.Disposable;
-                }
-                throw e;
-            }
-        }) as typeof vscode.commands.registerCommand;
-
-        // Create a temporary file in the system's temp directory
-
-        const tempDir = os.tmpdir();
-        const tempFilePath = path.join(tempDir, "test.codex");
-        tempUri = vscode.Uri.file(tempFilePath);
-
-        // Write content to the temporary file
-        const encoder = new TextEncoder();
-        const fileContent = JSON.stringify(codexSubtitleContent, null, 2);
-        await vscode.workspace.fs.writeFile(tempUri, encoder.encode(fileContent));
+        swallowDuplicateCommandRegistrations();
+        tempUri = await createTempCodexFile("test.codex", codexSubtitleContent);
     });
 
     suiteTeardown(async () => {
-        // Clean up the temporary file
-        if (tempUri) {
-            try {
-                await vscode.workspace.fs.delete(tempUri);
-            } catch (error) {
-                console.error("Failed to delete temporary file:", error);
-            }
-        }
+        if (tempUri) await deleteIfExists(tempUri);
     });
 
-    setup(() => {
-        // Monkey patch registerCommand to avoid duplicate registration errors per test
-        const originalRegister = vscode.commands.registerCommand;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (vscode.commands as any).registerCommand = ((command: string, callback: (...args: any[]) => any) => {
-            try {
-                return originalRegister(command, callback);
-            } catch (e: any) {
-                if (e && String(e).includes("already exists")) {
-                    return { dispose: () => { } } as vscode.Disposable;
-                }
-                throw e;
-            }
-        }) as typeof vscode.commands.registerCommand;
-
-        class MockMemento implements vscode.Memento {
-            private storage = new Map<string, any>();
-            get<T>(key: string): T | undefined;
-            get<T>(key: string, defaultValue: T): T;
-            get<T>(key: string, defaultValue?: T): T | undefined {
-                return this.storage.get(key) ?? defaultValue;
-            }
-            update(key: string, value: any): Thenable<void> {
-                this.storage.set(key, value);
-                return Promise.resolve();
-            }
-            keys(): readonly string[] { return Array.from(this.storage.keys()); }
-            setKeysForSync(_: readonly string[]): void { }
-        }
-
-        // @ts-expect-error: test
-        context = {
-            extensionUri: vscode.Uri.file(__dirname),
-            subscriptions: [],
-            workspaceState: new MockMemento(),
-            globalState: new MockMemento(),
-        } as vscode.ExtensionContext;
+    setup(async () => {
+        swallowDuplicateCommandRegistrations();
+        context = createMockExtensionContext();
         provider = new CodexCellEditorProvider(context);
+
+        // Reset temp file baseline before each test to avoid cross-test interference
+        const encoder = new TextEncoder();
+        const baseline = JSON.stringify(codexSubtitleContent, null, 2);
+        await vscode.workspace.fs.writeFile(tempUri, encoder.encode(baseline));
     });
 
     test("Initialization of CodexCellEditorProvider", () => {
@@ -138,9 +81,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             cspSource: "https://example.com",
         } as any as vscode.Webview;
 
-        // Prime required workspaceState values used by getHtmlForWebview
-        (provider as any).context.workspaceState.update(`chapter-cache-${document.uri.toString()}`, 1);
-        (provider as any).context.workspaceState.update(`codex-editor-preferred-tab`, "source");
+        await primeProviderWorkspaceStateForHtml(provider as any, document, "source");
 
         const html = provider["getHtmlForWebview"](webview, document, "ltr", false);
 
@@ -184,8 +125,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             new vscode.CancellationTokenSource().token
         );
 
-        // Wait for the simulated message to be processed
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await sleep(50);
 
         assert.ok(receivedMessage, "Webview should receive a message");
         const allowedInitialMessages = ["providerSendsInitialContent", "providerUpdatesNotebookMetadataForWebview"];
@@ -196,15 +136,20 @@ suite("CodexCellEditorProvider Test Suite", () => {
     });
 
     test("updateCellContent updates the cell content", async () => {
-        const document = await provider.openCustomDocument(
+        // Reset baseline and reopen to avoid corrupted state from prior tests
+        await vscode.workspace.fs.writeFile(
+            tempUri,
+            Buffer.from(JSON.stringify(codexSubtitleContent, null, 2), "utf-8")
+        );
+        const freshDoc = await provider.openCustomDocument(
             tempUri,
             { backupId: undefined },
             new vscode.CancellationTokenSource().token
         );
         const cellId = codexSubtitleContent.cells[0].metadata.id;
         const contentForUpdate = "Updated content";
-        document.updateCellContent(cellId, contentForUpdate, EditType.USER_EDIT);
-        const updatedContent = await document.getText();
+        freshDoc.updateCellContent(cellId, contentForUpdate, EditType.USER_EDIT);
+        const updatedContent = await freshDoc.getText();
         const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
         assert.strictEqual(cell.value, contentForUpdate, "Cell content should be updated");
     });
@@ -381,7 +326,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         });
 
         // Wait for the update to be processed
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await sleep(50);
 
         // Verify that the document was updated
         const updatedContent = JSON.parse(document.getText());
@@ -424,8 +369,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             },
         });
 
-        // Wait for the update to be processed
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await sleep(50);
 
         // Verify that the timestamps were updated
         const updatedTimestamps = JSON.parse(document.getText()).cells[0].metadata.data;
@@ -451,7 +395,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
         });
 
         // Wait for the autocomplete to be processed
-
         assert.ok(
             postMessageCallback,
             "postMessage should be called after requestAutocompleteChapter message"
@@ -507,13 +450,13 @@ suite("CodexCellEditorProvider Test Suite", () => {
         );
 
         // test updateTextDirection message
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await sleep(50);
 
         onDidReceiveMessageCallback!({
             command: "updateTextDirection",
             direction: "rtl",
         });
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await sleep(50);
         const updatedTextDirection = JSON.parse(document.getText()).metadata.textDirection;
         assert.strictEqual(
             updatedTextDirection,
@@ -625,7 +568,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             command: "updateCellTimestamps",
             content: { cellId, timestamps: ts1 },
         });
-        await new Promise((r) => setTimeout(r, 50));
+        await sleep(50);
 
         // Verify initial-import entries for previous values plus user edits for new values
         const parsed1: CodexNotebookAsJSONData = JSON.parse(document.getText());
@@ -649,7 +592,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             command: "updateCellTimestamps",
             content: { cellId, timestamps: ts2 },
         });
-        await new Promise((r) => setTimeout(r, 50));
+        await sleep(50);
 
         const parsed2: CodexNotebookAsJSONData = JSON.parse(document.getText());
         const updatedCell2 = parsed2.cells.find((c: any) => c.metadata.id === cellId)!;
@@ -757,6 +700,13 @@ suite("CodexCellEditorProvider Test Suite", () => {
             }
         } as any);
 
+        // Stub merge resolver to bypass JSON merge parsing in save path
+        const mergeModule = await import("../../projectManager/utils/merge/resolvers");
+        const mergeStub = sinon.stub(mergeModule as any, "resolveCodexCustomMerge").callsFake((...args: unknown[]) => {
+            const ours = args[0] as string;
+            return Promise.resolve(ours);
+        });
+
         // Mock vscode.commands.executeCommand
         let commitCommandCalled = false;
         let commitMessage = "";
@@ -822,6 +772,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             // Restore original executeCommand and SyncManager
             vscode.commands.executeCommand = originalExecuteCommand;
             (syncManagerModule as any).SyncManager.getInstance = originalGetInstance;
+            mergeStub.restore();
         }
     });
 
@@ -870,7 +821,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             await provider.enqueueTranslation(cellId, document, true);
 
             // Allow queue to process
-            await new Promise((r) => setTimeout(r, 100));
+            await sleep(100);
 
             const parsed: CodexNotebookAsJSONData = JSON.parse(document.getText());
             const updatedCell = parsed.cells.find((c: any) => c.metadata.id === cellId);
@@ -947,7 +898,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             command: "saveHtml",
             content: { cellMarkers: [cellId], cellContent: newValue },
         });
-        await new Promise((r) => setTimeout(r, 60));
+        await sleep(60);
 
         const parsed = JSON.parse(document.getText());
         const cell = parsed.cells.find((c: any) => c.metadata.id === cellId);
@@ -1001,23 +952,108 @@ suite("CodexCellEditorProvider Test Suite", () => {
             // Trigger llmCompletion without addContentToValue flag
             onDidReceiveMessageCallback!({
                 command: "llmCompletion",
-                content: { currentLineId: cellId }
+                content: { currentLineId: cellId, addContentToValue: false }
             });
 
             // Let the queue process
-            await new Promise((r) => setTimeout(r, 120));
+            await sleep(150);
 
+            // In-memory assertions
             const parsed = JSON.parse(document.getText());
             const cell = parsed.cells.find((c: any) => c.metadata.id === cellId);
-
-            // Value should remain unchanged
             assert.strictEqual(cell.value, originalValue, "Cell value should not change after llmCompletion without addContentToValue");
-
-            // Edit history should include an LLM_GENERATION value edit with the predicted text
             const hasLlmEdit = (cell.metadata.edits || []).some(
                 (e: any) => e.type === "llm-generation" && JSON.stringify(e.editMap) === JSON.stringify(["value"]) && e.value === "PREDICTED"
             );
             assert.ok(hasLlmEdit, "Edit history should record an LLM_GENERATION value edit");
+
+            // Persist to disk (explicit save) and re-open to assert file reflects edits
+            await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+            const diskDataBuf = await vscode.workspace.fs.readFile(document.uri);
+            const diskJson = JSON.parse(new TextDecoder().decode(diskDataBuf));
+            const diskCell = diskJson.cells.find((c: any) => c.metadata.id === cellId);
+            assert.strictEqual(diskCell.value, originalValue, "On disk: value should remain unchanged after preview");
+            const diskHasLlmEdit = (diskCell.metadata.edits || []).some(
+                (e: any) => e.type === "llm-generation" && JSON.stringify(e.editMap) === JSON.stringify(["value"]) && e.value === "PREDICTED"
+            );
+            assert.ok(diskHasLlmEdit, "On disk: edits should include an LLM_GENERATION value edit");
+        } finally {
+            llmStub.restore();
+        }
+    });
+
+    test("llmCompletion preview does not set value when original is empty", async () => {
+        const provider = new CodexCellEditorProvider(context);
+
+        // Write a baseline file where the first cell has an empty value and no edits
+        const base = JSON.parse(JSON.stringify(codexSubtitleContent));
+        const targetCellId = base.cells[0].metadata.id;
+        base.cells[0].value = "";
+        base.cells[0].metadata.edits = [];
+        await vscode.workspace.fs.writeFile(tempUri, Buffer.from(JSON.stringify(base, null, 2)));
+
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        let onDidReceiveMessageCallback: any = null;
+        const webviewPanel = {
+            webview: {
+                html: "",
+                options: { enableScripts: true },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: "https://example.com",
+                onDidReceiveMessage: (callback: (message: any) => void) => {
+                    if (!onDidReceiveMessageCallback) onDidReceiveMessageCallback = callback;
+                    return { dispose: () => { } };
+                },
+                postMessage: (_message: any) => Promise.resolve(),
+            },
+            onDidDispose: () => ({ dispose: () => { } }),
+            onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+        } as any as vscode.WebviewPanel;
+
+        await provider.resolveCustomEditor(
+            document,
+            webviewPanel,
+            new vscode.CancellationTokenSource().token
+        );
+
+        // Stub llmCompletion to return a single variant
+        const llmModule = await import("../../providers/translationSuggestions/llmCompletion");
+        const llmStub = sinon.stub(llmModule, "llmCompletion").resolves({ variants: ["PRED_EMPTY"] } as any);
+
+        try {
+            // Trigger LLM completion with addContentToValue=false (preview only)
+            onDidReceiveMessageCallback!({
+                command: "llmCompletion",
+                content: { currentLineId: targetCellId, addContentToValue: false }
+            });
+
+            await sleep(150);
+
+            const parsed = JSON.parse(document.getText());
+            const cell = parsed.cells.find((c: any) => c.metadata.id === targetCellId);
+            // Value must remain empty
+            assert.strictEqual(cell.value, "", "Value should remain empty after preview-only LLM completion");
+            // An LLM_GENERATION edit should be recorded
+            const hasPreviewEdit = (cell.metadata.edits || []).some(
+                (e: any) => e.type === "llm-generation" && JSON.stringify(e.editMap) === JSON.stringify(["value"]) && e.value === "PRED_EMPTY"
+            );
+            assert.ok(hasPreviewEdit, "Edit history should include preview LLM_GENERATION edit");
+
+            // Persist and verify on disk
+            await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+            const diskDataBuf = await vscode.workspace.fs.readFile(document.uri);
+            const diskJson = JSON.parse(new TextDecoder().decode(diskDataBuf));
+            const diskCell = diskJson.cells.find((c: any) => c.metadata.id === targetCellId);
+            assert.strictEqual(diskCell.value, "", "On disk: value should remain empty after preview-only LLM completion");
+            const diskHasPreviewEdit = (diskCell.metadata.edits || []).some(
+                (e: any) => e.type === "llm-generation" && JSON.stringify(e.editMap) === JSON.stringify(["value"]) && e.value === "PRED_EMPTY"
+            );
+            assert.ok(diskHasPreviewEdit, "On disk: preview LLM edit should be present in edits array");
         } finally {
             llmStub.restore();
         }

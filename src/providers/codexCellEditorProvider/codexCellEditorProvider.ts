@@ -2422,6 +2422,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         shouldUpdateValue
                     );
 
+                    // If this was a preview-only update, persist the edit to disk immediately so edit history is saved
+                    if (!shouldUpdateValue) {
+                        try {
+                            await this.saveCustomDocument(currentDocument, new vscode.CancellationTokenSource().token);
+                        } catch (e) {
+                            console.warn("Failed to auto-save preview edit; will remain dirty until manual save.", e);
+                        }
+                    }
+
                     // Update progress in state
                     this.updateSingleCellTranslation(1.0);
 

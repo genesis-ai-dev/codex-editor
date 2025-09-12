@@ -1079,6 +1079,8 @@ type EditHistoryBase = {
 export type EditHistory<TEditMap extends readonly string[] = readonly string[]> = EditHistoryBase & {
     editMap: TEditMap;
     value: EditMapValueType<TEditMap>;
+    /** Optional flag to indicate a non-persisting preview edit (e.g., LLM preview) */
+    preview?: boolean;
 };
 
 // Legacy alias for backward compatibility

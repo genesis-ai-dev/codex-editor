@@ -8,6 +8,7 @@ import { CodexCellTypes, EditType } from "../../../types/enums";
 import { resolveCodexCustomMerge } from "../../../src/projectManager/utils/merge/resolvers";
 import { codexSubtitleContent } from "./mocks/codexSubtitleContent";
 import { CodexNotebookAsJSONData } from "../../../types";
+import { swallowDuplicateCommandRegistrations, createMockExtensionContext, createTempCodexFile, deleteIfExists, sleep } from "../testUtils";
 
 suite("Provider + Merge Integration - multi-user multi-field edits", () => {
     let provider: CodexCellEditorProvider;
@@ -15,43 +16,18 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
     let theirsUri: vscode.Uri;
 
     suiteSetup(async () => {
-        // Guard against duplicate command registration when the extension host already registered them
-        const originalRegister = vscode.commands.registerCommand;
-        // test-time monkey patch to no-op duplicate command registrations
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        vscode.commands.registerCommand = ((command: string, callback: (...args: any[]) => any) => {
-            try {
-                return originalRegister(command, callback);
-            } catch (e: any) {
-                if (e && String(e).includes("already exists")) {
-                    return { dispose: () => { } } as vscode.Disposable;
-                }
-                throw e;
-            }
-        }) as typeof vscode.commands.registerCommand;
-
-        const tmp = os.tmpdir();
-        oursUri = vscode.Uri.file(path.join(tmp, "merge-ours.codex"));
-        theirsUri = vscode.Uri.file(path.join(tmp, "merge-theirs.codex"));
-
-        const encoder = new TextEncoder();
-        const contentString = JSON.stringify(codexSubtitleContent, null, 2);
-        await vscode.workspace.fs.writeFile(oursUri, encoder.encode(contentString));
-        await vscode.workspace.fs.writeFile(theirsUri, encoder.encode(contentString));
+        swallowDuplicateCommandRegistrations();
+        oursUri = await createTempCodexFile("merge-ours.codex", codexSubtitleContent);
+        theirsUri = await createTempCodexFile("merge-theirs.codex", codexSubtitleContent);
     });
 
     suiteTeardown(async () => {
-        try { await vscode.workspace.fs.delete(oursUri); } catch (_e) { /* ignore cleanup error */ }
-        try { await vscode.workspace.fs.delete(theirsUri); } catch (_e) { /* ignore cleanup error */ }
+        await deleteIfExists(oursUri);
+        await deleteIfExists(theirsUri);
     });
 
     setup(() => {
-        // Minimal extension context mock
-        // @ts-expect-error - partial context for testing
-        const context: vscode.ExtensionContext = {
-            extensionUri: vscode.Uri.file(__dirname),
-            subscriptions: [],
-        } as vscode.ExtensionContext;
+        const context = createMockExtensionContext();
         provider = new CodexCellEditorProvider(context);
     });
 
@@ -76,7 +52,6 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
         const sharedCellId = codexSubtitleContent.cells[0].metadata.id as string;
 
         // Sequence operations with small delays to enforce timestamp ordering across docs
-        const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
         const SLEEP_MS = 30;
 
         // Test data constants for traceability

@@ -340,11 +340,23 @@ function resolveMetadataConflictsUsingEditHistory(
     for (const [pathKey, edits] of editsByPath.entries()) {
         if (edits.length === 0) continue;
 
-        // Find the most recent edit for this path
-        const mostRecentEdit = edits.sort((a, b) => b.timestamp - a.timestamp)[0];
+        // Find the most recent edit for this path, ignoring preview-only edits
+        const sorted = edits.sort((a, b) => b.timestamp - a.timestamp);
+        let mostRecentEdit = sorted.find((e) => !e.preview);
+        const allWerePreviews = !mostRecentEdit;
+        if (!mostRecentEdit) {
+            // Fallback to raw most recent if all were previews
+            mostRecentEdit = sorted[0];
+        }
 
         // Apply the edit to the resolved cell based on the path
-        applyEditToCell(resolvedCell, mostRecentEdit);
+        // Special rule: do NOT apply preview-only value edits to the resolved value.
+        // Keep the edit in history but leave the cell.value unchanged until a non-preview edit occurs.
+        if (allWerePreviews && pathKey === 'value') {
+            debugLog(`Skipping application of preview-only value edit for cell ${resolvedCell.metadata?.id}`);
+        } else {
+            applyEditToCell(resolvedCell, mostRecentEdit);
+        }
 
         debugLog(`Applied most recent edit for ${pathKey}: ${mostRecentEdit.value}`);
     }

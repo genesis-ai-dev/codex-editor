@@ -1225,7 +1225,7 @@ const CodexCellEditor: React.FC = () => {
             // Show a more permanent error state but still allow manual retry
             vscode.postMessage({
                 command: "showErrorMessage",
-                text: `Save failed after ${MAX_SAVE_RETRIES} attempts. Please check your connection and try again.`,
+                text: `Save failed after ${MAX_SAVE_RETRIES} attempts.`,
             } as EditorPostMessages);
             return;
         }
