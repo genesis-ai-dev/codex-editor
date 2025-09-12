@@ -19,7 +19,6 @@ import {
     handleGlobalMessage,
     handleMessages,
     performLLMCompletion,
-    scanForAudioAttachments,
 } from "./codexCellEditorMessagehandling";
 import { GlobalProvider } from "../../globalProvider";
 import { getAuthApi } from "@/extension";
@@ -56,8 +55,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private stateStoreListener: (() => void) | undefined;
     private commitTimer: NodeJS.Timeout | number | undefined;
     private autocompleteCancellation: vscode.CancellationTokenSource | undefined;
-    private mediaFileWatcher: vscode.FileSystemWatcher | undefined;
-    private mediaRefreshTimer: NodeJS.Timeout | undefined;
+    // Removed media file watcher and refresh timer; attachments are provided via cell metadata
 
     // Cancellation token for single cell queue operations
     private singleCellQueueCancellation: vscode.CancellationTokenSource | undefined;
@@ -172,7 +170,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     constructor(protected readonly context: vscode.ExtensionContext) {
         debug("Constructing CodexCellEditorProvider");
         this.initializeStateStore();
-        this.setupMediaFileWatcher();
 
         // Listen for configuration changes
         const configurationChangeDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
@@ -554,19 +551,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             enabled: this.isCorrectionEditorMode,
         });
 
-        // Wait for webview ready event before sending audio attachments status
-        const onReadyMessageDisposable = webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages | GlobalMessage) => {
-            const isEditorReady = (e as any)?.command === 'webviewReady' || (e as any)?.type === 'webviewReady';
-            if (isEditorReady) {
-                try {
-                    debug("Webview ready, sending audio attachments status");
-                    await this.sendAudioAttachmentsStatus(webviewPanel, document);
-                } catch (error) {
-                    console.error("Error scanning for audio attachments:", error);
-                }
-            }
-        });
-        listeners.push(onReadyMessageDisposable);
+        // No longer sending separate audio attachments status; attachments are included with initial content
 
         // Watch for configuration changes
         const configListenerDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
@@ -1580,8 +1565,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             content: notebookData.metadata,
         });
 
-        // Send audio attachment status immediately after content
-        await this.sendAudioAttachmentsStatus(webviewPanel, document);
+        // Audio attachment availability is derived in the webview from QuillCellContent.attachments
 
         if (videoUrl) {
             this.postMessageToWebview(webviewPanel, {
@@ -1592,56 +1576,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         debug("Webview refresh completed");
     }
 
-    private async sendAudioAttachmentsStatus(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument): Promise<void> {
-        try {
-            // Get document data to check attachment metadata
-            const documentText = document.getText();
-            const notebookData = JSON.parse(documentText);
-            const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {};
-
-            // Process each cell to determine audio status
-            if (notebookData.cells && Array.isArray(notebookData.cells)) {
-                for (const cell of notebookData.cells) {
-                    if (cell.metadata && cell.metadata.id) {
-                        const cellId = cell.metadata.id;
-
-                        if (cell.metadata.attachments) {
-                            let hasAvailableAudio = false;
-                            let hasDeletedAudio = false;
-
-                            for (const [attachmentId, attachment] of Object.entries(cell.metadata.attachments)) {
-                                if (attachment && typeof attachment === 'object' && (attachment as any).type === 'audio') {
-                                    if ((attachment as any).isDeleted) {
-                                        hasDeletedAudio = true;
-                                    } else {
-                                        hasAvailableAudio = true;
-                                    }
-                                }
-                            }
-
-                            if (hasAvailableAudio) {
-                                audioCells[cellId] = "available";
-                            } else if (hasDeletedAudio) {
-                                audioCells[cellId] = "deletedOnly";
-                            } else {
-                                audioCells[cellId] = "none";
-                            }
-                        } else {
-                            audioCells[cellId] = "none";
-                        }
-                    }
-                }
-            }
-
-            debug("Sending audio attachment status for all cells:", Object.keys(audioCells).length);
-            this.postMessageToWebview(webviewPanel, {
-                type: "providerSendsAudioAttachments",
-                attachments: audioCells,
-            });
-        } catch (error) {
-            console.error(`Error sending audio attachments status for webview:`, error);
-        }
-    }
+    // Removed: sendAudioAttachmentsStatus; audio availability is computed client-side from content
 
     private getVideoUrl(
         videoPath: string | undefined,
@@ -3091,143 +3026,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             console.error("Error checking for child cells in target:", error);
             // Return empty array on error - safer to proceed than block
             return [];
-        }
-    }
-
-    /**
-     * Sets up a file watcher for media attachments to automatically refresh webviews
-     * when LFS media files (audio, video, images) are synced/downloaded.
-     */
-    private setupMediaFileWatcher(): void {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders?.length) {
-            return;
-        }
-
-        const rootUri = workspaceFolders[0].uri;
-
-        // Watch the files directory for all file types
-        // This excludes the pointers directory which only contains LFS pointer files
-        const mediaAttachmentsPattern = new vscode.RelativePattern(
-            rootUri.fsPath,
-            ".project/attachments/files/**/*"
-        );
-
-        this.mediaFileWatcher = vscode.workspace.createFileSystemWatcher(mediaAttachmentsPattern);
-
-        // Debounced refresh function to avoid excessive updates
-        const debouncedRefresh = () => {
-            if (this.mediaRefreshTimer) {
-                clearTimeout(this.mediaRefreshTimer);
-            }
-            // In Node typings, setTimeout returns NodeJS.Timeout; in browser it may be number.
-            // Cast to any to satisfy mixed environments for tests/build.
-            this.mediaRefreshTimer = setTimeout(() => {
-                this.refreshAudioAttachmentsForAllWebviews();
-            }, 500) as any; // 500ms debounce
-        };
-
-        this.mediaFileWatcher.onDidCreate(debouncedRefresh);
-        this.mediaFileWatcher.onDidChange(debouncedRefresh);
-        this.mediaFileWatcher.onDidDelete(debouncedRefresh);
-
-        this.context.subscriptions.push(this.mediaFileWatcher);
-
-        debug("Media file watcher set up for pattern:", mediaAttachmentsPattern.pattern);
-    }
-
-    /**
-     * Refreshes media attachments for all open webview panels.
-     * This is called when media files are detected to have changed.
-     */
-    private async refreshAudioAttachmentsForAllWebviews(): Promise<void> {
-        debug("Refreshing media attachments for all open webviews");
-
-        if (this.webviewPanels.size === 0) {
-            debug("No open webview panels to refresh");
-            return;
-        }
-
-        const refreshPromises: Promise<void>[] = [];
-
-        for (const [documentUri, webviewPanel] of this.webviewPanels.entries()) {
-            if (webviewPanel.visible) {
-                refreshPromises.push(this.refreshAudioAttachmentsForWebview(documentUri, webviewPanel));
-            }
-        }
-
-        try {
-            await Promise.all(refreshPromises);
-            debug(`Successfully refreshed media attachments for ${refreshPromises.length} webviews`);
-        } catch (error) {
-            console.error("Error refreshing media attachments for webviews:", error);
-        }
-    }
-
-    /**
-     * Refreshes media attachments for a specific webview panel.
-     */
-    private async refreshAudioAttachmentsForWebview(
-        documentUri: string,
-        webviewPanel: vscode.WebviewPanel
-    ): Promise<void> {
-        try {
-            // Create a document instance for scanning
-            const document = await this.openCustomDocument(
-                vscode.Uri.parse(documentUri),
-                {},
-                new vscode.CancellationTokenSource().token
-            );
-
-            // Scan for audio attachments
-            const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
-
-            // Get document data to check attachment metadata
-            const documentText = document.getText();
-            const notebookData = JSON.parse(documentText);
-            const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {};
-
-            // Process each cell to determine audio status
-            if (notebookData.cells && Array.isArray(notebookData.cells)) {
-                for (const cell of notebookData.cells) {
-                    if (cell.metadata && cell.metadata.id) {
-                        const cellId = cell.metadata.id;
-
-                        if (cell.metadata.attachments) {
-                            let hasAvailableAudio = false;
-                            let hasDeletedAudio = false;
-
-                            for (const [attachmentId, attachment] of Object.entries(cell.metadata.attachments)) {
-                                if (attachment && typeof attachment === 'object' && (attachment as any).type === 'audio') {
-                                    if ((attachment as any).isDeleted) {
-                                        hasDeletedAudio = true;
-                                    } else {
-                                        hasAvailableAudio = true;
-                                    }
-                                }
-                            }
-
-                            if (hasAvailableAudio) {
-                                audioCells[cellId] = "available";
-                            } else if (hasDeletedAudio) {
-                                audioCells[cellId] = "deletedOnly";
-                            } else {
-                                audioCells[cellId] = "none";
-                            }
-                        } else {
-                            audioCells[cellId] = "none";
-                        }
-                    }
-                }
-            }
-
-            debug("Sending updated audio attachment status for all cells:", Object.keys(audioCells).length);
-            this.postMessageToWebview(webviewPanel, {
-                type: "providerSendsAudioAttachments",
-                attachments: audioCells,
-            });
-        } catch (error) {
-            console.error(`Error refreshing media attachments for webview ${documentUri}:`, error);
         }
     }
 }
