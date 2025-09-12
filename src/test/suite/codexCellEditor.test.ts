@@ -160,6 +160,11 @@ suite("CodexCellEditorProvider Test Suite", () => {
     });
 
     test("updateCellContent (LLM_GENERATION preview) records edit without changing value or indexing", async () => {
+        // Ensure a fresh baseline file to avoid undefined cells on slow/parallel runs
+        await vscode.workspace.fs.writeFile(
+            tempUri,
+            Buffer.from(JSON.stringify(codexSubtitleContent, null, 2), "utf-8")
+        );
         const document = await provider.openCustomDocument(
             tempUri,
             { backupId: undefined },
@@ -186,7 +191,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             false
         );
 
-        await sleep(20);
+        await sleep(30);
 
         const after = JSON.parse(document.getText());
         const afterCell = after.cells.find((c: any) => c.metadata.id === cellId);

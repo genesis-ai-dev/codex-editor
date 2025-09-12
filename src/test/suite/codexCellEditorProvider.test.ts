@@ -4,6 +4,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as os from "os";
 import { CodexCellEditorProvider } from "../../providers/codexCellEditorProvider/codexCellEditorProvider";
+import { CodexCellDocument } from "../../providers/codexCellEditorProvider/codexDocument";
 import { codexSubtitleContent } from "./mocks/codexSubtitleContent";
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { CodexNotebookAsJSONData, QuillCellContent, Timestamps } from "../../../types";
@@ -17,11 +18,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
     suiteSetup(async () => {
         swallowDuplicateCommandRegistrations();
-        tempUri = await createTempCodexFile("test.codex", codexSubtitleContent);
-    });
-
-    suiteTeardown(async () => {
-        if (tempUri) await deleteIfExists(tempUri);
     });
 
     setup(async () => {
@@ -29,14 +25,37 @@ suite("CodexCellEditorProvider Test Suite", () => {
         context = createMockExtensionContext();
         provider = new CodexCellEditorProvider(context);
 
-        // Reset temp file baseline before each test to avoid cross-test interference
-        const encoder = new TextEncoder();
-        const baseline = JSON.stringify(codexSubtitleContent, null, 2);
-        await vscode.workspace.fs.writeFile(tempUri, encoder.encode(baseline));
+        // Create a unique temp file per test to avoid cross-test races on slow machines
+        tempUri = await createTempCodexFile(
+            `test-${Date.now()}-${Math.random().toString(36).slice(2)}.codex`,
+            codexSubtitleContent
+        );
+
+        // Stub background tasks to avoid side-effects and assert calls
+        sinon.restore();
+        sinon.stub((CodexCellDocument as any).prototype, "addCellToIndexImmediately").callsFake(() => { });
+        sinon.stub((CodexCellDocument as any).prototype, "syncAllCellsToDatabase").resolves();
+        sinon.stub((CodexCellDocument as any).prototype, "populateSourceCellMapFromIndex").resolves();
+    });
+
+    teardown(async () => {
+        if (tempUri) await deleteIfExists(tempUri);
     });
 
     test("Initialization of CodexCellEditorProvider", () => {
         assert.ok(provider, "CodexCellEditorProvider should be initialized successfully");
+    });
+
+    test("openCustomDocument populates sourceCellMap from index", async () => {
+        const doc = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+        const populateStub = (CodexCellDocument as any).prototype
+            .populateSourceCellMapFromIndex as sinon.SinonStub;
+        assert.ok(populateStub.called, "Should populate sourceCellMap on open");
+        doc.dispose();
     });
 
     test("openCustomDocument should return a CodexCellDocument", async () => {
@@ -89,6 +108,30 @@ suite("CodexCellEditorProvider Test Suite", () => {
         assert.ok(html.includes("</html>"), "HTML should contain closing html tag");
         assert.ok(html.includes('<div id="root"></div>'), "HTML should contain root div");
         assert.ok(html.includes("window.initialData"), "HTML should include initial data script");
+    });
+
+    test("USER_EDIT persists to disk with correct edit type", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+        const newValue = "Persisted user edit";
+
+        // Perform a direct USER_EDIT update (avoids webview command dependencies)
+        await (document as any).updateCellContent(cellId, newValue, EditType.USER_EDIT);
+
+        // Save and assert persisted content + edit type
+        await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+        const diskBuf = await vscode.workspace.fs.readFile(document.uri);
+        const diskJson = JSON.parse(new TextDecoder().decode(diskBuf));
+        const diskCell = diskJson.cells.find((c: any) => c.metadata.id === cellId);
+        assert.strictEqual(diskCell.value, newValue, "On disk: user edit value should persist");
+        const lastEdit = (diskCell.metadata.edits || [])[diskCell.metadata.edits.length - 1];
+        assert.strictEqual(lastEdit?.type, "user-edit", "On disk: latest edit should be user-edit");
     });
 
     test("resolveCustomEditor sets up message passing", async () => {
@@ -152,6 +195,9 @@ suite("CodexCellEditorProvider Test Suite", () => {
         const updatedContent = await freshDoc.getText();
         const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
         assert.strictEqual(cell.value, contentForUpdate, "Cell content should be updated");
+        // Background indexing should be triggered for USER_EDIT updates
+        const addIndexStub = (CodexCellDocument as any).prototype.addCellToIndexImmediately as sinon.SinonStub;
+        assert.ok(addIndexStub.called, "Indexing should be triggered on USER_EDIT");
     });
 
     test("updateCellTimestamps updates the cell timestamps", async () => {
@@ -973,6 +1019,10 @@ suite("CodexCellEditorProvider Test Suite", () => {
             );
             assert.ok(hasLlmEdit, "Edit history should record an LLM_GENERATION value edit");
 
+            // Background indexing should NOT be triggered for preview
+            const addIndexStub = (CodexCellDocument as any).prototype.addCellToIndexImmediately as sinon.SinonStub;
+            assert.strictEqual(addIndexStub.called, false, "Indexing should not be triggered for LLM preview");
+
             // Persist to disk (explicit save) and re-open to assert file reflects edits
             await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
             const diskDataBuf = await vscode.workspace.fs.readFile(document.uri);
@@ -983,6 +1033,121 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 (e: any) => e.type === "llm-generation" && JSON.stringify(e.editMap) === JSON.stringify(["value"]) && e.value === "PREDICTED"
             );
             assert.ok(diskHasLlmEdit, "On disk: edits should include an LLM_GENERATION value edit");
+        } finally {
+            llmStub.restore();
+        }
+    });
+
+    test("validateCellContent persists validatedBy on latest edit", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        // Ensure there is a latest edit to attach validation to
+        const targetCellId = codexSubtitleContent.cells[0].metadata.id;
+        await (document as any).updateCellContent(targetCellId, "Value for validation", EditType.USER_EDIT);
+
+        // Apply a validation (will default to anonymous if auth not available)
+        await (document as any).validateCellContent(targetCellId, true);
+
+        // Persist and assert validatedBy is recorded on latest edit
+        await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+        const diskData = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(document.uri)));
+        const diskCell = diskData.cells.find((c: any) => c.metadata.id === targetCellId);
+        const diskLastEdit = (diskCell.metadata.edits || [])[diskCell.metadata.edits.length - 1];
+        assert.ok(Array.isArray(diskLastEdit?.validatedBy), "validatedBy array should exist on latest edit");
+        const hasValidator = (diskLastEdit.validatedBy || []).some((v: any) => v && typeof v.username === "string");
+        assert.ok(hasValidator, "validatedBy should include a user entry on latest edit");
+    });
+
+    test("new edit by another user resets validatedBy to only that user on latest edit", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+
+        // First, user-one edits and validates
+        (document as any)._author = "user-one";
+        await (document as any).updateCellContent(cellId, "User one value", EditType.USER_EDIT);
+        await (document as any).validateCellContent(cellId, true);
+
+        // Then, another user creates a new edit
+        (document as any)._author = "user-two";
+        await (document as any).updateCellContent(cellId, "User two value", EditType.USER_EDIT);
+
+        // Persist to disk to assert the stored structure
+        await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+        const diskData = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(document.uri)));
+        const diskCell = diskData.cells.find((c: any) => c.metadata.id === cellId);
+
+        // Latest edit should be authored by user-two and its validatedBy should only contain user-two (if any)
+        const latestEdit = diskCell.metadata.edits[diskCell.metadata.edits.length - 1];
+        assert.strictEqual(latestEdit.author, "user-two", "Latest edit should be from the second user");
+
+        const activeValidators = (latestEdit.validatedBy || []).filter((v: any) => v && v.isDeleted === false);
+        // Because a new edit was made by another user, prior validations apply to older edits only.
+        // The latest edit should start with validatedBy scoped to the author of that edit only (if any were added during creation).
+        // Our implementation sets validatedBy on USER_EDIT to the editing author only.
+        assert.ok(Array.isArray(latestEdit.validatedBy), "validatedBy array should exist on the latest edit");
+        assert.strictEqual(activeValidators.length, 1, "Exactly one active validator should be present on the latest edit");
+        assert.strictEqual(activeValidators[0].username, "user-two", "Validator should be the latest edit's author");
+    });
+
+    test("llmCompletion with addContentToValue=true triggers indexing", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        let onDidReceiveMessageCallback: any = null;
+        const webviewPanel = {
+            webview: {
+                html: "",
+                options: { enableScripts: true },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: "https://example.com",
+                onDidReceiveMessage: (callback: (message: any) => void) => {
+                    if (!onDidReceiveMessageCallback) onDidReceiveMessageCallback = callback;
+                    return { dispose: () => { } };
+                },
+                postMessage: (_message: any) => Promise.resolve(),
+            },
+            onDidDispose: () => ({ dispose: () => { } }),
+            onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+        } as any as vscode.WebviewPanel;
+
+        await provider.resolveCustomEditor(
+            document,
+            webviewPanel,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+
+        // Stub llmCompletion to return a single variant
+        const llmModule = await import("../../providers/translationSuggestions/llmCompletion");
+        const llmStub = sinon.stub(llmModule, "llmCompletion").resolves({ variants: ["LLM VALUE"] } as any);
+
+        try {
+            onDidReceiveMessageCallback!({
+                command: "llmCompletion",
+                content: { currentLineId: cellId, addContentToValue: true },
+            });
+
+            await sleep(150);
+
+            const addIndexStub = (CodexCellDocument as any).prototype
+                .addCellToIndexImmediately as sinon.SinonStub;
+            assert.ok(addIndexStub.called, "Indexing should be triggered when value is updated by LLM");
         } finally {
             llmStub.restore();
         }
