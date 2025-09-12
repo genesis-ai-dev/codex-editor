@@ -242,6 +242,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         editType: EditType,
         shouldUpdateValue = true
     ) {
+        console.log("trace 124 updateCellContent", cellId, newContent, editType, shouldUpdateValue);
 
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
             (cell) => cell.metadata?.id === cellId
@@ -261,6 +262,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // Special case: for non-persisting LLM previews, do not update the cell value
         // but DO record an LLM_GENERATION edit in metadata so history/auditing is preserved
         if (editType === EditType.LLM_GENERATION && !shouldUpdateValue) {
+            console.log("trace 124 LLM_GENERATION and !shouldUpdateValue", cellId, newContent, editType, shouldUpdateValue);
             // Ensure edit history array exists
             if (!cellToUpdate.metadata.edits) {
                 cellToUpdate.metadata.edits = [];
@@ -268,21 +270,30 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
             const currentTimestamp = Date.now();
 
-            cellToUpdate.metadata.edits.push({
+            const previewEdit: any = {
                 editMap: EditMapUtils.value(),
                 value: newContent,
                 timestamp: currentTimestamp,
                 type: editType,
                 author: this._author,
                 validatedBy: [],
-            });
+                preview: true,
+            };
+            cellToUpdate.metadata.edits.push(previewEdit);
 
-            // Notify webview so UI can reflect previewed content without marking file dirty
+            console.log("trace 124 cellToUpdate", { cellToUpdate });
+
+            // Mark dirty so edits are persisted on the next explicit save, but do not notify or save automatically.
+            // This avoids side effects (e.g., merge logic using edit history) from updating the stored value.
+            // If the UI needs to reflect the preview, it should use a separate webview-only channel.
+            this._isDirty = true;
+            // Notify both VS Code and the webview that edits changed, so the provider can mark dirty and VS Code can autosave
+            this._onDidChangeForVsCodeAndWebview.fire({
+                edits: [{ cellId, newContent, editType }],
+            });
             this._onDidChangeForWebview.fire({
                 edits: [{ cellId, newContent, editType }],
             });
-
-            // Intentionally do not mark the document dirty or update value/index
             return;
         }
 
@@ -333,6 +344,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
             validatedBy,
         });
 
+        console.log("trace 124 cellToUpdate.metadata.edits", cellToUpdate.metadata.edits);
+
         // Record the edit 
         // not being used ???
         this._edits.push({
@@ -349,7 +362,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         });
 
         // IMMEDIATE INDEXING: Add the cell to the database immediately after translation
-        if (editType === EditType.LLM_GENERATION || editType === EditType.USER_EDIT) {
+        if ((editType === EditType.LLM_GENERATION && shouldUpdateValue) || editType === EditType.USER_EDIT) {
             this.addCellToIndexImmediately(cellId, newContent, editType);
         }
 

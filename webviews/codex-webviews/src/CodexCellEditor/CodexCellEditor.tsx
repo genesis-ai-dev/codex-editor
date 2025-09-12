@@ -314,7 +314,7 @@ const CodexCellEditor: React.FC = () => {
                         if (targetCount > 0 && completed >= targetCount) break;
                         const cellId = unit.cellMarkers[0];
                         // Quick skip if we know there's no audio
-                        if (audioAttachments && audioAttachments[cellId] === 'none') {
+                        if (audioAttachments && audioAttachments[cellId] === "none") {
                             continue;
                         }
                         // Request audio for cell
@@ -439,10 +439,14 @@ const CodexCellEditor: React.FC = () => {
         (event: MessageEvent) => {
             const message = event.data;
             if (message?.type === "transcriptionState" && message?.content?.cellId) {
-                const { cellId, inProgress } = message.content as { cellId: string; inProgress: boolean };
+                const { cellId, inProgress } = message.content as {
+                    cellId: string;
+                    inProgress: boolean;
+                };
                 setTranscribingCells((prev) => {
                     const next = new Set(prev);
-                    if (inProgress) next.add(cellId); else next.delete(cellId);
+                    if (inProgress) next.add(cellId);
+                    else next.delete(cellId);
                     return next;
                 });
             }
@@ -1323,7 +1327,7 @@ const CodexCellEditor: React.FC = () => {
             // Show a more permanent error state but still allow manual retry
             vscode.postMessage({
                 command: "showErrorMessage",
-                text: `Save failed after ${MAX_SAVE_RETRIES} attempts. Please check your connection and try again.`,
+                text: `Save failed after ${MAX_SAVE_RETRIES} attempts.`,
             } as EditorPostMessages);
             return;
         }
@@ -1823,22 +1827,36 @@ const CodexCellEditor: React.FC = () => {
     const videoPlayerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        const handleResize = () => {
-            setWindowHeight(window.innerHeight);
-            if (headerRef.current && navigationRef.current && videoPlayerRef.current) {
-                const totalHeaderHeight =
-                    headerRef.current.offsetHeight +
-                    navigationRef.current.offsetHeight +
-                    (shouldShowVideoPlayer ? videoPlayerRef.current.offsetHeight : 0);
-                setHeaderHeight(totalHeaderHeight);
-            }
+        const measureHeights = () => {
+            const headerOffset = headerRef.current?.offsetHeight || 0;
+            const videoOffset =
+                shouldShowVideoPlayer && videoPlayerRef.current
+                    ? videoPlayerRef.current.offsetHeight
+                    : 0;
+            setHeaderHeight(headerOffset + videoOffset);
         };
 
-        window.addEventListener("resize", handleResize);
-        handleResize(); // Initial calculation
+        const handleResize = () => {
+            setWindowHeight(window.innerHeight);
+            measureHeights();
+        };
 
-        return () => window.removeEventListener("resize", handleResize);
-    }, [shouldShowVideoPlayer]); // Add shouldShowVideoPlayer as a dependency
+        const resizeObserver = new ResizeObserver(() => {
+            measureHeights();
+        });
+
+        if (headerRef.current) resizeObserver.observe(headerRef.current);
+        if (videoPlayerRef.current) resizeObserver.observe(videoPlayerRef.current);
+
+        window.addEventListener("resize", handleResize);
+        // Initial measurement after mount
+        measureHeights();
+
+        return () => {
+            window.removeEventListener("resize", handleResize);
+            resizeObserver.disconnect();
+        };
+    }, [shouldShowVideoPlayer]);
 
     useEffect(() => {
         vscode.postMessage({
