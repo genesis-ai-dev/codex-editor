@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { CodexContentSerializer } from "@/serializer";
+import { vrefData } from "@/utils/verseRefUtils/verseData";
 
 // FIXME: move notebook format migration here
 
@@ -340,6 +341,16 @@ export const migration_lineNumbersSettings = async (context?: vscode.ExtensionCo
                     });
 
                     try {
+                        // If this looks like a Bible notebook and is missing labels,
+                        // add verse-number labels based on the verse ID (e.g. "GEN 1:1" -> label "1").
+                        const probablyBible = await isBibleBook(file);
+                        if (probablyBible) {
+                            const added = await addCellLabelsToBibleBook(file);
+                            if (added) {
+                                console.log(`Added verse-number labels for ${path.basename(file.fsPath)}`);
+                            }
+                        }
+
                         const shouldShowLineNumbers = await analyzeFileForLineNumbers(file);
                         await updateFileLineNumbers(file, shouldShowLineNumbers);
                         processedFiles++;
@@ -506,6 +517,99 @@ async function updateFileLineNumbers(fileUri: vscode.Uri, enableLineNumbers: boo
 
     } catch (error) {
         console.error(`Error updating line numbers for ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
+
+/**
+ * Heuristic: Determine if a notebook is likely a single Bible book.
+ * We check a random sample of cells for verse-ref style IDs like "GEN 1:1" and
+ * require that most matched cells share the same 3-letter book code present in vrefData.
+ */
+export async function isBibleBook(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = (notebookData as any).cells || [];
+        if (cells.length === 0) return false;
+
+        const sampleSize = Math.min(30, cells.length);
+        const sampled = getRandomSample(cells, sampleSize);
+        let matches = 0;
+        const bookCounts = new Map<string, number>();
+
+        for (const cell of sampled) {
+            const id: string | undefined = cell?.metadata?.id;
+            if (!id) continue;
+            const m = String(id).match(/^([A-Z0-9]{3})\s+(\d+):(\d+)$/);
+            if (m && vrefData[m[1]]) {
+                matches++;
+                bookCounts.set(m[1], (bookCounts.get(m[1]) || 0) + 1);
+            }
+        }
+
+        if (matches === 0) return false;
+
+        // consider it Bible if at least 60% of sampled cells match and dominant book is clear
+        const dominant = [...bookCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+        const dominantCount = dominant ? dominant[1] : 0;
+        return matches / sampleSize >= 0.4 && dominantCount / matches >= 0.6; // lenient: heterogeneous files may still qualify
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Add verse-number labels to cells missing a label in Bible notebooks.
+ * For an ID like "GEN 1:1", we set `cellLabel` to "1".
+ * Returns true if any labels were added and the file was saved.
+ */
+export async function addCellLabelsToBibleBook(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = notebookData.cells || [];
+        if (cells.length === 0) return false;
+
+        let changed = false;
+        for (const cell of cells) {
+            const md: any = cell.metadata || {};
+            const existing = md.cellLabel;
+            const id: string | undefined = md.id;
+            if (!id) continue;
+            const m = String(id).match(/^([A-Z0-9]{3})\s+(\d+):(\d+)$/);
+            if (!m) continue;
+            const book = m[1];
+            const verse = m[3];
+            if (!vrefData[book]) continue;
+            if (existing && String(existing).trim().length > 0) continue;
+
+            // Assign verse number as label
+            md.cellLabel = String(verse);
+            cell.metadata = md;
+            changed = true;
+        }
+
+        if (!changed) return false;
+
+        const updatedContent = await serializer.serializeNotebook(
+            notebookData,
+            new vscode.CancellationTokenSource().token
+        );
+        await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+        return true;
+    } catch (e) {
+        console.error(`Failed to add Bible labels for ${fileUri.fsPath}:`, e);
         return false;
     }
 }
