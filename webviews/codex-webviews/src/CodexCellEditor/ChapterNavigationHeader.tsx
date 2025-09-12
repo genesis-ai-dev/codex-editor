@@ -1029,9 +1029,9 @@ ChapterNavigationHeaderProps) {
             {/* Warning alert for unsaved changes */}
             {showUnsavedWarning && (
                 <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 z-50 w-80 max-w-[90vw]">
-                    <Alert variant="destructive">
+                    <Alert variant="destructive" className="bg-red-50 border-red-200 shadow-lg">
                         <i className="codicon codicon-warning h-4 w-4" />
-                        <AlertDescription>
+                        <AlertDescription className="text-red-800">
                             Please close the editor or save your changes before navigating away from this section.
                         </AlertDescription>
                     </Alert>
