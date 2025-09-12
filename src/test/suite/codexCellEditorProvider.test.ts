@@ -991,15 +991,19 @@ suite("CodexCellEditorProvider Test Suite", () => {
     test("llmCompletion preview does not set value when original is empty", async () => {
         const provider = new CodexCellEditorProvider(context);
 
-        // Write a baseline file where the first cell has an empty value and no edits
+        // Create an isolated temp file where the first cell has an empty value and no edits
+        // This avoids cross-test interference when tests run in parallel extension hosts
         const base = JSON.parse(JSON.stringify(codexSubtitleContent));
         const targetCellId = base.cells[0].metadata.id;
         base.cells[0].value = "";
         base.cells[0].metadata.edits = [];
-        await vscode.workspace.fs.writeFile(tempUri, Buffer.from(JSON.stringify(base, null, 2)));
+        const uniqueUri = await createTempCodexFile(
+            `empty-preview-${Date.now()}-${Math.floor(Math.random() * 1e9)}.codex`,
+            base
+        );
 
         const document = await provider.openCustomDocument(
-            tempUri,
+            uniqueUri,
             { backupId: undefined },
             new vscode.CancellationTokenSource().token
         );
@@ -1062,6 +1066,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             assert.ok(diskHasPreviewEdit, "On disk: preview LLM edit should be present in edits array");
         } finally {
             llmStub.restore();
+            await deleteIfExists(uniqueUri);
         }
     });
 });
