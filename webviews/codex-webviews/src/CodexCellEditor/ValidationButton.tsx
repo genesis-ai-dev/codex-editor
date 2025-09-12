@@ -299,17 +299,13 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     const handleValidate = (e: React.MouseEvent) => {
         e.stopPropagation();
 
-        // Toggle the pending validation state for all validation operations
-        const newPendingState = !isPendingValidation;
-        setIsPendingValidation(newPendingState);
-
-        // Queue the validation request (both for adding and removing validations)
+        // Immediately enqueue a sequential validation request on the provider side
+        setIsPendingValidation(true);
         vscode.postMessage({
-            command: "queueValidation",
+            command: "validateCell",
             content: {
                 cellId,
-                validate: !isValidated, // Toggle the current validation state
-                pending: newPendingState,
+                validate: !isValidated,
             },
         });
 
@@ -321,7 +317,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 setIsDetailedView(false);
                 popoverTracker.setActivePopover(null);
             }
-        }, 1000);
+        }, 500);
     };
 
     const handleButtonClick = (e: React.MouseEvent) => {
@@ -664,18 +660,14 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                                                     onClick={(e) => {
                                                         e.stopPropagation();
 
-                                                        // Queue the validation removal
+                                                        // Enqueue the validation removal (sequential)
                                                         vscode.postMessage({
-                                                            command: "queueValidation",
+                                                            command: "validateCell",
                                                             content: {
                                                                 cellId,
                                                                 validate: false,
-                                                                pending: true,
                                                             },
                                                         });
-
-                                                        // Set the pending state
-                                                        setIsPendingValidation(true);
 
                                                         // Immediately close the popover
                                                         setShowPopover(false);

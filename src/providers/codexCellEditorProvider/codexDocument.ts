@@ -966,8 +966,37 @@ export class CodexCellDocument implements vscode.CustomDocument {
             ];
         }
 
-        // Get the latest edit
-        const latestEdit = cellToUpdate.metadata.edits[cellToUpdate.metadata.edits.length - 1];
+        // Find the correct edit corresponding to the CURRENT VALUE of the cell
+        // We must NOT validate metadata-only edits (e.g., label/timestamp). Validate the value edit
+        // whose value matches the current cell value.
+        let targetEditIndex = -1;
+        for (let i = cellToUpdate.metadata.edits.length - 1; i >= 0; i--) {
+            const e = cellToUpdate.metadata.edits[i];
+            // Identify value edits using EditMapUtils and also match the exact value
+            const isValueEdit = EditMapUtils.isValue
+                ? EditMapUtils.isValue(e.editMap)
+                : EditMapUtils.equals(e.editMap, EditMapUtils.value());
+            if (isValueEdit && e.value === cellToUpdate.value) {
+                targetEditIndex = i;
+                break;
+            }
+        }
+
+        // If we didn't find a value edit that matches current value, create one so validation history is consistent
+        if (targetEditIndex === -1) {
+            const currentTimestamp = Date.now();
+            cellToUpdate.metadata.edits.push({
+                editMap: EditMapUtils.value(),
+                value: cellToUpdate.value,
+                author: this._author,
+                validatedBy: [],
+                timestamp: currentTimestamp,
+                type: EditType.USER_EDIT,
+            } as any);
+            targetEditIndex = cellToUpdate.metadata.edits.length - 1;
+        }
+
+        const latestEdit = cellToUpdate.metadata.edits[targetEditIndex];
 
         // Initialize validatedBy array if it doesn't exist
         if (!latestEdit.validatedBy) {
