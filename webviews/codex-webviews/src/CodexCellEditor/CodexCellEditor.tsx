@@ -309,10 +309,14 @@ const CodexCellEditor: React.FC = () => {
                         "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe";
 
                     const targetCount = Math.max(0, message.content.count | 0);
+                    const specificCellId: string | undefined = (message as any)?.content?.cellId;
                     let completed = 0;
                     for (const unit of translationUnits) {
                         if (targetCount > 0 && completed >= targetCount) break;
                         const cellId = unit.cellMarkers[0];
+                        if (specificCellId && cellId !== specificCellId) {
+                            continue; // Only transcribe the requested cell
+                        }
                         // Quick skip if we know there's no audio
                         if (audioAttachments && audioAttachments[cellId] === "none") {
                             continue;

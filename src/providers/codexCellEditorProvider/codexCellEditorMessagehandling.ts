@@ -4,7 +4,6 @@ import { safePostMessageToPanel } from "../../utils/webviewUtils";
 // Use type-only import to break circular dependency
 import type { CodexCellEditorProvider } from "./codexCellEditorProvider";
 import { GlobalMessage, EditorPostMessages, EditHistory, CodexNotebookAsJSONData } from "../../../types";
-import path from "path";
 import { EditMapUtils } from "../../utils/editMapUtils";
 import { EditType } from "../../../types/enums";
 import {
@@ -474,12 +473,49 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
                             const sourcePanel = provider.getWebviewPanels().get(sourcePath.toString());
                             if (sourcePanel) {
-                                safePostMessageToPanel(sourcePanel, {
-                                    type: "startBatchTranscription",
-                                    content: { count: 10 }
-                                } as any);
-                                vscode.window.setStatusBarMessage("Transcribing source audio…", 2000);
-                                // Defer LLM completion until source content exists; user can click again or batch will fill ahead
+                                const NUMBER_OF_CELLS_TO_TRANSCRIBE_AHEAD = 1;
+                                await vscode.window.withProgress(
+                                    {
+                                        location: vscode.ProgressLocation.Notification,
+                                        title: "Transcribing source audio…",
+                                        cancellable: false,
+                                    },
+                                    async (progress) => {
+                                        // Start transcription for the specific cell only
+                                        safePostMessageToPanel(sourcePanel, {
+                                            type: "startBatchTranscription",
+                                            content: { count: NUMBER_OF_CELLS_TO_TRANSCRIBE_AHEAD, cellId }
+                                        } as any);
+
+                                        // Mock progress while polling for source content availability
+                                        let progressValue = 0;
+                                        const timer = setInterval(() => {
+                                            progressValue = Math.min(progressValue + 3, 95);
+                                            progress.report({ increment: 3 });
+                                        }, 500);
+
+                                        try {
+                                            const timeoutMs = 30000;
+                                            const start = Date.now();
+                                            for (; ;) {
+                                                const src = await vscode.commands.executeCommand(
+                                                    "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+                                                    cellId
+                                                ) as { cellId: string; content: string; } | null;
+                                                const hasText = !!src && !!src.content && src.content.replace(/<[^>]*>/g, "").trim() !== "";
+                                                if (hasText) break;
+                                                if (Date.now() - start > timeoutMs) break;
+                                                await new Promise((r) => setTimeout(r, 400));
+                                            }
+                                        } finally {
+                                            clearInterval(timer);
+                                            progress.report({ increment: 100 - progressValue });
+                                        }
+                                    }
+                                );
+
+                                // After transcription completes (or timeout), proceed with LLM completion automatically
+                                await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
                                 return;
                             }
                         }
