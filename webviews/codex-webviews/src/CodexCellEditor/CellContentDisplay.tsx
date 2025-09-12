@@ -685,6 +685,63 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                 isSourceText={isSourceText}
                                                 currentUsername={currentUsername}
                                                 requiredValidations={requiredValidations}
+                                                disabled={(() => {
+                                                    // Determine if text content is effectively empty
+                                                    const content = cell.cellContent;
+                                                    let hasText = false;
+                                                    if (content) {
+                                                        const tempDiv =
+                                                            document.createElement("div");
+                                                        tempDiv.innerHTML = content;
+                                                        const textContent =
+                                                            tempDiv.textContent ||
+                                                            tempDiv.innerText ||
+                                                            "";
+                                                        const onlyWhitespaceRegex =
+                                                            /^[\s\u00A0\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]*$/;
+                                                        hasText =
+                                                            !onlyWhitespaceRegex.test(textContent);
+                                                    }
+
+                                                    // Determine if audio is available for this cell
+                                                    const audioState = audioAttachments?.[
+                                                        cellIds[0]
+                                                    ] as any;
+                                                    const hasAudio =
+                                                        typeof audioState === "boolean"
+                                                            ? audioState
+                                                            : audioState === "available";
+
+                                                    // Disable only if there is neither text nor audio
+                                                    return !hasText && !hasAudio;
+                                                })()}
+                                                disabledReason={(() => {
+                                                    const content = cell.cellContent;
+                                                    let hasText = false;
+                                                    if (content) {
+                                                        const tempDiv =
+                                                            document.createElement("div");
+                                                        tempDiv.innerHTML = content;
+                                                        const textContent =
+                                                            tempDiv.textContent ||
+                                                            tempDiv.innerText ||
+                                                            "";
+                                                        const onlyWhitespaceRegex =
+                                                            /^[\s\u00A0\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]*$/;
+                                                        hasText =
+                                                            !onlyWhitespaceRegex.test(textContent);
+                                                    }
+                                                    const audioState = audioAttachments?.[
+                                                        cellIds[0]
+                                                    ] as any;
+                                                    const hasAudio =
+                                                        typeof audioState === "boolean"
+                                                            ? audioState
+                                                            : audioState === "available";
+                                                    return !hasText && !hasAudio
+                                                        ? "Validation disabled: no text and no audio"
+                                                        : undefined;
+                                                })()}
                                             />
                                         )
                                     }
