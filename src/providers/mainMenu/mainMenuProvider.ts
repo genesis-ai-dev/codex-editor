@@ -16,8 +16,7 @@ import {
 import { createNewWorkspaceAndProject, openProject, createNewProject } from "../../utils/projectCreationUtils/projectCreationUtils";
 import { FrontierAPI } from "webviews/codex-webviews/src/StartupFlow/types";
 import git from "isomorphic-git";
-import * as https from "https";
-import * as http from "http";
+// Note: avoid top-level http(s) imports to keep test bundling simple
 import * as fs from "fs";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { SyncManager } from "../../projectManager/syncManager";
@@ -649,15 +648,36 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     break;
                 }
                 try {
-                    const url = endpoint.replace(/\/$/, '').replace(/\/ws\/.*/, '') + '/models';
-                    const res = await new Promise<string>((resolve, reject) => {
-                        const lib = url.startsWith('https') ? https : http;
-                        lib.get(url, (resp) => {
-                            let data = '';
-                            resp.on('data', (chunk) => (data += chunk));
-                            resp.on('end', () => resolve(data));
-                        }).on('error', (err) => reject(err));
-                    });
+                    // Normalize endpoint: convert ws/wss to http/https and target /models
+                    let baseUrl: URL;
+                    try {
+                        baseUrl = new URL(endpoint);
+                    } catch (err) {
+                        throw new Error(`Invalid ASR endpoint: ${endpoint}`);
+                    }
+                    if (baseUrl.protocol === 'wss:') baseUrl.protocol = 'https:';
+                    if (baseUrl.protocol === 'ws:') baseUrl.protocol = 'http:';
+                    // Force path to /models
+                    baseUrl.pathname = '/models';
+                    baseUrl.search = '';
+                    const urlStr = baseUrl.toString();
+
+                    // Prefer global fetch (available in recent VS Code/Node); fallback to http(s)
+                    let res: string;
+                    if (typeof (globalThis as any).fetch === 'function') {
+                        const r = await (globalThis as any).fetch(urlStr);
+                        res = await r.text();
+                    } else {
+                        // Lazy-require to avoid bundler resolving node: scheme
+                        const lib = urlStr.startsWith('https') ? require('https') : require('http');
+                        res = await new Promise<string>((resolve, reject) => {
+                            lib.get(urlStr, (resp: any) => {
+                                let data = '';
+                                resp.on('data', (chunk: any) => (data += chunk));
+                                resp.on('end', () => resolve(data));
+                            }).on('error', (err: any) => reject(err));
+                        });
+                    }
                     let models: any[] = [];
                     try {
                         const parsed = JSON.parse(res);

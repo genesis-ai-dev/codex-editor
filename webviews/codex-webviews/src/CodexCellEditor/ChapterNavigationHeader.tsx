@@ -22,6 +22,7 @@ import {
     DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
 import { Slider } from "../components/ui/slider";
+import { Alert, AlertDescription } from "../components/ui/alert";
 
 interface ChapterNavigationHeaderProps {
     chapterNumber: number;
@@ -134,6 +135,7 @@ ChapterNavigationHeaderProps) {
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const chapterTitleRef = useRef<HTMLDivElement>(null);
     const [truncatedBookName, setTruncatedBookName] = useState<string | null>(null);
+    const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
 
     // Font size state - default to 14 if not set in metadata
     const [fontSize, setFontSize] = useState(metadata?.fontSize || 14);
@@ -594,6 +596,10 @@ ChapterNavigationHeaderProps) {
                                     setCurrentSubsectionIndex(newChapterSubsections.length - 1);
                                 }
                             }
+                        } else {
+                            // Show warning when there are unsaved changes
+                            setShowUnsavedWarning(true);
+                            setTimeout(() => setShowUnsavedWarning(false), 3000);
                         }
                     }}
                     title={
@@ -617,9 +623,13 @@ ChapterNavigationHeaderProps) {
                     ref={chapterTitleRef}
                     className="chapter-title-container flex items-center min-w-0 max-w-[40vw] min-[400px]:max-w-[50vw] sm:max-w-sm cursor-pointer min-[400px]:cursor-pointer"
                     onClick={() => {
-                        // Only allow chapter selector on larger screens
-                        if (!unsavedChanges && window.innerWidth >= 400) {
+                        // Always allow opening the chapter selector when there are no unsaved changes
+                        if (!unsavedChanges) {
                             setShowChapterSelector(!showChapterSelector);
+                        } else {
+                            // Show warning when there are unsaved changes
+                            setShowUnsavedWarning(true);
+                            setTimeout(() => setShowUnsavedWarning(false), 3000);
                         }
                     }}
                 >
@@ -685,6 +695,10 @@ ChapterNavigationHeaderProps) {
                                 jumpToChapter(newChapter);
                                 setCurrentSubsectionIndex(0);
                             }
+                        } else {
+                            // Show warning when there are unsaved changes
+                            setShowUnsavedWarning(true);
+                            setTimeout(() => setShowUnsavedWarning(false), 3000);
                         }
                     }}
                     title={
@@ -1012,7 +1026,17 @@ ChapterNavigationHeaderProps) {
                 </DropdownMenu>
             </div>
 
-
+            {/* Warning alert for unsaved changes */}
+            {showUnsavedWarning && (
+                <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 z-50 w-80 max-w-[90vw]">
+                    <Alert variant="destructive">
+                        <i className="codicon codicon-warning h-4 w-4" />
+                        <AlertDescription>
+                            Please close the editor or save your changes before navigating away from this section.
+                        </AlertDescription>
+                    </Alert>
+                </div>
+            )}
 
             {metadata && (
                 <NotebookMetadataModal

@@ -328,10 +328,16 @@ suite("CodexCellEditorProvider Test Suite", () => {
         // Wait for the update to be processed
         await sleep(50);
 
-        // Verify that the document was updated
-        const updatedContent = JSON.parse(document.getText());
+        // Verify that the document was updated (retry for async processing)
+        let updatedValue: string | undefined;
+        for (let i = 0; i < 8; i++) {
+            const updatedContent = JSON.parse(document.getText());
+            updatedValue = updatedContent.cells.find((c: any) => c.metadata.id === cellId)?.value;
+            if (updatedValue === newContent) break;
+            await new Promise((resolve) => setTimeout(resolve, 60));
+        }
         assert.strictEqual(
-            updatedContent.cells.find((c: any) => c.metadata.id === cellId).value,
+            updatedValue,
             newContent,
             "Document content should be updated after saveHtml message"
         );

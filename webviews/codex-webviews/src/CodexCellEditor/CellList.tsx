@@ -49,6 +49,8 @@ export interface CellListProps {
     // Derived, shared state to avoid per-cell auth/validation lookups
     currentUsername?: string | null;
     requiredValidations?: number;
+    // Cells currently undergoing audio transcription
+    transcribingCells?: Set<string>;
 }
 
 const DEBUG_ENABLED = false;
@@ -88,6 +90,7 @@ const CellList: React.FC<CellListProps> = ({
     lineNumbersEnabled = true,
     currentUsername,
     requiredValidations,
+    transcribingCells,
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -235,6 +238,10 @@ const CellList: React.FC<CellListProps> = ({
     // Helper function to determine the translation state of a cell
     const getCellTranslationState = useCallback(
         (cellId: string): "waiting" | "processing" | "completed" | null => {
+            // Show processing effect for source cells being transcribed
+            if (isSourceText && transcribingCells?.has(cellId)) {
+                return "processing";
+            }
             // Check if this is the current processing cell first (highest priority)
             if (cellId === currentProcessingCellId) {
                 return "processing";
@@ -254,7 +261,7 @@ const CellList: React.FC<CellListProps> = ({
             // Default: no translation state
             return null;
         },
-        [currentProcessingCellId, successfulCompletions, translationQueueSet, autocompleteQueueSet]
+        [currentProcessingCellId, successfulCompletions, translationQueueSet, autocompleteQueueSet, isSourceText, transcribingCells]
     );
 
     // Handle sparkle button click with throttling

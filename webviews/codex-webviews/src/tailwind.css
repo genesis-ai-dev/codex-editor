@@ -130,6 +130,7 @@
         border: 1px solid var(--primary);
         box-shadow: none;
         font-size: 0.875rem;
+        cursor: pointer;
     }
 
     .button-primary:hover {
@@ -145,6 +146,7 @@
         border: 1px solid var(--button-outline-border);
         box-shadow: none;
         font-size: 0.875rem;
+        cursor: pointer;
     }
 
     .button-secondary:hover {
@@ -159,6 +161,7 @@
         color: var(--foreground);
         border: 1px solid transparent;
         font-size: 0.875rem;
+        cursor: pointer;
     }
 
     .button-ghost:hover {
@@ -174,6 +177,7 @@
         border: 1px solid var(--button-outline-border);
         box-shadow: none;
         font-size: 0.875rem;
+        cursor: pointer;
     }
 
     .button-outline:hover {
