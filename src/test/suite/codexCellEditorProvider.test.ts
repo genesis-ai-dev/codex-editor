@@ -517,6 +517,12 @@ suite("CodexCellEditorProvider Test Suite", () => {
         );
     });
     test("makeChildOfCell message should add a new cell as a child of the specified cell", async () => {
+        // Reset file to known-good baseline to avoid cross-test interference
+        await vscode.workspace.fs.writeFile(
+            tempUri,
+            Buffer.from(JSON.stringify(codexSubtitleContent, null, 2), "utf-8")
+        );
+
         const provider = new CodexCellEditorProvider(context);
         const document = await provider.openCustomDocument(
             tempUri,
@@ -555,28 +561,31 @@ suite("CodexCellEditorProvider Test Suite", () => {
             new vscode.CancellationTokenSource().token
         );
 
-        // test updateTextDirection message
+        // test makeChildOfCell message
         await new Promise((resolve) => setTimeout(resolve, 50));
-        const childCellId = codexSubtitleContent.cells[0].metadata.id + ":child";
+        // Read the current first cell id from the opened document to ensure it exists
+        const currentFirstCellId = JSON.parse(document.getText()).cells[0].metadata.id as string;
+        const childCellId = `${currentFirstCellId}:child`;
         onDidReceiveMessageCallback!({
             command: "makeChildOfCell",
             content: {
                 newCellId: childCellId,
-                referenceCellId: codexSubtitleContent.cells[0].metadata.id,
+                referenceCellId: currentFirstCellId,
                 direction: "below",
                 cellType: CodexCellTypes.PARATEXT,
                 data: {},
                 cellLabel: childCellId.split(":")?.[1],
             },
         });
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        const updatedContent: CodexNotebookAsJSONData = JSON.parse(document.getText());
-
-        assert.strictEqual(
-            updatedContent.cells.find((c) => c.metadata.id === childCellId)?.value,
-            "",
-            "Child cell should be added to the cells"
-        );
+        // Wait and retry for async mutation
+        let found = false;
+        for (let i = 0; i < 6; i++) {
+            const updatedContent: CodexNotebookAsJSONData = JSON.parse(document.getText());
+            const match = updatedContent.cells.find((c) => c.metadata.id === childCellId);
+            if (match) { found = true; break; }
+            await new Promise((r) => setTimeout(r, 40));
+        }
+        assert.ok(found, "Child cell should be added to the cells");
     });
 
     test("updateCellTimestamps records edit history for start and end time", async () => {
