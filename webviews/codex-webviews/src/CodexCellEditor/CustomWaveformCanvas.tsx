@@ -299,13 +299,20 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                         const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
                         const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
                         if (cancelled) return;
-                        if (isFinite(audioBuffer.duration) && audioBuffer.duration > 0) {
-                            setDuration(audioBuffer.duration);
-                            setCurrentTime(0);
-                        }
+                        
+                        // Generate peaks before updating state to batch all updates
                         const generatedPeaks = await generatePeaks(audioBuffer, numberOfBars);
                         if (cancelled) return;
-                        setPeaks(generatedPeaks);
+                        
+                        // Batch all state updates in a single React.startTransition to prevent flickering
+                        React.startTransition(() => {
+                            if (isFinite(audioBuffer.duration) && audioBuffer.duration > 0) {
+                                setDuration(audioBuffer.duration);
+                                setCurrentTime(0);
+                            }
+                            setPeaks(generatedPeaks);
+                        });
+                        
                         hasLoadedRef.current = true;
                     } catch {
                         // Ignore; will retry on interaction

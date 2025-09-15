@@ -1466,11 +1466,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
             attachmentData,
         });
 
-        // Mark as dirty and notify listeners
+        // Mark as dirty and notify webview only (avoid triggering full AI learning)
         this._isDirty = true;
-        this._onDidChangeForVsCodeAndWebview.fire({
+        this._onDidChangeForWebview.fire({
             edits: this._edits,
         });
+
+        // Audio attachment changes don't affect AI learning (only text content and validation data matter)
     }
 
     /**
