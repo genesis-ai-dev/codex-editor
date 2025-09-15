@@ -155,14 +155,23 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
     });
 
     test("audio attachments from two users are merged and selection resolves by timestamp", async () => {
+        // Use isolated temp files per test run to avoid interference across tests
+        const localOursUri = await createTempCodexFile(
+            `merge-audio-ours-${Date.now()}-${Math.random().toString(36).slice(2)}.codex`,
+            JSON.parse(JSON.stringify(codexSubtitleContent))
+        );
+        const localTheirsUri = await createTempCodexFile(
+            `merge-audio-theirs-${Date.now()}-${Math.random().toString(36).slice(2)}.codex`,
+            JSON.parse(JSON.stringify(codexSubtitleContent))
+        );
         const oursDoc = await provider.openCustomDocument(
-            oursUri,
+            localOursUri,
             { backupId: undefined },
             new vscode.CancellationTokenSource().token
         );
 
         const theirsDoc = await provider.openCustomDocument(
-            theirsUri,
+            localTheirsUri,
             { backupId: undefined },
             new vscode.CancellationTokenSource().token
         );
@@ -199,17 +208,17 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
         oursParsed1.cells[oursCellIdx].metadata.selectionTimestamp = now + 50;
         theirsParsed1.cells[theirsCellIdx].metadata.selectionTimestamp = now + 150;
         // Persist selection timestamps back to documents
-        await vscode.workspace.fs.writeFile(oursUri, Buffer.from(JSON.stringify(oursParsed1, null, 2)));
-        await vscode.workspace.fs.writeFile(theirsUri, Buffer.from(JSON.stringify(theirsParsed1, null, 2)));
+        await vscode.workspace.fs.writeFile(localOursUri, Buffer.from(JSON.stringify(oursParsed1, null, 2)));
+        await vscode.workspace.fs.writeFile(localTheirsUri, Buffer.from(JSON.stringify(theirsParsed1, null, 2)));
 
         // Reload documents to reflect persisted selectionTimestamp
         const oursDocReloaded = await provider.openCustomDocument(
-            oursUri,
+            localOursUri,
             { backupId: undefined },
             new vscode.CancellationTokenSource().token
         );
         const theirsDocReloaded = await provider.openCustomDocument(
-            theirsUri,
+            localTheirsUri,
             { backupId: undefined },
             new vscode.CancellationTokenSource().token
         );
@@ -226,6 +235,10 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
 
         // Selection should prefer newer selectionTimestamp (theirs)
         assert.strictEqual(shared.metadata.selectedAudioId, theirsAudioId);
+
+        // Cleanup isolated files
+        await deleteIfExists(localOursUri);
+        await deleteIfExists(localTheirsUri);
     });
 
     test("provider excludes cells flagged deleted from webview payload", async () => {
