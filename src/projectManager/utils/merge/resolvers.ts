@@ -615,6 +615,9 @@ export async function resolveCodexCustomMerge(
         if (theirCell) {
             debugLog(`Found matching cell ${cellId} - merging content`);
 
+            // Note: even if both sides soft-delete a cell, we keep it in the merged output
+            // so that deletion history and audit information are preserved.
+
             // Use the new metadata conflict resolution function
             const mergedCell = resolveMetadataConflictsUsingEditHistory(ourCell, theirCell);
 

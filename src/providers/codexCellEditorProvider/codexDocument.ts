@@ -727,25 +727,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     public deleteCell(cellId: string) {
-        const indexOfCellToDelete = this._documentData.cells.findIndex(
-            (cell) => cell.metadata?.id === cellId
-        );
-
-        if (indexOfCellToDelete === -1) {
-            throw new Error("Could not find cell to delete");
-        }
-        this._documentData.cells.splice(indexOfCellToDelete, 1);
-
-        // Record the edit
-        this._edits.push({
-            type: "deleteCell",
-            cellId,
-        });
-
-        this._isDirty = true;
-        this._onDidChangeForVsCodeAndWebview.fire({
-            edits: [{ cellId }],
-        });
+        // Backward-compat: hard deletes are no longer allowed. Perform a soft delete instead.
+        this.softDeleteCell(cellId);
     }
 
     /**
@@ -778,6 +761,27 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set deleted flag
         (cellToSoftDelete.metadata.data).deleted = true;
+
+        // Ensure edits array exists and record a deletion edit for merge/audit trails
+        if (!cellToSoftDelete.metadata.edits) {
+            cellToSoftDelete.metadata.edits = [];
+        }
+        const currentTimestamp = Date.now();
+        cellToSoftDelete.metadata.edits.push({
+            editMap: EditMapUtils.dataDeleted(),
+            value: true,
+            timestamp: currentTimestamp,
+            type: EditType.USER_EDIT,
+            author: this._author,
+            validatedBy: [
+                {
+                    username: this._author,
+                    creationTimestamp: currentTimestamp,
+                    updatedTimestamp: currentTimestamp,
+                    isDeleted: false,
+                },
+            ],
+        });
 
         // Record the edit
         this._edits.push({

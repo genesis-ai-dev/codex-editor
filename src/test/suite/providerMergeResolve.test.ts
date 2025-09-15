@@ -375,10 +375,14 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
             // Perform a soft delete on ours
             (oursDoc as any).softDeleteCell(sharedCellId);
 
-            // Assert internal document edit log captured the operation
-            const internalEdits = (oursDoc as any)._edits as any[];
-            assert.ok(Array.isArray(internalEdits), "Document edits log should exist");
-            assert.ok(internalEdits.some((e) => e?.type === "softDeleteCell" && e.cellId === sharedCellId), "softDeleteCell should be recorded in document edits log");
+            // Assert the cell itself contains a deletion edit record
+            const parsedAfterSoft = JSON.parse((oursDoc as any).getText());
+            const softCell = parsedAfterSoft.cells.find((c: any) => c.metadata?.id === sharedCellId)!;
+            const softEdits = softCell.metadata?.edits || [];
+            assert.ok(
+                softEdits.some((e: any) => Array.isArray(e.editMap) && e.editMap.join(".") === "metadata.data.deleted" && e.value === true),
+                "softDeleteCell should create an edit with editMap metadata.data.deleted=true"
+            );
 
             // Merge ours (with deleted flag) and theirs (without)
             const merged = await resolveCodexCustomMerge((oursDoc as any).getText(), (theirsDoc as any).getText());
@@ -392,7 +396,7 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
         }
     });
 
-    test("hard delete logs edit and is respected when both sides delete before merge", async () => {
+    test("hard delete is no-op (redirects to soft delete) for paratext child and merge preserves the soft-deleted cell", async () => {
         const context = createMockExtensionContext();
         const providerLocal = new CodexCellEditorProvider(context);
 
@@ -416,20 +420,130 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
                 new vscode.CancellationTokenSource().token
             );
 
-            const sharedCellId = codexSubtitleContent.cells[0].metadata.id as string;
+            const parentId = codexSubtitleContent.cells[0].metadata.id as string;
+            const childId = `${parentId}:harddel-child-paratext`;
+            // Create a paratext child on both sides
+            (oursDoc as any).addCell(childId, parentId, "below", CodexCellTypes.PARATEXT, {}, {
+                cellMarkers: [childId],
+                cellContent: "",
+                cellType: CodexCellTypes.PARATEXT,
+                editHistory: [],
+                cellLabel: "hd-child",
+            });
+            (theirsDoc as any).addCell(childId, parentId, "below", CodexCellTypes.PARATEXT, {}, {
+                cellMarkers: [childId],
+                cellContent: "",
+                cellType: CodexCellTypes.PARATEXT,
+                editHistory: [],
+                cellLabel: "hd-child",
+            });
 
-            // Hard delete on both sides
-            (oursDoc as any).deleteCell(sharedCellId);
-            (theirsDoc as any).deleteCell(sharedCellId);
+            // Call deleteCell which should soft-delete now on both
+            (oursDoc as any).deleteCell(childId);
+            (theirsDoc as any).deleteCell(childId);
 
-            // Internal log should include deleteCell
-            const oursEdits = (oursDoc as any)._edits as any[];
-            assert.ok(oursEdits.some((e) => e?.type === "deleteCell" && e.cellId === sharedCellId), "deleteCell should be recorded in document edits log");
+            // Validate underlying child cells still exist with deleted flag true
+            const ourParsed = JSON.parse((oursDoc as any).getText());
+            const theirParsed = JSON.parse((theirsDoc as any).getText());
+            const ourCell = ourParsed.cells.find((c: any) => c.metadata?.id === childId)!;
+            const theirCell = theirParsed.cells.find((c: any) => c.metadata?.id === childId)!;
+            assert.ok(ourCell && theirCell, "Paratext child should not be hard deleted");
+            assert.strictEqual(!!ourCell.metadata?.data?.deleted, true, "Ours child should be soft-deleted");
+            assert.strictEqual(!!theirCell.metadata?.data?.deleted, true, "Theirs child should be soft-deleted");
 
+            // Merge result should preserve the paratext child even when both sides soft-deleted it
             const merged = await resolveCodexCustomMerge((oursDoc as any).getText(), (theirsDoc as any).getText());
             const notebook: CodexNotebookAsJSONData = JSON.parse(merged);
-            const found = (notebook.cells || []).some((c: any) => c.metadata?.id === sharedCellId);
-            assert.strictEqual(found, false, "Cell should remain deleted after merge when both sides deleted it");
+            const mergedCell = (notebook.cells || []).find((c: any) => c.metadata?.id === childId);
+            assert.ok(mergedCell, "Paratext child should be preserved after merge when soft-deleted on both sides");
+            assert.strictEqual(!!mergedCell.metadata?.data?.deleted, true, "Merged child should retain deleted=true flag");
+        } finally {
+            await deleteIfExists(oursTmp);
+            await deleteIfExists(theirsTmp);
+        }
+    });
+
+    test("paratext child soft-deletes are logged and preserved on merge when both users delete", async () => {
+        const context = createMockExtensionContext();
+        const providerLocal = new CodexCellEditorProvider(context);
+
+        // Fresh copies for isolation
+        const oursTmp = await createTempCodexFile(`child-softdel-ours-${Date.now()}.codex`, JSON.parse(JSON.stringify(codexSubtitleContent)));
+        const theirsTmp = await createTempCodexFile(`child-softdel-theirs-${Date.now()}.codex`, JSON.parse(JSON.stringify(codexSubtitleContent)));
+        try {
+            const oursDoc = await providerLocal.openCustomDocument(
+                oursTmp,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            const theirsDoc = await providerLocal.openCustomDocument(
+                theirsTmp,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Force authors for deterministic assertions
+            (oursDoc as any)._author = "user-one";
+            (theirsDoc as any)._author = "user-two";
+
+            // Use an existing shared parent cell ID as reference for insertion
+            const parentId = codexSubtitleContent.cells[0].metadata.id as string;
+            const childId = `${parentId}:child-paratext-1`;
+
+            // Both users add the same paratext child cell below the parent
+            (oursDoc as any).addCell(childId, parentId, "below", CodexCellTypes.PARATEXT, {}, {
+                cellMarkers: [childId],
+                cellContent: "",
+                cellType: CodexCellTypes.PARATEXT,
+                editHistory: [],
+                cellLabel: "child-paratext",
+            });
+            (theirsDoc as any).addCell(childId, parentId, "below", CodexCellTypes.PARATEXT, {}, {
+                cellMarkers: [childId],
+                cellContent: "",
+                cellType: CodexCellTypes.PARATEXT,
+                editHistory: [],
+                cellLabel: "child-paratext",
+            });
+
+            // Both users soft-delete the child
+            (oursDoc as any).softDeleteCell(childId);
+            (theirsDoc as any).softDeleteCell(childId);
+
+            // Validate per-cell state and edit logs for each side
+            const getParsedCell = (doc: any) => {
+                const nb = JSON.parse(doc.getText());
+                return nb.cells.find((c: any) => c.metadata?.id === childId);
+            };
+
+            const ourChild = getParsedCell(oursDoc);
+            const theirChild = getParsedCell(theirsDoc);
+            assert.ok(ourChild, "Our child cell should exist before merge");
+            assert.ok(theirChild, "Their child cell should exist before merge");
+
+            // Deleted flag should be set
+            assert.strictEqual(!!ourChild.metadata?.data?.deleted, true, "Our child should have deleted=true");
+            assert.strictEqual(!!theirChild.metadata?.data?.deleted, true, "Their child should have deleted=true");
+
+            // Edit history should include a deletion edit with the correct path, value, author, and timestamp
+            const expectDeletionEdit = (cell: any, expectedAuthor: string) => {
+                const edits: any[] = cell.metadata?.edits || [];
+                const deletionEdits = edits.filter((e: any) => Array.isArray(e.editMap) && e.editMap.join(".") === "metadata.data.deleted" && e.value === true);
+                assert.ok(deletionEdits.length > 0, "Expected a deletion edit with editMap metadata.data.deleted and value=true");
+                const latest = deletionEdits[deletionEdits.length - 1];
+                assert.strictEqual(typeof latest.timestamp, "number", "Deletion edit should have a timestamp");
+                assert.strictEqual(latest.author, expectedAuthor, "Deletion edit should record the author");
+            };
+
+            expectDeletionEdit(ourChild, "user-one");
+            expectDeletionEdit(theirChild, "user-two");
+
+            // Merge: since both sides deleted the same newly-added child, it should still appear with deleted=true
+            const merged = await resolveCodexCustomMerge((oursDoc as any).getText(), (theirsDoc as any).getText());
+            const notebook = JSON.parse(merged);
+            const mergedChild = (notebook.cells || []).find((c: any) => c.metadata?.id === childId);
+            assert.ok(mergedChild, "Child paratext cell should be present after merge");
+            assert.strictEqual(!!mergedChild.metadata?.data?.deleted, true, "Merged child should retain deleted=true flag");
         } finally {
             await deleteIfExists(oursTmp);
             await deleteIfExists(theirsTmp);

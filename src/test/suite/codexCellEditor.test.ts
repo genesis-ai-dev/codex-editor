@@ -305,7 +305,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         );
     });
 
-    test("deleteCell deletes the cell", async () => {
+    test("deleteCell performs a soft delete (cell retained with deleted flag)", async () => {
         const document = await provider.openCustomDocument(
             tempUri,
             { backupId: undefined },
@@ -314,18 +314,10 @@ suite("CodexCellEditorProvider Test Suite", () => {
         const cellId = codexSubtitleContent.cells[0].metadata.id;
         document.deleteCell(cellId);
         const updatedContent = await document.getText();
-        const cells = JSON.parse(updatedContent).cells;
-        // cells should not contain the deleted cell
-        assert.strictEqual(
-            cells.length,
-            codexSubtitleContent.cells.length - 1,
-            "Cells should be one less"
-        );
-        assert.strictEqual(
-            cells.find((c: any) => c.metadata.id === cellId),
-            undefined,
-            "Deleted cell should not be in the cells"
-        );
+        const parsed = JSON.parse(updatedContent);
+        const cell = parsed.cells.find((c: any) => c.metadata.id === cellId);
+        assert.ok(cell, "Cell should still exist after deleteCell (soft delete)");
+        assert.strictEqual(!!cell.metadata?.data?.deleted, true, "Deleted flag should be set to true");
     });
 
     test("addCell adds a new cell", async () => {
