@@ -1811,7 +1811,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 );
             }
 
-            // 3. Remove the merge flag from the corresponding cell in the target file
+            // 3. Remove the merge flag from the corresponding cell in the target file and record edit
             const targetCellData = targetDocument.getCellData(cellIdToUnmerge) || {};
 
             // Remove the merged flag by setting it to false
@@ -1819,6 +1819,24 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 ...targetCellData,
                 merged: false
             });
+
+            // Append edit history entry for merged=false on the target cell
+            try {
+                const cell = (targetDocument as any).getCell(cellIdToUnmerge);
+                if (cell) {
+                    cell.metadata.edits = cell.metadata.edits || [];
+                    cell.metadata.edits.push({
+                        editMap: ["metadata", "data", "merged"],
+                        value: false,
+                        timestamp: Date.now(),
+                        type: "user-edit",
+                        author: "anonymous",
+                        validatedBy: []
+                    });
+                }
+            } catch (e) {
+                console.warn("Failed to append merged=false edit on target during unmerge", e);
+            }
 
             // Save the target document
             await targetDocument.save(new vscode.CancellationTokenSource().token);

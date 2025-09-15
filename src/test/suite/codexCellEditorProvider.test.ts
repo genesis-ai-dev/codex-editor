@@ -974,6 +974,43 @@ suite("CodexCellEditorProvider Test Suite", () => {
             assert.strictEqual(!!targetCurrent.metadata?.data?.merged, true, "Target current cell should be marked merged");
             const mergedEditExists = (targetCurrent.metadata?.edits || []).some((e: any) => Array.isArray(e.editMap) && e.editMap.join(".") === "metadata.data.merged" && e.value === true);
             assert.ok(mergedEditExists, "Target current cell should log a merged edit entry");
+
+            // Now unmerge from source and confirm target unmerges with edit
+            await handleMessages({
+                command: "cancelMerge",
+                content: { cellId: currentCellId }
+            } as any, webviewPanel, sourceDoc, () => { }, provider as any);
+
+            // Invoke provider unmerge for target to mirror behavior (stub openWith to avoid UI)
+            const originalExec = vscode.commands.executeCommand;
+            // @ts-expect-error test stub
+            vscode.commands.executeCommand = async (command: string, ...args: any[]) => {
+                if (command === "vscode.openWith") {
+                    return undefined;
+                }
+                return originalExec(command, ...args);
+            };
+            try {
+                await provider.unmergeMatchingCellsInTargetFile(currentCellId, sourceUri.toString(), workspaceFolder);
+            } finally {
+                vscode.commands.executeCommand = originalExec;
+            }
+
+            // Re-read both docs
+            const srcAfterUnmerge = JSON.parse((sourceDoc as any).getText());
+            const srcCellAfter = (srcAfterUnmerge.cells || []).find((c: any) => c?.metadata?.id === currentCellId);
+            assert.ok(srcCellAfter, "Source should still contain the current cell after unmerge");
+            assert.strictEqual(!!srcCellAfter.metadata?.data?.merged, false, "Source current cell should be unmerged (merged=false)");
+            const srcHasUnmergeEdit = (srcCellAfter.metadata?.edits || []).some((e: any) => Array.isArray(e.editMap) && e.editMap.join(".") === "metadata.data.merged" && e.value === false);
+            assert.ok(srcHasUnmergeEdit, "Source current cell should have an edit recording merged=false");
+
+            // Re-open/refresh target by reading from disk to capture external mutation
+            const targetDisk = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(targetUri)));
+            const targetCellAfter = (targetDisk.cells || []).find((c: any) => c?.metadata?.id === currentCellId);
+            assert.ok(targetCellAfter, "Target should still contain the current cell after unmerge");
+            assert.strictEqual(!!targetCellAfter.metadata?.data?.merged, false, "Target current cell should be unmerged (merged=false)");
+            const targetHasUnmergeEdit = (targetCellAfter.metadata?.edits || []).some((e: any) => Array.isArray(e.editMap) && e.editMap.join(".") === "metadata.data.merged" && e.value === false);
+            assert.ok(targetHasUnmergeEdit, "Target current cell should have an edit recording merged=false");
         } finally {
             // Cleanup temp files
             await deleteIfExists(sourceUri);

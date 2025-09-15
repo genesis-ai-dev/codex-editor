@@ -1074,6 +1074,34 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 merged: false
             });
 
+            // Record an edit on the (now unmerged) current cell to reflect the merged flag change to false
+            try {
+                const currentCellForEdits = document.getCell(cellId);
+                if (currentCellForEdits) {
+                    if (!currentCellForEdits.metadata.edits) {
+                        currentCellForEdits.metadata.edits = [] as any;
+                    }
+                    const ts = Date.now();
+                    // Best-effort user lookup (anonymous fallback)
+                    let user = "anonymous";
+                    try {
+                        const authApi = await provider.getAuthApi();
+                        const userInfo = await authApi?.getUserInfo();
+                        user = userInfo?.username || "anonymous";
+                    } catch { /* ignore */ }
+                    (currentCellForEdits.metadata.edits as any[]).push({
+                        editMap: EditMapUtils.metadataNested("data", "merged"),
+                        value: false,
+                        timestamp: ts,
+                        type: EditType.USER_EDIT,
+                        author: user,
+                        validatedBy: []
+                    });
+                }
+            } catch (e) {
+                console.warn("Failed to record unmerge edit entry on source cell", e);
+            }
+
             // Save the current document
             await document.save(new vscode.CancellationTokenSource().token);
 
