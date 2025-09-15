@@ -638,37 +638,34 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 }
             }
 
-            // Build the final cell array, preserving the temporal order from alignedContent
+            // Build the final cell array by preserving the original target cell order
+            // Replace only those cells that received translations, keep others as-is
             const newCells: any[] = [];
-            const usedExistingCellIds = new Set<string>();
 
-            // Process cells in the order they appear in alignedContent (temporal order)
+            // Collect paratext cells in aligned order to append after preserving structure
+            const paratextCellsInOrder: any[] = [];
             for (const alignedCell of message.alignedContent) {
                 if (alignedCell.isParatext) {
-                    // Add paratext cell
                     const paratextId = alignedCell.importedContent.id;
                     const paratextCell = processedCells.get(paratextId);
-                    if (paratextCell) {
-                        newCells.push(paratextCell);
-                    }
-                } else if (alignedCell.notebookCell) {
-                    const targetId = alignedCell.importedContent.id;
-                    const processedCell = processedCells.get(targetId);
-
-                    if (processedCell) {
-                        newCells.push(processedCell);
-                        usedExistingCellIds.add(targetId);
-                    }
+                    if (paratextCell) paratextCellsInOrder.push(paratextCell);
                 }
             }
 
-            // Add any existing cells that weren't in the aligned content (shouldn't happen normally)
             for (const cell of existingNotebook.cells) {
                 const cellId = cell.metadata?.id;
-                if (cellId && !usedExistingCellIds.has(cellId)) {
-                    console.warn(`Cell ${cellId} was not in aligned content, appending at end`);
+                if (cellId && processedCells.has(cellId)) {
+                    // Use the processed (updated or preserved) cell
+                    newCells.push(processedCells.get(cellId));
+                } else {
+                    // Keep original cell untouched to preserve order and blanks
                     newCells.push(cell);
                 }
+            }
+
+            // Append any paratext cells at the end, preserving their relative order
+            if (paratextCellsInOrder.length > 0) {
+                newCells.push(...paratextCellsInOrder);
             }
 
             // Update the notebook
