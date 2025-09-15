@@ -227,6 +227,214 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
         // Selection should prefer newer selectionTimestamp (theirs)
         assert.strictEqual(shared.metadata.selectedAudioId, theirsAudioId);
     });
+
+    test("provider excludes cells flagged deleted from webview payload", async () => {
+        const context = createMockExtensionContext();
+        const providerLocal = new CodexCellEditorProvider(context);
+
+        // Create a fresh copy and flag the first cell as deleted
+        const tmpUri = await createTempCodexFile(
+            `deleted-flag-${Date.now()}.codex`,
+            JSON.parse(JSON.stringify(codexSubtitleContent))
+        );
+        try {
+            const document = await providerLocal.openCustomDocument(
+                tmpUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Mark the first cell as deleted in metadata
+            const parsed = JSON.parse((document as any).getText());
+            const firstId = parsed.cells[0].metadata.id;
+            parsed.cells[0].metadata.data = parsed.cells[0].metadata.data || {};
+            parsed.cells[0].metadata.data.deleted = true;
+            await vscode.workspace.fs.writeFile(tmpUri, Buffer.from(JSON.stringify(parsed, null, 2)));
+
+            // Re-open to ensure provider reads the updated state
+            const docReloaded = await providerLocal.openCustomDocument(
+                tmpUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            let lastPost: any = null;
+            const webviewPanel = {
+                webview: {
+                    html: "",
+                    options: { enableScripts: true },
+                    asWebviewUri: (uri: vscode.Uri) => uri,
+                    cspSource: "https://example.com",
+                    onDidReceiveMessage: (_cb: any) => ({ dispose: () => { } }),
+                    postMessage: (message: any) => { lastPost = message; return Promise.resolve(); },
+                },
+                onDidDispose: () => ({ dispose: () => { } }),
+                onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+            } as any as vscode.WebviewPanel;
+
+            await providerLocal.resolveCustomEditor(
+                docReloaded,
+                webviewPanel,
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Wait briefly for initial post
+            await sleep(50);
+
+            // Expect providerSendsInitialContent with content = processed translation units array
+            const payload = lastPost || {};
+            const units = Array.isArray(payload.content) ? payload.content : [];
+            const found = units.some((u: any) => (u.cellMarkers || [])[0] === firstId);
+            assert.strictEqual(found, false, "Deleted cell should not be sent to the webview");
+        } finally {
+            await deleteIfExists(tmpUri);
+        }
+    });
+
+    test("provider excludes cells flagged merged (non-correction mode) from webview payload", async () => {
+        const context = createMockExtensionContext();
+        const providerLocal = new CodexCellEditorProvider(context);
+
+        // Create a fresh copy and flag the first cell as merged
+        const tmpUri = await createTempCodexFile(
+            `merged-flag-${Date.now()}.codex`,
+            JSON.parse(JSON.stringify(codexSubtitleContent))
+        );
+        try {
+            const document = await providerLocal.openCustomDocument(
+                tmpUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const parsed = JSON.parse((document as any).getText());
+            const firstId = parsed.cells[0].metadata.id;
+            parsed.cells[0].metadata.data = parsed.cells[0].metadata.data || {};
+            parsed.cells[0].metadata.data.merged = true;
+            await vscode.workspace.fs.writeFile(tmpUri, Buffer.from(JSON.stringify(parsed, null, 2)));
+
+            // Re-open to ensure provider reads the updated state
+            const docReloaded = await providerLocal.openCustomDocument(
+                tmpUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            let lastPost: any = null;
+            const webviewPanel = {
+                webview: {
+                    html: "",
+                    options: { enableScripts: true },
+                    asWebviewUri: (uri: vscode.Uri) => uri,
+                    cspSource: "https://example.com",
+                    onDidReceiveMessage: (_cb: any) => ({ dispose: () => { } }),
+                    postMessage: (message: any) => { lastPost = message; return Promise.resolve(); },
+                },
+                onDidDispose: () => ({ dispose: () => { } }),
+                onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+            } as any as vscode.WebviewPanel;
+
+            await providerLocal.resolveCustomEditor(
+                docReloaded,
+                webviewPanel,
+                new vscode.CancellationTokenSource().token
+            );
+
+            await sleep(50);
+
+            const payload = lastPost || {};
+            const units = Array.isArray(payload.content) ? payload.content : [];
+            const found = units.some((u: any) => (u.cellMarkers || [])[0] === firstId);
+            assert.strictEqual(found, false, "Merged cell should not be sent to the webview when not in correction mode");
+        } finally {
+            await deleteIfExists(tmpUri);
+        }
+    });
+
+    test("softDeleteCell logs edit and persists deleted flag through merge", async () => {
+        const context = createMockExtensionContext();
+        const providerLocal = new CodexCellEditorProvider(context);
+
+        // Fresh copies
+        const oursTmp = await createTempCodexFile(`softdel-ours-${Date.now()}.codex`, JSON.parse(JSON.stringify(codexSubtitleContent)));
+        const theirsTmp = await createTempCodexFile(`softdel-theirs-${Date.now()}.codex`, JSON.parse(JSON.stringify(codexSubtitleContent)));
+        try {
+            const oursDoc = await providerLocal.openCustomDocument(
+                oursTmp,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            const theirsDoc = await providerLocal.openCustomDocument(
+                theirsTmp,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const sharedCellId = codexSubtitleContent.cells[0].metadata.id as string;
+
+            // Perform a soft delete on ours
+            (oursDoc as any).softDeleteCell(sharedCellId);
+
+            // Assert internal document edit log captured the operation
+            const internalEdits = (oursDoc as any)._edits as any[];
+            assert.ok(Array.isArray(internalEdits), "Document edits log should exist");
+            assert.ok(internalEdits.some((e) => e?.type === "softDeleteCell" && e.cellId === sharedCellId), "softDeleteCell should be recorded in document edits log");
+
+            // Merge ours (with deleted flag) and theirs (without)
+            const merged = await resolveCodexCustomMerge((oursDoc as any).getText(), (theirsDoc as any).getText());
+            const notebook: CodexNotebookAsJSONData = JSON.parse(merged);
+            const mergedCell = notebook.cells.find((c: any) => c.metadata?.id === sharedCellId)!;
+            assert.ok(mergedCell, "Merged notebook should still contain the cell (soft delete preserves it)");
+            assert.strictEqual(!!mergedCell.metadata?.data?.deleted, true, "Merged cell should retain deleted=true flag");
+        } finally {
+            await deleteIfExists(oursTmp);
+            await deleteIfExists(theirsTmp);
+        }
+    });
+
+    test("hard delete logs edit and is respected when both sides delete before merge", async () => {
+        const context = createMockExtensionContext();
+        const providerLocal = new CodexCellEditorProvider(context);
+
+        const oursTmp = await createTempCodexFile(
+            `harddel-ours-${Date.now()}.codex`,
+            JSON.parse(JSON.stringify(codexSubtitleContent))
+        );
+        const theirsTmp = await createTempCodexFile(
+            `harddel-theirs-${Date.now()}.codex`,
+            JSON.parse(JSON.stringify(codexSubtitleContent))
+        );
+        try {
+            const oursDoc = await providerLocal.openCustomDocument(
+                oursTmp,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            const theirsDoc = await providerLocal.openCustomDocument(
+                theirsTmp,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const sharedCellId = codexSubtitleContent.cells[0].metadata.id as string;
+
+            // Hard delete on both sides
+            (oursDoc as any).deleteCell(sharedCellId);
+            (theirsDoc as any).deleteCell(sharedCellId);
+
+            // Internal log should include deleteCell
+            const oursEdits = (oursDoc as any)._edits as any[];
+            assert.ok(oursEdits.some((e) => e?.type === "deleteCell" && e.cellId === sharedCellId), "deleteCell should be recorded in document edits log");
+
+            const merged = await resolveCodexCustomMerge((oursDoc as any).getText(), (theirsDoc as any).getText());
+            const notebook: CodexNotebookAsJSONData = JSON.parse(merged);
+            const found = (notebook.cells || []).some((c: any) => c.metadata?.id === sharedCellId);
+            assert.strictEqual(found, false, "Cell should remain deleted after merge when both sides deleted it");
+        } finally {
+            await deleteIfExists(oursTmp);
+            await deleteIfExists(theirsTmp);
+        }
+    });
 });
 
 
