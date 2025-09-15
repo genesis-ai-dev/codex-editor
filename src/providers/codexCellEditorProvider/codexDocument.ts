@@ -1509,11 +1509,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
             attachmentId,
         });
 
-        // Mark as dirty and notify listeners
+        // Mark as dirty and notify webview only (avoid triggering full AI learning)
         this._isDirty = true;
-        this._onDidChangeForVsCodeAndWebview.fire({
+        this._onDidChangeForWebview.fire({
             edits: this._edits,
         });
+
+        // Audio attachment changes don't affect AI learning (only text content and validation data matter)
     }
 
     /**
@@ -1633,11 +1635,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
             attachmentId,
         });
 
-        // Mark as dirty and notify listeners
+        // Mark as dirty and notify webview only (avoid triggering full AI learning)
         this._isDirty = true;
-        this._onDidChangeForVsCodeAndWebview.fire({
+        this._onDidChangeForWebview.fire({
             edits: this._edits,
         });
+
+        // Audio attachment changes don't affect AI learning (only text content and validation data matter)
     }
 
     /**
@@ -1681,11 +1685,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
             audioId,
         });
 
-        // Mark as dirty and notify listeners
+        // Mark as dirty and notify webview only (avoid triggering full AI learning)
         this._isDirty = true;
-        this._onDidChangeForVsCodeAndWebview.fire({
+        this._onDidChangeForWebview.fire({
             edits: this._edits,
         });
+
+        // Audio attachment changes don't affect AI learning (only text content and validation data matter)
     }
 
     /**
@@ -1824,6 +1830,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const uriString = this.uri.toString();
         return uriString.includes(".source") ? "source" : "target";
     }
+
 
     // Add method to sync all cells to database without modifying content
     private async syncAllCellsToDatabase(): Promise<void> {
