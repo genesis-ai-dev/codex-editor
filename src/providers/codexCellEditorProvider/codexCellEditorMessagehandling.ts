@@ -1244,6 +1244,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
 
         debug("No audio attachment found for cell:", cellId);
+
+        // Always send a response, even if no audio is found
+        safePostMessageToPanel(webviewPanel, {
+            type: "providerSendsAudioData",
+            content: {
+                cellId: cellId,
+                audioId: audioId || null,
+                audioData: null
+            }
+        });
     },
 
     saveAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
