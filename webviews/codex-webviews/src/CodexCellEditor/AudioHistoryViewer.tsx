@@ -31,6 +31,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     const [audioUrls, setAudioUrls] = useState<Map<string, string>>(new Map());
     const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
     const [delayedLoadingIds, setDelayedLoadingIds] = useState<Set<string>>(new Set());
+    const [errorIds, setErrorIds] = useState<Set<string>>(new Set());
     const [selectedAudioId, setSelectedAudioId] = useState<string | null>(null);
     const [hasExplicitSelection, setHasExplicitSelection] = useState<boolean>(false);
     const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map());
@@ -69,36 +70,85 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                 setHasExplicitSelection(true);
             }
         }
+        if (message.type === "audioAttachmentDeleted" && message.content.cellId === cellId) {
+            if (message.content.success) {
+                // Refresh the audio history after delete
+                setTimeout(() => {
+                    vscode.postMessage({
+                        command: "getAudioHistory",
+                        content: { cellId }
+                    });
+                }, 50);
+            }
+        }
+        if (message.type === "audioAttachmentRestored" && message.content.cellId === cellId) {
+            if (message.content.success) {
+                // Refresh the audio history after restore
+                setTimeout(() => {
+                    vscode.postMessage({
+                        command: "getAudioHistory",
+                        content: { cellId }
+                    });
+                }, 50);
+            }
+        }
         if (message.type === "providerSendsAudioData") {
             const { cellId: audioCellId, audioId, audioData } = message.content;
             if (audioCellId === cellId) {
-                // Clear loading state regardless of whether audio data was found
-                setLoadingIds(prev => {
-                    const next = new Set(prev);
-                    next.delete(audioId);
-                    return next;
-                });
+                // Handle fallback case where audioId is null (current audio fallback)
+                const isCurrentAudioFallback = !audioId;
                 
-                // Clear delayed loading state and timer
-                setDelayedLoadingIds(prev => {
-                    const next = new Set(prev);
-                    next.delete(audioId);
-                    return next;
-                });
-                
-                const timer = loadingTimersRef.current.get(audioId);
-                if (timer) {
-                    clearTimeout(timer);
-                    loadingTimersRef.current.delete(audioId);
+                if (isCurrentAudioFallback && audioData) {
+                    // Fallback case: close history and switch to audio tab to play current audio
+                    console.log("Fallback to current audio - switching to audio tab");
+                    onClose();
+                    
+                    // Switch to audio tab and trigger play
+                    vscode.postMessage({
+                        command: "setPreferredEditorTab",
+                        content: { tab: "audio" }
+                    });
+                    
+                    // Store flag to auto-play when audio tab loads
+                    try {
+                        sessionStorage.setItem(`start-audio-playback-${cellId}`, "1");
+                    } catch (e) {
+                        console.warn("Could not set sessionStorage flag:", e);
+                    }
+                    return;
                 }
                 
-                // Check if there was a pending play request
-                const hadPendingPlay = pendingPlayRefs.current.get(audioId);
-                if (hadPendingPlay) {
-                    pendingPlayRefs.current.set(audioId, false);
+                if (audioId) {
+                    // Normal case with specific audioId
+                    // Clear loading state regardless of whether audio data was found
+                    setLoadingIds(prev => {
+                        const next = new Set(prev);
+                        next.delete(audioId);
+                        return next;
+                    });
+                    
+                    // Clear delayed loading state and timer
+                    setDelayedLoadingIds(prev => {
+                        const next = new Set(prev);
+                        next.delete(audioId);
+                        return next;
+                    });
+                    
+                    // Clear error state
+                    setErrorIds(prev => {
+                        const next = new Set(prev);
+                        next.delete(audioId);
+                        return next;
+                    });
+                    
+                    const timer = loadingTimersRef.current.get(audioId);
+                    if (timer) {
+                        clearTimeout(timer);
+                        loadingTimersRef.current.delete(audioId);
+                    }
                 }
                 
-                if (audioData) {
+                if (audioData && audioId) {
                     // Convert base64 to blob URL
                     fetch(audioData)
                         .then(res => res.blob())
@@ -108,7 +158,9 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                             setAudioUrls(prev => new Map(prev).set(audioId, blobUrl));
                             
                             // Auto-play if there was a pending play request
-                            if (hadPendingPlay) {
+                            const hadPendingPlayForThisAudio = pendingPlayRefs.current.get(audioId);
+                            if (hadPendingPlayForThisAudio) {
+                                pendingPlayRefs.current.set(audioId, false); // Clear the pending flag
                                 // Auto-play the audio
                                 try {
                                     let audio = audioRefs.current.get(audioId);
@@ -135,8 +187,20 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                         })
                         .catch(console.error);
                 } else {
-                    // No audio data found - just clear the loading state
+                    // No audio data found - set error state and try fallback
                     console.warn("No audio data found for audioId:", audioId);
+                    setErrorIds(prev => new Set(prev).add(audioId));
+                    
+                    // If this was a pending play request, try to fallback to current audio
+                    const hadPendingPlayForThisAudio = pendingPlayRefs.current.get(audioId);
+                    if (hadPendingPlayForThisAudio) {
+                        console.log("Attempting fallback to current audio for cell:", cellId);
+                        // Request current audio without specific audioId
+                        vscode.postMessage({
+                            command: "requestAudioForCell",
+                            content: { cellId }
+                        });
+                    }
                 }
             }
         }
@@ -343,6 +407,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                             const isSelected = selectedAudioId === entry.attachmentId; // Currently active (either explicit or automatic)
                             const isPlaying = playingId === entry.attachmentId;
                             const isLoading = delayedLoadingIds.has(entry.attachmentId);
+                            const hasError = errorIds.has(entry.attachmentId);
 
                             return (
                                 <div
@@ -432,10 +497,14 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             size="sm"
                                             variant="outline"
                                             onClick={() => handlePlayAudio(entry.attachmentId)}
-                                            disabled={isLoading}
+                                            disabled={isLoading || hasError}
                                         >
                                             {isLoading ? (
                                                 <span>Loading...</span>
+                                            ) : hasError ? (
+                                                <span style={{ color: "var(--vscode-errorForeground)" }}>
+                                                    File Missing
+                                                </span>
                                             ) : isPlaying ? (
                                                 <>
                                                     <Pause className="h-4 w-4 mr-1" />
