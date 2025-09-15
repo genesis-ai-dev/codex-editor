@@ -1555,7 +1555,19 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // Get existing edit history or create new one
             const existingEdits = previousCell.metadata?.edits || [];
 
-            // 1. Concatenate content and create second edit
+            // Ensure an INITIAL_IMPORT exists for previous cell value if missing
+            if (existingEdits.length === 0 && previousCell.value) {
+                existingEdits.push({
+                    editMap: EditMapUtils.value(),
+                    value: previousCell.value,
+                    timestamp: timestamp,
+                    type: EditType.INITIAL_IMPORT,
+                    author: currentUser,
+                    validatedBy: []
+                } as any);
+            }
+
+            // 1. Concatenate content and create merged edit
             const mergedContent = previousContent + "<span>&nbsp;</span>" + currentContent;
             const mergeEdit: EditHistory = {
                 editMap: EditMapUtils.value(),

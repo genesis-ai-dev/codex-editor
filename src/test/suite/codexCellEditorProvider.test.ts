@@ -130,8 +130,10 @@ suite("CodexCellEditorProvider Test Suite", () => {
         const diskJson = JSON.parse(new TextDecoder().decode(diskBuf));
         const diskCell = diskJson.cells.find((c: any) => c.metadata.id === cellId);
         assert.strictEqual(diskCell.value, newValue, "On disk: user edit value should persist");
-        const lastEdit = (diskCell.metadata.edits || [])[diskCell.metadata.edits.length - 1];
-        assert.strictEqual(lastEdit?.type, "user-edit", "On disk: latest edit should be user-edit");
+        const editsOnDisk = diskCell.metadata.edits || [];
+        const lastValueEdit = [...editsOnDisk].reverse().find((e: any) => JSON.stringify(e.editMap) === JSON.stringify(["value"]));
+        assert.ok(lastValueEdit, "On disk: should have a value edit entry");
+        assert.strictEqual(lastValueEdit?.type, "user-edit", "On disk: latest value edit should be user-edit");
     });
 
     test("resolveCustomEditor sets up message passing", async () => {
@@ -1058,9 +1060,11 @@ suite("CodexCellEditorProvider Test Suite", () => {
         await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
         const diskData = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(document.uri)));
         const diskCell = diskData.cells.find((c: any) => c.metadata.id === targetCellId);
-        const diskLastEdit = (diskCell.metadata.edits || [])[diskCell.metadata.edits.length - 1];
-        assert.ok(Array.isArray(diskLastEdit?.validatedBy), "validatedBy array should exist on latest edit");
-        const hasValidator = (diskLastEdit.validatedBy || []).some((v: any) => v && typeof v.username === "string");
+        const edits = diskCell.metadata.edits || [];
+        const lastValueEdit = [...edits].reverse().find((e: any) => JSON.stringify(e.editMap) === JSON.stringify(["value"]));
+        assert.ok(lastValueEdit, "Should have a latest value edit to validate");
+        assert.ok(Array.isArray(lastValueEdit?.validatedBy), "validatedBy array should exist on latest value edit");
+        const hasValidator = (lastValueEdit.validatedBy || []).some((v: any) => v && typeof v.username === "string");
         assert.ok(hasValidator, "validatedBy should include a user entry on latest edit");
     });
 
@@ -1088,15 +1092,16 @@ suite("CodexCellEditorProvider Test Suite", () => {
         const diskData = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(document.uri)));
         const diskCell = diskData.cells.find((c: any) => c.metadata.id === cellId);
 
-        // Latest edit should be authored by user-two and its validatedBy should only contain user-two (if any)
-        const latestEdit = diskCell.metadata.edits[diskCell.metadata.edits.length - 1];
-        assert.strictEqual(latestEdit.author, "user-two", "Latest edit should be from the second user");
+        // Latest value edit should be authored by user-two and its validatedBy should only contain user-two (if any)
+        const latestValueEdit = [...(diskCell.metadata.edits || [])].reverse().find((e: any) => JSON.stringify(e.editMap) === JSON.stringify(["value"]));
+        assert.ok(latestValueEdit, "Should have a latest value edit after user-two's update");
+        assert.strictEqual(latestValueEdit.author, "user-two", "Latest value edit should be from the second user");
 
-        const activeValidators = (latestEdit.validatedBy || []).filter((v: any) => v && v.isDeleted === false);
+        const activeValidators = (latestValueEdit.validatedBy || []).filter((v: any) => v && v.isDeleted === false);
         // Because a new edit was made by another user, prior validations apply to older edits only.
         // The latest edit should start with validatedBy scoped to the author of that edit only (if any were added during creation).
         // Our implementation sets validatedBy on USER_EDIT to the editing author only.
-        assert.ok(Array.isArray(latestEdit.validatedBy), "validatedBy array should exist on the latest edit");
+        assert.ok(Array.isArray(latestValueEdit.validatedBy), "validatedBy array should exist on the latest value edit");
         assert.strictEqual(activeValidators.length, 1, "Exactly one active validator should be present on the latest edit");
         assert.strictEqual(activeValidators[0].username, "user-two", "Validator should be the latest edit's author");
     });

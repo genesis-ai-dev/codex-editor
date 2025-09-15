@@ -549,6 +549,54 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
             await deleteIfExists(theirsTmp);
         }
     });
+
+    test("resolver does not stamp MERGE edits; only merges edit history", async () => {
+        const context = createMockExtensionContext();
+        const providerLocal = new CodexCellEditorProvider(context);
+
+        // Fresh copies for isolation
+        const oursTmp = await createTempCodexFile(`merge-stamp-ours-${Date.now()}.codex`, JSON.parse(JSON.stringify(codexSubtitleContent)));
+        const theirsTmp = await createTempCodexFile(`merge-stamp-theirs-${Date.now()}.codex`, JSON.parse(JSON.stringify(codexSubtitleContent)));
+        try {
+            const oursDoc = await providerLocal.openCustomDocument(
+                oursTmp,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            const theirsDoc = await providerLocal.openCustomDocument(
+                theirsTmp,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Force authors for deterministic edit author fields
+            (oursDoc as any)._author = "user-one";
+            (theirsDoc as any)._author = "user-two";
+
+            const sharedCellId = codexSubtitleContent.cells[0].metadata.id as string;
+
+            // Make sure both sides touch the shared cell so the resolver merges it
+            (oursDoc as any).updateCellLabel(sharedCellId, "label-ours");
+            await sleep(20);
+            await (theirsDoc as any).updateCellContent(sharedCellId, "<p>theirs</p>", EditType.USER_EDIT);
+
+            // Perform merge
+            const merged = await resolveCodexCustomMerge((oursDoc as any).getText(), (theirsDoc as any).getText());
+            const notebook = JSON.parse(merged);
+            const mergedCell = (notebook.cells || []).find((c: any) => c.metadata?.id === sharedCellId)!;
+            assert.ok(mergedCell, "Merged cell should exist");
+
+            const edits: any[] = mergedCell.metadata?.edits || [];
+            // Resolver should not add MERGE edits; it only merges existing histories
+            const mergeEdits = edits.filter((e: any) => e?.type === EditType.MERGE);
+            assert.strictEqual(mergeEdits.length, 0, "Resolver should not stamp MERGE edits");
+            // And should not set merged flag during plain resolve
+            assert.ok(!mergedCell.metadata?.data?.merged, "Resolver should not set merged flag");
+        } finally {
+            await deleteIfExists(oursTmp);
+            await deleteIfExists(theirsTmp);
+        }
+    });
 });
 
 
