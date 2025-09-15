@@ -1272,6 +1272,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
 
         debug("No audio attachment found for cell:", cellId);
+
+        // Always send a response, even if no audio is found
+        safePostMessageToPanel(webviewPanel, {
+            type: "providerSendsAudioData",
+            content: {
+                cellId: cellId,
+                audioId: audioId || null,
+                audioData: null
+            }
+        });
     },
 
     saveAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
@@ -1360,8 +1370,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
         });
 
-        // Refresh full content; webview derives attachment availability from content
-        provider.refreshWebview(webviewPanel, document);
+        // The modal will handle refreshing its own history, and the main UI will 
+        // update when the user navigates away and back or when the document is saved
 
         debug("Audio attachment soft deleted successfully");
     },
@@ -1415,8 +1425,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
         });
 
-        // Refresh content so client recomputes availability
-        provider.refreshWebview(webviewPanel, document);
+        // The modal will handle refreshing its own history, and the main UI will 
+        // update when the user navigates away and back or when the document is saved
 
         debug("Audio attachment restored successfully");
     },
