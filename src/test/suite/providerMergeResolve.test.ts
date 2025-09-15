@@ -351,6 +351,66 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
         }
     });
 
+    test("source webview excludes merged and deleted cells when correction mode is off", async () => {
+        const context = createMockExtensionContext();
+        const providerLocal = new CodexCellEditorProvider(context);
+
+        // Create a .source file and mark one cell merged and another deleted
+        const base = JSON.parse(JSON.stringify(codexSubtitleContent));
+        const firstId = base.cells[0].metadata.id;
+        const secondId = base.cells[1]?.metadata?.id;
+        base.cells[0].metadata.data = base.cells[0].metadata.data || {};
+        base.cells[0].metadata.data.merged = true;
+        if (secondId) {
+            base.cells[1].metadata.data = base.cells[1].metadata.data || {};
+            base.cells[1].metadata.data.deleted = true;
+        }
+
+        const srcUri = await createTempCodexFile(`exclude-flags-${Date.now()}.source`, base);
+        try {
+            const document = await providerLocal.openCustomDocument(
+                srcUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            let lastPost: any = null;
+            const webviewPanel = {
+                webview: {
+                    html: "",
+                    options: { enableScripts: true },
+                    asWebviewUri: (uri: vscode.Uri) => uri,
+                    cspSource: "https://example.com",
+                    onDidReceiveMessage: (_cb: any) => ({ dispose: () => { } }),
+                    postMessage: (message: any) => { lastPost = message; return Promise.resolve(); },
+                },
+                onDidDispose: () => ({ dispose: () => { } }),
+                onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+            } as any as vscode.WebviewPanel;
+
+            // Default correction mode is off; resolve editor to send initial content
+            await providerLocal.resolveCustomEditor(
+                document,
+                webviewPanel,
+                new vscode.CancellationTokenSource().token
+            );
+
+            await sleep(60);
+
+            const payload = lastPost || {};
+            const units = Array.isArray(payload.content) ? payload.content : [];
+            const hasFirst = units.some((u: any) => (u.cellMarkers || [])[0] === firstId);
+            const hasSecond = units.some((u: any) => (u.cellMarkers || [])[0] === secondId);
+            // Both merged and deleted cells should be excluded when correction mode is off
+            assert.strictEqual(hasFirst, false, "Merged cell should not be sent to the webview for source when correction mode is off");
+            if (secondId) {
+                assert.strictEqual(hasSecond, false, "Deleted cell should not be sent to the webview for source when correction mode is off");
+            }
+        } finally {
+            await deleteIfExists(srcUri);
+        }
+    });
+
     test("softDeleteCell logs edit and persists deleted flag through merge", async () => {
         const context = createMockExtensionContext();
         const providerLocal = new CodexCellEditorProvider(context);
