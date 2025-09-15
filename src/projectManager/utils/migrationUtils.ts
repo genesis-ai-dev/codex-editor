@@ -313,13 +313,18 @@ export const migration_lineNumbersSettings = async (context?: vscode.ExtensionCo
 
         const workspaceFolder = workspaceFolders[0];
 
-        // Find all codex files
+        // Find all codex and source files
         const codexFiles = await vscode.workspace.findFiles(
             new vscode.RelativePattern(workspaceFolder, "**/*.codex")
         );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
 
-        if (codexFiles.length === 0) {
-            console.log("No codex files found, skipping migration");
+        const allNotebookFiles = [...codexFiles, ...sourceFiles];
+
+        if (allNotebookFiles.length === 0) {
+            console.log("No codex or source files found, skipping migration");
             return;
         }
 
@@ -333,11 +338,11 @@ export const migration_lineNumbersSettings = async (context?: vscode.ExtensionCo
                 cancellable: false
             },
             async (progress) => {
-                for (let i = 0; i < codexFiles.length; i++) {
-                    const file = codexFiles[i];
+                for (let i = 0; i < allNotebookFiles.length; i++) {
+                    const file = allNotebookFiles[i];
                     progress.report({
                         message: `Analyzing ${path.basename(file.fsPath)}`,
-                        increment: (100 / codexFiles.length)
+                        increment: (100 / allNotebookFiles.length)
                     });
 
                     try {

@@ -1074,6 +1074,34 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 merged: false
             });
 
+            // Record an edit on the (now unmerged) current cell to reflect the merged flag change to false
+            try {
+                const currentCellForEdits = document.getCell(cellId);
+                if (currentCellForEdits) {
+                    if (!currentCellForEdits.metadata.edits) {
+                        currentCellForEdits.metadata.edits = [] as any;
+                    }
+                    const ts = Date.now();
+                    // Best-effort user lookup (anonymous fallback)
+                    let user = "anonymous";
+                    try {
+                        const authApi = await provider.getAuthApi();
+                        const userInfo = await authApi?.getUserInfo();
+                        user = userInfo?.username || "anonymous";
+                    } catch { /* ignore */ }
+                    (currentCellForEdits.metadata.edits as any[]).push({
+                        editMap: EditMapUtils.metadataNested("data", "merged"),
+                        value: false,
+                        timestamp: ts,
+                        type: EditType.USER_EDIT,
+                        author: user,
+                        validatedBy: []
+                    });
+                }
+            } catch (e) {
+                console.warn("Failed to record unmerge edit entry on source cell", e);
+            }
+
             // Save the current document
             await document.save(new vscode.CancellationTokenSource().token);
 
@@ -1565,7 +1593,19 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // Get existing edit history or create new one
             const existingEdits = previousCell.metadata?.edits || [];
 
-            // 1. Concatenate content and create second edit
+            // Ensure an INITIAL_IMPORT exists for previous cell value if missing
+            if (existingEdits.length === 0 && previousCell.value) {
+                existingEdits.push({
+                    editMap: EditMapUtils.value(),
+                    value: previousCell.value,
+                    timestamp: timestamp,
+                    type: EditType.INITIAL_IMPORT,
+                    author: currentUser,
+                    validatedBy: []
+                } as any);
+            }
+
+            // 1. Concatenate content and create merged edit
             const mergedContent = previousContent + "<span>&nbsp;</span>" + currentContent;
             const mergeEdit: EditHistory = {
                 editMap: EditMapUtils.value(),
@@ -1645,6 +1685,22 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 ...currentCellData,
                 merged: true
             });
+
+            // Record an edit on the merged (current) cell to reflect the merged flag change
+            const currentCellForEdits = document.getCell(currentCellId);
+            if (currentCellForEdits) {
+                if (!currentCellForEdits.metadata.edits) {
+                    currentCellForEdits.metadata.edits = [] as any;
+                }
+                (currentCellForEdits.metadata.edits as any[]).push({
+                    editMap: EditMapUtils.metadataNested("data", "merged"),
+                    value: true,
+                    timestamp: timestamp + 2,
+                    type: EditType.USER_EDIT,
+                    author: currentUser,
+                    validatedBy: []
+                });
+            }
 
             // Save the document
             await document.save(new vscode.CancellationTokenSource().token);

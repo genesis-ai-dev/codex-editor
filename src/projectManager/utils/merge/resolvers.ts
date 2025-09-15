@@ -592,6 +592,9 @@ export async function resolveCodexCustomMerge(
         `Processing ${ourCells.length} cells from our version and ${theirCells.length} cells from their version`
     );
 
+    // Determine merge author (env override for tests, else best-effort lookup)
+    const mergeAuthor = process.env.CODEX_MERGE_USER || await getCurrentUserName();
+
     // Map to track cells by ID for quick lookup
     const theirCellsMap = new Map<string, CustomNotebookCellData>(); // FIXME: this causes unknown cells to show up at the end of the notebook because we are making a mpa not array
     theirCells.forEach((cell) => {
@@ -614,6 +617,9 @@ export async function resolveCodexCustomMerge(
         const theirCell = theirCellsMap.get(cellId);
         if (theirCell) {
             debugLog(`Found matching cell ${cellId} - merging content`);
+
+            // Note: even if both sides soft-delete a cell, we keep it in the merged output
+            // so that deletion history and audit information are preserved.
 
             // Use the new metadata conflict resolution function
             const mergedCell = resolveMetadataConflictsUsingEditHistory(ourCell, theirCell);
@@ -654,6 +660,8 @@ export async function resolveCodexCustomMerge(
                 };
             }
             mergedCell.metadata.edits = uniqueEdits;
+
+            // Do not stamp MERGE edits here; resolver should only merge histories
 
             // Merge attachments intelligently
             const mergedAttachments = mergeAttachments(

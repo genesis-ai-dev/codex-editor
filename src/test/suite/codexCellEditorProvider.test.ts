@@ -5,6 +5,7 @@ import * as path from "path";
 import * as os from "os";
 import { CodexCellEditorProvider } from "../../providers/codexCellEditorProvider/codexCellEditorProvider";
 import { CodexCellDocument } from "../../providers/codexCellEditorProvider/codexDocument";
+import { handleMessages } from "../../providers/codexCellEditorProvider/codexCellEditorMessagehandling";
 import { codexSubtitleContent } from "./mocks/codexSubtitleContent";
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { CodexNotebookAsJSONData, QuillCellContent, Timestamps } from "../../../types";
@@ -130,8 +131,10 @@ suite("CodexCellEditorProvider Test Suite", () => {
         const diskJson = JSON.parse(new TextDecoder().decode(diskBuf));
         const diskCell = diskJson.cells.find((c: any) => c.metadata.id === cellId);
         assert.strictEqual(diskCell.value, newValue, "On disk: user edit value should persist");
-        const lastEdit = (diskCell.metadata.edits || [])[diskCell.metadata.edits.length - 1];
-        assert.strictEqual(lastEdit?.type, "user-edit", "On disk: latest edit should be user-edit");
+        const editsOnDisk = diskCell.metadata.edits || [];
+        const lastValueEdit = [...editsOnDisk].reverse().find((e: any) => JSON.stringify(e.editMap) === JSON.stringify(["value"]));
+        assert.ok(lastValueEdit, "On disk: should have a value edit entry");
+        assert.strictEqual(lastValueEdit?.type, "user-edit", "On disk: latest value edit should be user-edit");
     });
 
     test("resolveCustomEditor sets up message passing", async () => {
@@ -226,7 +229,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         );
     });
 
-    test("deleteCell deletes the cell", async () => {
+    test("deleteCell performs a soft delete (cell retained with deleted flag)", async () => {
         const document = await provider.openCustomDocument(
             tempUri,
             { backupId: undefined },
@@ -235,18 +238,10 @@ suite("CodexCellEditorProvider Test Suite", () => {
         const cellId = codexSubtitleContent.cells[0].metadata.id;
         document.deleteCell(cellId);
         const updatedContent = await document.getText();
-        const cells = JSON.parse(updatedContent).cells;
-        // cells should not contain the deleted cell
-        assert.strictEqual(
-            cells.length,
-            codexSubtitleContent.cells.length - 1,
-            "Cells should be one less"
-        );
-        assert.strictEqual(
-            cells.find((c: any) => c.metadata.id === cellId),
-            undefined,
-            "Deleted cell should not be in the cells"
-        );
+        const parsed = JSON.parse(updatedContent);
+        const cell = parsed.cells.find((c: any) => c.metadata.id === cellId);
+        assert.ok(cell, "Cell should still exist after deleteCell (soft delete)");
+        assert.strictEqual(!!cell.metadata?.data?.deleted, true, "Deleted flag should be set to true");
     });
 
     test("addCell adds a new cell", async () => {
@@ -837,6 +832,193 @@ suite("CodexCellEditorProvider Test Suite", () => {
         }
     });
 
+    test("mergeCellWithPrevious marks current cell merged and logs merged edit", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        // Choose two adjacent text cells
+        const allIds = (document as any).getAllCellIds() as string[];
+        const previousCellId = allIds[0];
+        const currentCellId = allIds[1];
+        const previousContent = (document as any).getCellContent(previousCellId)?.cellContent || "";
+        const currentContent = (document as any).getCellContent(currentCellId)?.cellContent || "";
+
+        // Minimal webview panel mock for refreshWebview path
+        const webviewPanel = {
+            webview: {
+                html: "",
+                options: { enableScripts: true },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: "https://example.com",
+                onDidReceiveMessage: (_cb: any) => ({ dispose: () => { } }),
+                postMessage: (_message: any) => Promise.resolve(),
+            },
+            onDidDispose: () => ({ dispose: () => { } }),
+            onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+        } as any as vscode.WebviewPanel;
+
+        // Execute merge
+        await handleMessages({
+            command: "mergeCellWithPrevious",
+            content: { currentCellId, previousCellId, currentContent, previousContent }
+        } as any, webviewPanel, document, () => { }, provider as any);
+
+        // Assert current (merged) cell has merged flag and a corresponding edit entry
+        const parsed = JSON.parse((document as any).getText());
+        const mergedCell = parsed.cells.find((c: any) => c.metadata?.id === currentCellId);
+        const edits: any[] = mergedCell?.metadata?.edits || [];
+        const mergedFlag = !!mergedCell?.metadata?.data?.merged;
+        const hasMergedEdit = edits.some((e: any) => Array.isArray(e.editMap) && e.editMap.join(".") === "metadata.data.merged" && e.value === true);
+
+        assert.ok(mergedFlag, "Current cell should be marked merged");
+        assert.ok(hasMergedEdit, "Merged cell should log a merged edit entry");
+    });
+
+    test("mergeMatchingCellsInTargetFile marks target current cell merged and logs merged edit", async () => {
+        const provider = new CodexCellEditorProvider(context);
+
+        // Create a temp workspace-like directory with both source and target files
+        const wsDir = path.join(os.tmpdir(), `ws-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+        const wsUri = vscode.Uri.file(wsDir);
+        await vscode.workspace.fs.createDirectory(wsUri);
+
+        const baseFile = `merge-target-${Date.now()}.source`;
+        const sourceUri = vscode.Uri.file(path.join(wsDir, ".project", "sourceTexts", baseFile));
+        const targetUri = vscode.Uri.file(path.join(wsDir, "files", "target", baseFile.replace(".source", ".codex")));
+
+        // Ensure directories exist
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(sourceUri.fsPath)));
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(targetUri.fsPath)));
+
+        // Write identical baseline to both source and target
+        const baseline = JSON.parse(JSON.stringify(codexSubtitleContent));
+        await vscode.workspace.fs.writeFile(sourceUri, Buffer.from(JSON.stringify(baseline, null, 2)));
+        await vscode.workspace.fs.writeFile(targetUri, Buffer.from(JSON.stringify(baseline, null, 2)));
+
+        // Open source document so provider.currentDocument is set up
+        const sourceDoc = await provider.openCustomDocument(sourceUri, { backupId: undefined }, new vscode.CancellationTokenSource().token);
+
+        // Minimal panel to register and allow handleMessages if needed
+        const webviewPanel = {
+            webview: {
+                html: "",
+                options: { enableScripts: true },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: "https://example.com",
+                onDidReceiveMessage: (_cb: any) => ({ dispose: () => { } }),
+                postMessage: (_message: any) => Promise.resolve(),
+            },
+            onDidDispose: () => ({ dispose: () => { } }),
+            onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+        } as any as vscode.WebviewPanel;
+        await provider.resolveCustomEditor(sourceDoc, webviewPanel, new vscode.CancellationTokenSource().token);
+
+        // Determine IDs to merge: merge second into first
+        const ids = (sourceDoc as any).getAllCellIds() as string[];
+        const previousCellId = ids[0];
+        const currentCellId = ids[1];
+
+        // Merge in SOURCE first and assert source current cell is marked merged with edit
+        {
+            const srcPrevContent = (sourceDoc as any).getCellContent(previousCellId)?.cellContent || "";
+            const srcCurrContent = (sourceDoc as any).getCellContent(currentCellId)?.cellContent || "";
+            await handleMessages({
+                command: "mergeCellWithPrevious",
+                content: { currentCellId, previousCellId, currentContent: srcCurrContent, previousContent: srcPrevContent }
+            } as any, webviewPanel, sourceDoc, () => { }, provider as any);
+
+            const srcParsed = JSON.parse((sourceDoc as any).getText());
+            const srcCurrent = (srcParsed.cells || []).find((c: any) => c?.metadata?.id === currentCellId);
+            assert.ok(srcCurrent, "Source should contain the current cell");
+            assert.strictEqual(!!srcCurrent.metadata?.data?.merged, true, "Source current cell should be marked merged");
+            const srcMergedEditExists = (srcCurrent.metadata?.edits || []).some((e: any) => Array.isArray(e.editMap) && e.editMap.join(".") === "metadata.data.merged" && e.value === true);
+            assert.ok(srcMergedEditExists, "Source current cell should log a merged edit entry");
+        }
+
+        // Fake workspace folder pointing at wsDir
+        const workspaceFolder: vscode.WorkspaceFolder = { uri: wsUri, name: "tmp", index: 0 } as vscode.WorkspaceFolder;
+
+        try {
+            // Open target document directly and invoke the merge handler on it
+            const targetDoc = await provider.openCustomDocument(targetUri, { backupId: undefined }, new vscode.CancellationTokenSource().token);
+
+            const targetPanel = {
+                webview: {
+                    html: "",
+                    options: { enableScripts: true },
+                    asWebviewUri: (uri: vscode.Uri) => uri,
+                    cspSource: "https://example.com",
+                    onDidReceiveMessage: (_cb: any) => ({ dispose: () => { } }),
+                    postMessage: (_message: any) => Promise.resolve(),
+                },
+                onDidDispose: () => ({ dispose: () => { } }),
+                onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+            } as any as vscode.WebviewPanel;
+
+            const previousContent = (targetDoc as any).getCellContent(previousCellId)?.cellContent || "";
+            const currentContent = (targetDoc as any).getCellContent(currentCellId)?.cellContent || "";
+
+            await handleMessages({
+                command: "mergeCellWithPrevious",
+                content: { currentCellId, previousCellId, currentContent, previousContent }
+            } as any, targetPanel, targetDoc, () => { }, provider as any);
+
+            // Assert current cell in target is marked merged and has edit
+            const parsed = JSON.parse((targetDoc as any).getText());
+            const targetCurrent = (parsed.cells || []).find((c: any) => c?.metadata?.id === currentCellId);
+            assert.ok(targetCurrent, "Target should contain the current cell");
+            assert.strictEqual(!!targetCurrent.metadata?.data?.merged, true, "Target current cell should be marked merged");
+            const mergedEditExists = (targetCurrent.metadata?.edits || []).some((e: any) => Array.isArray(e.editMap) && e.editMap.join(".") === "metadata.data.merged" && e.value === true);
+            assert.ok(mergedEditExists, "Target current cell should log a merged edit entry");
+
+            // Now unmerge from source and confirm target unmerges with edit
+            await handleMessages({
+                command: "cancelMerge",
+                content: { cellId: currentCellId }
+            } as any, webviewPanel, sourceDoc, () => { }, provider as any);
+
+            // Invoke provider unmerge for target to mirror behavior (stub openWith to avoid UI)
+            const originalExec = vscode.commands.executeCommand;
+            // @ts-expect-error test stub
+            vscode.commands.executeCommand = async (command: string, ...args: any[]) => {
+                if (command === "vscode.openWith") {
+                    return undefined;
+                }
+                return originalExec(command, ...args);
+            };
+            try {
+                await provider.unmergeMatchingCellsInTargetFile(currentCellId, sourceUri.toString(), workspaceFolder);
+            } finally {
+                vscode.commands.executeCommand = originalExec;
+            }
+
+            // Re-read both docs
+            const srcAfterUnmerge = JSON.parse((sourceDoc as any).getText());
+            const srcCellAfter = (srcAfterUnmerge.cells || []).find((c: any) => c?.metadata?.id === currentCellId);
+            assert.ok(srcCellAfter, "Source should still contain the current cell after unmerge");
+            assert.strictEqual(!!srcCellAfter.metadata?.data?.merged, false, "Source current cell should be unmerged (merged=false)");
+            const srcHasUnmergeEdit = (srcCellAfter.metadata?.edits || []).some((e: any) => Array.isArray(e.editMap) && e.editMap.join(".") === "metadata.data.merged" && e.value === false);
+            assert.ok(srcHasUnmergeEdit, "Source current cell should have an edit recording merged=false");
+
+            // Re-open/refresh target by reading from disk to capture external mutation
+            const targetDisk = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(targetUri)));
+            const targetCellAfter = (targetDisk.cells || []).find((c: any) => c?.metadata?.id === currentCellId);
+            assert.ok(targetCellAfter, "Target should still contain the current cell after unmerge");
+            assert.strictEqual(!!targetCellAfter.metadata?.data?.merged, false, "Target current cell should be unmerged (merged=false)");
+            const targetHasUnmergeEdit = (targetCellAfter.metadata?.edits || []).some((e: any) => Array.isArray(e.editMap) && e.editMap.join(".") === "metadata.data.merged" && e.value === false);
+            assert.ok(targetHasUnmergeEdit, "Target current cell should have an edit recording merged=false");
+        } finally {
+            // Cleanup temp files
+            await deleteIfExists(sourceUri);
+            await deleteIfExists(targetUri);
+            try { await vscode.workspace.fs.delete(wsUri, { recursive: true }); } catch { /* ignore */ }
+        }
+    });
+
     test("LLM completion records an LLM_GENERATION edit in edit history", async () => {
         const provider = new CodexCellEditorProvider(context);
         const document = await provider.openCustomDocument(
@@ -1066,9 +1248,11 @@ suite("CodexCellEditorProvider Test Suite", () => {
         await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
         const diskData = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(document.uri)));
         const diskCell = diskData.cells.find((c: any) => c.metadata.id === targetCellId);
-        const diskLastEdit = (diskCell.metadata.edits || [])[diskCell.metadata.edits.length - 1];
-        assert.ok(Array.isArray(diskLastEdit?.validatedBy), "validatedBy array should exist on latest edit");
-        const hasValidator = (diskLastEdit.validatedBy || []).some((v: any) => v && typeof v.username === "string");
+        const edits = diskCell.metadata.edits || [];
+        const lastValueEdit = [...edits].reverse().find((e: any) => JSON.stringify(e.editMap) === JSON.stringify(["value"]));
+        assert.ok(lastValueEdit, "Should have a latest value edit to validate");
+        assert.ok(Array.isArray(lastValueEdit?.validatedBy), "validatedBy array should exist on latest value edit");
+        const hasValidator = (lastValueEdit.validatedBy || []).some((v: any) => v && typeof v.username === "string");
         assert.ok(hasValidator, "validatedBy should include a user entry on latest edit");
     });
 
@@ -1096,15 +1280,16 @@ suite("CodexCellEditorProvider Test Suite", () => {
         const diskData = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(document.uri)));
         const diskCell = diskData.cells.find((c: any) => c.metadata.id === cellId);
 
-        // Latest edit should be authored by user-two and its validatedBy should only contain user-two (if any)
-        const latestEdit = diskCell.metadata.edits[diskCell.metadata.edits.length - 1];
-        assert.strictEqual(latestEdit.author, "user-two", "Latest edit should be from the second user");
+        // Latest value edit should be authored by user-two and its validatedBy should only contain user-two (if any)
+        const latestValueEdit = [...(diskCell.metadata.edits || [])].reverse().find((e: any) => JSON.stringify(e.editMap) === JSON.stringify(["value"]));
+        assert.ok(latestValueEdit, "Should have a latest value edit after user-two's update");
+        assert.strictEqual(latestValueEdit.author, "user-two", "Latest value edit should be from the second user");
 
-        const activeValidators = (latestEdit.validatedBy || []).filter((v: any) => v && v.isDeleted === false);
+        const activeValidators = (latestValueEdit.validatedBy || []).filter((v: any) => v && v.isDeleted === false);
         // Because a new edit was made by another user, prior validations apply to older edits only.
         // The latest edit should start with validatedBy scoped to the author of that edit only (if any were added during creation).
         // Our implementation sets validatedBy on USER_EDIT to the editing author only.
-        assert.ok(Array.isArray(latestEdit.validatedBy), "validatedBy array should exist on the latest edit");
+        assert.ok(Array.isArray(latestValueEdit.validatedBy), "validatedBy array should exist on the latest value edit");
         assert.strictEqual(activeValidators.length, 1, "Exactly one active validator should be present on the latest edit");
         assert.strictEqual(activeValidators[0].username, "user-two", "Validator should be the latest edit's author");
     });
