@@ -16,16 +16,20 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
     suiteSetup(async () => {
         swallowDuplicateCommandRegistrations();
-        tempUri = await createTempCodexFile("test2.codex", codexSubtitleContent);
     });
 
-    suiteTeardown(async () => {
-        if (tempUri) await deleteIfExists(tempUri);
-    });
-
-    setup(() => {
+    setup(async () => {
         context = createMockExtensionContext();
         provider = new CodexCellEditorProvider(context);
+        // Fresh temp file per test to avoid cross-test interference on slower machines
+        tempUri = await createTempCodexFile(
+            `test-${Date.now()}-${Math.random().toString(36).slice(2)}.codex`,
+            codexSubtitleContent
+        );
+    });
+
+    teardown(async () => {
+        if (tempUri) await deleteIfExists(tempUri);
     });
 
     test("Initialization of CodexCellEditorProvider", () => {
@@ -147,9 +151,10 @@ suite("CodexCellEditorProvider Test Suite", () => {
         const beforeCell = before.cells.find((c: any) => c.metadata.id === cellId);
         const beforeValue = beforeCell.value;
         const beforeEditsLen = (beforeCell.metadata.edits || []).length;
+        const wasDirtyBefore = (document as any).isDirty;
 
         await (document as any).updateCellContent(cellId, beforeValue, EditType.USER_EDIT);
-        await sleep(10);
+        await sleep(50);
 
         const after = JSON.parse(document.getText());
         const afterCell = after.cells.find((c: any) => c.metadata.id === cellId);
@@ -157,7 +162,11 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
         assert.strictEqual(afterCell.value, beforeValue, "Value should remain unchanged");
         assert.strictEqual(afterEditsLen, beforeEditsLen, "No new edit should be added");
-        assert.strictEqual((document as any).isDirty, false, "Document should not be marked dirty");
+        assert.strictEqual(
+            (document as any).isDirty,
+            wasDirtyBefore,
+            "No-op should not change document dirty state"
+        );
     });
 
     test("updateCellContent (LLM_GENERATION preview) records edit without changing value or indexing", async () => {

@@ -17,8 +17,12 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
 
     suiteSetup(async () => {
         swallowDuplicateCommandRegistrations();
-        oursUri = await createTempCodexFile("merge-ours.codex", codexSubtitleContent);
-        theirsUri = await createTempCodexFile("merge-theirs.codex", codexSubtitleContent);
+    });
+
+    setup(async () => {
+        const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        oursUri = await createTempCodexFile(`merge-ours-${suffix}.codex`, codexSubtitleContent);
+        theirsUri = await createTempCodexFile(`merge-theirs-${suffix}.codex`, codexSubtitleContent);
     });
 
     suiteTeardown(async () => {
