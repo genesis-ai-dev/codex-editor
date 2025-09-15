@@ -1648,6 +1648,22 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 merged: true
             });
 
+            // Record an edit on the merged (current) cell to reflect the merged flag change
+            const currentCellForEdits = document.getCell(currentCellId);
+            if (currentCellForEdits) {
+                if (!currentCellForEdits.metadata.edits) {
+                    currentCellForEdits.metadata.edits = [] as any;
+                }
+                (currentCellForEdits.metadata.edits as any[]).push({
+                    editMap: EditMapUtils.metadataNested("data", "merged"),
+                    value: true,
+                    timestamp: timestamp + 2,
+                    type: EditType.USER_EDIT,
+                    author: currentUser,
+                    validatedBy: []
+                });
+            }
+
             // Save the document
             await document.save(new vscode.CancellationTokenSource().token);
 

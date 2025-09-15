@@ -5,6 +5,7 @@ import * as path from "path";
 import * as os from "os";
 import { CodexCellEditorProvider } from "../../providers/codexCellEditorProvider/codexCellEditorProvider";
 import { CodexCellDocument } from "../../providers/codexCellEditorProvider/codexDocument";
+import { handleMessages } from "../../providers/codexCellEditorProvider/codexCellEditorMessagehandling";
 import { codexSubtitleContent } from "./mocks/codexSubtitleContent";
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { CodexNotebookAsJSONData, QuillCellContent, Timestamps } from "../../../types";
@@ -829,6 +830,52 @@ suite("CodexCellEditorProvider Test Suite", () => {
             (syncManagerModule as any).SyncManager.getInstance = originalGetInstance;
             mergeStub.restore();
         }
+    });
+
+    test("mergeCellWithPrevious marks current cell merged and logs merged edit", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        // Choose two adjacent text cells
+        const allIds = (document as any).getAllCellIds() as string[];
+        const previousCellId = allIds[0];
+        const currentCellId = allIds[1];
+        const previousContent = (document as any).getCellContent(previousCellId)?.cellContent || "";
+        const currentContent = (document as any).getCellContent(currentCellId)?.cellContent || "";
+
+        // Minimal webview panel mock for refreshWebview path
+        const webviewPanel = {
+            webview: {
+                html: "",
+                options: { enableScripts: true },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: "https://example.com",
+                onDidReceiveMessage: (_cb: any) => ({ dispose: () => { } }),
+                postMessage: (_message: any) => Promise.resolve(),
+            },
+            onDidDispose: () => ({ dispose: () => { } }),
+            onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+        } as any as vscode.WebviewPanel;
+
+        // Execute merge
+        await handleMessages({
+            command: "mergeCellWithPrevious",
+            content: { currentCellId, previousCellId, currentContent, previousContent }
+        } as any, webviewPanel, document, () => { }, provider as any);
+
+        // Assert current (merged) cell has merged flag and a corresponding edit entry
+        const parsed = JSON.parse((document as any).getText());
+        const mergedCell = parsed.cells.find((c: any) => c.metadata?.id === currentCellId);
+        const edits: any[] = mergedCell?.metadata?.edits || [];
+        const mergedFlag = !!mergedCell?.metadata?.data?.merged;
+        const hasMergedEdit = edits.some((e: any) => Array.isArray(e.editMap) && e.editMap.join(".") === "metadata.data.merged" && e.value === true);
+
+        assert.ok(mergedFlag, "Current cell should be marked merged");
+        assert.ok(hasMergedEdit, "Merged cell should log a merged edit entry");
     });
 
     test("LLM completion records an LLM_GENERATION edit in edit history", async () => {
