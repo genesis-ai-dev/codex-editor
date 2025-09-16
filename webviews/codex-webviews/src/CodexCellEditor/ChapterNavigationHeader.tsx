@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "../components/ui/button";
 import { VSCodeBadge } from "@vscode/webview-ui-toolkit/react";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
@@ -153,7 +153,7 @@ ChapterNavigationHeaderProps) {
     }, [metadata?.fontSize]);
 
     // Determine the display name using the map
-    const getDisplayTitle = () => {
+    const getDisplayTitle = useCallback(() => {
         const firstMarker = translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]; // e.g., "GEN 1"
         if (!firstMarker) return "Chapter"; // Fallback title
 
@@ -168,7 +168,7 @@ ChapterNavigationHeaderProps) {
         const displayBookName = localizedName || bookAbbr;
 
         return `${displayBookName}\u00A0${chapterNum}`;
-    };
+    }, [translationUnitsForSection, bibleBookMap]);
 
     // Dynamic title truncation based on available space
     useEffect(() => {
@@ -184,9 +184,6 @@ ChapterNavigationHeaderProps) {
             const bookName = lastSpaceIndex > 0 ? fullTitle.substring(0, lastSpaceIndex) : fullTitle;
             const chapterNum = lastSpaceIndex > 0 ? fullTitle.substring(lastSpaceIndex + 1) : "";
 
-            // Reset to full title first
-            setTruncatedBookName(null);
-
             // Use requestAnimationFrame to ensure DOM has updated
             requestAnimationFrame(() => {
                 const containerRect = container.getBoundingClientRect();
@@ -194,9 +191,17 @@ ChapterNavigationHeaderProps) {
                 
                 if (!parentRect) return;
 
-                // Calculate available width (with some buffer for safe spacing)
+                // Truncation should be last: only allow it on very small screens
+                // After we've already switched to hamburger (<=640), reduced font, and hidden arrows (<=400)
+                const allowTruncation = window.innerWidth < 400;
+                if (!allowTruncation) {
+                    setTruncatedBookName((prev) => (prev !== null ? null : prev));
+                    return;
+                }
+
+                // Calculate available width based on parent (not the title itself to avoid feedback)
                 const availableWidth = Math.min(
-                    containerRect.width,
+                    parentRect.width,
                     window.innerWidth < 400 ? window.innerWidth * 0.5 : // On very small screens, limit to 50%
                     window.innerWidth < 640 ? window.innerWidth * 0.6 : // On small screens, limit to 60%
                     window.innerWidth * 0.4 // On larger screens, limit to 40%
@@ -209,10 +214,13 @@ ChapterNavigationHeaderProps) {
                 temp.style.fontSize = window.getComputedStyle(container.querySelector('h1') || container).fontSize;
                 temp.style.fontFamily = window.getComputedStyle(container.querySelector('h1') || container).fontFamily;
                 
-                // Account for subsection label like "(1-50)" if it exists
-                const subsectionLabel = subsections.length > 0 && subsections[currentSubsectionIndex]?.label 
-                    ? ` (${subsections[currentSubsectionIndex].label})` 
-                    : "";
+                // Account for subsection label like "(1-50)" only when it's visible (>= 500px)
+                const subsectionLabel =
+                    window.innerWidth >= 500 &&
+                    subsections.length > 0 &&
+                    subsections[currentSubsectionIndex]?.label
+                        ? ` (${subsections[currentSubsectionIndex].label})`
+                        : "";
                 temp.textContent = fullTitle + subsectionLabel;
                 document.body.appendChild(temp);
 
@@ -232,8 +240,11 @@ ChapterNavigationHeaderProps) {
                     
                     if (maxBookNameChars > 0) {
                         const truncated = bookName.substring(0, Math.max(1, maxBookNameChars - 1));
-                        setTruncatedBookName(truncated);
+                        setTruncatedBookName((prev) => (prev !== truncated ? truncated : prev));
                     }
+                } else {
+                    // Ensure we clear truncation only when needed to avoid extra renders
+                    setTruncatedBookName((prev) => (prev !== null ? null : prev));
                 }
             });
         };
@@ -504,7 +515,7 @@ ChapterNavigationHeaderProps) {
     };
 
     return (
-        <div className="relative flex flex-row p-2 max-w-full items-center">
+        <div className="relative flex flex-row p-2 max-w-full items-center transition-all duration-200 ease-in-out">
             {/* Mobile hamburger menu - shows when page dropdown is hidden */}
             <div className={`hidden items-center ${subsections.length > 0 ? "max-[639px]:flex" : "max-[399px]:flex"}`}>
                 <MobileHeaderMenu
@@ -540,7 +551,7 @@ ChapterNavigationHeaderProps) {
             </div>
 
             {/* Desktop left controls */}
-            <div className={`${subsections.length > 0 ? "hidden min-[640px]:flex" : "hidden min-[400px]:flex"} items-center justify-start flex-shrink-0`}>
+            <div className={`${subsections.length > 0 ? "hidden min-[640px]:flex" : "hidden min-[400px]:flex"} items-center justify-start flex-shrink-0 transition-all duration-200 ease-in-out`}>
                 {isSourceText ? (
                     <>
                         <Button variant="outline" onClick={toggleScrollSync}>
@@ -574,7 +585,7 @@ ChapterNavigationHeaderProps) {
             <div className="flex-1 flex items-center justify-center space-x-2 min-w-0 mx-2">
                 {/* Navigation arrows - hidden on very small screens (< 400px) */}
                 <Button
-                    className="hidden min-[400px]:inline-flex"
+                    className="inline-flex transition-all duration-200 ease-in-out max-[399px]:opacity-0 max-[399px]:-translate-x-1 max-[399px]:pointer-events-none"
                     variant="outline"
                     size="default"
                     onClick={() => {
@@ -621,7 +632,7 @@ ChapterNavigationHeaderProps) {
 
                 <div
                     ref={chapterTitleRef}
-                    className="chapter-title-container flex items-center min-w-0 max-w-[40vw] min-[400px]:max-w-[50vw] sm:max-w-sm cursor-pointer min-[400px]:cursor-pointer"
+                    className="chapter-title-container flex items-center min-w-0 max-w-full cursor-pointer min-[400px]:cursor-pointer rounded-md transition-all duration-200 ease-in-out"
                     onClick={() => {
                         // Always allow opening the chapter selector when there are no unsaved changes
                         if (!unsavedChanges) {
@@ -633,8 +644,8 @@ ChapterNavigationHeaderProps) {
                         }
                     }}
                 >
-                    <h1 className="text-lg min-[400px]:text-2xl flex items-center m-0 min-w-0">
-                        <span className="truncate">
+                    <h1 className="text-lg min-[400px]:text-2xl flex items-center m-0 min-w-0 transition-all duration-200 ease-in-out">
+                        <span className={`${shouldUseThreeRowLayout || truncatedBookName !== null ? "truncate" : "whitespace-nowrap"} transition-all duration-200 ease-in-out`}>
                             {(() => {
                                 if (truncatedBookName !== null) {
                                     return truncatedBookName + "...";
@@ -663,7 +674,7 @@ ChapterNavigationHeaderProps) {
                         </span>
                         {/* Show page info - hide on narrow screens to prevent collisions */}
                         {subsections.length > 0 && (
-                            <span className="flex-shrink-0 ml-1 text-sm md:text-base hidden min-[500px]:inline">
+                            <span className="flex-shrink-0 ml-1 text-sm md:text-base hidden min-[500px]:inline transition-opacity duration-200 ease-in-out">
                                 ({subsections[currentSubsectionIndex]?.label || ""})
                             </span>
                         )}
@@ -676,7 +687,7 @@ ChapterNavigationHeaderProps) {
                 </div>
 
                 <Button
-                    className="hidden min-[400px]:inline-flex"
+                    className="inline-flex transition-all duration-200 ease-in-out max-[399px]:opacity-0 max-[399px]:translate-x-1 max-[399px]:pointer-events-none"
                     variant="outline"
                     size="default"
                     onClick={() => {
@@ -721,7 +732,7 @@ ChapterNavigationHeaderProps) {
 
                 {/* Page selector - dynamic threshold: higher for long chapters (50+ verses) */}
                 {subsections.length > 0 && (
-                    <div className="hidden min-[640px]:flex items-center ml-4">
+                    <div className="hidden min-[640px]:flex items-center ml-4 transition-all duration-200 ease-in-out">
                         <span className="mr-2">Page:</span>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
