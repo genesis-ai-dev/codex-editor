@@ -377,12 +377,21 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Set up file system watcher (only if document is in a workspace)
         const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
         let watcher: vscode.FileSystemWatcher | undefined;
+        let audioWatcher: vscode.FileSystemWatcher | undefined;
 
         if (workspaceFolder) {
             watcher = vscode.workspace.createFileSystemWatcher(
                 new vscode.RelativePattern(
                     workspaceFolder,
                     vscode.workspace.asRelativePath(document.uri)
+                )
+            );
+
+            // Set up audio file watcher for external changes
+            audioWatcher = vscode.workspace.createFileSystemWatcher(
+                new vscode.RelativePattern(
+                    workspaceFolder,
+                    ".project/attachments/**/*.{wav,mp3,m4a,ogg,webm}"
                 )
             );
         } else {
@@ -400,6 +409,57 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     }
                 }
             });
+        }
+
+        // Watch for audio file changes and update webview
+        if (audioWatcher) {
+            const handleAudioFileChange = (uri: vscode.Uri, changeType: string) => {
+                debug(`${changeType} audio file detected:`, uri.toString());
+
+                // Extract book and cell info from the file path
+                const relativePath = vscode.workspace.asRelativePath(uri);
+                const pathParts = relativePath.split('/');
+                if (pathParts.length >= 3 && pathParts[0] === '.project' && pathParts[1] === 'attachments') {
+                    const bookAbbr = pathParts[2];
+                    const fileName = pathParts[pathParts.length - 1];
+
+                    // Parse filename to extract cell information
+                    const match = fileName.match(/^(\w+)_(\d+)_(\d+)\./);
+                    if (match) {
+                        const [, fileBook, chapterStr, verseStr] = match;
+                        if (fileBook === bookAbbr) {
+                            const cellId = `${fileBook} ${parseInt(chapterStr)}:${parseInt(verseStr)}`;
+
+                            // Update the webview with refreshed audio attachment information
+                            updateAudioAttachmentsForCell(webviewPanel, document, cellId);
+
+                            // If this was a deletion and it was the selected audio, clear the selection
+                            if (changeType === "Deleted") {
+                                try {
+                                    // Generate attachment ID from filename
+                                    const attachmentId = fileName.replace(/\.[^/.]+$/, ""); // Remove extension
+
+                                    // Check if this attachment is currently selected
+                                    const currentSelection = document.getExplicitAudioSelection(cellId);
+                                    if (currentSelection === attachmentId) {
+                                        // The deleted file was the selected one, clear selection
+                                        document.clearAudioSelection(cellId);
+                                        debug(`Cleared selectedAudioId for cell ${cellId} due to file deletion`);
+                                    }
+                                } catch (error) {
+                                    debug("Error checking selected audio ID on deletion:", error);
+                                }
+                            }
+
+                            debug(`Updated audio attachments for cell: ${cellId}`);
+                        }
+                    }
+                }
+            };
+
+            audioWatcher.onDidChange((uri) => handleAudioFileChange(uri, "Modified"));
+            audioWatcher.onDidCreate((uri) => handleAudioFileChange(uri, "Created"));
+            audioWatcher.onDidDelete((uri) => handleAudioFileChange(uri, "Deleted"));
         }
 
         // Create update function
@@ -429,6 +489,47 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 type: "providerUpdatesNotebookMetadataForWebview",
                 content: notebookData.metadata,
             });
+        };
+
+        // Function to update audio attachments for a specific cell when files change externally
+        const updateAudioAttachmentsForCell = (webviewPanel: vscode.WebviewPanel, document: CodexCellDocument, cellId: string) => {
+            debug("Updating audio attachments for cell:", cellId);
+
+            try {
+                const documentText = document.getText();
+                let notebookData: any = {};
+                if (documentText.trim().length > 0) {
+                    notebookData = JSON.parse(documentText);
+                }
+
+                const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
+                const availability: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {};
+
+                // Only update the specific cell that changed
+                const cell = cells.find((cell: any) => cell?.metadata?.id === cellId);
+                if (cell) {
+                    let hasAvailable = false;
+                    let hasDeleted = false;
+                    const atts = cell?.metadata?.attachments || {};
+                    for (const key of Object.keys(atts)) {
+                        const att = atts[key];
+                        if (att && att.type === "audio") {
+                            if (att.isDeleted) hasDeleted = true; else hasAvailable = true;
+                        }
+                    }
+                    availability[cellId] = hasAvailable ? "available" : hasDeleted ? "deletedOnly" : "none";
+
+                    // Send targeted update for this specific cell
+                    safePostMessageToPanel(webviewPanel, {
+                        type: "providerSendsAudioAttachments",
+                        attachments: availability
+                    });
+
+                    debug("Sent audio attachment update for cell:", cellId, availability[cellId]);
+                }
+            } catch (error) {
+                debug("Error updating audio attachments for cell:", cellId, error);
+            }
         };
 
         // Set up navigation functions
@@ -525,6 +626,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             listeners.forEach((l) => l.dispose());
             if (watcher) {
                 watcher.dispose();
+            }
+            if (audioWatcher) {
+                audioWatcher.dispose();
             }
         });
 
@@ -2984,5 +3088,72 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Return empty array on error - safer to proceed than block
             return [];
         }
+    }
+
+    /**
+     * Refreshes audio attachments for all open webviews after sync operations.
+     * This ensures that audio availability is updated even if file watchers didn't trigger during sync.
+     */
+    public async refreshAudioAttachmentsAfterSync(): Promise<void> {
+        debug("Refreshing audio attachments after sync for all webviews");
+
+        for (const [documentUri, webviewPanel] of this.webviewPanels.entries()) {
+            try {
+                // Get the document from the workspace
+                const uri = vscode.Uri.parse(documentUri);
+                const document = await vscode.workspace.openTextDocument(uri) as any;
+                if (!document || !webviewPanel) continue;
+
+                // Get all cells with audio attachments
+                const documentText = document.getText();
+                if (documentText.trim().length === 0) continue;
+
+                let notebookData: any = {};
+                try {
+                    notebookData = JSON.parse(documentText);
+                } catch {
+                    debug("Could not parse document for audio refresh:", documentUri);
+                    continue;
+                }
+
+                const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
+                const availability: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {};
+
+                // Check audio availability for all cells
+                for (const cell of cells) {
+                    const cellId = cell?.metadata?.id;
+                    if (!cellId) continue;
+
+                    let hasAvailable = false;
+                    let hasDeleted = false;
+                    const atts = cell?.metadata?.attachments || {};
+
+                    for (const key of Object.keys(atts)) {
+                        const att = atts[key];
+                        if (att && att.type === "audio") {
+                            if (att.isDeleted) hasDeleted = true;
+                            else hasAvailable = true;
+                        }
+                    }
+
+                    availability[cellId] = hasAvailable ? "available" : hasDeleted ? "deletedOnly" : "none";
+                }
+
+                // Send updated audio attachments to webview
+                if (Object.keys(availability).length > 0) {
+                    safePostMessageToPanel(webviewPanel, {
+                        type: "providerSendsAudioAttachments",
+                        attachments: availability
+                    });
+
+                    debug(`Refreshed audio attachments for ${Object.keys(availability).length} cells in ${documentUri}`);
+                }
+
+            } catch (error) {
+                console.error("Error refreshing audio attachments for document:", documentUri, error);
+            }
+        }
+
+        debug("Completed audio attachment refresh after sync");
     }
 }

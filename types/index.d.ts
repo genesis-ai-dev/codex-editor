@@ -967,6 +967,7 @@ type EditorReceiveMessages =
                 timestamp: number;
                 language?: string;
             };
+            fileModified?: number; // File modification timestamp for cache validation
         };
     }
     | {

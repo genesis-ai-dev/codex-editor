@@ -376,6 +376,21 @@ export class SyncManager {
                 }
             }
 
+            // Refresh audio attachments in all open codex editors after sync
+            try {
+                const { GlobalProvider } = await import("../globalProvider");
+                const provider = GlobalProvider.getInstance().getProvider("codex-cell-editor") as any;
+                if (provider && typeof provider.refreshAudioAttachmentsAfterSync === 'function') {
+                    debug("[SyncManager] Refreshing audio attachments after sync");
+                    await provider.refreshAudioAttachmentsAfterSync();
+                } else {
+                    debug("[SyncManager] Codex cell editor provider not available or missing refresh method");
+                }
+            } catch (error) {
+                console.error("[SyncManager] Error refreshing audio attachments after sync:", error);
+                // Don't fail sync completion due to audio refresh errors
+            }
+
             // Update sync stage and splash screen
             this.currentSyncStage = "Synchronization complete!";
             this.notifySyncStatusListeners();
