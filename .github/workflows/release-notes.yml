@@ -94,7 +94,7 @@ jobs:
 
                   # Get a clean list of commit messages, excluding merges and version bumps
                   COMMIT_LIST=$(git log "$RANGE" --no-merges --pretty=format:"%s" \
-                    --grep='bump\|version\|release' --invert-grep | head -100)
+                    --grep='bump\|version\|release' --invert-grep -n 100)
 
                   if [ -z "$COMMIT_LIST" ]; then
                     echo "No new user-facing commits found. Using a default message."
@@ -201,7 +201,7 @@ jobs:
                     SANITIZED=$(printf '%s' "$NOTES_BODY" | sed '/^---$/d')
                     LEN=$(printf '%s' "$SANITIZED" | wc -m | tr -d ' ')
                     if [ "$LEN" -gt 1900 ]; then
-                      SANITIZED=$(printf '%s' "$SANITIZED" | head -c 1900)
+                      SANITIZED=$(printf '%.1900s' "$SANITIZED")
                       SANITIZED="$(printf '%s\n...(truncated)' "$SANITIZED")"
                     fi
                     printf '%s' "$SANITIZED" > NOTES.md
