@@ -933,7 +933,7 @@
         ]
     },
     "scripts": {
-        "vscode:prepublish": "npm run build:webviews && npm run compile && npm run test",
+        "vscode:prepublish": "npm run build:webviews && npm run test:webviews && npm run compile && npm run test",
         "compile": "webpack --config webpack.config.js",
         "watch": "webpack --config webpack.config.js --watch",
         "package": "webpack --config webpack.config.js --mode production --devtool hidden-source-map",
