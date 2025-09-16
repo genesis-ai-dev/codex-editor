@@ -1173,7 +1173,18 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     ? attachmentPath
                     : path.join(workspaceFolder.uri.fsPath, attachmentPath);
 
-                if (await pathExists(fullPath)) {
+                // Check if the file exists and get its stats to ensure we're serving the latest version
+                let fileExists = false;
+                let fileStats: vscode.FileStat | undefined;
+
+                try {
+                    fileStats = await vscode.workspace.fs.stat(vscode.Uri.file(fullPath));
+                    fileExists = true;
+                } catch {
+                    fileExists = false;
+                }
+
+                if (fileExists && fileStats) {
                     const ext = path.extname(fullPath).toLowerCase();
                     const mimeType = ext === ".webm" ? "audio/webm" :
                         ext === ".mp3" ? "audio/mp3" :
@@ -1189,11 +1200,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             cellId: cellId,
                             audioId: targetAttachmentId,
                             audioData: base64Data,
-                            transcription: targetAttachment.transcription || null // Include transcription if available
+                            transcription: targetAttachment.transcription || null, // Include transcription if available
+                            fileModified: fileStats.mtime // Include file modification time for cache validation
                         }
                     });
 
-                    debug("Sent audio data for cell:", cellId, "audioId:", targetAttachmentId);
+                    debug("Sent audio data for cell:", cellId, "audioId:", targetAttachmentId, "modified:", fileStats.mtime);
                     return;
                 } else {
                     debug("Audio file not found:", fullPath);
@@ -1348,7 +1360,39 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
         });
 
-        // Don't refresh webview to avoid closing the audio recording tab - let the UI handle updates
+        // Send targeted audio attachment update instead of full refresh to preserve tab state
+        const documentText = document.getText();
+        let notebookData: any = {};
+        if (documentText.trim().length > 0) {
+            try {
+                notebookData = JSON.parse(documentText);
+            } catch {
+                debug("Could not parse document as JSON for audio attachment update");
+                notebookData = {};
+            }
+        }
+        const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
+        const availability: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {};
+
+        for (const cell of cells) {
+            const cellId = cell?.metadata?.id;
+            if (!cellId) continue;
+            let hasAvailable = false;
+            let hasDeleted = false;
+            const atts = cell?.metadata?.attachments || {};
+            for (const key of Object.keys(atts)) {
+                const att = atts[key];
+                if (att && att.type === "audio") {
+                    if (att.isDeleted) hasDeleted = true; else hasAvailable = true;
+                }
+            }
+            availability[cellId] = hasAvailable ? "available" : hasDeleted ? "deletedOnly" : "none";
+        }
+
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerSendsAudioAttachments",
+            attachments: availability
+        });
 
         debug("Audio attachment saved successfully:", { pointersPath, filesPath });
     },
@@ -1450,8 +1494,39 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             });
 
-            // Refresh content so client recomputes availability/selection state
-            provider.refreshWebview(webviewPanel, document);
+            // Send targeted audio attachment update instead of full refresh to preserve tab state
+            const documentText = document.getText();
+            let notebookData: any = {};
+            if (documentText.trim().length > 0) {
+                try {
+                    notebookData = JSON.parse(documentText);
+                } catch {
+                    debug("Could not parse document as JSON for audio attachment update");
+                    notebookData = {};
+                }
+            }
+            const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
+            const availability: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {};
+
+            for (const cell of cells) {
+                const cellId = cell?.metadata?.id;
+                if (!cellId) continue;
+                let hasAvailable = false;
+                let hasDeleted = false;
+                const atts = cell?.metadata?.attachments || {};
+                for (const key of Object.keys(atts)) {
+                    const att = atts[key];
+                    if (att && att.type === "audio") {
+                        if (att.isDeleted) hasDeleted = true; else hasAvailable = true;
+                    }
+                }
+                availability[cellId] = hasAvailable ? "available" : hasDeleted ? "deletedOnly" : "none";
+            }
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsAudioAttachments",
+                attachments: availability
+            });
 
             debug("Audio attachment selected successfully");
         } catch (error) {
