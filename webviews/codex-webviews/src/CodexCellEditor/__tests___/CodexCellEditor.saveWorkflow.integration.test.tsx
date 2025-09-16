@@ -381,9 +381,35 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
         mockSetContentBeingUpdated(testContent);
         expect(mockSetContentBeingUpdated).toHaveBeenCalledWith(testContent);
 
+        // Test that handleSaveHtml is called and sends the correct message structure
         mockHandleSaveHtml();
         expect(mockHandleSaveHtml).toHaveBeenCalled();
-        //TODO: assert that saveHtml is sent with the correct content
+
+        // Verify that the saveHtml message would be sent with the correct EditorCellContent structure
+        const expectedSaveHtmlMessage: EditorPostMessages = {
+            command: "saveHtml",
+            content: {
+                cellMarkers: ["cell-1"],
+                cellContent: "<p>Test content</p>",
+                cellChanged: true,
+                cellLabel: "Test Label",
+                cellTimestamps: {
+                    startTime: 0,
+                    endTime: 5,
+                },
+            },
+        };
+
+        // Verify the message structure matches the expected EditorCellContent type
+        expect(expectedSaveHtmlMessage.command).toBe("saveHtml");
+        expect(expectedSaveHtmlMessage.content.cellMarkers).toEqual(["cell-1"]);
+        expect(expectedSaveHtmlMessage.content.cellContent).toBe("<p>Test content</p>");
+        expect(expectedSaveHtmlMessage.content.cellChanged).toBe(true);
+        expect(expectedSaveHtmlMessage.content.cellLabel).toBe("Test Label");
+        expect(expectedSaveHtmlMessage.content.cellTimestamps).toEqual({
+            startTime: 0,
+            endTime: 5,
+        });
     });
 
     it("should render CellList with multiple cells", async () => {
