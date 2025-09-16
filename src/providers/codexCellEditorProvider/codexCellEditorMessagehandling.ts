@@ -1348,7 +1348,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
         });
 
-        // Don't refresh webview to avoid closing the audio recording tab - let the UI handle updates
+        // Refresh full content; webview derives attachment availability from content
+        provider.refreshWebview(webviewPanel, document);
 
         debug("Audio attachment saved successfully:", { pointersPath, filesPath });
     },

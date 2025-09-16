@@ -1420,12 +1420,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
             ) {
                 if (message.content.success) {
                     setRecordingStatus("Audio saved successfully");
-                    // No need to refresh audio history - the document update will handle UI refresh
                 } else {
                     setRecordingStatus(
                         `Error saving audio: ${message.content.error || "Unknown error"}`
                     );
                 }
+                // Refresh audio history after save
+                window.vscodeApi.postMessage({
+                    command: "getAudioHistory",
+                    content: { cellId: cellMarkers[0] },
+                });
             }
 
             // Handle delete confirmation
