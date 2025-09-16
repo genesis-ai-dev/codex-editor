@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { enqueueValidation, processValidationQueue, clearValidationQueue } from './validationQueue';
+import { enqueueValidation, processValidationQueue, clearValidationQueue } from '../validationQueue';
 
 // Mock vscode API
 const mockVscode = {
