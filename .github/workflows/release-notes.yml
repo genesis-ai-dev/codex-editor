@@ -94,7 +94,7 @@ jobs:
 
                   # Get a clean list of commit messages, excluding merges and version bumps
                   COMMIT_LIST=$(git log "$RANGE" --no-merges --pretty=format:"%s" \
-                    --grep='bump\|version\|release' --invert-grep | head -100)
+                    --grep='bump\|version\|release' --invert-grep -n 100)
 
                   if [ -z "$COMMIT_LIST" ]; then
                     echo "No new user-facing commits found. Using a default message."
