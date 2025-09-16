@@ -201,7 +201,7 @@ jobs:
                     SANITIZED=$(printf '%s' "$NOTES_BODY" | sed '/^---$/d')
                     LEN=$(printf '%s' "$SANITIZED" | wc -m | tr -d ' ')
                     if [ "$LEN" -gt 1900 ]; then
-                      SANITIZED=$(printf '%s' "$SANITIZED" | head -c 1900)
+                      SANITIZED=$(printf '%.1900s' "$SANITIZED")
                       SANITIZED="$(printf '%s\n...(truncated)' "$SANITIZED")"
                     fi
                     printf '%s' "$SANITIZED" > NOTES.md
