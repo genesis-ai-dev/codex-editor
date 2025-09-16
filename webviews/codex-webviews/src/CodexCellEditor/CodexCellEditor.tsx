@@ -25,7 +25,7 @@ import TimelineEditor from "./TimelineEditor";
 import VideoTimelineEditor from "./VideoTimelineEditor";
 
 import { getCellValueData } from "@sharedUtils";
-import { isValidValidationEntry } from "./ValidationButton";
+import { isValidValidationEntry } from "./validationUtils";
 import "./TranslationAnimations.css";
 import { CellTranslationState } from "./CellTranslationStyles";
 import { getVSCodeAPI } from "../shared/vscodeApi";

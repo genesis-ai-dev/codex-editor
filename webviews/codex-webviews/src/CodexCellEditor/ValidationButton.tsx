@@ -3,18 +3,8 @@ import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { QuillCellContent, ValidationEntry } from "../../../../types";
 import { getCellValueData } from "@sharedUtils";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
-
-// Helper function to check if an entry is a valid ValidationEntry object
-export function isValidValidationEntry(entry: any): entry is ValidationEntry {
-    return (
-        entry !== null &&
-        typeof entry === "object" &&
-        typeof entry.username === "string" &&
-        typeof entry.creationTimestamp === "number" &&
-        typeof entry.updatedTimestamp === "number" &&
-        typeof entry.isDeleted === "boolean"
-    );
-}
+import { processValidationQueue, enqueueValidation } from "./validationQueue";
+import { isValidValidationEntry } from "./validationUtils";
 
 // Static tracking for active popover to ensure only one is shown at a time
 const popoverTracker = {
@@ -131,7 +121,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             );
             setValidationUsers(activeValidations);
         }
-    }, [cell.editHistory, username]);
+    }, [cell, username]);
 
     // Get the current username when component mounts and listen for configuration changes
     useEffect(() => {
@@ -299,14 +289,23 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     const handleValidate = (e: React.MouseEvent) => {
         e.stopPropagation();
 
-        // Immediately enqueue a sequential validation request on the provider side
+        // Immediately set pending state
         setIsPendingValidation(true);
-        vscode.postMessage({
-            command: "validateCell",
-            content: {
-                cellId,
-                validate: !isValidated,
-            },
+
+        // Add to validation queue for sequential processing
+        enqueueValidation(cellId, !isValidated)
+            .then(() => {
+                // Validation request has been queued successfully
+            })
+            .catch((error) => {
+                console.error("Validation queue error:", error);
+                setIsPendingValidation(false);
+            });
+
+        // Process the queue
+        processValidationQueue(vscode).catch((error) => {
+            console.error("Validation queue processing error:", error);
+            setIsPendingValidation(false);
         });
 
         // Don't close popover immediately to allow user to see the change
@@ -660,14 +659,27 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                                                     onClick={(e) => {
                                                         e.stopPropagation();
 
-                                                        // Enqueue the validation removal (sequential)
-                                                        vscode.postMessage({
-                                                            command: "validateCell",
-                                                            content: {
-                                                                cellId,
-                                                                validate: false,
-                                                            },
-                                                        });
+                                                        // Add to validation queue for sequential processing
+                                                        enqueueValidation(cellId, false)
+                                                            .then(() => {
+                                                                // Validation request has been queued successfully
+                                                            })
+                                                            .catch((error) => {
+                                                                console.error(
+                                                                    "Validation queue error:",
+                                                                    error
+                                                                );
+                                                            });
+
+                                                        // Process the queue
+                                                        processValidationQueue(vscode).catch(
+                                                            (error) => {
+                                                                console.error(
+                                                                    "Validation queue processing error:",
+                                                                    error
+                                                                );
+                                                            }
+                                                        );
 
                                                         // Immediately close the popover
                                                         setShowPopover(false);
