@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 import * as crypto from 'crypto';
 import { toPosixPath, normalizeAttachmentUrl } from './pathUtils';
 
@@ -50,8 +49,23 @@ export class AudioAttachmentsMigrator {
                 debug('Migration not needed - no folders to migrate');
             }
 
+            // Always ensure that every file in files/ has a corresponding pointer in pointers/
+            // This restores missing pointers that can occur when projects are moved between machines
+            try {
+                await this.restoreMissingPointers(filesDir, pointersDir);
+            } catch (error) {
+                console.error('[AudioAttachmentsMigration] Error restoring missing pointers:', error);
+            }
+
             // Always check for attachment metadata migration (may be needed even if files don't need migration)
             await this.migrateAttachmentMetadata();
+
+            // After restoring pointers and normalizing metadata, mark/unmark missing attachments in .codex files
+            try {
+                await this.updateMissingFlagsForCodexDocuments();
+            } catch (error) {
+                console.error('[AudioAttachmentsMigration] Error updating missing flags on attachments:', error);
+            }
         } catch (error) {
             console.error('[AudioAttachmentsMigration] Error during migration:', error);
             // Don't throw - we don't want to block startup for migration failures
@@ -71,7 +85,7 @@ export class AudioAttachmentsMigrator {
         }
 
         // Get all folders in attachments directory
-        const attachmentEntries = await vscode.workspace.fs.readDirectory(attachmentsDir);
+        const attachmentEntries: [string, vscode.FileType][] = await vscode.workspace.fs.readDirectory(attachmentsDir);
         const foldersToMigrate = attachmentEntries
             .filter(([name, type]) =>
                 type === vscode.FileType.Directory &&
@@ -100,7 +114,7 @@ export class AudioAttachmentsMigrator {
         debug('Starting migration process...');
 
         // Get all folders in attachments directory that need migration
-        const attachmentEntries = await vscode.workspace.fs.readDirectory(attachmentsDir);
+        const attachmentEntries: [string, vscode.FileType][] = await vscode.workspace.fs.readDirectory(attachmentsDir);
         const foldersToMigrate = attachmentEntries
             .filter(([name, type]) =>
                 type === vscode.FileType.Directory &&
@@ -327,17 +341,158 @@ export class AudioAttachmentsMigrator {
     }
 
     /**
+     * Restore any missing pointer files by mirroring the structure of files/ into pointers/.
+     * For every file present in files/, ensure a byte-for-byte copy exists at the same relative path in pointers/.
+     * This is non-destructive and idempotent.
+     */
+    private async restoreMissingPointers(filesDir: vscode.Uri, pointersDir: vscode.Uri): Promise<void> {
+        // Ensure root dirs exist (no-op if already present)
+        try { await vscode.workspace.fs.createDirectory(filesDir); } catch { /* ignore */ }
+        try { await vscode.workspace.fs.createDirectory(pointersDir); } catch { /* ignore */ }
+
+        let restoredCount = 0;
+
+        const walk = async (currentFilesDir: vscode.Uri, currentPointersDir: vscode.Uri) => {
+            let entries: [string, vscode.FileType][] = [];
+            try {
+                entries = await vscode.workspace.fs.readDirectory(currentFilesDir);
+            } catch {
+                // Nothing to do if files directory does not exist
+                return;
+            }
+
+            // Ensure pointer subdir exists for this level
+            try { await vscode.workspace.fs.createDirectory(currentPointersDir); } catch { /* ignore */ }
+
+            for (const [name, type] of entries) {
+                const src = vscode.Uri.joinPath(currentFilesDir, name);
+                const dst = vscode.Uri.joinPath(currentPointersDir, name);
+
+                if (type === vscode.FileType.Directory) {
+                    await walk(src, dst);
+                    continue;
+                }
+
+                if (type === vscode.FileType.File) {
+                    let pointerExists = false;
+                    try {
+                        await vscode.workspace.fs.stat(dst);
+                        pointerExists = true;
+                    } catch {
+                        pointerExists = false;
+                    }
+
+                    if (!pointerExists) {
+                        try {
+                            const bytes = await vscode.workspace.fs.readFile(src);
+                            await vscode.workspace.fs.writeFile(dst, bytes);
+                            restoredCount++;
+                            debug(`Restored missing pointer: ${dst.fsPath}`);
+                        } catch (err) {
+                            console.error(`[AudioAttachmentsMigration] Failed to restore pointer for ${src.fsPath}:`, err);
+                        }
+                    }
+                }
+            }
+        };
+
+        await walk(filesDir, pointersDir);
+
+        if (restoredCount > 0) {
+            debug(`Restored ${restoredCount} missing pointer file(s)`);
+        } else {
+            debug('No missing pointer files to restore');
+        }
+    }
+
+    /**
      * Calculate MD5 hash of a file for efficient content comparison
      */
     private async getFileHash(fileUri: vscode.Uri): Promise<string> {
         try {
             const fileContent = await vscode.workspace.fs.readFile(fileUri);
+            // Fallback hashing without direct Buffer typing
             const hash = crypto.createHash('md5');
-            hash.update(fileContent);
+            hash.update(fileContent as any);
             return hash.digest('hex');
         } catch (error) {
             console.error(`[AudioAttachmentsMigration] Error calculating hash for ${fileUri.fsPath}:`, error);
             throw error;
+        }
+    }
+
+    /**
+     * Scans all .codex documents and sets/unsets attachment.isMissing based on pointer existence.
+     * If a referenced file is not present in pointers/, sets isMissing=true. If present, sets isMissing=false.
+     */
+    private async updateMissingFlagsForCodexDocuments(): Promise<void> {
+        try {
+            // Find all codex documents
+            const codexPattern = new vscode.RelativePattern(
+                this.workspaceFolder.uri,
+                "files/target/**/*.codex"
+            );
+            const codexUris = await vscode.workspace.findFiles(codexPattern);
+
+            for (const codexUri of codexUris) {
+                try {
+                    const buf = await vscode.workspace.fs.readFile(codexUri);
+                    const text = new TextDecoder('utf-8').decode(buf);
+                    const data: any = JSON.parse(text);
+
+                    if (!data || !Array.isArray(data.cells)) {
+                        continue;
+                    }
+
+                    let changed = false;
+
+                    for (const cell of data.cells) {
+                        const attachments = cell?.metadata?.attachments;
+                        if (!attachments || typeof attachments !== 'object') continue;
+
+                        for (const [attId, attVal] of Object.entries(attachments) as [string, any][]) {
+                            // Only process object-style attachments (skip legacy string forms)
+                            if (!attVal || typeof attVal !== 'object') continue;
+                            const url: string | undefined = attVal.url;
+                            if (!url || typeof url !== 'string') continue;
+
+                            // Normalize URL to files/ path then derive pointers/ path
+                            const normalizedUrl = normalizeAttachmentUrl(url) || url;
+                            const posixUrl = toPosixPath(normalizedUrl);
+                            const pointerPosix = posixUrl.includes('/attachments/files/')
+                                ? posixUrl.replace('/attachments/files/', '/attachments/pointers/')
+                                : posixUrl;
+
+                            const pointerSegments = pointerPosix.split('/').filter(Boolean);
+                            const pointerUri = vscode.Uri.joinPath(this.workspaceFolder.uri, ...pointerSegments);
+
+                            let existsInPointers = false;
+                            try {
+                                await vscode.workspace.fs.stat(pointerUri);
+                                existsInPointers = true;
+                            } catch {
+                                existsInPointers = false;
+                            }
+
+                            const desiredMissing = !existsInPointers;
+                            if ((attVal.isMissing ?? false) !== desiredMissing) {
+                                attVal.isMissing = desiredMissing;
+                                changed = true;
+                            }
+                        }
+                    }
+
+                    if (changed) {
+                        const updated = JSON.stringify(data, null, 2);
+                        await vscode.workspace.fs.writeFile(codexUri, new TextEncoder().encode(updated));
+                        debug(`Updated missing flags for attachments in ${codexUri.fsPath}`);
+                    }
+                } catch (err) {
+                    console.error(`[AudioAttachmentsMigration] Failed to update missing flags for ${codexUri.fsPath}:`, err);
+                }
+            }
+        } catch (error) {
+            console.error('[AudioAttachmentsMigration] Error while updating missing flags in codex documents:', error);
         }
     }
 
@@ -350,7 +505,7 @@ export class AudioAttachmentsMigrator {
 
             // Find all codex documents
             const codexPattern = new vscode.RelativePattern(
-                this.workspaceFolder.uri.fsPath,
+                this.workspaceFolder.uri,
                 "files/target/**/*.codex"
             );
             const codexUris = await vscode.workspace.findFiles(codexPattern);
@@ -394,7 +549,7 @@ export class AudioAttachmentsMigrator {
         try {
             // Read the document
             const documentContent = await vscode.workspace.fs.readFile(documentUri);
-            const documentText = Buffer.from(documentContent).toString('utf8');
+            const documentText = new TextDecoder('utf-8').decode(documentContent);
 
             let documentData;
             try {
@@ -470,7 +625,7 @@ export class AudioAttachmentsMigrator {
             // Save the document if changes were made
             if (hasChanges) {
                 const updatedContent = JSON.stringify(documentData, null, 2);
-                await vscode.workspace.fs.writeFile(documentUri, Buffer.from(updatedContent, 'utf8'));
+                await vscode.workspace.fs.writeFile(documentUri, new TextEncoder().encode(updatedContent));
                 debug(`Saved migrated metadata for document ${documentUri.fsPath}`);
                 return true;
             }
