@@ -1350,10 +1350,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         };
 
         const cleanupTempAndFinals = async () => {
-            try { await vscode.workspace.fs.delete(vscode.Uri.file(pointersTempPath)); } catch { }
-            try { await vscode.workspace.fs.delete(vscode.Uri.file(filesTempPath)); } catch { }
-            try { await vscode.workspace.fs.delete(vscode.Uri.file(pointersPath)); } catch { }
-            try { await vscode.workspace.fs.delete(vscode.Uri.file(filesPath)); } catch { }
+            const safeDelete = (p: string, label: string) =>
+                Promise.resolve(vscode.workspace.fs.delete(vscode.Uri.file(p)))
+                    .catch((err: unknown) => debug(`Cleanup failed (${label}): ${String(err)}`));
+            await Promise.all([
+                safeDelete(pointersTempPath, "pointers temp"),
+                safeDelete(filesTempPath, "files temp"),
+                safeDelete(pointersPath, "pointers final"),
+                safeDelete(filesPath, "files final"),
+            ]);
         };
 
         const attemptSaveOnce = async () => {

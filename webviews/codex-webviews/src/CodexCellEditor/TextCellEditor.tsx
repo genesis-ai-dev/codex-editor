@@ -1298,6 +1298,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     // Preload audio when audio tab is accessed
     const preloadAudioForTab = useCallback(() => {
+        // If we already have a freshly recorded blob, don't fetch again
+        if (audioBlob) return;
         setAudioFetchPending(true);
         // Don't set loading until we know there is audio to load
         const messageContent: EditorPostMessages = {
@@ -1305,7 +1307,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             content: { cellId: cellMarkers[0] },
         };
         window.vscodeApi.postMessage(messageContent);
-    }, [cellMarkers]);
+    }, [cellMarkers, audioBlob]);
 
     // Load existing audio when component mounts
     useEffect(() => {
@@ -1344,26 +1346,29 @@ const CellEditor: React.FC<CellEditorProps> = ({
         async (event: MessageEvent) => {
             const message = event.data;
 
-            // Handle audio attachments list - request fresh audio data when attachments change
+            // Handle audio availability updates specifically for this cell
             if (message.type === "providerSendsAudioAttachments") {
-                const attachments = message.attachments || [];
-                // If we already have audio loaded or loading, ignore attachment updates
+                // If we already have local audio (e.g., just recorded) or are loading, don't disrupt UI
                 if (audioBlob || isAudioLoading) {
                     return;
                 }
 
-                if (attachments.length > 0) {
-                    // We have audio; show loading and request data only if not already requested
+                const availability = (message.attachments || {}) as Record<string, "available" | "deletedOnly" | "none">;
+                const stateForCell = availability[cellMarkers[0]];
+
+                if (stateForCell === "available") {
+                    // We have audio for this cell; request the actual data once
                     setIsAudioLoading(true);
                     const messageContent: EditorPostMessages = {
                         command: "requestAudioForCell",
                         content: { cellId: cellMarkers[0] },
                     };
                     window.vscodeApi.postMessage(messageContent);
-                } else {
-                    // No attachments: settle UI quietly without toggling recorder mode state
+                } else if (stateForCell === "none" || stateForCell === "deletedOnly") {
+                    // No usable audio for this cell; keep recorder visible and settle state
                     setIsAudioLoading(false);
                     setAudioFetchPending(false);
+                    setShowRecorder(true);
                 }
             }
 
