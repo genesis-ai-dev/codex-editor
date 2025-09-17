@@ -676,4 +676,173 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
         mockHandleSaveHtml();
         expect(mockHandleSaveHtml).toHaveBeenCalled();
     });
+
+    it("audio: requests audio and history on mount when attachments are available", async () => {
+        const props = {
+            cellMarkers: ["cell-1"],
+            cellContent: "<p>Test content</p>",
+            editHistory: mockTranslationUnits[0].editHistory,
+            cellIndex: 0,
+            cellType: CodexCellTypes.TEXT,
+            spellCheckResponse: null,
+            contentBeingUpdated: {
+                cellMarkers: ["cell-1"],
+                cellContent: "<p>Test content</p>",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            textDirection: "ltr" as const,
+            cellLabel: "Test Label",
+            cellTimestamps: { startTime: 0, endTime: 5 },
+            cellIsChild: false,
+            openCellById: vi.fn(),
+            cell: mockTranslationUnits[0],
+            isSaving: false,
+            saveError: false,
+            saveRetryCount: 0,
+            footnoteOffset: 1,
+            // Make audio available so the editor requests it
+            audioAttachments: { "cell-1": "available" as const },
+        };
+
+        render(
+            <MockUnsavedChangesProvider>
+                <MockSourceCellProvider>
+                    <MockScrollToContentProvider>
+                        <CellEditor {...props} />
+                    </MockScrollToContentProvider>
+                </MockSourceCellProvider>
+            </MockUnsavedChangesProvider>
+        );
+
+        await waitFor(() => {
+            expect(mockVscode.postMessage).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    command: "requestAudioForCell",
+                    content: { cellId: "cell-1" },
+                })
+            );
+            expect(mockVscode.postMessage).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    command: "getAudioHistory",
+                    content: { cellId: "cell-1" },
+                })
+            );
+        });
+    });
+
+    it("audio: does NOT request audio on mount when attachments are none", async () => {
+        const props = {
+            cellMarkers: ["cell-2"],
+            cellContent: "<p>Other cell</p>",
+            editHistory: mockTranslationUnits[0].editHistory,
+            cellIndex: 0,
+            cellType: CodexCellTypes.TEXT,
+            spellCheckResponse: null,
+            contentBeingUpdated: {
+                cellMarkers: ["cell-2"],
+                cellContent: "<p>Other cell</p>",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            textDirection: "ltr" as const,
+            cellLabel: "Other Label",
+            cellTimestamps: { startTime: 0, endTime: 5 },
+            cellIsChild: false,
+            openCellById: vi.fn(),
+            cell: mockTranslationUnits[0],
+            isSaving: false,
+            saveError: false,
+            saveRetryCount: 0,
+            footnoteOffset: 1,
+            // Explicitly mark no attachments
+            audioAttachments: { "cell-2": "none" as const },
+        };
+
+        render(
+            <MockUnsavedChangesProvider>
+                <MockSourceCellProvider>
+                    <MockScrollToContentProvider>
+                        <CellEditor {...props} />
+                    </MockScrollToContentProvider>
+                </MockSourceCellProvider>
+            </MockUnsavedChangesProvider>
+        );
+
+        // Ensure we don't request audio for this cell on mount
+        await new Promise((r) => setTimeout(r, 50));
+        const calls = (mockVscode.postMessage as any).mock.calls || [];
+        const requested = calls.some(
+            (args: any[]) =>
+                args?.[0]?.command === "requestAudioForCell" &&
+                args?.[0]?.content?.cellId === "cell-2"
+        );
+        expect(requested).toBe(false);
+    });
+
+    it("audio: on audioAttachmentSaved, component requests refreshed audio history", async () => {
+        const props = {
+            cellMarkers: ["cell-1"],
+            cellContent: "<p>Test content</p>",
+            editHistory: mockTranslationUnits[0].editHistory,
+            cellIndex: 0,
+            cellType: CodexCellTypes.TEXT,
+            spellCheckResponse: null,
+            contentBeingUpdated: {
+                cellMarkers: ["cell-1"],
+                cellContent: "<p>Test content</p>",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            textDirection: "ltr" as const,
+            cellLabel: "Test Label",
+            cellTimestamps: { startTime: 0, endTime: 5 },
+            cellIsChild: false,
+            openCellById: vi.fn(),
+            cell: mockTranslationUnits[0],
+            isSaving: false,
+            saveError: false,
+            saveRetryCount: 0,
+            footnoteOffset: 1,
+        };
+
+        render(
+            <MockUnsavedChangesProvider>
+                <MockSourceCellProvider>
+                    <MockScrollToContentProvider>
+                        <CellEditor {...props} />
+                    </MockScrollToContentProvider>
+                </MockSourceCellProvider>
+            </MockUnsavedChangesProvider>
+        );
+
+        // Clear any initial postMessage calls
+        (mockVscode.postMessage as any).mockClear?.();
+
+        // Simulate provider confirming save
+        window.dispatchEvent(
+            new MessageEvent("message", {
+                data: {
+                    type: "audioAttachmentSaved",
+                    content: { cellId: "cell-1", audioId: "audio-123", success: true },
+                },
+            })
+        );
+
+        // Component should request refreshed audio history
+        await waitFor(() => {
+            expect(mockVscode.postMessage).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    command: "getAudioHistory",
+                    content: { cellId: "cell-1" },
+                })
+            );
+        });
+    });
 });
