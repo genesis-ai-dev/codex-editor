@@ -1335,9 +1335,80 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const base64Data = typedEvent.content.audioData.split(',')[1] || typedEvent.content.audioData;
         const buffer = Buffer.from(base64Data, 'base64');
 
-        // Write to both locations. Sync will later replace the 'pointers' blob with a Git LFS pointer
-        await vscode.workspace.fs.writeFile(vscode.Uri.file(pointersPath), buffer);
-        await vscode.workspace.fs.writeFile(vscode.Uri.file(filesPath), buffer);
+        // Robust write-verify-commit flow with retries to avoid partial writes
+        // Keep the audio data in-memory until both destinations are confirmed written.
+        const pointersTempPath = `${pointersPath}.tmp`;
+        const filesTempPath = `${filesPath}.tmp`;
+
+        // Helper: verify file size matches buffer length
+        const verifyFileWrite = async (targetPath: string, expected: Buffer) => {
+            const uri = vscode.Uri.file(targetPath);
+            const stat = await vscode.workspace.fs.stat(uri);
+            if (stat.size !== expected.length) {
+                throw new Error(`Verification failed for ${targetPath}: size ${stat.size} != ${expected.length}`);
+            }
+        };
+
+        const cleanupTempAndFinals = async () => {
+            try { await vscode.workspace.fs.delete(vscode.Uri.file(pointersTempPath)); } catch { }
+            try { await vscode.workspace.fs.delete(vscode.Uri.file(filesTempPath)); } catch { }
+            try { await vscode.workspace.fs.delete(vscode.Uri.file(pointersPath)); } catch { }
+            try { await vscode.workspace.fs.delete(vscode.Uri.file(filesPath)); } catch { }
+        };
+
+        const attemptSaveOnce = async () => {
+            // 1) Write to temp files in both destinations in parallel
+            await Promise.all([
+                vscode.workspace.fs.writeFile(vscode.Uri.file(pointersTempPath), buffer),
+                vscode.workspace.fs.writeFile(vscode.Uri.file(filesTempPath), buffer),
+            ]);
+
+            // 2) Verify both temp files were fully written
+            await Promise.all([
+                verifyFileWrite(pointersTempPath, buffer),
+                verifyFileWrite(filesTempPath, buffer),
+            ]);
+
+            // 3) Atomically move temp files into place (overwrite if present) in parallel
+            await Promise.all([
+                vscode.workspace.fs.rename(vscode.Uri.file(pointersTempPath), vscode.Uri.file(pointersPath), { overwrite: true }),
+                vscode.workspace.fs.rename(vscode.Uri.file(filesTempPath), vscode.Uri.file(filesPath), { overwrite: true }),
+            ]);
+        };
+
+        let saveSucceeded = false;
+        let lastError: any = null;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                await attemptSaveOnce();
+                saveSucceeded = true;
+                break;
+            } catch (e) {
+                lastError = e;
+                debug(`Audio attachment save attempt ${attempt} failed`, e);
+                await cleanupTempAndFinals();
+                if (attempt < 3) {
+                    // brief backoff before retrying
+                    await new Promise((r) => setTimeout(r, 200 * attempt));
+                }
+            }
+        }
+
+        if (!saveSucceeded) {
+            vscode.window.showErrorMessage(
+                `Failed to save audio attachment after 3 attempts. Please try again.\n${lastError instanceof Error ? lastError.message : String(lastError)}`
+            );
+            provider.postMessageToWebview(webviewPanel, {
+                type: "audioAttachmentSaved",
+                content: {
+                    cellId: typedEvent.content.cellId,
+                    audioId: typedEvent.content.audioId,
+                    success: false,
+                    error: lastError instanceof Error ? lastError.message : String(lastError),
+                }
+            });
+            return;
+        }
 
         // Store the files path in metadata (not the pointer path) so we can directly read the actual file
         const relativePath = toPosixPath(path.relative(workspaceFolder.uri.fsPath, filesPath));
