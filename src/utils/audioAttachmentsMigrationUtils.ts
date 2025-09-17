@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 import * as crypto from 'crypto';
 import { toPosixPath, normalizeAttachmentUrl } from './pathUtils';
 
@@ -60,6 +59,13 @@ export class AudioAttachmentsMigrator {
 
             // Always check for attachment metadata migration (may be needed even if files don't need migration)
             await this.migrateAttachmentMetadata();
+
+            // After restoring pointers and normalizing metadata, mark/unmark missing attachments in .codex files
+            try {
+                await this.updateMissingFlagsForCodexDocuments();
+            } catch (error) {
+                console.error('[AudioAttachmentsMigration] Error updating missing flags on attachments:', error);
+            }
         } catch (error) {
             console.error('[AudioAttachmentsMigration] Error during migration:', error);
             // Don't throw - we don't want to block startup for migration failures
@@ -405,12 +411,88 @@ export class AudioAttachmentsMigrator {
     private async getFileHash(fileUri: vscode.Uri): Promise<string> {
         try {
             const fileContent = await vscode.workspace.fs.readFile(fileUri);
+            // Fallback hashing without direct Buffer typing
             const hash = crypto.createHash('md5');
-            hash.update(fileContent);
+            hash.update(fileContent as any);
             return hash.digest('hex');
         } catch (error) {
             console.error(`[AudioAttachmentsMigration] Error calculating hash for ${fileUri.fsPath}:`, error);
             throw error;
+        }
+    }
+
+    /**
+     * Scans all .codex documents and sets/unsets attachment.isMissing based on pointer existence.
+     * If a referenced file is not present in pointers/, sets isMissing=true. If present, sets isMissing=false.
+     */
+    private async updateMissingFlagsForCodexDocuments(): Promise<void> {
+        try {
+            // Find all codex documents
+            const codexPattern = new vscode.RelativePattern(
+                this.workspaceFolder.uri,
+                "files/target/**/*.codex"
+            );
+            const codexUris = await vscode.workspace.findFiles(codexPattern);
+
+            for (const codexUri of codexUris) {
+                try {
+                    const buf = await vscode.workspace.fs.readFile(codexUri);
+                    const text = new TextDecoder('utf-8').decode(buf);
+                    const data: any = JSON.parse(text);
+
+                    if (!data || !Array.isArray(data.cells)) {
+                        continue;
+                    }
+
+                    let changed = false;
+
+                    for (const cell of data.cells) {
+                        const attachments = cell?.metadata?.attachments;
+                        if (!attachments || typeof attachments !== 'object') continue;
+
+                        for (const [attId, attVal] of Object.entries(attachments) as [string, any][]) {
+                            // Only process object-style attachments (skip legacy string forms)
+                            if (!attVal || typeof attVal !== 'object') continue;
+                            const url: string | undefined = attVal.url;
+                            if (!url || typeof url !== 'string') continue;
+
+                            // Normalize URL to files/ path then derive pointers/ path
+                            const normalizedUrl = normalizeAttachmentUrl(url) || url;
+                            const posixUrl = toPosixPath(normalizedUrl);
+                            const pointerPosix = posixUrl.includes('/attachments/files/')
+                                ? posixUrl.replace('/attachments/files/', '/attachments/pointers/')
+                                : posixUrl;
+
+                            const pointerSegments = pointerPosix.split('/').filter(Boolean);
+                            const pointerUri = vscode.Uri.joinPath(this.workspaceFolder.uri, ...pointerSegments);
+
+                            let existsInPointers = false;
+                            try {
+                                await vscode.workspace.fs.stat(pointerUri);
+                                existsInPointers = true;
+                            } catch {
+                                existsInPointers = false;
+                            }
+
+                            const desiredMissing = !existsInPointers;
+                            if ((attVal.isMissing ?? false) !== desiredMissing) {
+                                attVal.isMissing = desiredMissing;
+                                changed = true;
+                            }
+                        }
+                    }
+
+                    if (changed) {
+                        const updated = JSON.stringify(data, null, 2);
+                        await vscode.workspace.fs.writeFile(codexUri, new TextEncoder().encode(updated));
+                        debug(`Updated missing flags for attachments in ${codexUri.fsPath}`);
+                    }
+                } catch (err) {
+                    console.error(`[AudioAttachmentsMigration] Failed to update missing flags for ${codexUri.fsPath}:`, err);
+                }
+            }
+        } catch (error) {
+            console.error('[AudioAttachmentsMigration] Error while updating missing flags in codex documents:', error);
         }
     }
 
@@ -423,7 +505,7 @@ export class AudioAttachmentsMigrator {
 
             // Find all codex documents
             const codexPattern = new vscode.RelativePattern(
-                this.workspaceFolder.uri.fsPath,
+                this.workspaceFolder.uri,
                 "files/target/**/*.codex"
             );
             const codexUris = await vscode.workspace.findFiles(codexPattern);
@@ -467,7 +549,7 @@ export class AudioAttachmentsMigrator {
         try {
             // Read the document
             const documentContent = await vscode.workspace.fs.readFile(documentUri);
-            const documentText = Buffer.from(documentContent).toString('utf8');
+            const documentText = new TextDecoder('utf-8').decode(documentContent);
 
             let documentData;
             try {
@@ -543,7 +625,7 @@ export class AudioAttachmentsMigrator {
             // Save the document if changes were made
             if (hasChanges) {
                 const updatedContent = JSON.stringify(documentData, null, 2);
-                await vscode.workspace.fs.writeFile(documentUri, Buffer.from(updatedContent, 'utf8'));
+                await vscode.workspace.fs.writeFile(documentUri, new TextEncoder().encode(updatedContent));
                 debug(`Saved migrated metadata for document ${documentUri.fsPath}`);
                 return true;
             }
