@@ -804,7 +804,7 @@ function NavigationView() {
                 })()}
             </div>
 
-            <div className="mt-auto pt-4 border-t-2 border-vscode-sideBarSectionHeader-border flex flex-col gap-3 bg-vscode-sideBar-background relative">
+            <div className="mt-auto pt-4 flex flex-col gap-3 bg-vscode-sideBar-background relative">
                 {/* Add Files Button */}
                 <Button
                     variant="default"

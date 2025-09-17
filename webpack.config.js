@@ -198,6 +198,11 @@ const testConfig = {
             // Map Node.js scheme imports to browser polyfills for the test bundle
             "node:http": require.resolve("stream-http"),
             "node:https": require.resolve("https-browserify"),
+            "node:buffer": require.resolve("buffer/"),
+            "node:events": require.resolve("events/"),
+            "node:path": require.resolve("path-browserify"),
+            "node:stream": require.resolve("stream-browserify"),
+            "node:util": require.resolve("util/"),
         },
         fallback: {
             assert: require.resolve("assert/"),
@@ -251,6 +256,19 @@ const testConfig = {
         }),
         new webpack.DefinePlugin({
             "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV || "development"),
+        }),
+        new webpack.NormalModuleReplacementPlugin(/^node:/, (resource) => {
+            const module = resource.request.replace(/^node:/, "");
+            // Map specific node modules to their browserify equivalents
+            const moduleMap = {
+                buffer: "buffer/",
+                events: "events/",
+                path: "path-browserify",
+                stream: "stream-browserify",
+                util: "util/",
+            };
+            const mappedModule = moduleMap[module] || `${module}/`;
+            resource.request = require.resolve(mappedModule);
         }),
         // ... other plugins if necessary
     ],
