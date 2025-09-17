@@ -63,7 +63,13 @@ suite("NotebookMetadataManager Test Suite", () => {
             storageUri: vscode.Uri.file("/tmp/test-workspace/storage"),
         };
 
-        manager = NotebookMetadataManager.getInstance(mockContext as vscode.ExtensionContext);
+        // Pass a proper storageUri to avoid the __dirname fallback
+        const storageUri = vscode.Uri.joinPath(
+            vscode.workspace.workspaceFolders![0].uri,
+            "test-metadata.json"
+        );
+
+        manager = NotebookMetadataManager.getInstance(mockContext as vscode.ExtensionContext, storageUri);
         testMetadata = {
             id: "test-id",
             originalName: "Test Notebook",
