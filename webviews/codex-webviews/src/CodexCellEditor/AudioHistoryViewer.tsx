@@ -32,6 +32,8 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
     const [delayedLoadingIds, setDelayedLoadingIds] = useState<Set<string>>(new Set());
     const [errorIds, setErrorIds] = useState<Set<string>>(new Set());
+    const [validatingIds, setValidatingIds] = useState<Set<string>>(new Set());
+    const validatingIdsRef = useRef<Set<string>>(new Set());
     const [selectedAudioId, setSelectedAudioId] = useState<string | null>(null);
     const [hasExplicitSelection, setHasExplicitSelection] = useState<boolean>(false);
     const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map());
@@ -184,12 +186,37 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                     console.error("Error handling auto-play:", error);
                                 }
                             }
+
+                            // If we were validating for selection, select now
+                            if (validatingIdsRef.current.has(audioId)) {
+                                validatingIdsRef.current.delete(audioId);
+                                setValidatingIds(prev => {
+                                    const next = new Set(prev);
+                                    next.delete(audioId);
+                                    return next;
+                                });
+                                vscode.postMessage({
+                                    command: "selectAudioAttachment",
+                                    content: { cellId, audioId }
+                                });
+                            }
                         })
                         .catch(console.error);
                 } else {
                     // No audio data found - set error state and try fallback
                     console.warn("No audio data found for audioId:", audioId);
                     setErrorIds(prev => new Set(prev).add(audioId));
+                    // Clear any in-progress validation for this audioId
+                    if (audioId) {
+                        if (validatingIdsRef.current.has(audioId)) {
+                            validatingIdsRef.current.delete(audioId);
+                            setValidatingIds(prev => {
+                                const next = new Set(prev);
+                                next.delete(audioId);
+                                return next;
+                            });
+                        }
+                    }
                     
                     // If this was a pending play request, try to fallback to current audio
                     const hadPendingPlayForThisAudio = pendingPlayRefs.current.get(audioId);
@@ -316,12 +343,26 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     };
 
     const handleSelectAudio = (attachmentId: string) => {
+        // If previously determined missing, block selection
+        if (errorIds.has(attachmentId)) {
+            return;
+        }
+
+        // If we already have the audio loaded or cached, select immediately
+        if (audioUrls.has(attachmentId)) {
+            vscode.postMessage({
+                command: "selectAudioAttachment",
+                content: { cellId, audioId: attachmentId }
+            });
+            return;
+        }
+
+        // Otherwise, validate by requesting the audio; on success, selection happens in handler
+        validatingIdsRef.current.add(attachmentId);
+        setValidatingIds(prev => new Set(prev).add(attachmentId));
         vscode.postMessage({
-            command: "selectAudioAttachment",
-            content: {
-                cellId,
-                audioId: attachmentId
-            }
+            command: "requestAudioForCell",
+            content: { cellId, audioId: attachmentId }
         });
     };
 
@@ -408,6 +449,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                             const isPlaying = playingId === entry.attachmentId;
                             const isLoading = delayedLoadingIds.has(entry.attachmentId);
                             const hasError = errorIds.has(entry.attachmentId);
+                            const isValidating = validatingIds.has(entry.attachmentId);
 
                             return (
                                 <div
@@ -518,19 +560,21 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             )}
                                         </Button>
 
-                                        {!entry.attachment.isDeleted && (
+                                        {!entry.attachment.isDeleted && !hasError && (
                                             <Button
                                                 size="sm"
                                                 variant={isSelected ? "default" : "outline"}
                                                 onClick={() => handleSelectAudio(entry.attachmentId)}
-                                                disabled={isSelected}
+                                                disabled={isSelected || isValidating}
                                             >
                                                 {isSelected ? (
                                                     <CheckCircle className="h-4 w-4 mr-1" />
+                                                ) : isValidating ? (
+                                                    <span className="h-4 w-4 mr-1" />
                                                 ) : (
                                                     <Circle className="h-4 w-4 mr-1" />
                                                 )}
-                                                {isSelected ? "Selected" : "Select"}
+                                                {isSelected ? "Selected" : isValidating ? "Validating..." : "Select"}
                                             </Button>
                                         )}
 
@@ -544,7 +588,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                                 Restore
                                             </Button>
                                         ) : (
-                                            !isSelected && (
+                                            !isSelected && !hasError && (
                                                 <Button
                                                     size="sm"
                                                     variant="outline"
