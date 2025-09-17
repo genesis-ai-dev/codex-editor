@@ -50,6 +50,14 @@ export class AudioAttachmentsMigrator {
                 debug('Migration not needed - no folders to migrate');
             }
 
+            // Always ensure that every file in files/ has a corresponding pointer in pointers/
+            // This restores missing pointers that can occur when projects are moved between machines
+            try {
+                await this.restoreMissingPointers(filesDir, pointersDir);
+            } catch (error) {
+                console.error('[AudioAttachmentsMigration] Error restoring missing pointers:', error);
+            }
+
             // Always check for attachment metadata migration (may be needed even if files don't need migration)
             await this.migrateAttachmentMetadata();
         } catch (error) {
@@ -71,7 +79,7 @@ export class AudioAttachmentsMigrator {
         }
 
         // Get all folders in attachments directory
-        const attachmentEntries = await vscode.workspace.fs.readDirectory(attachmentsDir);
+        const attachmentEntries: [string, vscode.FileType][] = await vscode.workspace.fs.readDirectory(attachmentsDir);
         const foldersToMigrate = attachmentEntries
             .filter(([name, type]) =>
                 type === vscode.FileType.Directory &&
@@ -100,7 +108,7 @@ export class AudioAttachmentsMigrator {
         debug('Starting migration process...');
 
         // Get all folders in attachments directory that need migration
-        const attachmentEntries = await vscode.workspace.fs.readDirectory(attachmentsDir);
+        const attachmentEntries: [string, vscode.FileType][] = await vscode.workspace.fs.readDirectory(attachmentsDir);
         const foldersToMigrate = attachmentEntries
             .filter(([name, type]) =>
                 type === vscode.FileType.Directory &&
@@ -323,6 +331,71 @@ export class AudioAttachmentsMigrator {
         } catch (error) {
             console.error(`[AudioAttachmentsMigration] Error comparing files:`, error);
             return false;
+        }
+    }
+
+    /**
+     * Restore any missing pointer files by mirroring the structure of files/ into pointers/.
+     * For every file present in files/, ensure a byte-for-byte copy exists at the same relative path in pointers/.
+     * This is non-destructive and idempotent.
+     */
+    private async restoreMissingPointers(filesDir: vscode.Uri, pointersDir: vscode.Uri): Promise<void> {
+        // Ensure root dirs exist (no-op if already present)
+        try { await vscode.workspace.fs.createDirectory(filesDir); } catch { /* ignore */ }
+        try { await vscode.workspace.fs.createDirectory(pointersDir); } catch { /* ignore */ }
+
+        let restoredCount = 0;
+
+        const walk = async (currentFilesDir: vscode.Uri, currentPointersDir: vscode.Uri) => {
+            let entries: [string, vscode.FileType][] = [];
+            try {
+                entries = await vscode.workspace.fs.readDirectory(currentFilesDir);
+            } catch {
+                // Nothing to do if files directory does not exist
+                return;
+            }
+
+            // Ensure pointer subdir exists for this level
+            try { await vscode.workspace.fs.createDirectory(currentPointersDir); } catch { /* ignore */ }
+
+            for (const [name, type] of entries) {
+                const src = vscode.Uri.joinPath(currentFilesDir, name);
+                const dst = vscode.Uri.joinPath(currentPointersDir, name);
+
+                if (type === vscode.FileType.Directory) {
+                    await walk(src, dst);
+                    continue;
+                }
+
+                if (type === vscode.FileType.File) {
+                    let pointerExists = false;
+                    try {
+                        await vscode.workspace.fs.stat(dst);
+                        pointerExists = true;
+                    } catch {
+                        pointerExists = false;
+                    }
+
+                    if (!pointerExists) {
+                        try {
+                            const bytes = await vscode.workspace.fs.readFile(src);
+                            await vscode.workspace.fs.writeFile(dst, bytes);
+                            restoredCount++;
+                            debug(`Restored missing pointer: ${dst.fsPath}`);
+                        } catch (err) {
+                            console.error(`[AudioAttachmentsMigration] Failed to restore pointer for ${src.fsPath}:`, err);
+                        }
+                    }
+                }
+            }
+        };
+
+        await walk(filesDir, pointersDir);
+
+        if (restoredCount > 0) {
+            debug(`Restored ${restoredCount} missing pointer file(s)`);
+        } else {
+            debug('No missing pointer files to restore');
         }
     }
 
