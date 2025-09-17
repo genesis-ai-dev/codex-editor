@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { EditorPostMessages, EditorCellContent, QuillCellContent } from "../../../../../types";
 import { CodexCellTypes } from "../../../../../types/enums";
@@ -112,6 +112,22 @@ vi.mock("react-player", () => ({
 vi.mock("../WhisperTranscriptionClient", () => ({
     WhisperTranscriptionClient: vi.fn(),
 }));
+
+// Mock CustomWaveformCanvas to avoid canvas APIs in jsdom
+vi.mock("../CustomWaveformCanvas.tsx", () => ({
+    CustomWaveformCanvas: () => <div data-testid="custom-waveform" />,
+}));
+
+// Global environment shims for jsdom
+beforeAll(() => {
+    URL.createObjectURL = URL.createObjectURL || vi.fn(() => "blob:mock-url");
+    URL.revokeObjectURL = URL.revokeObjectURL || vi.fn();
+    // Stub canvas getContext
+    if (!HTMLCanvasElement.prototype.getContext) {
+        // @ts-expect-error allow override for test
+        HTMLCanvasElement.prototype.getContext = vi.fn(() => ({}));
+    }
+});
 
 // Mock @sharedUtils
 vi.mock("@sharedUtils", () => ({
@@ -844,5 +860,193 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
                 })
             );
         });
+    });
+
+    it("audio upload: valid file posts saveAudioAttachment with base64 and metadata", async () => {
+        // Prefer audio tab so file input is present
+        sessionStorage.setItem("preferred-editor-tab", "audio");
+
+        const props = {
+            cellMarkers: ["cell-1"],
+            cellContent: "<p>Test content</p>",
+            editHistory: mockTranslationUnits[0].editHistory,
+            cellIndex: 0,
+            cellType: CodexCellTypes.TEXT,
+            spellCheckResponse: null,
+            contentBeingUpdated: {
+                cellMarkers: ["cell-1"],
+                cellContent: "<p>Test content</p>",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            textDirection: "ltr" as const,
+            cellLabel: "Test Label",
+            cellTimestamps: { startTime: 0, endTime: 5 },
+            cellIsChild: false,
+            openCellById: vi.fn(),
+            cell: mockTranslationUnits[0],
+            isSaving: false,
+            saveError: false,
+            saveRetryCount: 0,
+            footnoteOffset: 1,
+            // Mark as no attachments to avoid preload requests interfering
+            audioAttachments: { "cell-1": "none" as const },
+        };
+
+        // Mock FileReader to immediately return base64 data
+        const OriginalFileReader = window.FileReader;
+        class MockFileReader {
+            public result: string | ArrayBuffer | null = null;
+            public onloadend: null | (() => void) = null;
+            readAsDataURL(_blob: Blob) {
+                this.result = "data:audio/webm;base64,Zm9v"; // "foo" base64
+                setTimeout(() => this.onloadend && this.onloadend(), 0);
+            }
+        }
+
+        window.FileReader = MockFileReader as any;
+
+        // Mock AudioContext.decodeAudioData to resolve quickly
+        const OriginalAudioContext = (window as any).AudioContext;
+        (window as any).AudioContext = class {
+            decodeAudioData(_buf: ArrayBuffer) {
+                return Promise.resolve({ duration: 1, numberOfChannels: 1, sampleRate: 48000 });
+            }
+            close() {
+                /* no-op */
+            }
+        } as any;
+
+        // URL.* mocked in beforeAll
+
+        const { container } = render(
+            <MockUnsavedChangesProvider>
+                <MockSourceCellProvider>
+                    <MockScrollToContentProvider>
+                        <CellEditor {...props} />
+                    </MockScrollToContentProvider>
+                </MockSourceCellProvider>
+            </MockUnsavedChangesProvider>
+        );
+
+        // Clear initial messages
+        (mockVscode.postMessage as any).mockClear?.();
+
+        // Force recorder view so file input is visible
+        window.dispatchEvent(
+            new MessageEvent("message", {
+                data: {
+                    type: "providerSendsAudioData",
+                    content: { cellId: "cell-1", audioData: null },
+                },
+            })
+        );
+
+        // Wait for file input to appear
+        const fileInput = await waitFor(() => {
+            const el = container.querySelector(
+                'input[type="file"][accept="audio/*,video/*"]'
+            ) as HTMLInputElement | null;
+            expect(el).toBeTruthy();
+            return el as HTMLInputElement;
+        });
+        const file = new File([new Uint8Array([1, 2, 3])], "test.webm", { type: "audio/webm" });
+        await fireEvent.change(fileInput!, { target: { files: [file] } });
+
+        // Wait for saveAudioAttachment message
+        await waitFor(() => {
+            expect(mockVscode.postMessage).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    command: "saveAudioAttachment",
+                    content: expect.objectContaining({
+                        cellId: "cell-1",
+                        audioData: expect.stringContaining("data:"),
+                        audioId: expect.stringMatching(/^audio-/),
+                        fileExtension: "webm",
+                        metadata: expect.objectContaining({ mimeType: "audio/webm" }),
+                    }),
+                })
+            );
+        });
+
+        // Restore mocks
+        window.FileReader = OriginalFileReader;
+        (window as any).AudioContext = OriginalAudioContext;
+    });
+
+    it("audio upload: non-audio file does NOT post saveAudioAttachment", async () => {
+        sessionStorage.setItem("preferred-editor-tab", "audio");
+
+        const props = {
+            cellMarkers: ["cell-2"],
+            cellContent: "<p>Other content</p>",
+            editHistory: mockTranslationUnits[0].editHistory,
+            cellIndex: 0,
+            cellType: CodexCellTypes.TEXT,
+            spellCheckResponse: null,
+            contentBeingUpdated: {
+                cellMarkers: ["cell-2"],
+                cellContent: "<p>Other content</p>",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            textDirection: "ltr" as const,
+            cellLabel: "Other Label",
+            cellTimestamps: { startTime: 0, endTime: 5 },
+            cellIsChild: false,
+            openCellById: vi.fn(),
+            cell: mockTranslationUnits[0],
+            isSaving: false,
+            saveError: false,
+            saveRetryCount: 0,
+            footnoteOffset: 1,
+            audioAttachments: { "cell-2": "none" as const },
+        };
+
+        const { container } = render(
+            <MockUnsavedChangesProvider>
+                <MockSourceCellProvider>
+                    <MockScrollToContentProvider>
+                        <CellEditor {...props} />
+                    </MockScrollToContentProvider>
+                </MockSourceCellProvider>
+            </MockUnsavedChangesProvider>
+        );
+
+        // Clear initial messages
+        (mockVscode.postMessage as any).mockClear?.();
+
+        // Force recorder view so file input is visible
+        window.dispatchEvent(
+            new MessageEvent("message", {
+                data: {
+                    type: "providerSendsAudioData",
+                    content: { cellId: "cell-2", audioData: null },
+                },
+            })
+        );
+
+        const fileInput = await waitFor(() => {
+            const el = container.querySelector(
+                'input[type="file"][accept="audio/*,video/*"]'
+            ) as HTMLInputElement | null;
+            expect(el).toBeTruthy();
+            return el as HTMLInputElement;
+        });
+        const nonAudio = new File([new Uint8Array([1, 2, 3])], "doc.txt", { type: "text/plain" });
+        await fireEvent.change(fileInput!, { target: { files: [nonAudio] } });
+
+        // Give any pending handlers a tick
+        await new Promise((r) => setTimeout(r, 10));
+
+        const calls = (mockVscode.postMessage as any).mock.calls || [];
+        const postedSave = calls.some(
+            (args: any[]) => args?.[0]?.command === "saveAudioAttachment"
+        );
+        expect(postedSave).toBe(false);
     });
 });
