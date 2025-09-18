@@ -28,6 +28,7 @@ import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-l
 import { getCommentsFromFile } from "../../utils/fileUtils";
 import { getUnresolvedCommentsCountForCell } from "../../utils/commentsUtils";
 import { toPosixPath } from "../../utils/pathUtils";
+import { revalidateCellMissingFlags } from "../../utils/audioMissingUtils";
 // Comment out problematic imports
 // import { getAddWordToSpellcheckApi } from "../../extension";
 // import { getSimilarCellIds } from "@/utils/semanticSearch";
@@ -1851,6 +1852,61 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         } catch (error) {
             console.error("Error merging cells:", error);
             vscode.window.showErrorMessage(`Failed to merge cells: ${error}`);
+        }
+    },
+
+    revalidateMissingForCell: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as any;
+        const cellId = typedEvent?.content?.cellId as string;
+        if (!cellId) return;
+        try {
+            const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+            if (!workspaceFolder) return;
+            const changed = await revalidateCellMissingFlags(document, workspaceFolder, cellId);
+
+            // If anything changed, persist and send updated history and availability
+            if (changed) {
+                await document.save(new vscode.CancellationTokenSource().token);
+
+                // Send updated history
+                const audioHistory = document.getAttachmentHistory(cellId, "audio") || [];
+                const currentAttachment = document.getCurrentAttachment(cellId, "audio");
+                const explicitSelection = document.getExplicitAudioSelection(cellId);
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "audioHistoryReceived",
+                    content: {
+                        cellId,
+                        audioHistory,
+                        currentAttachmentId: currentAttachment?.attachmentId ?? null,
+                        hasExplicitSelection: explicitSelection !== null
+                    }
+                });
+
+                // Send updated availability for this cell
+                try {
+                    const documentText = document.getText();
+                    const notebookData = JSON.parse(documentText);
+                    const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
+                    const availability: { [k: string]: "available" | "missing" | "deletedOnly" | "none"; } = {} as any;
+                    const cell = cells.find((c: any) => c?.metadata?.id === cellId);
+                    if (cell) {
+                        let hasAvailable = false; let hasMissing = false; let hasDeleted = false;
+                        const atts = cell?.metadata?.attachments || {};
+                        for (const key of Object.keys(atts)) {
+                            const att: any = atts[key];
+                            if (att && att.type === "audio") {
+                                if (att.isDeleted) hasDeleted = true;
+                                else if (att.isMissing) hasMissing = true;
+                                else hasAvailable = true;
+                            }
+                        }
+                        availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                        safePostMessageToPanel(webviewPanel, { type: "providerSendsAudioAttachments", attachments: availability });
+                    }
+                } catch { /* ignore */ }
+            }
+        } catch (err) {
+            console.error("Failed to revalidate missing for cell", { cellId, err });
         }
     },
 };

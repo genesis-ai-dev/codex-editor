@@ -54,6 +54,15 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
 
     // Request audio history when component mounts
     useEffect(() => {
+        // Ask backend to revalidate missing flags for this cell before fetching history
+        try {
+            vscode.postMessage({
+                command: "revalidateMissingForCell",
+                content: { cellId },
+            } as any);
+        } catch {
+            /* ignore */
+        }
         vscode.postMessage({
             command: "getAudioHistory",
             content: { cellId },
