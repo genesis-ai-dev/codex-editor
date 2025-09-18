@@ -1616,6 +1616,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 attachments: availability as any,
             });
 
+            // Save the changes to the document
+
+            await document.save(new vscode.CancellationTokenSource().token);
+
             debug("Audio attachment selected successfully");
         } catch (error) {
             console.error("Error selecting audio attachment:", error);

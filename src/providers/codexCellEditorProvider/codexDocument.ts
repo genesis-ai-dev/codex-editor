@@ -1513,9 +1513,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
             attachmentId,
         });
 
-        // Mark as dirty and notify webview only (avoid triggering full AI learning)
+        // Mark as dirty and notify both VS Code and webview so the change is persisted
         this._isDirty = true;
-        this._onDidChangeForWebview.fire({
+        this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
 

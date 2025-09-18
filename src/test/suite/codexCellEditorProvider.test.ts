@@ -987,6 +987,78 @@ suite("CodexCellEditorProvider Test Suite", () => {
         (vscode.workspace as any).getWorkspaceFolder = originalGetWorkspaceFolder;
     });
 
+    test("selectAudioAttachment marks document dirty and persists selectedAudioId to disk", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        // Stub workspace folder to tmp
+        const originalGetWorkspaceFolder = vscode.workspace.getWorkspaceFolder;
+        (vscode.workspace as any).getWorkspaceFolder = (_uri: vscode.Uri) => ({
+            uri: vscode.Uri.file(os.tmpdir()),
+            name: "tmp",
+            index: 0,
+        } as vscode.WorkspaceFolder);
+
+        const postedMessages: any[] = [];
+        const webviewPanel = {
+            webview: {
+                html: "",
+                options: { enableScripts: true },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: "https://example.com",
+                onDidReceiveMessage: (_cb: any) => ({ dispose: () => { } }),
+                postMessage: (message: any) => { postedMessages.push(message); return Promise.resolve(); },
+            },
+            onDidDispose: () => ({ dispose: () => { } }),
+            onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+        } as any as vscode.WebviewPanel;
+
+        await provider.resolveCustomEditor(
+            document,
+            webviewPanel,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cellId = JSON.parse(document.getText()).cells[0].metadata.id as string;
+
+        // Create two tiny audio attachments so selection is meaningful
+        const mkDataUrl = (n: number) => `data:audio/webm;base64,${Buffer.from(new Uint8Array([26, 69, 223, 163, n])).toString("base64")}`;
+        const a1 = `audio-${Date.now()}-a`;
+        const a2 = `audio-${Date.now()}-b`;
+
+        await (handleMessages as any)({
+            command: "saveAudioAttachment",
+            content: { cellId, audioData: mkDataUrl(1), audioId: a1, fileExtension: "webm" }
+        }, webviewPanel, document, () => { }, provider);
+
+        await (handleMessages as any)({
+            command: "saveAudioAttachment",
+            content: { cellId, audioData: mkDataUrl(2), audioId: a2, fileExtension: "webm" }
+        }, webviewPanel, document, () => { }, provider);
+
+        // Select the first attachment explicitly
+        await (handleMessages as any)({
+            command: "selectAudioAttachment",
+            content: { cellId, audioId: a1 }
+        }, webviewPanel, document, () => { }, provider);
+
+        // Persist to disk
+        await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+
+        // Assert selectedAudioId persisted
+        const disk = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(document.uri)));
+        const diskCell = disk.cells.find((c: any) => c.metadata.id === cellId);
+        assert.strictEqual(diskCell.metadata.selectedAudioId, a1, "selectedAudioId should be persisted to disk");
+        assert.ok(typeof diskCell.metadata.selectionTimestamp === "number" && diskCell.metadata.selectionTimestamp > 0, "selectionTimestamp should be set");
+
+        // Restore stub
+        (vscode.workspace as any).getWorkspaceFolder = originalGetWorkspaceFolder;
+    });
+
     test("revalidateMissingForCell restores pointer, clears isMissing, bumps updatedAt, and posts updates", async function () {
         this.timeout(12000);
         const provider = new CodexCellEditorProvider(context);
