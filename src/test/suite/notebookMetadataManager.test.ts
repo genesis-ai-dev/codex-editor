@@ -4,29 +4,19 @@ import * as path from "path";
 import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { CustomNotebookMetadata } from "../../../types";
 
+// NOTE: This test avoids calling vscode.workspace.updateWorkspaceFolders() or vscode.commands.executeCommand('vscode.openFolder')
+// as these operations cause the extension host to exit unexpectedly in CI environments.
+// See: https://github.com/microsoft/vscode/issues/224593
+
 suite("NotebookMetadataManager Test Suite", () => {
     let manager: NotebookMetadataManager;
     let testMetadata: CustomNotebookMetadata;
     let tempUri: vscode.Uri;
 
     suiteSetup(async () => {
-        // Ensure a temporary workspace folder is available
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-            // Use a more reliable temp directory path that works across platforms
-            const tempDir = process.env.TMPDIR || process.env.TMP || process.env.TEMP || '/tmp';
-            const tempWorkspaceUri = vscode.Uri.file(path.join(tempDir, `test-workspace-${Date.now()}`));
-
-            try {
-                await vscode.workspace.fs.createDirectory(tempWorkspaceUri);
-                await vscode.workspace.updateWorkspaceFolders(0, 0, {
-                    uri: tempWorkspaceUri,
-                });
-            } catch (error) {
-                console.log("Workspace setup error:", error);
-                // If workspace setup fails, we'll handle it in the test setup
-            }
-        }
+        // Don't manipulate workspace folders - this causes extension host to exit in CI
+        // Instead, we'll work with the existing workspace or create a mock one
+        console.log("NotebookMetadataManager test suite setup - using existing workspace");
     });
 
     setup(async () => {
@@ -57,19 +47,14 @@ suite("NotebookMetadataManager Test Suite", () => {
             }
         }
 
-        // Get workspace folder or create a fallback
+        // Use existing workspace folder or create a mock one without manipulating workspace
         let workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
-            // Fallback: use a temp directory if workspace setup failed
+            // Create a mock workspace folder without adding it to the workspace
+            // This avoids the issue described in https://github.com/microsoft/vscode/issues/224593
             const tempDir = process.env.TMPDIR || process.env.TMP || process.env.TEMP || '/tmp';
-            const fallbackUri = vscode.Uri.file(path.join(tempDir, `test-workspace-fallback-${Date.now()}`));
-            try {
-                await vscode.workspace.fs.createDirectory(fallbackUri);
-                workspaceFolder = { uri: fallbackUri, name: 'test-workspace', index: 0 };
-            } catch (error) {
-                // If even fallback fails, use a mock workspace folder
-                workspaceFolder = { uri: vscode.Uri.file('/tmp'), name: 'mock-workspace', index: 0 };
-            }
+            const mockUri = vscode.Uri.file(path.join(tempDir, `mock-workspace-${Date.now()}`));
+            workspaceFolder = { uri: mockUri, name: 'mock-workspace', index: 0 };
         }
 
         const mockContext: Partial<vscode.ExtensionContext> = {
@@ -116,18 +101,19 @@ suite("NotebookMetadataManager Test Suite", () => {
             }
         }
 
-        // Best-effort cleanup of fs-ops-* directories created in this workspace
+        // Best-effort cleanup of fs-ops-* directories in temp directories
+        // Avoid workspace manipulation to prevent extension host exit
         try {
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-            if (workspaceFolder) {
-                const entries = await vscode.workspace.fs.readDirectory(workspaceFolder.uri);
-                for (const [name, type] of entries) {
-                    if (type === vscode.FileType.Directory && name.startsWith("fs-ops-")) {
-                        try {
-                            await vscode.workspace.fs.delete(vscode.Uri.joinPath(workspaceFolder.uri, name), { recursive: true });
-                        } catch {
-                            /* ignore cleanup errors */
-                        }
+            const tempDir = process.env.TMPDIR || process.env.TMP || process.env.TEMP || '/tmp';
+            const tempBase = vscode.Uri.file(tempDir);
+            const entries = await vscode.workspace.fs.readDirectory(tempBase);
+            for (const [name, type] of entries) {
+                if (type === vscode.FileType.Directory &&
+                    (name.startsWith("fs-ops-") || name.startsWith("mock-workspace-") || name.startsWith("test-temp-"))) {
+                    try {
+                        await vscode.workspace.fs.delete(vscode.Uri.joinPath(tempBase, name), { recursive: true });
+                    } catch {
+                        /* ignore cleanup errors */
                     }
                 }
             }
@@ -186,14 +172,10 @@ suite("NotebookMetadataManager Test Suite", () => {
     });
 
     test("should create and delete temporary files correctly", async () => {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-            // Skip this test if no workspace folder is available
-            console.log("Skipping file operations test - no workspace folder available");
-            return;
-        }
+        // Use a temp directory that doesn't require workspace manipulation
+        const tempDir = process.env.TMPDIR || process.env.TMP || process.env.TEMP || '/tmp';
+        const tempFolder = vscode.Uri.file(path.join(tempDir, `test-temp-${Date.now()}`));
 
-        const tempFolder = workspaceFolder.uri;
         try {
             // Ensure the parent directory exists
             await vscode.workspace.fs.createDirectory(tempFolder);
@@ -211,6 +193,9 @@ suite("NotebookMetadataManager Test Suite", () => {
                 async () => vscode.workspace.fs.stat(tempFileUri),
                 "The temporary file should be deleted"
             );
+
+            // Clean up the temp directory
+            await vscode.workspace.fs.delete(tempFolder, { recursive: true });
         } catch (error) {
             console.log("File operations test failed:", error);
             // Don't fail the test if file operations fail in CI
