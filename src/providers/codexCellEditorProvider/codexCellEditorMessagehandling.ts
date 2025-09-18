@@ -1441,6 +1441,29 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             });
 
             debug("Audio attachment saved successfully:", { pointersPath, filesPath });
+
+            // Proactively send the audio data so the editor waveform loads immediately after save
+            try {
+                const absPath = path.isAbsolute(filesPath) ? filesPath : path.join(workspaceFolder.uri.fsPath, filesPath);
+                const extNow = path.extname(absPath).toLowerCase();
+                const mimeNow = extNow === ".webm" ? "audio/webm" :
+                    extNow === ".mp3" ? "audio/mp3" :
+                        extNow === ".m4a" ? "audio/mp4" :
+                            extNow === ".ogg" ? "audio/ogg" : "audio/wav";
+                const bytesNow = await vscode.workspace.fs.readFile(vscode.Uri.file(absPath));
+                const base64Now = `data:${mimeNow};base64,${Buffer.from(bytesNow).toString('base64')}`;
+                safePostMessageToPanel(webviewPanel, {
+                    type: "providerSendsAudioData",
+                    content: {
+                        cellId: typedEvent.content.cellId,
+                        audioId: sanitizedAudioId,
+                        audioData: base64Now,
+                        fileModified: Date.now()
+                    }
+                } as any);
+            } catch (e) {
+                console.warn("Failed to send immediate audio data after save", e);
+            }
         } catch (error) {
             console.error("Error saving audio attachment:", error);
             provider.postMessageToWebview(webviewPanel, {
