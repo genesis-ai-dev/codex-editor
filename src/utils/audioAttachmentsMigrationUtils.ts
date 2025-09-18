@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import { toPosixPath, normalizeAttachmentUrl } from './pathUtils';
+import { setMissingFlagOnAttachmentObject } from './audioMissingUtils';
 
 const DEBUG_MODE = false;
 const debug = (message: string) => {
@@ -475,8 +476,7 @@ export class AudioAttachmentsMigrator {
                             }
 
                             const desiredMissing = !existsInPointers;
-                            if ((attVal.isMissing ?? false) !== desiredMissing) {
-                                attVal.isMissing = desiredMissing;
+                            if (setMissingFlagOnAttachmentObject(attVal, desiredMissing)) {
                                 changed = true;
                             }
                         }

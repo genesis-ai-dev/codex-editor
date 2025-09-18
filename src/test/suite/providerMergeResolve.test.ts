@@ -245,6 +245,84 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
         await deleteIfExists(localTheirsUri);
     });
 
+    test("last edit to isMissing wins during merge for audio attachments", async () => {
+        const localOursUri = await createTempCodexFile(
+            `merge-audio-missing-ours-${Date.now()}-${Math.random().toString(36).slice(2)}.codex`,
+            JSON.parse(JSON.stringify(codexSubtitleContent))
+        );
+        const localTheirsUri = await createTempCodexFile(
+            `merge-audio-missing-theirs-${Date.now()}-${Math.random().toString(36).slice(2)}.codex`,
+            JSON.parse(JSON.stringify(codexSubtitleContent))
+        );
+
+        const oursDoc = await provider.openCustomDocument(
+            localOursUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+        const theirsDoc = await provider.openCustomDocument(
+            localTheirsUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        const sharedCellId = codexSubtitleContent.cells[0].metadata.id as string;
+        const audioId = "audio-shared";
+        const baseUrl = ".project/attachments/files/BOOK/audio-shared.webm";
+        const t0 = Date.now();
+
+        // Both users have the same attachment, start with missing=false
+        (oursDoc as any).updateCellAttachment(sharedCellId, audioId, {
+            url: baseUrl,
+            type: "audio",
+            createdAt: t0,
+            updatedAt: t0,
+            isDeleted: false,
+            isMissing: false,
+        });
+        (theirsDoc as any).updateCellAttachment(sharedCellId, audioId, {
+            url: baseUrl,
+            type: "audio",
+            createdAt: t0,
+            updatedAt: t0,
+            isDeleted: false,
+            isMissing: false,
+        });
+
+        // Ours flips isMissing to true at t1
+        const t1 = t0 + 50;
+        const oursParsed1 = JSON.parse((oursDoc as any).getText());
+        const ourCellIdx = (oursParsed1.cells as any[]).findIndex((c: any) => c.metadata?.id === sharedCellId);
+        const ourAtt = oursParsed1.cells[ourCellIdx].metadata.attachments[audioId];
+        ourAtt.isMissing = true;
+        ourAtt.updatedAt = t1;
+        await vscode.workspace.fs.writeFile(localOursUri, Buffer.from(JSON.stringify(oursParsed1, null, 2)));
+
+        // Theirs flips isMissing back to false at t2 (later)
+        const t2 = t1 + 50;
+        const theirsParsed1 = JSON.parse((theirsDoc as any).getText());
+        const theirCellIdx = (theirsParsed1.cells as any[]).findIndex((c: any) => c.metadata?.id === sharedCellId);
+        const theirAtt = theirsParsed1.cells[theirCellIdx].metadata.attachments[audioId];
+        theirAtt.isMissing = false;
+        theirAtt.updatedAt = t2;
+        await vscode.workspace.fs.writeFile(localTheirsUri, Buffer.from(JSON.stringify(theirsParsed1, null, 2)));
+
+        // Reload both documents to reflect updatedAt timestamps
+        const oursReloaded = await provider.openCustomDocument(localOursUri, { backupId: undefined }, new vscode.CancellationTokenSource().token);
+        const theirsReloaded = await provider.openCustomDocument(localTheirsUri, { backupId: undefined }, new vscode.CancellationTokenSource().token);
+
+        // Merge and assert that the later edit (theirs) wins: isMissing should be false
+        const merged = await resolveCodexCustomMerge((oursReloaded as any).getText(), (theirsReloaded as any).getText());
+        const notebook = JSON.parse(merged);
+        const shared = (notebook.cells || []).find((c: any) => c.metadata?.id === sharedCellId)!;
+        const mergedAtt = shared.metadata?.attachments?.[audioId];
+        assert.ok(mergedAtt, "Merged notebook should contain the shared audio attachment");
+        assert.strictEqual(mergedAtt.isMissing, false, "Later edit to isMissing should win during merge");
+
+        await deleteIfExists(localOursUri);
+        await deleteIfExists(localTheirsUri);
+    });
+
     test("provider excludes cells flagged deleted from webview payload", async () => {
         const context = createMockExtensionContext();
         const providerLocal = new CodexCellEditorProvider(context);

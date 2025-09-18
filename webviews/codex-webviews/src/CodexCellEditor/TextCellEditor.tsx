@@ -1376,7 +1376,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     return;
                 }
 
-                const availability = (message.attachments || {}) as Record<string, "available" | "deletedOnly" | "none">;
+                const availability = (message.attachments || {}) as Record<
+                    string,
+                    "available" | "deletedOnly" | "none"
+                >;
                 const stateForCell = availability[cellMarkers[0]];
 
                 if (stateForCell === "available") {
@@ -1516,7 +1519,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                 // If we just restored an audio (previously none loaded),
                 // auto-close history and request the current audio so the waveform appears
-                const hasAvailable = history.some((h: any) => !h.attachment?.isDeleted);
+                const hasAvailable = history.some(
+                    (h: any) => !h.attachment?.isDeleted && !h.attachment?.isMissing
+                );
                 if (hasAvailable && !audioBlob) {
                     setShowAudioHistory(false);
                     const messageContent: EditorPostMessages = {

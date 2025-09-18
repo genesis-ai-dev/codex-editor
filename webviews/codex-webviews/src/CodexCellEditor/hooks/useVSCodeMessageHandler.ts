@@ -57,7 +57,7 @@ interface UseVSCodeMessageHandlerProps {
     singleCellTranslationCompleted?: () => void;
     singleCellTranslationFailed?: () => void;
     setChapterNumber?: (chapterNumber: number) => void;
-    setAudioAttachments: (attachments: { [cellId: string]: "available" | "deletedOnly" | "none"; }) => void;
+    setAudioAttachments: (attachments: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; }) => void;
 
     // A/B testing handlers
     showABTestVariants?: (data: { variants: string[]; cellId: string; testId: string; }) => void;
@@ -104,20 +104,23 @@ export const useVSCodeMessageHandler = ({
                     // Derive audio attachment availability from QuillCellContent.attachments
                     try {
                         const units = (message.content || []) as QuillCellContent[];
-                        const availability: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {};
+                        const availability: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; } = {};
                         for (const unit of units) {
                             const cellId = unit?.cellMarkers?.[0];
                             if (!cellId) continue;
                             let hasAvailable = false;
+                            let hasMissing = false;
                             let hasDeleted = false;
                             const atts = unit?.attachments || {} as any;
                             for (const key of Object.keys(atts)) {
                                 const att = (atts as any)[key];
                                 if (att && att.type === "audio") {
-                                    if (att.isDeleted) hasDeleted = true; else hasAvailable = true;
+                                    if (att.isDeleted) hasDeleted = true;
+                                    else if (att.isMissing) hasMissing = true;
+                                    else hasAvailable = true;
                                 }
                             }
-                            availability[cellId] = hasAvailable ? "available" : hasDeleted ? "deletedOnly" : "none";
+                            availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
                         }
                         setAudioAttachments(availability);
                     } catch {

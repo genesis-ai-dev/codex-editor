@@ -1513,7 +1513,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             attachmentId,
         });
 
-        // Mark as dirty and notify VS Code (so the file is persisted) and the webview
+        // Mark as dirty and notify both VS Code and webview so the change is persisted
         this._isDirty = true;
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,

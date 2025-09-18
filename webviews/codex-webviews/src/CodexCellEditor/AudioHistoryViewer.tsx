@@ -1,6 +1,16 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Button } from "../components/ui/button";
-import { Play, Pause, RotateCcw, Trash2, Download, Clock, User, CheckCircle, Circle } from "lucide-react";
+import {
+    Play,
+    Pause,
+    RotateCcw,
+    Trash2,
+    Download,
+    Clock,
+    User,
+    CheckCircle,
+    Circle,
+} from "lucide-react";
 import { WebviewApi } from "vscode-webview";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 
@@ -12,6 +22,7 @@ interface AudioHistoryEntry {
         createdAt: number;
         updatedAt: number;
         isDeleted: boolean;
+        isMissing?: boolean; // Added for missing audio
     };
 }
 
@@ -24,7 +35,7 @@ interface AudioHistoryViewerProps {
 export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     cellId,
     vscode,
-    onClose
+    onClose,
 }) => {
     const [audioHistory, setAudioHistory] = useState<AudioHistoryEntry[]>([]);
     const [playingId, setPlayingId] = useState<string | null>(null);
@@ -44,176 +55,191 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
 
     // Request audio history when component mounts
     useEffect(() => {
+        // Ask backend to revalidate missing flags for this cell before fetching history
+        try {
+            vscode.postMessage({
+                command: "revalidateMissingForCell",
+                content: { cellId },
+            } as any);
+        } catch {
+            /* ignore */
+        }
         vscode.postMessage({
             command: "getAudioHistory",
-            content: { cellId }
+            content: { cellId },
         });
     }, [cellId, vscode]);
 
     // Listen for audio history response
-    useMessageHandler("audioHistoryViewer", (event: MessageEvent) => {
-        const message = event.data;
-        if (message.type === "audioHistoryReceived" && message.content.cellId === cellId) {
-            setAudioHistory(message.content.audioHistory);
-            // Use the currentAttachmentId from the backend (this reflects the actual selection state)
-            setSelectedAudioId(message.content.currentAttachmentId);
-            setHasExplicitSelection(message.content.hasExplicitSelection);
-        }
-        if (message.type === "audioAttachmentRestored" && message.content.cellId === cellId) {
-            // Refresh audio history after restoration
-            vscode.postMessage({
-                command: "getAudioHistory",
-                content: { cellId }
-            });
-        }
-        if (message.type === "audioAttachmentSelected" && message.content.cellId === cellId) {
-            if (message.content.success) {
-                // Immediately update the selected state
-                setSelectedAudioId(message.content.audioId);
-                setHasExplicitSelection(true);
-            }
-        }
-        if (message.type === "audioAttachmentDeleted" && message.content.cellId === cellId) {
-            if (message.content.success) {
-                // Refresh the audio history after delete
-                setTimeout(() => {
-                    vscode.postMessage({
-                        command: "getAudioHistory",
-                        content: { cellId }
-                    });
-                }, 50);
-            }
-        }
-        if (message.type === "audioAttachmentRestored" && message.content.cellId === cellId) {
-            if (message.content.success) {
-                // Refresh the audio history after restore
-                setTimeout(() => {
-                    vscode.postMessage({
-                        command: "getAudioHistory",
-                        content: { cellId }
-                    });
-                }, 50);
-            }
-        }
-        if (message.type === "providerSendsAudioData") {
-            const { cellId: audioCellId, audioId, audioData } = message.content;
-            if (audioCellId === cellId) {
-                // Handle fallback case where audioId is null (current audio fallback)
-                const isCurrentAudioFallback = !audioId;
-                
-                if (isCurrentAudioFallback && audioData) {
-                    // Fallback case: only auto-close when there was a pending play request
-                    const hasPendingPlay = Array.from(pendingPlayRefs.current.values()).some(Boolean);
-                    if (hasPendingPlay) {
-                        console.log("Fallback to current audio - switching to audio tab and closing history");
-                        onClose();
-                        vscode.postMessage({
-                            command: "setPreferredEditorTab",
-                            content: { tab: "audio" }
+    useMessageHandler(
+        "audioHistoryViewer",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "audioHistoryReceived" && message.content.cellId === cellId) {
+                setAudioHistory(message.content.audioHistory);
+                // Use the currentAttachmentId from the backend (this reflects the actual selection state)
+                setSelectedAudioId(message.content.currentAttachmentId);
+                setHasExplicitSelection(message.content.hasExplicitSelection);
+
+                // Pre-mark entries that are known missing
+                try {
+                    const missingIds = (message.content.audioHistory as any[])
+                        .filter((e: any) => e?.attachment?.isMissing === true)
+                        .map((e: any) => e.attachmentId);
+                    if (missingIds.length > 0) {
+                        setErrorIds((prev) => {
+                            const next = new Set(prev);
+                            missingIds.forEach((id) => next.add(id));
+                            return next;
                         });
-                        try {
-                            sessionStorage.setItem(`start-audio-playback-${cellId}`, "1");
-                        } catch (e) {
-                            console.warn("Could not set sessionStorage flag:", e);
+                    }
+                } catch {
+                    /* no-op */
+                }
+            }
+            if (message.type === "audioAttachmentRestored" && message.content.cellId === cellId) {
+                // Refresh audio history after restoration
+                vscode.postMessage({
+                    command: "getAudioHistory",
+                    content: { cellId },
+                });
+            }
+            if (message.type === "audioAttachmentSelected" && message.content.cellId === cellId) {
+                if (message.content.success) {
+                    // Immediately update the selected state
+                    setSelectedAudioId(message.content.audioId);
+                    setHasExplicitSelection(true);
+                }
+            }
+            if (message.type === "audioAttachmentDeleted" && message.content.cellId === cellId) {
+                if (message.content.success) {
+                    // Refresh the audio history after delete
+                    setTimeout(() => {
+                        vscode.postMessage({
+                            command: "getAudioHistory",
+                            content: { cellId },
+                        });
+                    }, 50);
+                }
+            }
+            if (message.type === "audioAttachmentRestored" && message.content.cellId === cellId) {
+                if (message.content.success) {
+                    // Refresh the audio history after restore
+                    setTimeout(() => {
+                        vscode.postMessage({
+                            command: "getAudioHistory",
+                            content: { cellId },
+                        });
+                    }, 50);
+                }
+            }
+            if (message.type === "providerSendsAudioData") {
+                const { cellId: audioCellId, audioId, audioData } = message.content;
+                if (audioCellId === cellId) {
+                    // Handle current-audio fallback (no specific audioId)
+                    if (!audioId) {
+                        if (audioData) {
+                            const hasPendingPlay = Array.from(pendingPlayRefs.current.values()).some(Boolean);
+                            if (hasPendingPlay) {
+                                onClose();
+                                vscode.postMessage({
+                                    command: "setPreferredEditorTab",
+                                    content: { tab: "audio" },
+                                });
+                                try {
+                                    sessionStorage.setItem(`start-audio-playback-${cellId}`, "1");
+                                } catch {}
+                            }
                         }
                         return;
                     }
-                    // Otherwise (e.g., selection validation fallback), do not close; editor will load audio
-                }
-                
-                if (audioId) {
+
                     // Normal case with specific audioId
                     // Clear loading state regardless of whether audio data was found
-                    setLoadingIds(prev => {
+                    setLoadingIds((prev) => {
                         const next = new Set(prev);
                         next.delete(audioId);
                         return next;
                     });
-                    
+
                     // Clear delayed loading state and timer
-                    setDelayedLoadingIds(prev => {
+                    setDelayedLoadingIds((prev) => {
                         const next = new Set(prev);
                         next.delete(audioId);
                         return next;
                     });
-                    
-                    // Clear error state
-                    setErrorIds(prev => {
+
+                    // Clear previous error for this id; will re-add below if needed
+                    setErrorIds((prev) => {
                         const next = new Set(prev);
                         next.delete(audioId);
                         return next;
                     });
-                    
+
                     const timer = loadingTimersRef.current.get(audioId);
                     if (timer) {
                         clearTimeout(timer);
                         loadingTimersRef.current.delete(audioId);
                     }
-                }
-                
-                if (audioData && audioId) {
-                    // Convert base64 to blob URL
-                    fetch(audioData)
-                        .then(res => res.blob())
-                        .then(blob => {
-                            const blobUrl = URL.createObjectURL(blob);
-                            blobUrlsRef.current.add(blobUrl); // Track for cleanup
-                            setAudioUrls(prev => new Map(prev).set(audioId, blobUrl));
-                            
-                            // Auto-play if there was a pending play request
-                            const hadPendingPlayForThisAudio = pendingPlayRefs.current.get(audioId);
-                            if (hadPendingPlayForThisAudio) {
-                                pendingPlayRefs.current.set(audioId, false); // Clear the pending flag
-                                // Auto-play the audio
-                                try {
-                                    let audio = audioRefs.current.get(audioId);
-                                    if (!audio) {
-                                        audio = new Audio();
-                                        audio.onended = () => setPlayingId(null);
-                                        audio.onerror = () => {
-                                            console.error("Error playing audio:", audioId);
-                                            setPlayingId(null);
-                                        };
-                                        audioRefs.current.set(audioId, audio);
-                                    }
-                                    audio.src = blobUrl;
-                                    audio.play()
-                                        .then(() => setPlayingId(audioId))
-                                        .catch((error) => {
-                                            console.error("Error auto-playing audio:", error);
-                                            setPlayingId(null);
-                                        });
-                                } catch (error) {
-                                    console.error("Error handling auto-play:", error);
-                                }
-                            }
 
-                            // If we were validating for selection, select now
-                            if (validatingIdsRef.current.has(audioId)) {
-                                validatingIdsRef.current.delete(audioId);
-                                setValidatingIds(prev => {
-                                    const next = new Set(prev);
-                                    next.delete(audioId);
-                                    return next;
-                                });
-                                // Selection validation succeeded; do not force fallback on close
-                                fetchCurrentOnCloseRef.current = false;
-                                vscode.postMessage({
-                                    command: "selectAudioAttachment",
-                                    content: { cellId, audioId }
-                                });
-                            }
-                        })
-                        .catch(console.error);
-                } else {
-                    // No audio data found - set error state and try fallback
-                    console.warn("No audio data found for audioId:", audioId);
-                    setErrorIds(prev => new Set(prev).add(audioId));
-                    // Clear any in-progress validation for this audioId
-                    if (audioId) {
+                    if (audioData) {
+                        // Convert base64 to blob URL
+                        fetch(audioData)
+                            .then((res) => res.blob())
+                            .then((blob) => {
+                                const blobUrl = URL.createObjectURL(blob);
+                                blobUrlsRef.current.add(blobUrl); // Track for cleanup
+                                setAudioUrls((prev) => new Map(prev).set(audioId, blobUrl));
+
+                                // Auto-play if there was a pending play request
+                                const hadPendingPlayForThisAudio = pendingPlayRefs.current.get(audioId);
+                                if (hadPendingPlayForThisAudio) {
+                                    pendingPlayRefs.current.set(audioId, false); // Clear the pending flag
+                                    try {
+                                        let audio = audioRefs.current.get(audioId);
+                                        if (!audio) {
+                                            audio = new Audio();
+                                            audio.onended = () => setPlayingId(null);
+                                            audio.onerror = () => {
+                                                console.error("Error playing audio:", audioId);
+                                                setPlayingId(null);
+                                            };
+                                            audioRefs.current.set(audioId, audio);
+                                        }
+                                        audio.src = blobUrl;
+                                        audio
+                                            .play()
+                                            .then(() => setPlayingId(audioId))
+                                            .catch(() => setPlayingId(null));
+                                    } catch {
+                                        setPlayingId(null);
+                                    }
+                                }
+
+                                // If we were validating for selection, select now
+                                if (validatingIdsRef.current.has(audioId)) {
+                                    validatingIdsRef.current.delete(audioId);
+                                    setValidatingIds((prev) => {
+                                        const next = new Set(prev);
+                                        next.delete(audioId);
+                                        return next;
+                                    });
+                                    // Selection succeeded; do not force fallback on close
+                                    fetchCurrentOnCloseRef.current = false;
+                                    vscode.postMessage({
+                                        command: "selectAudioAttachment",
+                                        content: { cellId, audioId },
+                                    });
+                                }
+                            })
+                            .catch(console.error);
+                    } else {
+                        // No audio data found - set error state
+                        setErrorIds((prev) => new Set(prev).add(audioId));
+                        // Clear any in-progress validation for this audioId
                         if (validatingIdsRef.current.has(audioId)) {
                             validatingIdsRef.current.delete(audioId);
-                            setValidatingIds(prev => {
+                            setValidatingIds((prev) => {
                                 const next = new Set(prev);
                                 next.delete(audioId);
                                 return next;
@@ -222,21 +248,11 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                             fetchCurrentOnCloseRef.current = true;
                         }
                     }
-                    
-                    // If this was a pending play request, try to fallback to current audio
-                    const hadPendingPlayForThisAudio = pendingPlayRefs.current.get(audioId);
-                    if (hadPendingPlayForThisAudio) {
-                        console.log("Attempting fallback to current audio for cell:", cellId);
-                        // Request current audio without specific audioId
-                        vscode.postMessage({
-                            command: "requestAudioForCell",
-                            content: { cellId }
-                        });
-                    }
                 }
             }
-        }
-    }, [cellId, vscode]);
+        },
+        [cellId, vscode]
+    );
 
     const handleClose = () => {
         // If a selection failed due to missing file, request current audio so the editor shows waveform
@@ -254,15 +270,15 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     useEffect(() => {
         return () => {
             // Clean up all blob URLs that were created
-            blobUrlsRef.current.forEach(url => {
+            blobUrlsRef.current.forEach((url) => {
                 URL.revokeObjectURL(url);
             });
             // Stop all audio elements
-            audioRefs.current.forEach(audio => {
+            audioRefs.current.forEach((audio) => {
                 audio.pause();
             });
             // Clear all loading timers
-            loadingTimersRef.current.forEach(timer => {
+            loadingTimersRef.current.forEach((timer) => {
                 clearTimeout(timer);
             });
             loadingTimersRef.current.clear();
@@ -293,18 +309,18 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
 
             // Request audio data if not already loaded
             if (!audioUrls.has(attachmentId)) {
-                setLoadingIds(prev => new Set(prev).add(attachmentId));
+                setLoadingIds((prev) => new Set(prev).add(attachmentId));
                 pendingPlayRefs.current.set(attachmentId, true);
-                
+
                 // Set a timer to show loading text after 300ms
                 const timer = setTimeout(() => {
-                    setDelayedLoadingIds(prev => new Set(prev).add(attachmentId));
+                    setDelayedLoadingIds((prev) => new Set(prev).add(attachmentId));
                 }, 300);
                 loadingTimersRef.current.set(attachmentId, timer);
-                
+
                 vscode.postMessage({
                     command: "requestAudioForCell",
-                    content: { cellId, audioId: attachmentId }
+                    content: { cellId, audioId: attachmentId },
                 });
                 return;
             }
@@ -337,8 +353,8 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
             command: "restoreAudioAttachment",
             content: {
                 cellId,
-                audioId: attachmentId
-            }
+                audioId: attachmentId,
+            },
         });
     };
 
@@ -347,14 +363,14 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
             command: "deleteAudioAttachment",
             content: {
                 cellId,
-                audioId: attachmentId
-            }
+                audioId: attachmentId,
+            },
         });
         // Refresh history after deletion
         setTimeout(() => {
             vscode.postMessage({
                 command: "getAudioHistory",
-                content: { cellId }
+                content: { cellId },
             });
         }, 100);
     };
@@ -369,25 +385,25 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
         if (audioUrls.has(attachmentId)) {
             vscode.postMessage({
                 command: "selectAudioAttachment",
-                content: { cellId, audioId: attachmentId }
+                content: { cellId, audioId: attachmentId },
             });
             return;
         }
 
         // Otherwise, validate by requesting the audio; on success, selection happens in handler
         validatingIdsRef.current.add(attachmentId);
-        setValidatingIds(prev => new Set(prev).add(attachmentId));
+        setValidatingIds((prev) => new Set(prev).add(attachmentId));
         vscode.postMessage({
             command: "requestAudioForCell",
-            content: { cellId, audioId: attachmentId }
+            content: { cellId, audioId: attachmentId },
         });
     };
 
     // Helper function to determine current attachment (latest non-deleted)
     const getCurrentAttachment = (history: AudioHistoryEntry[]) => {
-        const nonDeleted = history.filter(entry => !entry.attachment.isDeleted);
+        const nonDeleted = history.filter((entry) => !entry.attachment.isDeleted);
         if (nonDeleted.length === 0) return null;
-        
+
         // Sort by updatedAt (newest first)
         nonDeleted.sort((a, b) => (b.attachment.updatedAt || 0) - (a.attachment.updatedAt || 0));
         return nonDeleted[0];
@@ -395,52 +411,58 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
 
     const formatDate = (timestamp: number) => {
         return new Date(timestamp).toLocaleString(undefined, {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
         });
     };
 
     const getLatestAttachment = () => {
-        return audioHistory.find(entry => !entry.attachment.isDeleted);
+        return audioHistory.find((entry) => !entry.attachment.isDeleted);
     };
 
     const currentAttachment = getLatestAttachment();
 
     return (
-        <div style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: "rgba(0, 0, 0, 0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000
-        }}>
-            <div style={{
-                backgroundColor: "var(--vscode-editor-background)",
-                border: "1px solid var(--vscode-panel-border)",
-                borderRadius: "8px",
-                padding: "20px",
-                maxWidth: "680px",
-                maxHeight: "80vh",
-                overflow: "auto",
-                width: "92%",
-                boxShadow: "0 10px 24px rgba(0,0,0,0.3)"
-            }}>
-                <div style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: "16px",
-                    borderBottom: "1px solid var(--vscode-editor-foreground)",
-                    paddingBottom: "12px"
-                }}>
+        <div
+            style={{
+                position: "fixed",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: "rgba(0, 0, 0, 0.5)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                zIndex: 1000,
+            }}
+        >
+            <div
+                style={{
+                    backgroundColor: "var(--vscode-editor-background)",
+                    border: "1px solid var(--vscode-panel-border)",
+                    borderRadius: "8px",
+                    padding: "20px",
+                    maxWidth: "680px",
+                    maxHeight: "80vh",
+                    overflow: "auto",
+                    width: "92%",
+                    boxShadow: "0 10px 24px rgba(0,0,0,0.3)",
+                }}
+            >
+                <div
+                    style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        marginBottom: "16px",
+                        borderBottom: "1px solid var(--vscode-editor-foreground)",
+                        paddingBottom: "12px",
+                    }}
+                >
                     <h3 style={{ margin: 0, color: "var(--vscode-editor-foreground)" }}>
                         Audio History for {cellId}
                     </h3>
@@ -451,7 +473,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                             border: "none",
                             cursor: "pointer",
                             color: "var(--vscode-editor-foreground)",
-                            fontSize: "18px"
+                            fontSize: "18px",
                         }}
                     >
                         <i className="codicon codicon-close"></i>
@@ -465,7 +487,9 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                             const isSelected = selectedAudioId === entry.attachmentId; // Currently active (either explicit or automatic)
                             const isPlaying = playingId === entry.attachmentId;
                             const isLoading = delayedLoadingIds.has(entry.attachmentId);
-                            const hasError = errorIds.has(entry.attachmentId);
+                            const hasError =
+                                errorIds.has(entry.attachmentId) ||
+                                entry.attachment?.isMissing === true;
                             const isValidating = validatingIds.has(entry.attachmentId);
 
                             return (
@@ -480,78 +504,117 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             : isCurrent
                                             ? "var(--vscode-editor-selectionBackground)"
                                             : "var(--vscode-editorWidget-background)",
-                                        opacity: entry.attachment.isDeleted ? 0.9 : 1
+                                        opacity: entry.attachment.isDeleted ? 0.9 : 1,
                                     }}
                                 >
-                                    <div style={{
-                                        display: "flex",
-                                        justifyContent: "space-between",
-                                        alignItems: "center",
-                                        marginBottom: "8px"
-                                    }}>
-                                        <div style={{
+                                    <div
+                                        style={{
                                             display: "flex",
+                                            justifyContent: "space-between",
                                             alignItems: "center",
-                                            gap: "8px",
-                                            fontSize: "0.95em",
-                                            color: "var(--vscode-foreground)"
-                                        }}>
+                                            marginBottom: "8px",
+                                        }}
+                                    >
+                                        <div
+                                            style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: "8px",
+                                                fontSize: "0.95em",
+                                                color: "var(--vscode-foreground)",
+                                            }}
+                                        >
                                             <Clock size={14} />
-                                            <span>Created: {formatDate(entry.attachment.createdAt)}</span>
-                                            {entry.attachment.updatedAt !== entry.attachment.createdAt && (
-                                                <span>• Updated: {formatDate(entry.attachment.updatedAt)}</span>
+                                            <span>
+                                                Created: {formatDate(entry.attachment.createdAt)}
+                                            </span>
+                                            {entry.attachment.updatedAt !==
+                                                entry.attachment.createdAt && (
+                                                <span>
+                                                    • Updated:{" "}
+                                                    {formatDate(entry.attachment.updatedAt)}
+                                                </span>
                                             )}
                                         </div>
-                                        <div style={{
-                                            display: "flex",
-                                            alignItems: "center",
-                                            gap: "4px"
-                                        }}>
+                                        <div
+                                            style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: "4px",
+                                            }}
+                                        >
                                             {isSelected && (
-                                                <span style={{
-                                                    backgroundColor: "var(--vscode-badge-background)",
-                                                    color: "var(--vscode-badge-foreground)",
-                                                    padding: "2px 6px",
-                                                    borderRadius: "3px",
-                                                    fontSize: "0.8em",
-                                                    fontWeight: "bold"
-                                                }}>
+                                                <span
+                                                    style={{
+                                                        backgroundColor:
+                                                            "var(--vscode-badge-background)",
+                                                        color: "var(--vscode-badge-foreground)",
+                                                        padding: "2px 6px",
+                                                        borderRadius: "3px",
+                                                        fontSize: "0.8em",
+                                                        fontWeight: "bold",
+                                                    }}
+                                                >
                                                     SELECTED
                                                 </span>
                                             )}
                                             {isCurrent && !hasExplicitSelection && (
-                                                <span style={{
-                                                    backgroundColor: "var(--vscode-editorInfo-foreground)",
-                                                    color: "var(--vscode-editor-background)",
-                                                    padding: "2px 6px",
-                                                    borderRadius: "3px",
-                                                    fontSize: "0.8em",
-                                                    fontWeight: "bold"
-                                                }}>
+                                                <span
+                                                    style={{
+                                                        backgroundColor:
+                                                            "var(--vscode-editorInfo-foreground)",
+                                                        color: "var(--vscode-editor-background)",
+                                                        padding: "2px 6px",
+                                                        borderRadius: "3px",
+                                                        fontSize: "0.8em",
+                                                        fontWeight: "bold",
+                                                    }}
+                                                >
                                                     CURRENT
                                                 </span>
                                             )}
                                             {entry.attachment.isDeleted && (
-                                                <span style={{
-                                                    backgroundColor: "var(--vscode-inputValidation-errorBorder)",
-                                                    color: "var(--vscode-editor-background)",
-                                                    padding: "2px 6px",
-                                                    borderRadius: "3px",
-                                                    fontSize: "0.8em",
-                                                    fontWeight: "bold"
-                                                }}>
+                                                <span
+                                                    style={{
+                                                        backgroundColor:
+                                                            "var(--vscode-inputValidation-errorBorder)",
+                                                        color: "var(--vscode-editor-background)",
+                                                        padding: "2px 6px",
+                                                        borderRadius: "3px",
+                                                        fontSize: "0.8em",
+                                                        fontWeight: "bold",
+                                                    }}
+                                                >
                                                     DELETED
                                                 </span>
                                             )}
+                                            {entry.attachment.isMissing &&
+                                                !entry.attachment.isDeleted && (
+                                                    <span
+                                                        style={{
+                                                            backgroundColor:
+                                                                "var(--vscode-inputValidation-warningBorder)",
+                                                            color: "var(--vscode-editor-background)",
+                                                            padding: "2px 6px",
+                                                            borderRadius: "3px",
+                                                            fontSize: "0.8em",
+                                                            fontWeight: "bold",
+                                                        }}
+                                                    >
+                                                        MISSING
+                                                    </span>
+                                                )}
                                         </div>
                                     </div>
 
-                                    <div style={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        gap: "8px",
-                                        flexWrap: "wrap"
-                                    }}>
+                                    <div
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "8px",
+                                            flexWrap: "wrap",
+                                        }}
+                                    >
                                         <Button
                                             size="sm"
                                             variant="outline"
@@ -561,7 +624,11 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             {isLoading ? (
                                                 <span>Loading...</span>
                                             ) : hasError ? (
-                                                <span style={{ color: "var(--vscode-errorForeground)" }}>
+                                                <span
+                                                    style={{
+                                                        color: "var(--vscode-errorForeground)",
+                                                    }}
+                                                >
                                                     File Missing
                                                 </span>
                                             ) : isPlaying ? (
@@ -592,7 +659,11 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                                 ) : (
                                                     <Circle className="h-4 w-4 mr-1" />
                                                 )}
-                                                {isSelected ? "Selected" : "Select"}
+                                                {isSelected
+                                                    ? "Selected"
+                                                    : isValidating
+                                                    ? "Validating..."
+                                                    : "Select"}
                                             </Button>
                                         )}
 
@@ -600,17 +671,22 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             <Button
                                                 size="sm"
                                                 variant="outline"
-                                                onClick={() => handleRestoreAudio(entry.attachmentId)}
+                                                onClick={() =>
+                                                    handleRestoreAudio(entry.attachmentId)
+                                                }
                                             >
                                                 <RotateCcw className="h-4 w-4 mr-1" />
                                                 Restore
                                             </Button>
                                         ) : (
-                                            !isSelected && !hasError && (
+                                            !isSelected &&
+                                            !hasError && (
                                                 <Button
                                                     size="sm"
                                                     variant="outline"
-                                                    onClick={() => handleDeleteAudio(entry.attachmentId)}
+                                                    onClick={() =>
+                                                        handleDeleteAudio(entry.attachmentId)
+                                                    }
                                                 >
                                                     <Trash2 className="h-4 w-4 mr-1" />
                                                     Delete
@@ -618,34 +694,40 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             )
                                         )}
 
-                                        <span style={{
-                                            fontSize: "0.8em",
-                                            color: "var(--vscode-descriptionForeground)",
-                                            marginLeft: "auto"
-                                        }}>
-                                            ID: {entry.attachmentId.split('-').slice(-1)[0]}
+                                        <span
+                                            style={{
+                                                fontSize: "0.8em",
+                                                color: "var(--vscode-descriptionForeground)",
+                                                marginLeft: "auto",
+                                            }}
+                                        >
+                                            ID: {entry.attachmentId.split("-").slice(-1)[0]}
                                         </span>
                                     </div>
                                 </div>
                             );
                         })
                     ) : (
-                        <div style={{
-                            textAlign: "center",
-                            padding: "40px",
-                            color: "var(--vscode-descriptionForeground)"
-                        }}>
+                        <div
+                            style={{
+                                textAlign: "center",
+                                padding: "40px",
+                                color: "var(--vscode-descriptionForeground)",
+                            }}
+                        >
                             <div>No audio recordings found for this cell.</div>
                         </div>
                     )}
                 </div>
 
-                <div style={{
-                    marginTop: "16px",
-                    paddingTop: "12px",
-                    borderTop: "1px solid var(--vscode-editor-foreground)",
-                    textAlign: "center"
-                }}>
+                <div
+                    style={{
+                        marginTop: "16px",
+                        paddingTop: "12px",
+                        borderTop: "1px solid var(--vscode-editor-foreground)",
+                        textAlign: "center",
+                    }}
+                >
                     <Button onClick={onClose} variant="outline">
                         Close
                     </Button>

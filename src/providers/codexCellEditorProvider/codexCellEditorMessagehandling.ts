@@ -28,6 +28,7 @@ import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-l
 import { getCommentsFromFile } from "../../utils/fileUtils";
 import { getUnresolvedCommentsCountForCell } from "../../utils/commentsUtils";
 import { toPosixPath } from "../../utils/pathUtils";
+import { revalidateCellMissingFlags } from "../../utils/audioMissingUtils";
 // Comment out problematic imports
 // import { getAddWordToSpellcheckApi } from "../../extension";
 // import { getSimilarCellIds } from "@/utils/semanticSearch";
@@ -131,39 +132,40 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
             // Notify webview(s) of updated audio attachments status
             const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
-            const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {} as any;
+            // Recompute availability using attachment flags (isDeleted, isMissing)
             try {
                 const notebookData = JSON.parse(document.getText());
-                if (Array.isArray(notebookData?.cells)) {
-                    for (const cell of notebookData.cells) {
-                        if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
-                    }
-                }
-            } catch (err) {
-                console.warn("Failed to parse notebook data when initializing audioCells", err);
-            }
-            for (const cid of Object.keys(updatedAudioAttachments)) {
-                audioCells[cid] = "available";
-            }
-            try {
-                const notebookData = JSON.parse(document.getText());
+                const availability: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; } = {};
                 if (Array.isArray(notebookData?.cells)) {
                     for (const cell of notebookData.cells) {
                         const id = cell?.metadata?.id;
                         if (!id) continue;
-                        if (audioCells[id] === "available") continue;
-                        const attachments = cell?.metadata?.attachments || {};
-                        const hasDeletedAudio = Object.values(attachments).some((att: any) => att?.type === "audio" && att?.isDeleted === true);
-                        if (hasDeletedAudio) audioCells[id] = "deletedOnly";
+                        let hasAvailable = false;
+                        let hasMissing = false;
+                        let hasDeleted = false;
+                        const atts = cell?.metadata?.attachments || {};
+                        for (const key of Object.keys(atts)) {
+                            const att: any = (atts as any)[key];
+                            if (att && att.type === "audio") {
+                                if (att.isDeleted) {
+                                    hasDeleted = true;
+                                } else if (att.isMissing) {
+                                    hasMissing = true;
+                                } else {
+                                    hasAvailable = true;
+                                }
+                            }
+                        }
+                        availability[id] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
                     }
                 }
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "providerSendsAudioAttachments",
+                    attachments: availability,
+                });
             } catch (err) {
-                console.warn("Failed to parse notebook data when computing deleted-only audio cells", err);
+                console.warn("Failed to compute audio availability after transcription", err);
             }
-            provider.postMessageToWebview(webviewPanel, {
-                type: "providerSendsAudioAttachments",
-                attachments: audioCells as any,
-            });
         } catch (error) {
             console.error("Failed to update transcription for cell:", cellId, error);
         }
@@ -1409,29 +1411,59 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             }
             const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
-            const availability: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {};
+            const availability: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; } = {} as any;
 
             for (const cell of cells) {
                 const cellId = cell?.metadata?.id;
                 if (!cellId) continue;
                 let hasAvailable = false;
+                let hasMissing = false;
                 let hasDeleted = false;
                 const atts = cell?.metadata?.attachments || {};
                 for (const key of Object.keys(atts)) {
-                    const att = atts[key];
+                    const att: any = (atts as any)[key];
                     if (att && att.type === "audio") {
-                        if (att.isDeleted) hasDeleted = true; else hasAvailable = true;
+                        if (att.isDeleted) {
+                            hasDeleted = true;
+                        } else if (att.isMissing) {
+                            hasMissing = true;
+                        } else {
+                            hasAvailable = true;
+                        }
                     }
                 }
-                availability[cellId] = hasAvailable ? "available" : hasDeleted ? "deletedOnly" : "none";
+                availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
             }
 
             provider.postMessageToWebview(webviewPanel, {
                 type: "providerSendsAudioAttachments",
-                attachments: availability
+                attachments: availability as any,
             });
 
             debug("Audio attachment saved successfully:", { pointersPath, filesPath });
+
+            // Proactively send the audio data so the editor waveform loads immediately after save
+            try {
+                const absPath = path.isAbsolute(filesPath) ? filesPath : path.join(workspaceFolder.uri.fsPath, filesPath);
+                const extNow = path.extname(absPath).toLowerCase();
+                const mimeNow = extNow === ".webm" ? "audio/webm" :
+                    extNow === ".mp3" ? "audio/mp3" :
+                        extNow === ".m4a" ? "audio/mp4" :
+                            extNow === ".ogg" ? "audio/ogg" : "audio/wav";
+                const bytesNow = await vscode.workspace.fs.readFile(vscode.Uri.file(absPath));
+                const base64Now = `data:${mimeNow};base64,${Buffer.from(bytesNow).toString('base64')}`;
+                safePostMessageToPanel(webviewPanel, {
+                    type: "providerSendsAudioData",
+                    content: {
+                        cellId: typedEvent.content.cellId,
+                        audioId: sanitizedAudioId,
+                        audioData: base64Now,
+                        fileModified: Date.now()
+                    }
+                } as any);
+            } catch (e) {
+                console.warn("Failed to send immediate audio data after save", e);
+            }
         } catch (error) {
             console.error("Error saving audio attachment:", error);
             provider.postMessageToWebview(webviewPanel, {
@@ -1555,27 +1587,38 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             }
             const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
-            const availability: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {};
+            const availability: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; } = {} as any;
 
             for (const cell of cells) {
                 const cellId = cell?.metadata?.id;
                 if (!cellId) continue;
                 let hasAvailable = false;
+                let hasMissing = false;
                 let hasDeleted = false;
                 const atts = cell?.metadata?.attachments || {};
                 for (const key of Object.keys(atts)) {
-                    const att = atts[key];
+                    const att: any = (atts as any)[key];
                     if (att && att.type === "audio") {
-                        if (att.isDeleted) hasDeleted = true; else hasAvailable = true;
+                        if (att.isDeleted) {
+                            hasDeleted = true;
+                        } else if (att.isMissing) {
+                            hasMissing = true;
+                        } else {
+                            hasAvailable = true;
+                        }
                     }
                 }
-                availability[cellId] = hasAvailable ? "available" : hasDeleted ? "deletedOnly" : "none";
+                availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
             }
 
             provider.postMessageToWebview(webviewPanel, {
                 type: "providerSendsAudioAttachments",
-                attachments: availability
+                attachments: availability as any,
             });
+
+            // Save the changes to the document
+
+            await document.save(new vscode.CancellationTokenSource().token);
 
             debug("Audio attachment selected successfully");
         } catch (error) {
@@ -1836,6 +1879,61 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         } catch (error) {
             console.error("Error merging cells:", error);
             vscode.window.showErrorMessage(`Failed to merge cells: ${error}`);
+        }
+    },
+
+    revalidateMissingForCell: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as any;
+        const cellId = typedEvent?.content?.cellId as string;
+        if (!cellId) return;
+        try {
+            const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+            if (!workspaceFolder) return;
+            const changed = await revalidateCellMissingFlags(document, workspaceFolder, cellId);
+
+            // If anything changed, persist and send updated history and availability
+            if (changed) {
+                await document.save(new vscode.CancellationTokenSource().token);
+
+                // Send updated history
+                const audioHistory = document.getAttachmentHistory(cellId, "audio") || [];
+                const currentAttachment = document.getCurrentAttachment(cellId, "audio");
+                const explicitSelection = document.getExplicitAudioSelection(cellId);
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "audioHistoryReceived",
+                    content: {
+                        cellId,
+                        audioHistory,
+                        currentAttachmentId: currentAttachment?.attachmentId ?? null,
+                        hasExplicitSelection: explicitSelection !== null
+                    }
+                });
+
+                // Send updated availability for this cell
+                try {
+                    const documentText = document.getText();
+                    const notebookData = JSON.parse(documentText);
+                    const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
+                    const availability: { [k: string]: "available" | "missing" | "deletedOnly" | "none"; } = {} as any;
+                    const cell = cells.find((c: any) => c?.metadata?.id === cellId);
+                    if (cell) {
+                        let hasAvailable = false; let hasMissing = false; let hasDeleted = false;
+                        const atts = cell?.metadata?.attachments || {};
+                        for (const key of Object.keys(atts)) {
+                            const att: any = atts[key];
+                            if (att && att.type === "audio") {
+                                if (att.isDeleted) hasDeleted = true;
+                                else if (att.isMissing) hasMissing = true;
+                                else hasAvailable = true;
+                            }
+                        }
+                        availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                        safePostMessageToPanel(webviewPanel, { type: "providerSendsAudioAttachments", attachments: availability });
+                    }
+                } catch { /* ignore */ }
+            }
+        } catch (err) {
+            console.error("Failed to revalidate missing for cell", { cellId, err });
         }
     },
 };
