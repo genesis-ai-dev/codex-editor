@@ -953,7 +953,7 @@ type EditorReceiveMessages =
     }
     | {
         type: "providerSendsAudioAttachments";
-        attachments: { [cellId: string]: "available" | "deletedOnly" | "none"; };
+        attachments: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; };
     }
     | {
         type: "providerSendsAudioData";
@@ -1121,6 +1121,7 @@ type CustomCellMetaData = {
             createdAt: number;
             updatedAt: number;
             isDeleted: boolean;
+            isMissing?: boolean;
         };
     };
     cellLabel?: string;
@@ -1179,7 +1180,7 @@ interface QuillCellContent {
     merged?: boolean;
     deleted?: boolean;
     data?: { [key: string]: any; footnotes?: Footnote[]; };
-    attachments?: { [attachmentId: string]: { type: string; isDeleted?: boolean; url?: string; }; };
+    attachments?: { [attachmentId: string]: { type: string; isDeleted?: boolean; isMissing?: boolean; url?: string; }; };
 }
 
 interface Timestamps {

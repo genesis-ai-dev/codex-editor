@@ -40,7 +40,7 @@ interface CellContentDisplayProps {
     handleCellTranslation?: (cellId: string) => void;
     handleCellClick: (cellId: string) => void;
     cellDisplayMode: CELL_DISPLAY_MODES;
-    audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" };
+    audioAttachments?: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none" };
     footnoteOffset?: number; // Starting footnote number for this cell
     isCorrectionEditorMode?: boolean; // Whether correction editor mode is active
     translationUnits?: QuillCellContent[]; // Full list of translation units for finding previous cell
@@ -62,7 +62,7 @@ function debug(message: string, ...args: any[]): void {
 const AudioPlayButton: React.FC<{
     cellId: string;
     vscode: WebviewApi<unknown>;
-    state?: "available" | "deletedOnly" | "none";
+    state?: "available" | "missing" | "deletedOnly" | "none";
     onOpenCell?: (cellId: string) => void;
 }> = React.memo(({ cellId, vscode, state = "available", onOpenCell }) => {
     const [isPlaying, setIsPlaying] = useState(false);
@@ -157,10 +157,13 @@ const AudioPlayButton: React.FC<{
         try {
             // For any non-available state, open editor on audio tab and auto-start recording
             if (state !== "available") {
-                try {
-                    sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");
-                } catch (e) {
-                    void e;
+                // For missing audio, just open the editor without auto-starting recording
+                if (state !== "missing") {
+                    try {
+                        sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");
+                    } catch (e) {
+                        void e;
+                    }
                 }
                 vscode.postMessage({
                     command: "setPreferredEditorTab",
@@ -218,7 +221,14 @@ const AudioPlayButton: React.FC<{
                 titleSuffix: "(available)",
             } as const;
         }
-        // For any non-available state, show microphone to begin recording
+        if (state === "missing") {
+            return {
+                iconClass: "codicon-warning",
+                color: "var(--vscode-errorForeground)",
+                titleSuffix: "(missing)",
+            } as const;
+        }
+        // deletedOnly or none => show mic to begin recording
         return {
             iconClass: "codicon-mic",
             color: "var(--vscode-foreground)",
@@ -230,7 +240,15 @@ const AudioPlayButton: React.FC<{
         <button
             onClick={handlePlayAudio}
             className="audio-play-button"
-            title={isLoading ? "Preparing audio..." : state === "available" ? "Play" : "Record"}
+            title={
+                isLoading
+                    ? "Preparing audio..."
+                    : state === "available"
+                    ? "Play"
+                    : state === "missing"
+                    ? "Missing audio"
+                    : "Record"
+            }
             disabled={false}
             style={{
                 background: "none",
@@ -812,8 +830,15 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                     (() => {
                                         const audioState = audioAttachments[cellIds[0]];
 
-                                        // For source text: only show the play button if audio is available.
-                                        if (isSourceText && audioState !== "available") return null;
+                                        // For source text: show the button for available or missing; hide when none/deletedOnly
+                                        if (
+                                            isSourceText &&
+                                            !(
+                                                audioState === "available" ||
+                                                audioState === "missing"
+                                            )
+                                        )
+                                            return null;
 
                                         return (
                                             <AudioPlayButton

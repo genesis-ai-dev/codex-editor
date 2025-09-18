@@ -131,39 +131,40 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
             // Notify webview(s) of updated audio attachments status
             const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
-            const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {} as any;
+            // Recompute availability using attachment flags (isDeleted, isMissing)
             try {
                 const notebookData = JSON.parse(document.getText());
-                if (Array.isArray(notebookData?.cells)) {
-                    for (const cell of notebookData.cells) {
-                        if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
-                    }
-                }
-            } catch (err) {
-                console.warn("Failed to parse notebook data when initializing audioCells", err);
-            }
-            for (const cid of Object.keys(updatedAudioAttachments)) {
-                audioCells[cid] = "available";
-            }
-            try {
-                const notebookData = JSON.parse(document.getText());
+                const availability: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; } = {};
                 if (Array.isArray(notebookData?.cells)) {
                     for (const cell of notebookData.cells) {
                         const id = cell?.metadata?.id;
                         if (!id) continue;
-                        if (audioCells[id] === "available") continue;
-                        const attachments = cell?.metadata?.attachments || {};
-                        const hasDeletedAudio = Object.values(attachments).some((att: any) => att?.type === "audio" && att?.isDeleted === true);
-                        if (hasDeletedAudio) audioCells[id] = "deletedOnly";
+                        let hasAvailable = false;
+                        let hasMissing = false;
+                        let hasDeleted = false;
+                        const atts = cell?.metadata?.attachments || {};
+                        for (const key of Object.keys(atts)) {
+                            const att: any = (atts as any)[key];
+                            if (att && att.type === "audio") {
+                                if (att.isDeleted) {
+                                    hasDeleted = true;
+                                } else if (att.isMissing) {
+                                    hasMissing = true;
+                                } else {
+                                    hasAvailable = true;
+                                }
+                            }
+                        }
+                        availability[id] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
                     }
                 }
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "providerSendsAudioAttachments",
+                    attachments: availability,
+                });
             } catch (err) {
-                console.warn("Failed to parse notebook data when computing deleted-only audio cells", err);
+                console.warn("Failed to compute audio availability after transcription", err);
             }
-            provider.postMessageToWebview(webviewPanel, {
-                type: "providerSendsAudioAttachments",
-                attachments: audioCells as any,
-            });
         } catch (error) {
             console.error("Failed to update transcription for cell:", cellId, error);
         }
@@ -1409,26 +1410,33 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             }
             const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
-            const availability: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {};
+            const availability: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; } = {} as any;
 
             for (const cell of cells) {
                 const cellId = cell?.metadata?.id;
                 if (!cellId) continue;
                 let hasAvailable = false;
+                let hasMissing = false;
                 let hasDeleted = false;
                 const atts = cell?.metadata?.attachments || {};
                 for (const key of Object.keys(atts)) {
-                    const att = atts[key];
+                    const att: any = (atts as any)[key];
                     if (att && att.type === "audio") {
-                        if (att.isDeleted) hasDeleted = true; else hasAvailable = true;
+                        if (att.isDeleted) {
+                            hasDeleted = true;
+                        } else if (att.isMissing) {
+                            hasMissing = true;
+                        } else {
+                            hasAvailable = true;
+                        }
                     }
                 }
-                availability[cellId] = hasAvailable ? "available" : hasDeleted ? "deletedOnly" : "none";
+                availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
             }
 
             provider.postMessageToWebview(webviewPanel, {
                 type: "providerSendsAudioAttachments",
-                attachments: availability
+                attachments: availability as any,
             });
 
             debug("Audio attachment saved successfully:", { pointersPath, filesPath });
@@ -1555,26 +1563,33 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             }
             const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
-            const availability: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {};
+            const availability: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; } = {} as any;
 
             for (const cell of cells) {
                 const cellId = cell?.metadata?.id;
                 if (!cellId) continue;
                 let hasAvailable = false;
+                let hasMissing = false;
                 let hasDeleted = false;
                 const atts = cell?.metadata?.attachments || {};
                 for (const key of Object.keys(atts)) {
-                    const att = atts[key];
+                    const att: any = (atts as any)[key];
                     if (att && att.type === "audio") {
-                        if (att.isDeleted) hasDeleted = true; else hasAvailable = true;
+                        if (att.isDeleted) {
+                            hasDeleted = true;
+                        } else if (att.isMissing) {
+                            hasMissing = true;
+                        } else {
+                            hasAvailable = true;
+                        }
                     }
                 }
-                availability[cellId] = hasAvailable ? "available" : hasDeleted ? "deletedOnly" : "none";
+                availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
             }
 
             provider.postMessageToWebview(webviewPanel, {
                 type: "providerSendsAudioAttachments",
-                attachments: availability
+                attachments: availability as any,
             });
 
             debug("Audio attachment selected successfully");

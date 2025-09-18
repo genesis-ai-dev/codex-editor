@@ -503,21 +503,24 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 }
 
                 const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
-                const availability: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {};
+                const availability: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; } = {};
 
                 // Only update the specific cell that changed
                 const cell = cells.find((cell: any) => cell?.metadata?.id === cellId);
                 if (cell) {
                     let hasAvailable = false;
+                    let hasMissing = false;
                     let hasDeleted = false;
                     const atts = cell?.metadata?.attachments || {};
                     for (const key of Object.keys(atts)) {
-                        const att = atts[key];
+                        const att: any = atts[key];
                         if (att && att.type === "audio") {
-                            if (att.isDeleted) hasDeleted = true; else hasAvailable = true;
+                            if (att.isDeleted) hasDeleted = true;
+                            else if (att.isMissing) hasMissing = true;
+                            else hasAvailable = true;
                         }
                     }
-                    availability[cellId] = hasAvailable ? "available" : hasDeleted ? "deletedOnly" : "none";
+                    availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
 
                     // Send targeted update for this specific cell
                     safePostMessageToPanel(webviewPanel, {
@@ -3117,7 +3120,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 }
 
                 const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
-                const availability: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {};
+                const availability: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; } = {};
 
                 // Check audio availability for all cells
                 for (const cell of cells) {
@@ -3125,18 +3128,20 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     if (!cellId) continue;
 
                     let hasAvailable = false;
+                    let hasMissing = false;
                     let hasDeleted = false;
                     const atts = cell?.metadata?.attachments || {};
 
                     for (const key of Object.keys(atts)) {
-                        const att = atts[key];
+                        const att: any = atts[key];
                         if (att && att.type === "audio") {
                             if (att.isDeleted) hasDeleted = true;
+                            else if (att.isMissing) hasMissing = true;
                             else hasAvailable = true;
                         }
                     }
 
-                    availability[cellId] = hasAvailable ? "available" : hasDeleted ? "deletedOnly" : "none";
+                    availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
                 }
 
                 // Send updated audio attachments to webview
