@@ -6,31 +6,34 @@ import * as os from 'os';
 import { migrateAudioAttachments } from '../../utils/audioAttachmentsMigrationUtils';
 
 suite('Audio Attachments Restoration', () => {
-    const tmpProjectRoot = vscode.Uri.file(path.join(os.tmpdir(), `codex-audio-restore-${Date.now()}`));
-    const attachmentsRoot = vscode.Uri.joinPath(tmpProjectRoot, '.project', 'attachments');
-    const filesRoot = vscode.Uri.joinPath(attachmentsRoot, 'files');
-    const pointersRoot = vscode.Uri.joinPath(attachmentsRoot, 'pointers');
+    function makeWorkspace() {
+        const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const tmpProjectRoot = vscode.Uri.file(path.join(os.tmpdir(), `codex-audio-restore-${unique}`));
+        const attachmentsRoot = vscode.Uri.joinPath(tmpProjectRoot, '.project', 'attachments');
+        const filesRoot = vscode.Uri.joinPath(attachmentsRoot, 'files');
+        const pointersRoot = vscode.Uri.joinPath(attachmentsRoot, 'pointers');
+        const wsFolder: vscode.WorkspaceFolder = { uri: tmpProjectRoot, name: 'tmp-project', index: 0 };
+        return { tmpProjectRoot, filesRoot, pointersRoot, wsFolder };
+    }
 
-    const wsFolder: vscode.WorkspaceFolder = {
-        uri: tmpProjectRoot,
-        name: 'tmp-project',
-        index: 0,
-    };
-
-    setup(async () => {
-        await vscode.workspace.fs.createDirectory(filesRoot);
-        await vscode.workspace.fs.createDirectory(pointersRoot);
-    });
-
-    teardown(async () => {
-        try {
-            await vscode.workspace.fs.delete(tmpProjectRoot, { recursive: true });
-        } catch {
-            // ignore
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    async function waitForExists(uri: vscode.Uri, attempts = 10, delayMs = 25): Promise<void> {
+        for (let i = 0; i < attempts; i++) {
+            try {
+                await vscode.workspace.fs.stat(uri);
+                return;
+            } catch {
+                await sleep(delayMs);
+            }
         }
-    });
+        // Final attempt to throw
+        await vscode.workspace.fs.stat(uri);
+    }
 
     test('restores missing pointers for files present under files/', async () => {
+        const { tmpProjectRoot, filesRoot, pointersRoot, wsFolder } = makeWorkspace();
+        await vscode.workspace.fs.createDirectory(filesRoot);
+        await vscode.workspace.fs.createDirectory(pointersRoot);
         const bookFolder = 'JUD';
         const audioId = 'audio-12345-abcdefg.webm';
 
@@ -52,11 +55,18 @@ suite('Audio Attachments Restoration', () => {
         await migrateAudioAttachments(wsFolder);
 
         // Assert: pointer now exists with same size
+        await waitForExists(dstFile);
         const stat = await vscode.workspace.fs.stat(dstFile);
         assert.ok(stat.size >= 5, 'Restored pointer file should exist and have size');
+
+        // Cleanup
+        try { await vscode.workspace.fs.delete(tmpProjectRoot, { recursive: true }); } catch { /* ignore */ }
     });
 
     test('updates isMissing flags in .codex after restoration', async () => {
+        const { tmpProjectRoot, filesRoot, pointersRoot, wsFolder } = makeWorkspace();
+        await vscode.workspace.fs.createDirectory(filesRoot);
+        await vscode.workspace.fs.createDirectory(pointersRoot);
         const bookFolder = 'JUD';
         const audioId = 'audio-99999-xyz.webm';
         const filesDir = vscode.Uri.joinPath(filesRoot, bookFolder);
@@ -95,6 +105,7 @@ suite('Audio Attachments Restoration', () => {
         await migrateAudioAttachments(wsFolder);
 
         // Pointer should now exist
+        await waitForExists(dstFile);
         const dstStat = await vscode.workspace.fs.stat(dstFile);
         assert.ok(dstStat.size >= 3);
 
@@ -103,9 +114,15 @@ suite('Audio Attachments Restoration', () => {
         const parsed = JSON.parse(updated);
         const att = parsed.cells[0]?.metadata?.attachments?.[audioId.replace('.webm', '')];
         assert.strictEqual(att?.isMissing, false, 'Attachment should be marked not missing after pointer restoration');
+
+        // Cleanup
+        try { await vscode.workspace.fs.delete(tmpProjectRoot, { recursive: true }); } catch { /* ignore */ }
     });
 
     test('keeps isMissing=true when no file exists to restore', async () => {
+        const { tmpProjectRoot, filesRoot, pointersRoot, wsFolder } = makeWorkspace();
+        await vscode.workspace.fs.createDirectory(filesRoot);
+        await vscode.workspace.fs.createDirectory(pointersRoot);
         const bookFolder = 'JUD';
         const audioId = 'audio-00000-missing.webm';
         const targetDir = vscode.Uri.joinPath(tmpProjectRoot, 'files', 'target');
@@ -153,6 +170,9 @@ suite('Audio Attachments Restoration', () => {
         const parsed = JSON.parse(updated);
         const att = parsed.cells[0]?.metadata?.attachments?.[audioId.replace('.webm', '')];
         assert.strictEqual(att?.isMissing, true, 'Attachment should remain missing if no file bytes exist');
+
+        // Cleanup
+        try { await vscode.workspace.fs.delete(tmpProjectRoot, { recursive: true }); } catch { /* ignore */ }
     });
 });
 
