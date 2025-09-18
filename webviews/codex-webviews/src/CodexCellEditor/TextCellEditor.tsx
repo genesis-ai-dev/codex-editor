@@ -1458,6 +1458,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     command: "getAudioHistory",
                     content: { cellId: cellMarkers[0] },
                 });
+                // If no audio present locally (e.g., selection failed/was missing), request current audio
+                if (!audioBlob) {
+                    const msg: EditorPostMessages = {
+                        command: "requestAudioForCell",
+                        content: { cellId: cellMarkers[0] },
+                    };
+                    window.vscodeApi.postMessage(msg);
+                }
             }
 
             // Handle delete confirmation

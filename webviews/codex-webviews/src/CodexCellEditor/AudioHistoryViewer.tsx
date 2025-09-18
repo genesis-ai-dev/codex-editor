@@ -34,6 +34,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     const [errorIds, setErrorIds] = useState<Set<string>>(new Set());
     const [validatingIds, setValidatingIds] = useState<Set<string>>(new Set());
     const validatingIdsRef = useRef<Set<string>>(new Set());
+    const fetchCurrentOnCloseRef = useRef<boolean>(false);
     const [selectedAudioId, setSelectedAudioId] = useState<string | null>(null);
     const [hasExplicitSelection, setHasExplicitSelection] = useState<boolean>(false);
     const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map());
@@ -101,23 +102,23 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                 const isCurrentAudioFallback = !audioId;
                 
                 if (isCurrentAudioFallback && audioData) {
-                    // Fallback case: close history and switch to audio tab to play current audio
-                    console.log("Fallback to current audio - switching to audio tab");
-                    onClose();
-                    
-                    // Switch to audio tab and trigger play
-                    vscode.postMessage({
-                        command: "setPreferredEditorTab",
-                        content: { tab: "audio" }
-                    });
-                    
-                    // Store flag to auto-play when audio tab loads
-                    try {
-                        sessionStorage.setItem(`start-audio-playback-${cellId}`, "1");
-                    } catch (e) {
-                        console.warn("Could not set sessionStorage flag:", e);
+                    // Fallback case: only auto-close when there was a pending play request
+                    const hasPendingPlay = Array.from(pendingPlayRefs.current.values()).some(Boolean);
+                    if (hasPendingPlay) {
+                        console.log("Fallback to current audio - switching to audio tab and closing history");
+                        onClose();
+                        vscode.postMessage({
+                            command: "setPreferredEditorTab",
+                            content: { tab: "audio" }
+                        });
+                        try {
+                            sessionStorage.setItem(`start-audio-playback-${cellId}`, "1");
+                        } catch (e) {
+                            console.warn("Could not set sessionStorage flag:", e);
+                        }
+                        return;
                     }
-                    return;
+                    // Otherwise (e.g., selection validation fallback), do not close; editor will load audio
                 }
                 
                 if (audioId) {
@@ -195,6 +196,8 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                     next.delete(audioId);
                                     return next;
                                 });
+                                // Selection validation succeeded; do not force fallback on close
+                                fetchCurrentOnCloseRef.current = false;
                                 vscode.postMessage({
                                     command: "selectAudioAttachment",
                                     content: { cellId, audioId }
@@ -215,6 +218,8 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                 next.delete(audioId);
                                 return next;
                             });
+                            // Mark that we should request the current audio when the user closes history
+                            fetchCurrentOnCloseRef.current = true;
                         }
                     }
                     
@@ -232,6 +237,18 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
             }
         }
     }, [cellId, vscode]);
+
+    const handleClose = () => {
+        // If a selection failed due to missing file, request current audio so the editor shows waveform
+        if (fetchCurrentOnCloseRef.current) {
+            fetchCurrentOnCloseRef.current = false;
+            vscode.postMessage({
+                command: "requestAudioForCell",
+                content: { cellId }
+            });
+        }
+        onClose();
+    };
 
     // Clean up blob URLs and timers on unmount
     useEffect(() => {
@@ -428,7 +445,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                         Audio History for {cellId}
                     </h3>
                     <button
-                        onClick={onClose}
+                    onClick={handleClose}
                         style={{
                             background: "transparent",
                             border: "none",
@@ -564,6 +581,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             <Button
                                                 size="sm"
                                                 variant={isSelected ? "default" : "outline"}
+                                                className="transition-none"
                                                 onClick={() => handleSelectAudio(entry.attachmentId)}
                                                 disabled={isSelected || isValidating}
                                             >
@@ -574,7 +592,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                                 ) : (
                                                     <Circle className="h-4 w-4 mr-1" />
                                                 )}
-                                                {isSelected ? "Selected" : isValidating ? "Validating..." : "Select"}
+                                                {isSelected ? "Selected" : "Select"}
                                             </Button>
                                         )}
 
