@@ -11,13 +11,7 @@ async function runTests() {
         await test.runTests({
             extensionDevelopmentPath,
             extensionTestsPath,
-            launchArgs: [
-                // '--disable-extensions',
-                // '--disable-workspace-trust',
-                // '--no-sandbox',
-                // '--disable-gpu',
-                // '--disable-dev-shm-usage'
-            ],
+            launchArgs: [],
         });
     } catch (err) {
         console.error("Failed to run tests", err);

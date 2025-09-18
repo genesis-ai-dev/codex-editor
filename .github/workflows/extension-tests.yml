@@ -79,22 +79,11 @@ jobs:
 
             # Build is handled by npm pretest (compile + lint); no separate build step needed
 
-            # # Set up X server for Linux (VS Code needs display for tests)
-            # - name: Set up X server (Linux)
-            #   if: runner.os == 'Linux'
-            #   run: |
-            #       set -euo pipefail
-            #       export DISPLAY=:99
-            #       Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
-            #       sleep 3
-
             # On Linux, VS Code tests need an X server; run them under xvfb
             - name: Test (Linux)
               if: runner.os == 'Linux'
               env:
                   NODE_OPTIONS: --max_old_space_size=4096
-                  # DISPLAY: ":99"
-              # timeout-minutes: 15
               run: xvfb-run -a npm test
 
             # On macOS/Windows, just run tests
@@ -102,7 +91,6 @@ jobs:
               if: runner.os != 'Linux'
               env:
                   NODE_OPTIONS: --max_old_space_size=4096
-              # timeout-minutes: 15
               run: npm test
 
             # (Optional) Upload screenshots/logs/artifacts if your tests produce them
