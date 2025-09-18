@@ -126,6 +126,7 @@ interface CellEditorProps {
     footnoteOffset?: number;
     prevEndTime?: number;
     nextStartTime?: number;
+    audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" };
 }
 
 // Simple ISO-639-1 to ISO-639-3 mapping for common languages; default to 'eng'
@@ -225,6 +226,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     footnoteOffset = 1,
     prevEndTime,
     nextStartTime,
+    audioAttachments,
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
@@ -1119,15 +1121,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
     }, []);
 
     // Handle ASR config response
-    useMessageHandler(
-        "textCellEditor-asrConfig",
-        (event: MessageEvent) => {
-            const message = event.data;
-            if (message.type === "asrConfig") {
-                setAsrConfig(message.content);
-            }
+    useMessageHandler("textCellEditor-asrConfig", (event: MessageEvent) => {
+        const message = event.data;
+        if (message.type === "asrConfig") {
+            setAsrConfig(message.content);
         }
-    );
+    });
 
     const handleTranscribeAudio = async () => {
         if (!audioBlob) {
@@ -1142,8 +1141,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
         try {
             // Notify parent UI to show loading effect on this source cell
             try {
-                window.postMessage({ type: 'transcriptionState', content: { cellId: cellMarkers[0], inProgress: true } }, '*');
-            } catch { /* ignore */ }
+                window.postMessage(
+                    {
+                        type: "transcriptionState",
+                        content: { cellId: cellMarkers[0], inProgress: true },
+                    },
+                    "*"
+                );
+            } catch {
+                /* ignore */
+            }
             // Create transcription client using configured endpoint (fallback to legacy)
             const wsEndpoint =
                 asrConfig?.endpoint ||
@@ -1221,18 +1228,30 @@ const CellEditor: React.FC<CellEditorProps> = ({
             );
             try {
                 window.vscodeApi.postMessage({
-                    command: 'showErrorMessage',
-                    text: `Transcription failed for ${cellMarkers[0]}: ${error instanceof Error ? error.message : String(error)}`,
+                    command: "showErrorMessage",
+                    text: `Transcription failed for ${cellMarkers[0]}: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
                 });
-            } catch { /* ignore messaging errors */ }
+            } catch {
+                /* ignore messaging errors */
+            }
         } finally {
             setIsTranscribing(false);
             transcriptionClientRef.current = null;
 
             // Clear UI loading effect
             try {
-                window.postMessage({ type: 'transcriptionState', content: { cellId: cellMarkers[0], inProgress: false } }, '*');
-            } catch { /* ignore */ }
+                window.postMessage(
+                    {
+                        type: "transcriptionState",
+                        content: { cellId: cellMarkers[0], inProgress: false },
+                    },
+                    "*"
+                );
+            } catch {
+                /* ignore */
+            }
 
             // Clear status after a delay, but keep savedTranscription
             setTimeout(() => {
@@ -1300,6 +1319,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const preloadAudioForTab = useCallback(() => {
         // If we already have a freshly recorded blob, don't fetch again
         if (audioBlob) return;
+        // Skip requesting audio when we know there are no attachments for this cell
+        if (audioAttachments && audioAttachments[cellMarkers[0]] === "none") {
+            return;
+        }
         setAudioFetchPending(true);
         // Don't set loading until we know there is audio to load
         const messageContent: EditorPostMessages = {
@@ -1307,7 +1330,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             content: { cellId: cellMarkers[0] },
         };
         window.vscodeApi.postMessage(messageContent);
-    }, [cellMarkers, audioBlob]);
+    }, [cellMarkers, audioBlob, audioAttachments]);
 
     // Load existing audio when component mounts
     useEffect(() => {

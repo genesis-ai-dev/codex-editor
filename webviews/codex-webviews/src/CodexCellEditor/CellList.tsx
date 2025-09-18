@@ -263,7 +263,14 @@ const CellList: React.FC<CellListProps> = ({
             // Default: no translation state
             return null;
         },
-        [currentProcessingCellId, successfulCompletions, translationQueueSet, autocompleteQueueSet, isSourceText, transcribingCells]
+        [
+            currentProcessingCellId,
+            successfulCompletions,
+            translationQueueSet,
+            autocompleteQueueSet,
+            isSourceText,
+            transcribingCells,
+        ]
     );
 
     // Handle sparkle button click with throttling
@@ -743,6 +750,7 @@ const CellList: React.FC<CellListProps> = ({
                             saveError={saveError}
                             saveRetryCount={saveRetryCount}
                             footnoteOffset={calculateFootnoteOffset(i) + 1}
+                            audioAttachments={audioAttachments}
                         />
                     </span>
                 );

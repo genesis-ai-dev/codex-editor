@@ -1303,174 +1303,147 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             audioId: typedEvent.content.audioId,
             fileExtension: typedEvent.content.fileExtension
         });
-
-        const documentSegment = typedEvent.content.cellId.split(' ')[0];
-        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-        if (!workspaceFolder) {
-            throw new Error("No workspace folder found");
-        }
-
-        const pointersDir = path.join(
-            workspaceFolder.uri.fsPath,
-            ".project",
-            "attachments",
-            "pointers",
-            documentSegment
-        );
-        const filesDir = path.join(
-            workspaceFolder.uri.fsPath,
-            ".project",
-            "attachments",
-            "files",
-            documentSegment
-        );
-
-        await vscode.workspace.fs.createDirectory(vscode.Uri.file(pointersDir));
-        await vscode.workspace.fs.createDirectory(vscode.Uri.file(filesDir));
-
-        const fileName = `${typedEvent.content.audioId}.${typedEvent.content.fileExtension}`;
-        const pointersPath = path.join(pointersDir, fileName);
-        const filesPath = path.join(filesDir, fileName);
-
-        const base64Data = typedEvent.content.audioData.split(',')[1] || typedEvent.content.audioData;
-        const buffer = Buffer.from(base64Data, 'base64');
-
-        // Robust write-verify-commit flow with retries to avoid partial writes
-        // Keep the audio data in-memory until both destinations are confirmed written.
-        const pointersTempPath = `${pointersPath}.tmp`;
-        const filesTempPath = `${filesPath}.tmp`;
-
-        // Helper: verify file size matches buffer length
-        const verifyFileWrite = async (targetPath: string, expected: Buffer) => {
-            const uri = vscode.Uri.file(targetPath);
-            const stat = await vscode.workspace.fs.stat(uri);
-            if (stat.size !== expected.length) {
-                throw new Error(`Verification failed for ${targetPath}: size ${stat.size} != ${expected.length}`);
+        try {
+            const documentSegment = typedEvent.content.cellId.split(' ')[0];
+            const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+            if (!workspaceFolder) {
+                throw new Error("No workspace folder found");
             }
-        };
 
-        const cleanupTempAndFinals = async () => {
-            const safeDelete = (p: string, label: string) =>
-                Promise.resolve(vscode.workspace.fs.delete(vscode.Uri.file(p)))
-                    .catch((err: unknown) => debug(`Cleanup failed (${label}): ${String(err)}`));
-            await Promise.all([
-                safeDelete(pointersTempPath, "pointers temp"),
-                safeDelete(filesTempPath, "files temp"),
-                safeDelete(pointersPath, "pointers final"),
-                safeDelete(filesPath, "files final"),
-            ]);
-        };
+            // Basic input validation and normalization
+            const allowedExtensions = new Set(["webm", "wav", "mp3", "m4a", "ogg"]);
+            const sanitizedAudioId = String(typedEvent.content.audioId).replace(/[^a-zA-Z0-9._-]/g, "-");
+            const ext = (typedEvent.content.fileExtension || "webm").toLowerCase();
+            const safeExt = allowedExtensions.has(ext) ? ext : "webm";
 
-        const attemptSaveOnce = async () => {
-            // 1) Write to temp files in both destinations in parallel
-            await Promise.all([
-                vscode.workspace.fs.writeFile(vscode.Uri.file(pointersTempPath), buffer),
-                vscode.workspace.fs.writeFile(vscode.Uri.file(filesTempPath), buffer),
-            ]);
+            const base64Data = typedEvent.content.audioData.split(',')[1] || typedEvent.content.audioData;
+            const buffer = Buffer.from(base64Data, 'base64');
 
-            // 2) Verify both temp files were fully written
-            await Promise.all([
-                verifyFileWrite(pointersTempPath, buffer),
-                verifyFileWrite(filesTempPath, buffer),
-            ]);
+            if (!buffer || buffer.length === 0) {
+                throw new Error("Decoded audio is empty");
+            }
+            // Enforce a reasonable max size (e.g., 50 MB) to avoid runaway writes
+            const MAX_BYTES = 50 * 1024 * 1024;
+            if (buffer.length > MAX_BYTES) {
+                throw new Error("Audio exceeds maximum allowed size (50 MB)");
+            }
 
-            // 3) Atomically move temp files into place (overwrite if present) in parallel
-            await Promise.all([
-                vscode.workspace.fs.rename(vscode.Uri.file(pointersTempPath), vscode.Uri.file(pointersPath), { overwrite: true }),
-                vscode.workspace.fs.rename(vscode.Uri.file(filesTempPath), vscode.Uri.file(filesPath), { overwrite: true }),
-            ]);
-        };
+            const pointersDir = path.join(
+                workspaceFolder.uri.fsPath,
+                ".project",
+                "attachments",
+                "pointers",
+                documentSegment
+            );
+            const filesDir = path.join(
+                workspaceFolder.uri.fsPath,
+                ".project",
+                "attachments",
+                "files",
+                documentSegment
+            );
 
-        let saveSucceeded = false;
-        let lastError: any = null;
-        for (let attempt = 1; attempt <= 3; attempt++) {
+            await vscode.workspace.fs.createDirectory(vscode.Uri.file(pointersDir));
+            await vscode.workspace.fs.createDirectory(vscode.Uri.file(filesDir));
+
+            const fileName = `${sanitizedAudioId}.${safeExt}`;
+            const pointersPath = path.join(pointersDir, fileName);
+            const filesPath = path.join(filesDir, fileName);
+
+            // Atomic write helper (write to temp then rename)
+            const writeFileAtomically = async (finalFsPath: string, data: Uint8Array): Promise<void> => {
+                const tmpPath = `${finalFsPath}.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                const tmpUri = vscode.Uri.file(tmpPath);
+                const finalUri = vscode.Uri.file(finalFsPath);
+                await vscode.workspace.fs.writeFile(tmpUri, data);
+                await vscode.workspace.fs.rename(tmpUri, finalUri, { overwrite: true });
+                // Optional sanity check to ensure size matches
+                try {
+                    const stat = await vscode.workspace.fs.stat(finalUri);
+                    if (typeof stat.size === 'number' && stat.size !== data.length) {
+                        console.warn("Size mismatch after write for", finalFsPath, { expected: data.length, actual: stat.size });
+                    }
+                } catch {
+                    // ignore stat issues
+                }
+            };
+
+            // Write actual file (primary). Pointer write is best-effort.
+            await writeFileAtomically(filesPath, buffer);
             try {
-                await attemptSaveOnce();
-                saveSucceeded = true;
-                break;
-            } catch (e) {
-                lastError = e;
-                debug(`Audio attachment save attempt ${attempt} failed`, e);
-                await cleanupTempAndFinals();
-                if (attempt < 3) {
-                    // brief backoff before retrying
-                    await new Promise((r) => setTimeout(r, 200 * attempt));
+                await writeFileAtomically(pointersPath, buffer);
+            } catch (pointerErr) {
+                console.warn("Pointer write failed; proceeding with saved file only", pointerErr);
+            }
+
+            // Store the files path in metadata (not the pointer path) so we can directly read the actual file
+            const relativePath = toPosixPath(path.relative(workspaceFolder.uri.fsPath, filesPath));
+            await document.updateCellAttachment(typedEvent.content.cellId, sanitizedAudioId, {
+                url: relativePath,
+                type: "audio",
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                isDeleted: false,
+                // Persist optional metadata if provided by client
+                ...(typedEvent.content.metadata ? { metadata: typedEvent.content.metadata } : {}),
+            } as any);
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "audioAttachmentSaved",
+                content: {
+                    cellId: typedEvent.content.cellId,
+                    audioId: sanitizedAudioId,
+                    success: true
+                }
+            });
+
+            // Send targeted audio attachment update instead of full refresh to preserve tab state
+            const documentText = document.getText();
+            let notebookData: any = {};
+            if (documentText.trim().length > 0) {
+                try {
+                    notebookData = JSON.parse(documentText);
+                } catch {
+                    debug("Could not parse document as JSON for audio attachment update");
+                    notebookData = {};
                 }
             }
-        }
+            const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
+            const availability: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {};
 
-        if (!saveSucceeded) {
-            vscode.window.showErrorMessage(
-                `Failed to save audio attachment after 3 attempts. Please try again.\n${lastError instanceof Error ? lastError.message : String(lastError)}`
-            );
+            for (const cell of cells) {
+                const cellId = cell?.metadata?.id;
+                if (!cellId) continue;
+                let hasAvailable = false;
+                let hasDeleted = false;
+                const atts = cell?.metadata?.attachments || {};
+                for (const key of Object.keys(atts)) {
+                    const att = atts[key];
+                    if (att && att.type === "audio") {
+                        if (att.isDeleted) hasDeleted = true; else hasAvailable = true;
+                    }
+                }
+                availability[cellId] = hasAvailable ? "available" : hasDeleted ? "deletedOnly" : "none";
+            }
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsAudioAttachments",
+                attachments: availability
+            });
+
+            debug("Audio attachment saved successfully:", { pointersPath, filesPath });
+        } catch (error) {
+            console.error("Error saving audio attachment:", error);
             provider.postMessageToWebview(webviewPanel, {
                 type: "audioAttachmentSaved",
                 content: {
                     cellId: typedEvent.content.cellId,
                     audioId: typedEvent.content.audioId,
                     success: false,
-                    error: lastError instanceof Error ? lastError.message : String(lastError),
+                    error: error instanceof Error ? error.message : String(error)
                 }
             });
-            return;
         }
-
-        // Store the files path in metadata (not the pointer path) so we can directly read the actual file
-        const relativePath = toPosixPath(path.relative(workspaceFolder.uri.fsPath, filesPath));
-        await document.updateCellAttachment(typedEvent.content.cellId, typedEvent.content.audioId, {
-            url: relativePath,
-            type: "audio",
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-            isDeleted: false,
-            // Persist optional metadata if provided by client
-            ...(typedEvent.content.metadata ? { metadata: typedEvent.content.metadata } : {}),
-        } as any);
-
-        provider.postMessageToWebview(webviewPanel, {
-            type: "audioAttachmentSaved",
-            content: {
-                cellId: typedEvent.content.cellId,
-                audioId: typedEvent.content.audioId,
-                success: true
-            }
-        });
-
-        // Send targeted audio attachment update instead of full refresh to preserve tab state
-        const documentText = document.getText();
-        let notebookData: any = {};
-        if (documentText.trim().length > 0) {
-            try {
-                notebookData = JSON.parse(documentText);
-            } catch {
-                debug("Could not parse document as JSON for audio attachment update");
-                notebookData = {};
-            }
-        }
-        const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
-        const availability: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {};
-
-        for (const cell of cells) {
-            const cellId = cell?.metadata?.id;
-            if (!cellId) continue;
-            let hasAvailable = false;
-            let hasDeleted = false;
-            const atts = cell?.metadata?.attachments || {};
-            for (const key of Object.keys(atts)) {
-                const att = atts[key];
-                if (att && att.type === "audio") {
-                    if (att.isDeleted) hasDeleted = true; else hasAvailable = true;
-                }
-            }
-            availability[cellId] = hasAvailable ? "available" : hasDeleted ? "deletedOnly" : "none";
-        }
-
-        provider.postMessageToWebview(webviewPanel, {
-            type: "providerSendsAudioAttachments",
-            attachments: availability
-        });
-
-        debug("Audio attachment saved successfully:", { pointersPath, filesPath });
     },
 
     deleteAudioAttachment: async ({ event, document, webviewPanel, provider }) => {

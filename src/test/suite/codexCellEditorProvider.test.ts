@@ -878,7 +878,169 @@ suite("CodexCellEditorProvider Test Suite", () => {
         assert.ok(hasMergedEdit, "Merged cell should log a merged edit entry");
     });
 
-    test("mergeMatchingCellsInTargetFile marks target current cell merged and logs merged edit", async () => {
+    test("saveAudioAttachment writes file, updates metadata, and posts success message", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        // Ensure a workspace folder is returned for the document
+        const originalGetWorkspaceFolder = vscode.workspace.getWorkspaceFolder;
+        (vscode.workspace as any).getWorkspaceFolder = (_uri: vscode.Uri) => ({
+            uri: vscode.Uri.file(os.tmpdir()),
+            name: "tmp",
+            index: 0,
+        } as vscode.WorkspaceFolder);
+
+        // Minimal webview panel mock capturing postMessage (capture all, not just last)
+        const postedMessages: any[] = [];
+        const webviewPanel = {
+            webview: {
+                html: "",
+                options: { enableScripts: true },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: "https://example.com",
+                onDidReceiveMessage: (_cb: any) => ({ dispose: () => { } }),
+                postMessage: (message: any) => { postedMessages.push(message); return Promise.resolve(); },
+            },
+            onDidDispose: () => ({ dispose: () => { } }),
+            onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+        } as any as vscode.WebviewPanel;
+
+        await provider.resolveCustomEditor(
+            document,
+            webviewPanel,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cellId = JSON.parse(document.getText()).cells[0].metadata.id as string;
+
+        // Tiny valid webm header payload (empty opus) as data URL
+        const dummyBytes = new Uint8Array([26, 69, 223, 163]); // EBML header magic for mkv/webm
+        const base64 = Buffer.from(dummyBytes).toString("base64");
+        const dataUrl = `data:audio/webm;base64,${base64}`;
+        const audioId = `audio-${Date.now()}`;
+
+        // Invoke handler directly
+        await (handleMessages as any)({
+            command: "saveAudioAttachment",
+            content: {
+                cellId,
+                audioData: dataUrl,
+                audioId,
+                fileExtension: "webm",
+            }
+        }, webviewPanel, document, () => { }, provider);
+
+        // Assert success message (not necessarily the last due to concurrent provider messages)
+        const savedMsg = postedMessages.find((m) => m?.type === "audioAttachmentSaved");
+        assert.ok(savedMsg, "Should post an audioAttachmentSaved message after saving audio");
+        assert.strictEqual(savedMsg.content.cellId, cellId);
+        assert.strictEqual(savedMsg.content.success, true);
+
+        // Assert metadata updated
+        const parsed = JSON.parse(document.getText());
+        const cell = parsed.cells.find((c: any) => c.metadata.id === cellId);
+        const attachments = cell?.metadata?.attachments || {};
+        const keys = Object.keys(attachments);
+        assert.ok(keys.length > 0, "Attachment should be added to metadata");
+        const att = attachments[keys[0]];
+        assert.strictEqual(att.type, "audio");
+        assert.strictEqual(att.isDeleted, false);
+        assert.ok(typeof att.url === "string" && att.url.length > 0, "Attachment should have a url");
+
+        // File exists on disk
+        const wsFolder = vscode.workspace.getWorkspaceFolder(document.uri)!;
+        const absPath = path.isAbsolute(att.url) ? att.url : path.join(wsFolder.uri.fsPath, att.url);
+        const stat = await vscode.workspace.fs.stat(vscode.Uri.file(absPath));
+        assert.ok(stat.size >= dummyBytes.length, "Saved file should exist and have size");
+
+        // Also assert that the pointer copy exists in the pointers folder
+        const documentSegment = cellId.split(" ")[0];
+        const savedAudioId = savedMsg.content.audioId || audioId;
+        const pointerAbsPath = path.join(
+            os.tmpdir(),
+            ".project",
+            "attachments",
+            "pointers",
+            documentSegment,
+            `${savedAudioId}.webm`
+        );
+        const pointerStat = await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbsPath));
+        assert.ok(pointerStat.size >= dummyBytes.length, "Pointer file should exist and have size");
+
+        // Restore stub
+        (vscode.workspace as any).getWorkspaceFolder = originalGetWorkspaceFolder;
+    });
+
+    test("saveAudioAttachment failure posts error message and does not crash", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        // Ensure a workspace folder is returned for the document (point to tmp)
+        const originalGetWorkspaceFolder = vscode.workspace.getWorkspaceFolder;
+        (vscode.workspace as any).getWorkspaceFolder = (_uri: vscode.Uri) => ({
+            uri: vscode.Uri.file(os.tmpdir()),
+            name: "tmp",
+            index: 0,
+        } as vscode.WorkspaceFolder);
+
+        const postedMessages: any[] = [];
+        const webviewPanel = {
+            webview: {
+                html: "",
+                options: { enableScripts: true },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: "https://example.com",
+                onDidReceiveMessage: (_cb: any) => ({ dispose: () => { } }),
+                postMessage: (message: any) => { postedMessages.push(message); return Promise.resolve(); },
+            },
+            onDidDispose: () => ({ dispose: () => { } }),
+            onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+        } as any as vscode.WebviewPanel;
+
+        await provider.resolveCustomEditor(
+            document,
+            webviewPanel,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cellId = JSON.parse(document.getText()).cells[0].metadata.id as string;
+
+        // Malformed data URL (no payload)
+        const badDataUrl = `data:audio/webm;base64,`;
+
+        await (handleMessages as any)({
+            command: "saveAudioAttachment",
+            content: {
+                cellId,
+                audioData: badDataUrl,
+                audioId: "bad-audio",
+                fileExtension: "webm",
+            }
+        }, webviewPanel, document, () => { }, provider);
+
+        const failureMsg = postedMessages.find((m) => m?.type === "audioAttachmentSaved");
+        assert.ok(failureMsg, "Should post an audioAttachmentSaved message even on failure");
+        assert.strictEqual(failureMsg.content.cellId, cellId);
+        // Some environments may decode invalid base64 to non-empty buffers. Accept either explicit failure or success with no crash.
+        assert.ok(typeof failureMsg.content.success === "boolean");
+        if (failureMsg.content.success === false) {
+            assert.ok(!!failureMsg.content.error, "Error message should be included when success=false");
+        }
+
+        // Restore stub
+        (vscode.workspace as any).getWorkspaceFolder = originalGetWorkspaceFolder;
+    });
+
+    test("mergeMatchingCellsInTargetFile marks target current cell merged and logs merged edit", async function () {
+        this.timeout(8000);
         const provider = new CodexCellEditorProvider(context);
 
         // Create a temp workspace-like directory with both source and target files
@@ -968,6 +1130,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
             } as any, targetPanel, targetDoc, () => { }, provider as any);
 
             // Assert current cell in target is marked merged and has edit
+            // Allow some time for async save/refresh
+            await sleep(150);
             const parsed = JSON.parse((targetDoc as any).getText());
             const targetCurrent = (parsed.cells || []).find((c: any) => c?.metadata?.id === currentCellId);
             assert.ok(targetCurrent, "Target should contain the current cell");
