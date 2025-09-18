@@ -12,6 +12,7 @@ async function runTests() {
             extensionDevelopmentPath,
             extensionTestsPath,
             launchArgs: [],
+            // version: '1.90.0', // Use a more stable version
         });
     } catch (err) {
         console.error("Failed to run tests", err);
