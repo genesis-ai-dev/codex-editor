@@ -11,8 +11,13 @@ async function runTests() {
         await test.runTests({
             extensionDevelopmentPath,
             extensionTestsPath,
-            launchArgs: [],
-            // version: '1.90.0', // Use a more stable version
+            launchArgs: [
+                '--disable-extensions',
+                '--disable-workspace-trust',
+                '--no-sandbox',
+                '--disable-gpu',
+                '--disable-dev-shm-usage'
+            ],
         });
     } catch (err) {
         console.error("Failed to run tests", err);
