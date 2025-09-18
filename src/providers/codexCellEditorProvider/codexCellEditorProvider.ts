@@ -1632,9 +1632,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         return translationUnitsWithMergedRanges;
     }
 
-    public postMessageToWebview(webviewPanel: vscode.WebviewPanel, message: EditorReceiveMessages) {
-        debug("Posting message to webview:", message.type);
-        safePostMessageToPanel(webviewPanel, message);
+    public postMessageToWebview(webviewPanel: vscode.WebviewPanel, message: import("../../../types").WebviewMessage) {
+        try {
+            // Use safePostMessageToPanel wrapper to ensure we don't break webview with invalid messages
+            safePostMessageToPanel(webviewPanel, message);
+        } catch (error) {
+            console.error("Failed to post message to webview:", error);
+        }
     }
 
     public async refreshWebview(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument) {

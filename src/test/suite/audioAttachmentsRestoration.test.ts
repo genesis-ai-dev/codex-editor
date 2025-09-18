@@ -109,11 +109,12 @@ suite('Audio Attachments Restoration', () => {
         const dstStat = await vscode.workspace.fs.stat(dstFile);
         assert.ok(dstStat.size >= 3);
 
-        // Codex should have isMissing=false after update
+        // Codex should have isMissing=false after update and updatedAt bumped
         const updated = new TextDecoder().decode(await vscode.workspace.fs.readFile(codexFile));
         const parsed = JSON.parse(updated);
         const att = parsed.cells[0]?.metadata?.attachments?.[audioId.replace('.webm', '')];
         assert.strictEqual(att?.isMissing, false, 'Attachment should be marked not missing after pointer restoration');
+        assert.ok(typeof att?.updatedAt === 'number' && att.updatedAt > 0, 'Attachment should have updatedAt set');
 
         // Cleanup
         try { await vscode.workspace.fs.delete(tmpProjectRoot, { recursive: true }); } catch { /* ignore */ }
