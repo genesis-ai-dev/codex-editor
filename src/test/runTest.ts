@@ -12,11 +12,11 @@ async function runTests() {
             extensionDevelopmentPath,
             extensionTestsPath,
             launchArgs: [
-                '--disable-extensions',
-                '--disable-workspace-trust',
-                '--no-sandbox',
-                '--disable-gpu',
-                '--disable-dev-shm-usage'
+                // '--disable-extensions',
+                // '--disable-workspace-trust',
+                // '--no-sandbox',
+                // '--disable-gpu',
+                // '--disable-dev-shm-usage'
             ],
         });
     } catch (err) {

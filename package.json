@@ -1065,5 +1065,4 @@
     "extensionDependencies": [
         "project-accelerate.shared-state-store"
     ]
-
 }
