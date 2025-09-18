@@ -1511,8 +1511,7 @@ interface CodexItem {
     wordCount?: number;
     isEnabled?: boolean;
 }
-
-export type EditorReceiveMessages = (
+type EditorReceiveMessages =
     | {
         type: "providerSendsInitialContent";
         content: QuillCellContent[];
@@ -1521,64 +1520,296 @@ export type EditorReceiveMessages = (
         username?: string;
         validationCount?: number;
     }
-    | { type: "preferredEditorTab"; tab: "source" | "backtranslation" | "footnotes" | "timestamps" | "audio"; }
-    | { type: "providerAutocompletionState"; state: any; }
-    | { type: "providerSingleCellTranslationState"; state: any; }
-    | { type: "providerSingleCellQueueState"; state: any; }
-    | { type: "cellTranslationCompleted"; cellId: string; success: boolean; cancelled?: boolean; error?: string; }
-    | { type: "providerUpdatesCell"; content: any; }
-    | { type: "providerCompletesChapterAutocompletion"; content?: any; }
-    | { type: "autocompleteChapterStart"; cellIds: string[]; totalCells: number; }
-    | { type: "processingCell"; cellId: string; index: number; totalCells: number; }
-    | { type: "cellCompleted"; cellId: string; index: number; totalCells: number; }
-    | { type: "cellError"; cellId: string; index: number; totalCells: number; }
-    | { type: "autocompleteChapterComplete"; totalCells?: number; }
-    | { type: "providerSendsSpellCheckResponse"; content: any; }
-    | { type: "providerSendsgetAlertCodeResponse"; content: { [cellId: string]: number; }; }
+    | {
+        type: "preferredEditorTab";
+        tab:
+        | "source"
+        | "backtranslation"
+        | "footnotes"
+        | "timestamps"
+        | "audio";
+    }
+    | {
+        type: "providerAutocompletionState";
+        state: {
+            isProcessing: boolean;
+            totalCells: number;
+            completedCells: number;
+            currentCellId?: string;
+            cellsToProcess: string[];
+            progress: number;
+        };
+    }
+    | {
+        type: "providerSingleCellTranslationState";
+        state: {
+            isProcessing: boolean;
+            cellId?: string;
+            progress: number;
+        };
+    }
+    | {
+        type: "providerSingleCellQueueState";
+        state: {
+            isProcessing: boolean;
+            totalCells: number;
+            completedCells: number;
+            currentCellId?: string;
+            cellsToProcess: string[];
+            progress: number;
+        };
+    }
+    | {
+        type: "cellTranslationCompleted";
+        cellId: string;
+        success: boolean;
+        cancelled?: boolean;
+        error?: string;
+    }
+    | {
+        type: "providerUpdatesCell";
+        content: {
+            cellId: string;
+            progress: number;
+            completedCells?: number;
+            totalCells?: number;
+            text?: string;
+        };
+    }
+    | {
+        type: "providerCompletesChapterAutocompletion";
+        content?: {
+            progress?: number;
+            completedCells?: number;
+            totalCells?: number;
+        };
+    }
+    | {
+        type: "autocompleteChapterStart";
+        cellIds: string[];
+        totalCells: number;
+    }
+    | {
+        type: "processingCell";
+        cellId: string;
+        index: number;
+        totalCells: number;
+    }
+    | {
+        type: "cellCompleted";
+        cellId: string;
+        index: number;
+        totalCells: number;
+    }
+    | {
+        type: "cellError";
+        cellId: string;
+        index: number;
+        totalCells: number;
+    }
+    | {
+        type: "autocompleteChapterComplete";
+        totalCells?: number;
+    }
+    | { type: "providerSendsSpellCheckResponse"; content: SpellCheckResponse; }
+    | {
+        type: "providerSendsgetAlertCodeResponse";
+        content: { [cellId: string]: number; };
+    }
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl"; }
-    | { type: "providerSendsLLMCompletionResponse"; content: any; }
+    | { type: "providerSendsLLMCompletionResponse"; content: { completion: string; cellId: string; }; }
+    | { type: "providerSendsABTestVariants"; content: { variants: string[]; cellId: string; testId: string; testName?: string; names?: string[]; winRates?: Record<string, { wins: number; total: number; winRate: number; }>; abProbability?: number; }; }
     | { type: "abTestingProbabilityUpdated"; content: { value: number; }; }
     | { type: "jumpToSection"; content: string; }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }
-    | { type: "commentsForCell"; content: { cellId: string; unresolvedCount: number; }; }
-    | { type: "commentsForCells"; content: { [cellId: string]: number; }; }
+    | {
+        type: "commentsForCell";
+        content: {
+            cellId: string;
+            unresolvedCount: number;
+        };
+    }
+    | {
+        type: "commentsForCells";
+        content: {
+            [cellId: string]: number; // cellId -> unresolvedCount
+        };
+    }
     | { type: "providerSendsPromptedEditResponse"; content: string; }
-    | { type: "providerSendsSimilarCellIdsResponse"; content: Array<{ cellId: string; score: number; }>; }
+    | { type: "providerSendsSimilarCellIdsResponse"; content: { cellId: string; score: number; }[]; }
     | { type: "providerSendsTopPrompts"; content: Array<{ prompt: string; isPinned: boolean; }>; }
     | { type: "providerSendsSourceText"; content: string; }
-    | { type: "providerSendsBacktranslation"; content: any; }
-    | { type: "providerSendsUpdatedBacktranslation"; content: any; }
-    | { type: "providerSendsExistingBacktranslation"; content: any; }
-    | { type: "singleCellTranslationStarted"; cellId: string; }
-    | { type: "singleCellTranslationProgress"; progress: number; cellId: string; }
-    | { type: "singleCellTranslationCompleted"; cellId: string; }
-    | { type: "singleCellTranslationFailed"; cellId: string; error: string; }
+    | {
+        type: "providerSendsBacktranslation";
+        content: SavedBacktranslation | null;
+    }
+    | {
+        type: "providerSendsUpdatedBacktranslation";
+        content: SavedBacktranslation | null;
+    }
+    | {
+        type: "providerSendsExistingBacktranslation";
+        content: SavedBacktranslation | null;
+    }
+    | {
+        type: "singleCellTranslationStarted";
+        cellId: string;
+    }
+    | {
+        type: "singleCellTranslationProgress";
+        progress: number;
+        cellId: string;
+    }
+    | {
+        type: "singleCellTranslationCompleted";
+        cellId: string;
+    }
+    | {
+        type: "singleCellTranslationFailed";
+        cellId: string;
+        error: string;
+    }
     | { type: "refreshFontSizes"; }
     | { type: "refreshMetadata"; }
-    | { type: "asrConfig"; content: any; }
-    | { type: "startBatchTranscription"; content: any; }
-    | { type: "providerConfirmsBacktranslationSet"; content: any; }
+    | { type: "asrConfig"; content: { endpoint: string; provider: string; model: string; language: string; phonetic: boolean; }; }
+    | { type: "startBatchTranscription"; content: { count: number; }; }
+    | {
+        type: "providerConfirmsBacktranslationSet";
+        content: SavedBacktranslation | null;
+    }
     | { type: "currentUsername"; content: { username: string; }; }
     | { type: "validationCount"; content: number; }
     | { type: "configurationChanged"; }
-    | { type: "validationInProgress"; content: { cellId: string; inProgress: boolean; error?: string; }; }
-    | { type: "pendingValidationCleared"; content: { cellIds: string[]; }; }
-    | { type: "pendingValidationsUpdate"; content: { count: number; hasPending: boolean; }; }
+    | {
+        type: "validationInProgress";
+        content: {
+            cellId: string;
+            inProgress: boolean;
+            error?: string;
+        };
+    }
+    | {
+        type: "pendingValidationCleared";
+        content: {
+            cellIds: string[];
+        };
+    }
+    | {
+        type: "pendingValidationsUpdate";
+        content: {
+            count: number;
+            hasPending: boolean;
+        };
+    }
     | { type: "setChapterNumber"; content: number; }
-    | { type: "footnoteStored"; content: { cellId: string; footnoteId?: string; content?: string; position?: number; deleteFootnote?: string; }; }
-    | { type: "updateFileStatus"; status: "dirty" | "syncing" | "synced" | "none"; }
-    | { type: "editorPosition"; position: "leftmost" | "rightmost" | "center" | "single" | "unknown"; }
-    | { type: "setBibleBookMap"; data: [string, { [key: string]: any; name: string; }][]; }
-    | { type: "providerSendsAudioAttachments"; attachments: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; }; }
-    | { type: "providerSendsAudioData"; content: any; }
-    | { type: "correctionEditorModeChanged"; enabled: boolean; }
-    | { type: "audioAttachmentSaved"; content: any; }
-    | { type: "audioAttachmentDeleted"; content: any; }
-    | { type: "audioHistoryReceived"; content: any; }
-    | { type: "audioAttachmentRestored"; content: any; }
-    | { type: "audioAttachmentSelected"; content: any; }
-    | { type: "refreshCommentCounts"; timestamp: string; }
-);
-
-export type WebviewMessage = EditorReceiveMessages;
+    | {
+        type: "providerUpdatesValidationState";
+        content: {
+            cellId: string;
+            validatedBy: ValidationEntry[];
+        };
+    }
+    | {
+        type: "footnoteStored";
+        content: {
+            cellId: string;
+            footnoteId?: string;
+            content?: string;
+            position?: number;
+            deleteFootnote?: string;
+        };
+    }
+    | {
+        type: "updateFileStatus";
+        status: "dirty" | "syncing" | "synced" | "none";
+    }
+    | {
+        type: "editorPosition";
+        position: "leftmost" | "rightmost" | "center" | "single" | "unknown";
+    }
+    | {
+        type: "setBibleBookMap";
+        data: [string, { [key: string]: any; name: string; }][];
+    }
+    | {
+        type: "providerSendsAudioAttachments";
+        attachments: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; };
+    }
+    | {
+        type: "providerSendsAudioData";
+        content: {
+            cellId: string;
+            audioId: string;
+            audioUrl?: string; // URL to access the audio file
+            audioData?: string; // base64 data if needed
+            transcription?: {
+                content: string;
+                timestamp: number;
+                language?: string;
+            };
+            fileModified?: number; // File modification timestamp for cache validation
+        };
+    }
+    | {
+        type: "correctionEditorModeChanged";
+        enabled: boolean;
+    }
+    | {
+        type: "audioAttachmentSaved";
+        content: {
+            cellId: string;
+            audioId: string;
+            success: boolean;
+            error?: string;
+        };
+    }
+    | {
+        type: "audioAttachmentDeleted";
+        content: {
+            cellId: string;
+            audioId: string;
+            success: boolean;
+            error?: string;
+        };
+    }
+    | {
+        type: "audioHistoryReceived";
+        content: {
+            cellId: string;
+            audioHistory: Array<{
+                attachmentId: string;
+                attachment: {
+                    url: string;
+                    type: string;
+                    createdAt: number;
+                    updatedAt: number;
+                    isDeleted: boolean;
+                };
+            }>;
+            currentAttachmentId: string | null; // The ID of the currently selected/active attachment
+            hasExplicitSelection: boolean; // Whether user made explicit selection vs automatic behavior
+        };
+    }
+    | {
+        type: "audioAttachmentRestored";
+        content: {
+            cellId: string;
+            audioId: string;
+            success: boolean;
+            error?: string;
+        };
+    }
+    | {
+        type: "audioAttachmentSelected";
+        content: {
+            cellId: string;
+            audioId: string;
+            success: boolean;
+            error?: string;
+        };
+    }
+    | {
+        type: "refreshCommentCounts";
+        timestamp: string;
+    };
