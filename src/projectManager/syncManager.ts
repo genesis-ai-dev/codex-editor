@@ -8,6 +8,7 @@ import { updateSplashScreenSync } from "../providers/SplashScreen/register";
 import git from "isomorphic-git";
 import fs from "fs";
 import http from "isomorphic-git/http/web";
+import { getFrontierVersionStatus } from "./utils/versionChecks";
 import { BookCompletionData } from "../progressReporting/progressReportingService";
 import { ProgressReportingService, registerProgressReportingCommands } from "../progressReporting/progressReportingService";
 import { CommentsMigrator } from "../utils/commentsMigrationUtils";
@@ -245,7 +246,16 @@ export class SyncManager {
             return;
         }
 
-        // Proceed without extension version checks against metadata
+        // Enforce Frontier version requirement for sync operations (Git LFS safety gate)
+        const versionStatus = await getFrontierVersionStatus();
+        if (!versionStatus.ok) { // ${versionStatus.installedVersion}
+            debug("Frontier version requirement not met. Blocking sync operation.");
+            const details = versionStatus.installedVersion
+                ? `Frontier Authentication version ${versionStatus.requiredVersion} or newer is required to sync.`
+                : `Frontier Authentication not found. Version ${versionStatus.requiredVersion} or newer is required to sync.`;
+            await vscode.window.showWarningMessage(details, { modal: true });
+            return;
+        }
 
         // Set sync in progress flag and show immediate feedback
         this.clearPendingSync();

@@ -304,6 +304,22 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         stepStart = trackTiming("Connecting Authentication Service", authStart);
 
+        // Update git configuration files after Frontier auth is connected
+        // This ensures .gitignore and .gitattributes are current when extension starts
+        const gitConfigStart = globalThis.performance.now();
+        if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+            try {
+                // Import and run git config update (only if we have a workspace)
+                const { ensureGitConfigsAreUpToDate } = await import("./projectManager/utils/projectUtils");
+                await ensureGitConfigsAreUpToDate();
+                console.log("[Extension] Git configuration files updated on startup");
+            } catch (error) {
+                console.error("[Extension] Error updating git config files on startup:", error);
+                // Don't fail startup due to git config update errors
+            }
+        }
+        stepStart = trackTiming("Updating Git Configuration", gitConfigStart);
+
         // Run independent initialization steps in parallel (excluding auth which is needed by startup flow)
         const parallelInitStart = globalThis.performance.now();
         await Promise.all([
