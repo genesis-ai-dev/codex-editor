@@ -10,6 +10,7 @@ import {
     User,
     CheckCircle,
     Circle,
+    XCircle,
 } from "lucide-react";
 import { WebviewApi } from "vscode-webview";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
@@ -626,10 +627,24 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             ) : hasError ? (
                                                 <span
                                                     style={{
-                                                        color: "var(--vscode-errorForeground)",
+                                                        position: "relative",
+                                                        display: "inline-flex",
+                                                        alignItems: "center",
+                                                        justifyContent: "center",
                                                     }}
+                                                    title="File missing"
                                                 >
-                                                    File Missing
+                                                    <Play className="h-4 w-4 mr-1" />
+                                                    <XCircle
+                                                        className="h-3 w-3"
+                                                        style={{
+                                                            position: "absolute",
+                                                            right: -2,
+                                                            top: -4,
+                                                            color: "var(--vscode-errorForeground)",
+                                                        }}
+                                                    />
+                                                    Play
                                                 </span>
                                             ) : isPlaying ? (
                                                 <>

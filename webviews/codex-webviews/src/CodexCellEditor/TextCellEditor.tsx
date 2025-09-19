@@ -1494,6 +1494,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 message.type === "audioAttachmentRestored" &&
                 message.content.cellId === cellMarkers[0]
             ) {
+                // Mark that the next history response should auto-close the modal once
+                (window as any).__codexAutoCloseHistoryOnce = true;
                 // Refresh audio history after restore
                 window.vscodeApi.postMessage({
                     command: "getAudioHistory",
@@ -1519,10 +1521,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                 // If we just restored an audio (previously none loaded),
                 // auto-close history and request the current audio so the waveform appears
-                const hasAvailable = history.some(
-                    (h: any) => !h.attachment?.isDeleted && !h.attachment?.isMissing
-                );
-                if (hasAvailable && !audioBlob) {
+                const hasAvailable = history.some((h: any) => !h.attachment?.isDeleted);
+                if (hasAvailable && !audioBlob && (window as any).__codexAutoCloseHistoryOnce) {
+                    (window as any).__codexAutoCloseHistoryOnce = false;
                     setShowAudioHistory(false);
                     const messageContent: EditorPostMessages = {
                         command: "requestAudioForCell",
