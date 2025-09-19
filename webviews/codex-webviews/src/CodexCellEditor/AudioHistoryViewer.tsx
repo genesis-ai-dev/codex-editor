@@ -10,6 +10,7 @@ import {
     User,
     CheckCircle,
     Circle,
+    XCircle,
 } from "lucide-react";
 import { WebviewApi } from "vscode-webview";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
@@ -45,6 +46,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     const [errorIds, setErrorIds] = useState<Set<string>>(new Set());
     const [validatingIds, setValidatingIds] = useState<Set<string>>(new Set());
     const validatingIdsRef = useRef<Set<string>>(new Set());
+    const fetchCurrentOnCloseRef = useRef<boolean>(false);
     const [selectedAudioId, setSelectedAudioId] = useState<string | null>(null);
     const [hasExplicitSelection, setHasExplicitSelection] = useState<boolean>(false);
     const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map());
@@ -135,8 +137,23 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
             if (message.type === "providerSendsAudioData") {
                 const { cellId: audioCellId, audioId, audioData } = message.content;
                 if (audioCellId === cellId) {
-                    // Ignore any current-audio fallback in history view; we only handle specific IDs here
-                    if (!audioId) return;
+                    // Handle current-audio fallback (no specific audioId)
+                    if (!audioId) {
+                        if (audioData) {
+                            const hasPendingPlay = Array.from(pendingPlayRefs.current.values()).some(Boolean);
+                            if (hasPendingPlay) {
+                                onClose();
+                                vscode.postMessage({
+                                    command: "setPreferredEditorTab",
+                                    content: { tab: "audio" },
+                                });
+                                try {
+                                    sessionStorage.setItem(`start-audio-playback-${cellId}`, "1");
+                                } catch {}
+                            }
+                        }
+                        return;
+                    }
 
                     // Normal case with specific audioId
                     // Clear loading state regardless of whether audio data was found
@@ -176,11 +193,9 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                 setAudioUrls((prev) => new Map(prev).set(audioId, blobUrl));
 
                                 // Auto-play if there was a pending play request
-                                const hadPendingPlayForThisAudio =
-                                    pendingPlayRefs.current.get(audioId);
+                                const hadPendingPlayForThisAudio = pendingPlayRefs.current.get(audioId);
                                 if (hadPendingPlayForThisAudio) {
                                     pendingPlayRefs.current.set(audioId, false); // Clear the pending flag
-                                    // Auto-play the audio
                                     try {
                                         let audio = audioRefs.current.get(audioId);
                                         if (!audio) {
@@ -196,12 +211,9 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                         audio
                                             .play()
                                             .then(() => setPlayingId(audioId))
-                                            .catch((error) => {
-                                                console.error("Error auto-playing audio:", error);
-                                                setPlayingId(null);
-                                            });
-                                    } catch (error) {
-                                        console.error("Error handling auto-play:", error);
+                                            .catch(() => setPlayingId(null));
+                                    } catch {
+                                        setPlayingId(null);
                                     }
                                 }
 
@@ -213,6 +225,8 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                         next.delete(audioId);
                                         return next;
                                     });
+                                    // Selection succeeded; do not force fallback on close
+                                    fetchCurrentOnCloseRef.current = false;
                                     vscode.postMessage({
                                         command: "selectAudioAttachment",
                                         content: { cellId, audioId },
@@ -221,19 +235,18 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                             })
                             .catch(console.error);
                     } else {
-                        // No audio data found - set error state and try fallback
-                        console.warn("No audio data found for audioId:", audioId);
+                        // No audio data found - set error state
                         setErrorIds((prev) => new Set(prev).add(audioId));
                         // Clear any in-progress validation for this audioId
-                        if (audioId) {
-                            if (validatingIdsRef.current.has(audioId)) {
-                                validatingIdsRef.current.delete(audioId);
-                                setValidatingIds((prev) => {
-                                    const next = new Set(prev);
-                                    next.delete(audioId);
-                                    return next;
-                                });
-                            }
+                        if (validatingIdsRef.current.has(audioId)) {
+                            validatingIdsRef.current.delete(audioId);
+                            setValidatingIds((prev) => {
+                                const next = new Set(prev);
+                                next.delete(audioId);
+                                return next;
+                            });
+                            // Mark that we should request the current audio when the user closes history
+                            fetchCurrentOnCloseRef.current = true;
                         }
                     }
                 }
@@ -241,6 +254,18 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
         },
         [cellId, vscode]
     );
+
+    const handleClose = () => {
+        // If a selection failed due to missing file, request current audio so the editor shows waveform
+        if (fetchCurrentOnCloseRef.current) {
+            fetchCurrentOnCloseRef.current = false;
+            vscode.postMessage({
+                command: "requestAudioForCell",
+                content: { cellId }
+            });
+        }
+        onClose();
+    };
 
     // Clean up blob URLs and timers on unmount
     useEffect(() => {
@@ -443,7 +468,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                         Audio History for {cellId}
                     </h3>
                     <button
-                        onClick={onClose}
+                    onClick={handleClose}
                         style={{
                             background: "transparent",
                             border: "none",
@@ -602,10 +627,24 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             ) : hasError ? (
                                                 <span
                                                     style={{
-                                                        color: "var(--vscode-errorForeground)",
+                                                        position: "relative",
+                                                        display: "inline-flex",
+                                                        alignItems: "center",
+                                                        justifyContent: "center",
                                                     }}
+                                                    title="File missing"
                                                 >
-                                                    File Missing
+                                                    <Play className="h-4 w-4 mr-1" />
+                                                    <XCircle
+                                                        className="h-3 w-3"
+                                                        style={{
+                                                            position: "absolute",
+                                                            right: -2,
+                                                            top: -4,
+                                                            color: "var(--vscode-errorForeground)",
+                                                        }}
+                                                    />
+                                                    Play
                                                 </span>
                                             ) : isPlaying ? (
                                                 <>
@@ -624,9 +663,8 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             <Button
                                                 size="sm"
                                                 variant={isSelected ? "default" : "outline"}
-                                                onClick={() =>
-                                                    handleSelectAudio(entry.attachmentId)
-                                                }
+                                                className="transition-none"
+                                                onClick={() => handleSelectAudio(entry.attachmentId)}
                                                 disabled={isSelected || isValidating}
                                             >
                                                 {isSelected ? (

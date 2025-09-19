@@ -585,6 +585,19 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         }
     });
 
+    // Register event listener for Frontier Authentication extension changes
+    const onDidChangeExtensionsListener = vscode.extensions.onDidChange(() => {
+        // Check if Frontier Authentication extension changed and update git config files
+        const frontierExt = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
+        if (frontierExt && vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+            ensureGitConfigsAreUpToDate().then(() => {
+                console.log("[ProjectManager] Git configuration files updated after Frontier extension change");
+            }).catch(error => {
+                console.error("[ProjectManager] Error updating git config files after Frontier change:", error);
+            });
+        }
+    });
+
     // Register commands and event listeners
     context.subscriptions.push(
         openAutoSaveSettingsCommand,
@@ -611,6 +624,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         updateGitignoreCommand,
         changeUserEmailCommand,
         onDidChangeConfigurationListener,
+        onDidChangeExtensionsListener,
         toggleSpellcheckCommand
     );
 

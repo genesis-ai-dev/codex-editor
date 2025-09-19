@@ -1639,9 +1639,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
             attachmentId,
         });
 
-        // Mark as dirty and notify webview only (avoid triggering full AI learning)
+        // Mark as dirty and notify VS Code (so the file is persisted) and the webview
         this._isDirty = true;
-        this._onDidChangeForWebview.fire({
+        this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
 
@@ -1689,9 +1689,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
             audioId,
         });
 
-        // Mark as dirty and notify webview only (avoid triggering full AI learning)
+        // Mark as dirty and notify VS Code (so the file is persisted) and the webview
         this._isDirty = true;
-        this._onDidChangeForWebview.fire({
+        this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
 

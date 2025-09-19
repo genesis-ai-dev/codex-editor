@@ -23,6 +23,8 @@ const debug = DEBUG ? (...args: any[]) => console.log("[ProjectUtils]", ...args)
 let syncDisabled = false;
 const SYNC_DISABLE_TIMEOUT = 2000; // 2 seconds
 
+// (Frontier version check moved to utils/versionChecks and enforced at sync time)
+
 /**
  * Temporarily disables synchronization from metadata to config
  * to prevent race conditions during direct updates
@@ -1093,25 +1095,9 @@ async function getGitOriginUrl(projectPath: string): Promise<string | undefined>
 export { stageAndCommitAllAndSync };
 
 /**
- * Ensures that the project has an up-to-date .gitignore file
- * Rewrites the .gitignore file if it doesn't match the standard content exactly
+ * Internal helper to update .gitignore file without version checking
  */
-export async function ensureGitignoreIsUpToDate(skipVersionCheck: boolean = false): Promise<void> {
-    // Verify Frontier Authentication extension version before proceeding (unless skipped by caller)
-    if (!skipVersionCheck) {
-        const requiredFrontierVersion = "0.4.13";
-        const frontierExt = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
-        const installedVersion: string | undefined = (frontierExt as any)?.packageJSON?.version;
-        if (!installedVersion || !semver.gte(installedVersion, requiredFrontierVersion)) {
-            const msg = installedVersion
-                ? `Frontier Authentication extension ${installedVersion} detected. Version ${requiredFrontierVersion} or newer is required before updating .gitignore.`
-                : `Frontier Authentication extension not found. Version ${requiredFrontierVersion} or newer is required before updating .gitignore.`;
-            console.warn(msg);
-            vscode.window.showWarningMessage(msg);
-            return;
-        }
-    }
-
+async function updateGitignoreFile(): Promise<void> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
         console.error("No workspace folder found.");
@@ -1171,7 +1157,7 @@ export async function ensureGitignoreIsUpToDate(skipVersionCheck: boolean = fals
         ".DS_Store",
         ".project/attachments/files/**",
     ].join("\n");
-    // NOTE: we are ignoring the files dir in attachments because we also have a  pointers folder in the attachments dir. 
+    // NOTE: we are ignoring the files dir in attachments because we also have a  pointers folder in the attachments dir.
     // the pointers folder will be used to store the pointers to the files in the files dir.
 
     let existingContent = "";
@@ -1208,26 +1194,15 @@ export async function ensureGitignoreIsUpToDate(skipVersionCheck: boolean = fals
     }
 }
 
-/**
- * Ensures that the project has an up-to-date .gitattributes file
- * Rewrites the .gitattributes file if it doesn't match the standard content exactly
- */
-export async function ensureGitattributesIsUpToDate(skipVersionCheck: boolean = false): Promise<void> {
-    // Verify Frontier Authentication extension version before proceeding (unless skipped by caller)
-    if (!skipVersionCheck) {
-        const requiredFrontierVersion = "0.4.13";
-        const frontierExt = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
-        const installedVersion: string | undefined = (frontierExt as any)?.packageJSON?.version;
-        if (!installedVersion || !semver.gte(installedVersion, requiredFrontierVersion)) {
-            const msg = installedVersion
-                ? `Frontier Authentication extension ${installedVersion} detected. Version ${requiredFrontierVersion} or newer is required before updating .gitattributes.`
-                : `Frontier Authentication extension not found. Version ${requiredFrontierVersion} or newer is required before updating .gitattributes.`;
-            console.warn(msg);
-            vscode.window.showWarningMessage(msg);
-            return;
-        }
-    }
+export async function ensureGitignoreIsUpToDate(): Promise<void> {
+    // .gitignore is part of codebase - always allow updates
+    await updateGitignoreFile();
+}
 
+/**
+ * Internal helper to update .gitattributes file without version checking
+ */
+async function updateGitattributesFile(): Promise<void> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
         console.error("No workspace folder found.");
@@ -1290,23 +1265,17 @@ export async function ensureGitattributesIsUpToDate(skipVersionCheck: boolean = 
     }
 }
 
+export async function ensureGitattributesIsUpToDate(): Promise<void> {
+    // .gitattributes is part of codebase - always allow updates
+    await updateGitattributesFile();
+}
+
 /**
  * Ensures both .gitignore and .gitattributes are present and up-to-date
- * Performs a single version check and then updates both files
+ * Git configuration files are always updated regardless of extension version
  */
 export async function ensureGitConfigsAreUpToDate(): Promise<void> {
-    const requiredFrontierVersion = "0.4.13";
-    const frontierExt = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
-    const installedVersion: string | undefined = (frontierExt as any)?.packageJSON?.version;
-    if (!installedVersion || !semver.gte(installedVersion, requiredFrontierVersion)) {
-        const msg = installedVersion
-            ? `Frontier Authentication extension ${installedVersion} detected. Version ${requiredFrontierVersion} or newer is required before updating git configuration files.`
-            : `Frontier Authentication extension not found. Version ${requiredFrontierVersion} or newer is required before updating git configuration files.`;
-        console.warn(msg);
-        vscode.window.showWarningMessage(msg);
-        return;
-    }
-
-    await ensureGitignoreIsUpToDate(true);
-    await ensureGitattributesIsUpToDate(true);
+    // Git config files are part of codebase - always allow updates
+    await updateGitignoreFile();
+    await updateGitattributesFile();
 }

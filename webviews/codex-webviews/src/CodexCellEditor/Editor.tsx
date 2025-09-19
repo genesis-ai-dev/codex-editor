@@ -943,8 +943,11 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
         const quill = quillRef.current;
 
-        // Preserve cursor position before processing
-        const currentSelection = quill.getSelection();
+        // Preserve cursor position before processing (guard for test stubs)
+        const currentSelection =
+            typeof (quill as any).getSelection === "function"
+                ? (quill as any).getSelection()
+                : null;
 
         // Use the proper HTML processing utility for consistent behavior
         const processedHtml = processHtmlContent(quill.root.innerHTML);
@@ -960,10 +963,10 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         quill.update();
 
         // Restore cursor position after processing
-        if (currentSelection) {
+        if (currentSelection && typeof (quill as any).setSelection === "function") {
             const textLength = quill.getLength();
             const safePosition = Math.min(Math.max(0, currentSelection.index), textLength - 1);
-            quill.setSelection(safePosition, 0);
+            (quill as any).setSelection(safePosition, 0);
         }
 
         // Emit a content change event to ensure everything is synchronized
