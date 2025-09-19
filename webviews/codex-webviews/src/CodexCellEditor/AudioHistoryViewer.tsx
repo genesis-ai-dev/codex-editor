@@ -11,6 +11,7 @@ import {
     CheckCircle,
     Circle,
     XCircle,
+    X,
 } from "lucide-react";
 import { WebviewApi } from "vscode-webview";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
@@ -467,18 +468,15 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                     <h3 style={{ margin: 0, color: "var(--vscode-editor-foreground)" }}>
                         Audio History for {cellId}
                     </h3>
-                    <button
-                    onClick={handleClose}
-                        style={{
-                            background: "transparent",
-                            border: "none",
-                            cursor: "pointer",
-                            color: "var(--vscode-editor-foreground)",
-                            fontSize: "18px",
-                        }}
+                    <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={handleClose}
+                        className="h-9 w-9 rounded-full"
+                        title="Close"
                     >
-                        <i className="codicon codicon-close"></i>
-                    </button>
+                        <X className="h-5 w-5" />
+                    </Button>
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -618,34 +616,19 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                     >
                                         <Button
                                             size="sm"
-                                            variant="outline"
+                                            variant={hasError ? "destructive" : "outline"}
                                             onClick={() => handlePlayAudio(entry.attachmentId)}
                                             disabled={isLoading || hasError}
+                                            className={hasError ? "opacity-100" : undefined}
+                                            title={hasError ? "File missing" : undefined}
                                         >
                                             {isLoading ? (
                                                 <span>Loading...</span>
                                             ) : hasError ? (
-                                                <span
-                                                    style={{
-                                                        position: "relative",
-                                                        display: "inline-flex",
-                                                        alignItems: "center",
-                                                        justifyContent: "center",
-                                                    }}
-                                                    title="File missing"
-                                                >
-                                                    <Play className="h-4 w-4 mr-1" />
-                                                    <XCircle
-                                                        className="h-3 w-3"
-                                                        style={{
-                                                            position: "absolute",
-                                                            right: -2,
-                                                            top: -4,
-                                                            color: "var(--vscode-errorForeground)",
-                                                        }}
-                                                    />
+                                                <>
+                                                    <XCircle className="h-4 w-4 mr-1" />
                                                     Play
-                                                </span>
+                                                </>
                                             ) : isPlaying ? (
                                                 <>
                                                     <Pause className="h-4 w-4 mr-1" />
