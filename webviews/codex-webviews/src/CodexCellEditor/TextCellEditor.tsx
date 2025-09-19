@@ -2331,35 +2331,78 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     </div>
                                 ) : audioFetchPending ? (
                                     // While awaiting provider response, keep a calm, neutral placeholder (no loading text)
-                                    <div className="space-y-4">
+                                    <div className="bg-[var(--vscode-editor-background)] p-3 sm:p-4 rounded-md shadow w-full">
                                         {!audioUrl && (
-                                            <p className="text-center text-muted-foreground">
-                                                No audio attached to this cell yet.
-                                            </p>
+                                            <div className="bg-[var(--vscode-editor-background)] p-3 rounded-md shadow-sm">
+                                                <div className="flex items-center justify-center h-16 text-[var(--vscode-foreground)] text-sm">
+                                                    <span>No audio attached to this cell yet.</span>
+                                                </div>
+                                            </div>
                                         )}
-                                        <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                                            <div className="flex items-center gap-2 mt-4">
+                                        <div className="flex flex-wrap items-center justify-center gap-2 mt-3 px-2">
+                                            <Button
+                                                onClick={isRecording ? stopRecording : startRecording}
+                                                variant={isRecording ? "secondary" : "default"}
+                                                className={`h-8 px-2 text-xs ${isRecording ? "animate-pulse" : ""}`}
+                                            >
+                                                {isRecording ? (
+                                                    <>
+                                                        <Square className="h-3 w-3 mr-2" />
+                                                        Stop Recording
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <CircleDotDashed className="h-3 w-3 mr-2" />
+                                                        Start Recording
+                                                    </>
+                                                )}
+                                            </Button>
+
+                                            <label className="cursor-pointer">
+                                                <input
+                                                    type="file"
+                                                    accept="audio/*,video/*"
+                                                    onChange={handleFileUpload}
+                                                    className="sr-only"
+                                                />
+                                                <Button variant="outline" className="h-8 px-2 text-xs" asChild>
+                                                    <span>
+                                                        <FolderOpen className="h-3 w-3 mr-2" />
+                                                        <Upload className="h-3 w-3" />
+                                                    </span>
+                                                </Button>
+                                            </label>
+
+                                            {hasAudioHistory && (
                                                 <Button
-                                                    onClick={
-                                                        isRecording ? stopRecording : startRecording
-                                                    }
-                                                    variant={isRecording ? "secondary" : "default"}
-                                                    className={isRecording ? "animate-pulse" : ""}
-                                                    style={{ flex: 2 }}
+                                                    onClick={() => setShowAudioHistory(true)}
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-8 px-2 text-xs"
+                                                    title="Audio History"
                                                 >
-                                                    {isRecording ? (
-                                                        <>
-                                                            <Square className="mr-2 h-4 w-4" />
-                                                            Stop Recording
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <CircleDotDashed className="mr-2 h-4 w-4" />
-                                                            Start Recording
-                                                        </>
+                                                    <History className="h-3 w-3" />
+                                                    <span className="ml-1">History</span>
+                                                    {audioHistoryCount > 0 && (
+                                                        <span
+                                                            className="ml-2 inline-flex items-center justify-center rounded-full"
+                                                            style={{
+                                                                minWidth: "1.5rem",
+                                                                height: "1.25rem",
+                                                                padding: "0 6px",
+                                                                backgroundColor: "var(--vscode-badge-background)",
+                                                                color: "var(--vscode-badge-foreground)",
+                                                                border: "1px solid var(--vscode-panel-border)",
+                                                                fontSize: "0.75rem",
+                                                                fontWeight: 700,
+                                                                lineHeight: 1,
+                                                            }}
+                                                        >
+                                                            {audioHistoryCount}
+                                                        </span>
                                                     )}
                                                 </Button>
-                                            </div>
+                                            )}
                                         </div>
                                     </div>
                                 ) : showRecorder ||
@@ -2369,106 +2412,86 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                       audioUrl.startsWith("data:") ||
                                       audioUrl.startsWith("http")
                                   ) ? (
-                                    <div className="space-y-4">
+                                    <div className="bg-[var(--vscode-editor-background)] p-3 sm:p-4 rounded-md shadow w-full">
                                         {!audioUrl && (
-                                            <p className="text-center text-muted-foreground">
-                                                No audio attached to this cell yet.
-                                            </p>
+                                            <div className="bg-[var(--vscode-editor-background)] p-3 rounded-md shadow-sm">
+                                                <div className="flex items-center justify-center h-16 text-[var(--vscode-foreground)] text-sm">
+                                                    <span>No audio attached to this cell yet.</span>
+                                                </div>
+                                            </div>
                                         )}
-                                        <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                                            <div className="flex items-center gap-2 mt-4">
+                                        <div className="flex flex-wrap items-center justify-center gap-2 mt-3 px-2">
+                                            <Button
+                                                onClick={isRecording ? stopRecording : startRecording}
+                                                variant={isRecording ? "secondary" : "default"}
+                                                className={`h-8 px-2 text-xs ${isRecording ? "animate-pulse" : ""}`}
+                                            >
+                                                {isRecording ? (
+                                                    <>
+                                                        <Square className="h-3 w-3 mr-2" />
+                                                        Stop Recording
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <CircleDotDashed className="h-3 w-3 mr-2" />
+                                                        Start Recording
+                                                    </>
+                                                )}
+                                            </Button>
+
+                                            <label className="cursor-pointer">
+                                                <input
+                                                    type="file"
+                                                    accept="audio/*,video/*"
+                                                    onChange={handleFileUpload}
+                                                    className="sr-only"
+                                                />
+                                                <Button variant="outline" className="h-8 px-2 text-xs" asChild>
+                                                    <span>
+                                                        <FolderOpen className="h-3 w-3 mr-2" />
+                                                        <Upload className="h-3 w-3" />
+                                                    </span>
+                                                </Button>
+                                            </label>
+
+                                            {hasAudioHistory && (
                                                 <Button
-                                                    onClick={
-                                                        isRecording ? stopRecording : startRecording
-                                                    }
-                                                    variant={isRecording ? "secondary" : "default"}
-                                                    className={isRecording ? "animate-pulse" : ""}
-                                                    style={{ flex: 2 }}
+                                                    onClick={() => setShowAudioHistory(true)}
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-8 px-2 text-xs"
+                                                    title="Audio History"
                                                 >
-                                                    {isRecording ? (
-                                                        <>
-                                                            <Square className="mr-2 h-4 w-4" />
-                                                            Stop Recording
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <CircleDotDashed className="mr-2 h-4 w-4" />
-                                                            Start Recording
-                                                        </>
+                                                    <History className="h-3 w-3" />
+                                                    <span className="ml-1">History</span>
+                                                    {audioHistoryCount > 0 && (
+                                                        <span
+                                                            className="ml-2 inline-flex items-center justify-center rounded-full"
+                                                            style={{
+                                                                minWidth: "1.5rem",
+                                                                height: "1.25rem",
+                                                                padding: "0 6px",
+                                                                backgroundColor: "var(--vscode-badge-background)",
+                                                                color: "var(--vscode-badge-foreground)",
+                                                                border: "1px solid var(--vscode-panel-border)",
+                                                                fontSize: "0.75rem",
+                                                                fontWeight: 700,
+                                                                lineHeight: 1,
+                                                            }}
+                                                        >
+                                                            {audioHistoryCount}
+                                                        </span>
                                                     )}
                                                 </Button>
+                                            )}
 
-                                                <label className="cursor-pointer">
-                                                    <input
-                                                        type="file"
-                                                        accept="audio/*,video/*"
-                                                        onChange={handleFileUpload}
-                                                        className="sr-only"
-                                                    />
-                                                    <Button variant="outline" asChild>
-                                                        <span>
-                                                            <FolderOpen className="mr-2 h-4 w-4" />
-                                                            <Upload className="mr-2 h-4 w-4" />
-                                                        </span>
-                                                    </Button>
-                                                </label>
-
-                                                {hasAudioHistory && (
-                                                    <TooltipProvider>
-                                                        <Tooltip>
-                                                            <TooltipTrigger asChild>
-                                                                <Button
-                                                                    onClick={() =>
-                                                                        setShowAudioHistory(true)
-                                                                    }
-                                                                    variant="default"
-                                                                    className="font-semibold"
-                                                                    style={{
-                                                                        backgroundColor:
-                                                                            "var(--vscode-button-background)",
-                                                                        color: "var(--vscode-button-foreground)",
-                                                                        border: "1px solid var(--vscode-button-border)",
-                                                                    }}
-                                                                >
-                                                                    <History className="mr-2 h-4 w-4" />
-                                                                    History
-                                                                    {audioHistoryCount > 0 && (
-                                                                        <span
-                                                                            className="ml-2 inline-flex items-center justify-center rounded-full"
-                                                                            style={{
-                                                                                minWidth: "1.5rem",
-                                                                                height: "1.25rem",
-                                                                                padding: "0 6px",
-                                                                                backgroundColor:
-                                                                                    "var(--vscode-badge-background)",
-                                                                                color: "var(--vscode-badge-foreground)",
-                                                                                border: "1px solid var(--vscode-panel-border)",
-                                                                                fontSize: "0.75rem",
-                                                                                fontWeight: 700,
-                                                                                lineHeight: 1,
-                                                                            }}
-                                                                        >
-                                                                            {audioHistoryCount}
-                                                                        </span>
-                                                                    )}
-                                                                </Button>
-                                                            </TooltipTrigger>
-                                                            <TooltipContent>
-                                                                <p>
-                                                                    View all previous recordings for
-                                                                    this cell
-                                                                </p>
-                                                            </TooltipContent>
-                                                        </Tooltip>
-                                                    </TooltipProvider>
-                                                )}
-                                            </div>
                                             {audioUrl && !isRecording && (
                                                 <Button
                                                     variant="outline"
+                                                    className="h-8 px-2 text-xs"
                                                     onClick={() => setShowRecorder(false)}
                                                 >
-                                                    <ArrowLeft className="mr-2 h-4 w-4" />
+                                                    <ArrowLeft className="h-3 w-3 mr-2" />
                                                     Back
                                                 </Button>
                                             )}
