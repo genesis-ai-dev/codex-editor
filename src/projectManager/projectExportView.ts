@@ -314,6 +314,17 @@ function getWebviewContent(
                                     <span class="format-tag">Translation Ready</span>
                                 </div>
                             </div>
+                            <div class="format-option" data-format="audio" style="flex: 1;">
+                                <i class="codicon codicon-mic"></i>
+                                <div>
+                                    <strong>Audio</strong>
+                                    <p>Export per-cell audio attachments to a folder</p>
+                                    <div style="margin-top: 6px; display: flex; align-items: center; gap: 6px;">
+                                        <input type="checkbox" id="audioIncludeTimestamps" />
+                                        <label for="audioIncludeTimestamps">Include timestamps in filenames (when available)</label>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Data Export Section -->
@@ -548,6 +559,10 @@ function getWebviewContent(
                     // Add USFM-specific options
                     if (selectedFormat === 'usfm') {
                         options.skipValidation = document.getElementById('skipValidation').checked;
+                    }
+                    // Add Audio-specific options
+                    if (selectedFormat === 'audio') {
+                        options.includeTimestamps = document.getElementById('audioIncludeTimestamps').checked;
                     }
                     
                     vscode.postMessage({
