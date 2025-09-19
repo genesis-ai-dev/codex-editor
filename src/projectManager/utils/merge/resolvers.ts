@@ -341,7 +341,19 @@ function resolveMetadataConflictsUsingEditHistory(
         if (edits.length === 0) continue;
 
         // Find the most recent edit for this path, ignoring preview-only edits
-        const sorted = edits.sort((a, b) => b.timestamp - a.timestamp);
+        // Tie-breaker: when timestamps are equal, prefer USER_EDIT over INITIAL_IMPORT
+        const sorted = edits.sort((a, b) => {
+            const timeDiff = b.timestamp - a.timestamp;
+            if (timeDiff !== 0) return timeDiff;
+            // Same timestamp: prefer USER_EDIT over INITIAL_IMPORT
+            const aIsUser = a.type === EditType.USER_EDIT;
+            const bIsUser = b.type === EditType.USER_EDIT;
+            const aIsInitial = a.type === EditType.INITIAL_IMPORT;
+            const bIsInitial = b.type === EditType.INITIAL_IMPORT;
+            if (aIsUser !== bIsUser) return bIsUser ? 1 : -1; // b is USER_EDIT comes first
+            if (aIsInitial !== bIsInitial) return aIsInitial ? 1 : -1; // push INITIAL_IMPORT later
+            return 0;
+        });
         let mostRecentEdit = sorted.find((e) => !e.preview);
         const allWerePreviews = !mostRecentEdit;
         if (!mostRecentEdit) {

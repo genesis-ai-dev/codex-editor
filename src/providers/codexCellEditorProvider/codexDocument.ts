@@ -311,7 +311,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             cellToUpdate.metadata.edits.push({
                 editMap: EditMapUtils.value(),
                 value: previousValue,
-                timestamp: currentTimestamp,
+                timestamp: currentTimestamp - 1000,
                 type: EditType.INITIAL_IMPORT,
                 author: this._author,
                 validatedBy: [],
@@ -648,7 +648,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 cellToUpdate.metadata.edits.push({
                     editMap: EditMapUtils.dataStartTime(),
                     value: previousStartTime,
-                    timestamp: currentTimestamp,
+                    timestamp: currentTimestamp - 1000,
                     type: EditType.INITIAL_IMPORT,
                     author: this._author,
                     validatedBy: [],
@@ -682,7 +682,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 cellToUpdate.metadata.edits.push({
                     editMap: EditMapUtils.dataEndTime(),
                     value: previousEndTime,
-                    timestamp: currentTimestamp,
+                    timestamp: currentTimestamp - 1000,
                     type: EditType.INITIAL_IMPORT,
                     author: this._author,
                     validatedBy: [],
