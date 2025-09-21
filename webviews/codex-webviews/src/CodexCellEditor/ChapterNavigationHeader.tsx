@@ -172,13 +172,14 @@ ChapterNavigationHeaderProps) {
 
     // Dynamic title truncation based on available space
     useEffect(() => {
+        let timeoutId: NodeJS.Timeout;
         const handleTitleResize = () => {
             const container = chapterTitleRef.current;
             if (!container) return;
 
             const fullTitle = getDisplayTitle();
             const lastSpaceIndex = Math.max(
-                fullTitle.lastIndexOf('\u00A0'), 
+                fullTitle.lastIndexOf('\u00A0'),
                 fullTitle.lastIndexOf(' ')
             );
             const bookName = lastSpaceIndex > 0 ? fullTitle.substring(0, lastSpaceIndex) : fullTitle;
@@ -188,16 +189,8 @@ ChapterNavigationHeaderProps) {
             requestAnimationFrame(() => {
                 const containerRect = container.getBoundingClientRect();
                 const parentRect = container.parentElement?.getBoundingClientRect();
-                
-                if (!parentRect) return;
 
-                // Truncation should be last: only allow it on very small screens
-                // After we've already switched to hamburger (<=640), reduced font, and hidden arrows (<=400)
-                const allowTruncation = window.innerWidth < 400;
-                if (!allowTruncation) {
-                    setTruncatedBookName((prev) => (prev !== null ? null : prev));
-                    return;
-                }
+                if (!parentRect) return;
 
                 // Calculate available width based on parent (not the title itself to avoid feedback)
                 const availableWidth = Math.min(
@@ -213,7 +206,7 @@ ChapterNavigationHeaderProps) {
                 temp.style.position = 'absolute';
                 temp.style.fontSize = window.getComputedStyle(container.querySelector('h1') || container).fontSize;
                 temp.style.fontFamily = window.getComputedStyle(container.querySelector('h1') || container).fontFamily;
-                
+
                 // Account for subsection label like "(1-50)" only when it's visible (>= 500px)
                 const subsectionLabel =
                     window.innerWidth >= 500 &&
@@ -227,7 +220,7 @@ ChapterNavigationHeaderProps) {
                 const fullWidth = temp.getBoundingClientRect().width;
                 document.body.removeChild(temp);
 
-                // If text is too wide, truncate the book name
+                // FIXED: If text is too wide, truncate the book name (now universal for all screen sizes)
                 if (fullWidth > availableWidth && bookName.length > 3) {
                     // Calculate how many characters we can fit
                     const totalTextLength = fullTitle.length + subsectionLabel.length;
@@ -237,7 +230,7 @@ ChapterNavigationHeaderProps) {
                     const ellipsisWidth = 3 * avgCharWidth; // "..." width
                     const availableForBookName = availableWidth - chapterNumWidth - subsectionLabelWidth - ellipsisWidth;
                     const maxBookNameChars = Math.floor(availableForBookName / avgCharWidth);
-                    
+
                     if (maxBookNameChars > 0) {
                         const truncated = bookName.substring(0, Math.max(1, maxBookNameChars - 1));
                         setTruncatedBookName((prev) => (prev !== truncated ? truncated : prev));
@@ -259,14 +252,19 @@ ChapterNavigationHeaderProps) {
             resizeObserver.observe(chapterTitleRef.current);
         }
 
-        // Add window resize listener as fallback
-        window.addEventListener('resize', handleTitleResize);
+        // Add debounced window resize listener as fallback
+        const debouncedResize = () => {
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(handleTitleResize, 100);
+        };
+        window.addEventListener('resize', debouncedResize);
 
         return () => {
+            clearTimeout(timeoutId);
             if (resizeObserver) {
                 resizeObserver.disconnect();
             }
-            window.removeEventListener('resize', handleTitleResize);
+            window.removeEventListener('resize', debouncedResize);
         };
     }, [getDisplayTitle, translationUnitsForSection, subsections, currentSubsectionIndex]);
 
@@ -632,7 +630,7 @@ ChapterNavigationHeaderProps) {
 
                 <div
                     ref={chapterTitleRef}
-                    className="chapter-title-container flex items-center min-w-0 max-w-full cursor-pointer min-[400px]:cursor-pointer rounded-md transition-all duration-200 ease-in-out"
+                    className="chapter-title-container flex items-center min-w-0 max-w-full cursor-pointer rounded-md transition-all duration-200 ease-in-out"
                     onClick={() => {
                         // Always allow opening the chapter selector when there are no unsaved changes
                         if (!unsavedChanges) {
