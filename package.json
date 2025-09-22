@@ -316,6 +316,11 @@
                 "category": "Codex Project Management"
             },
             {
+                "command": "codex-project-manager.setValidationCountAudio",
+                "title": "Set Audio Validation Count",
+                "category": "Codex Project Management"
+            },
+            {
                 "command": "codex-project-manager.reinstallExtensions",
                 "title": "Reinstall Extensions",
                 "category": "Codex Project Management"

@@ -86,11 +86,11 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     }, [uniqueValidationUsers]);
 
     // Function to fetch audio validation count
-    const fetchAudioValidationCount = () => {
+    const fetchValidationCountAudio = () => {
         // Only fetch if parent hasn't provided it
         if (requiredAudioValidationsProp == null) {
             vscode.postMessage({
-                command: "getAudioValidationCount",
+                command: "getValidationCountAudio",
             });
         }
     };

@@ -1772,7 +1772,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                             const newThreshold = vscode.workspace.getConfiguration('codex-project-manager')
                                 .get('validationCountAudio', 1);
 
-                            const result = await translationPairsIndex.recalculateAllValidationStatus();
+                            const result = await translationPairsIndex.recalculateAllAudioValidationStatus();
 
                             // Log validation recalculation to console instead of showing to user
                             console.log(`[SQLiteIndex] ✅ Database updated: ${result.updatedCells} cells recalculated with ${newThreshold} validator${newThreshold === 1 ? '' : 's'} threshold.`);

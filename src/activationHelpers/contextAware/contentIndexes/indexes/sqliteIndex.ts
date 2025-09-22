@@ -15,7 +15,7 @@ const debug = (message: string, ...args: any[]) => {
 };
 
 // Schema version for migrations
-export const CURRENT_SCHEMA_VERSION = 9; // Optimized schema: no redundant columns, proper timestamps, t_is_fully_validated with threshold logic and more
+export const CURRENT_SCHEMA_VERSION = 10; // Added separate audio validation columns
 
 export class SQLiteIndexManager {
     private sql: SqlJsStatic | null = null;
@@ -295,6 +295,11 @@ export class SQLiteIndexManager {
                     t_validated_by TEXT,
                     t_is_fully_validated BOOLEAN DEFAULT FALSE,
                     
+                    -- Audio validation metadata (separate from text validation)
+                    t_audio_validation_count INTEGER DEFAULT 0,
+                    t_audio_validated_by TEXT,
+                    t_audio_is_fully_validated BOOLEAN DEFAULT FALSE,
+                    
                     FOREIGN KEY (s_file_id) REFERENCES files(id) ON DELETE SET NULL,
                     FOREIGN KEY (t_file_id) REFERENCES files(id) ON DELETE SET NULL
                 )
@@ -459,6 +464,10 @@ export class SQLiteIndexManager {
             this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_is_fully_validated ON cells(t_is_fully_validated)");
             this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_current_edit_timestamp ON cells(t_current_edit_timestamp)");
             this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_validation_count ON cells(t_validation_count)");
+
+            // Performance indexes for audio validation metadata
+            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_audio_is_fully_validated ON cells(t_audio_is_fully_validated)");
+            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_audio_validation_count ON cells(t_audio_validation_count)");
 
             // Keep word index (will need updating for new structure)
             this.db!.run("CREATE INDEX IF NOT EXISTS idx_words_word ON words(word)");
@@ -841,12 +850,16 @@ export class SQLiteIndexManager {
 
         // Add target-specific metadata columns
         if (cellType === 'target') {
-            columns.push('t_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_fully_validated');
+            columns.push('t_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_fully_validated',
+                't_audio_validation_count', 't_audio_validated_by', 't_audio_is_fully_validated');
             values.push(
                 actualEditTimestamp, // Only t_current_edit_timestamp for target cells (no redundant t_updated_at)
                 extractedMetadata.validationCount || 0,
                 extractedMetadata.validatedBy || null,
-                extractedMetadata.isFullyValidated ? 1 : 0
+                extractedMetadata.isFullyValidated ? 1 : 0,
+                extractedMetadata.audioValidationCount || 0,
+                extractedMetadata.audioValidatedBy || null,
+                extractedMetadata.audioIsFullyValidated ? 1 : 0
             );
         }
 
@@ -997,12 +1010,16 @@ export class SQLiteIndexManager {
 
         // Add target-specific metadata columns
         if (cellType === 'target') {
-            columns.push('t_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_fully_validated');
+            columns.push('t_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_fully_validated',
+                't_audio_validation_count', 't_audio_validated_by', 't_audio_is_fully_validated');
             values.push(
                 actualEditTimestamp, // Only t_current_edit_timestamp for target cells (no redundant t_updated_at)
                 extractedMetadata.validationCount || 0,
                 extractedMetadata.validatedBy || null,
-                extractedMetadata.isFullyValidated ? 1 : 0
+                extractedMetadata.isFullyValidated ? 1 : 0,
+                extractedMetadata.audioValidationCount || 0,
+                extractedMetadata.audioValidatedBy || null,
+                extractedMetadata.audioIsFullyValidated ? 1 : 0
             );
         }
 
@@ -1340,6 +1357,9 @@ export class SQLiteIndexManager {
                 c.t_validation_count,
                 c.t_validated_by,
                 c.t_is_fully_validated,
+                c.t_audio_validation_count,
+                c.t_audio_validated_by,
+                c.t_audio_is_fully_validated,
                 t_file.file_path as t_file_path
             FROM cells c
             LEFT JOIN files s_file ON c.s_file_id = s_file.id
@@ -1358,7 +1378,10 @@ export class SQLiteIndexManager {
                     currentEditTimestamp: row.t_current_edit_timestamp || null,
                     validationCount: row.t_validation_count || 0,
                     validatedBy: row.t_validated_by ? row.t_validated_by.split(',') : [],
-                    isFullyValidated: Boolean(row.t_is_fully_validated)
+                    isFullyValidated: Boolean(row.t_is_fully_validated),
+                    audioValidationCount: row.t_audio_validation_count || 0,
+                    audioValidatedBy: row.t_audio_validated_by ? row.t_audio_validated_by.split(',') : [],
+                    audioIsFullyValidated: Boolean(row.t_audio_is_fully_validated)
                 };
 
                 return {
@@ -1469,6 +1492,9 @@ export class SQLiteIndexManager {
                 c.t_validation_count,
                 c.t_validated_by,
                 c.t_is_fully_validated,
+                c.t_audio_validation_count,
+                c.t_audio_validated_by,
+                c.t_audio_is_fully_validated,
                 t_file.file_path as t_file_path,
                 t_file.file_type as t_file_type
             FROM cells c
@@ -1488,7 +1514,10 @@ export class SQLiteIndexManager {
                     currentEditTimestamp: row.t_current_edit_timestamp || null,
                     validationCount: row.t_validation_count || 0,
                     validatedBy: row.t_validated_by ? row.t_validated_by.split(',') : [],
-                    isFullyValidated: Boolean(row.t_is_fully_validated)
+                    isFullyValidated: Boolean(row.t_is_fully_validated),
+                    audioValidationCount: row.t_audio_validation_count || 0,
+                    audioValidatedBy: row.t_audio_validated_by ? row.t_audio_validated_by.split(',') : [],
+                    audioIsFullyValidated: Boolean(row.t_audio_is_fully_validated)
                 };
 
                 // Return data based on requested cell type
@@ -2190,7 +2219,8 @@ export class SQLiteIndexManager {
                 'cell_id',
                 's_file_id', 's_content', 's_raw_content_hash', 's_line_number', 's_word_count', 's_raw_content', 's_created_at', 's_updated_at',
                 't_file_id', 't_content', 't_raw_content_hash', 't_line_number', 't_word_count', 't_raw_content', 't_created_at',
-                't_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_fully_validated'
+                't_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_fully_validated',
+                't_audio_validation_count', 't_audio_validated_by', 't_audio_is_fully_validated'
             ];
 
             const expectedIndexes = [
@@ -3274,6 +3304,34 @@ export class SQLiteIndexManager {
     }
 
     /**
+     * Check if a target cell's audio is fully validated (for performance optimization)
+     */
+    private async isTargetCellAudioFullyValidated(cellId: string): Promise<boolean> {
+        if (!this.db) return false;
+
+        // Get the target cell's audio validation status from dedicated columns
+        const stmt = this.db.prepare(`
+            SELECT t_audio_is_fully_validated FROM cells 
+            WHERE cell_id = ? AND t_content IS NOT NULL
+            LIMIT 1
+        `);
+
+        try {
+            stmt.bind([cellId]);
+            if (stmt.step()) {
+                const row = stmt.getAsObject();
+                return Boolean(row.t_audio_is_fully_validated);
+            }
+        } catch (error) {
+            console.error(`[isTargetCellAudioFullyValidated] Error checking audio validation for ${cellId}:`, error);
+        } finally {
+            stmt.free();
+        }
+
+        return false;
+    }
+
+    /**
      * Get the validation threshold for determining if a cell is "fully validated"
      * This reads from the same configuration as the Project Manager
      */
@@ -3284,9 +3342,19 @@ export class SQLiteIndexManager {
     }
 
     /**
- * Recalculate t_is_fully_validated for all cells based on current validation threshold
- * This should be called whenever the validation threshold setting changes
- */
+     * Get the validation threshold for determining if a cell is "fully validated"
+     * This reads from the same configuration as the Project Manager
+     */
+    private getAudioValidationThreshold(): number {
+        // Use the same configuration source as Project Manager
+        return vscode.workspace.getConfiguration('codex-project-manager')
+            .get('validationCountAudio', 1); // Default to 1 validator required
+    }
+
+    /**
+     * Recalculate t_is_fully_validated for all cells based on current validation threshold
+     * This should be called whenever the validation threshold setting changes
+     */
     async recalculateAllValidationStatus(): Promise<{ updatedCells: number; }> {
         if (!this.db) throw new Error("Database not initialized");
 
@@ -3317,6 +3385,39 @@ export class SQLiteIndexManager {
     }
 
     /**
+     * Recalculate t_audio_is_fully_validated for all cells based on current audio validation threshold
+     * This should be called whenever the audio validation threshold setting changes
+     */
+    async recalculateAllAudioValidationStatus(): Promise<{ updatedCells: number; }> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        const currentThreshold = this.getAudioValidationThreshold();
+
+        // Update all target cells based on current audio validation count vs threshold
+        const updateStmt = this.db.prepare(`
+            UPDATE cells 
+            SET t_audio_is_fully_validated = CASE 
+                WHEN t_audio_validation_count >= ? THEN 1 
+                ELSE 0 
+            END
+            WHERE t_content IS NOT NULL AND t_content != ''
+        `);
+
+        try {
+            updateStmt.bind([currentThreshold]);
+            updateStmt.step();
+            const updatedCells = this.db.getRowsModified();
+
+            // Save changes to disk
+            await this.saveDatabase();
+
+            return { updatedCells };
+        } finally {
+            updateStmt.free();
+        }
+    }
+
+    /**
      * Extract frequently accessed metadata fields for dedicated columns
      */
     private extractMetadataFields(metadata: any, cellType: "source" | "target"): {
@@ -3324,12 +3425,18 @@ export class SQLiteIndexManager {
         validationCount?: number;
         validatedBy?: string;
         isFullyValidated?: boolean;
+        audioValidationCount?: number;
+        audioValidatedBy?: string;
+        audioIsFullyValidated?: boolean;
     } {
         const result: {
             currentEditTimestamp?: number | null;
             validationCount?: number;
             validatedBy?: string;
             isFullyValidated?: boolean;
+            audioValidationCount?: number;
+            audioValidatedBy?: string;
+            audioIsFullyValidated?: boolean;
         } = {};
 
         if (!metadata || typeof metadata !== 'object' || cellType !== 'target') {
@@ -3373,6 +3480,26 @@ export class SQLiteIndexManager {
                     result.validationCount = 0;
                     result.isFullyValidated = false;
                     result.validatedBy = undefined;
+                }
+
+                // Extract audio validation information
+                if (lastEdit.audioValidatedBy) {
+                    const activeAudioValidations = lastEdit.audioValidatedBy.filter((v: any) =>
+                        v && typeof v === 'object' && !v.isDeleted
+                    );
+                    result.audioValidationCount = activeAudioValidations.length;
+
+                    // Check against audio validation threshold
+                    const requiredAudioValidators = this.getAudioValidationThreshold();
+                    result.audioIsFullyValidated = activeAudioValidations.length >= requiredAudioValidators;
+
+                    // Store comma-separated list of usernames
+                    const audioUsernames = activeAudioValidations.map((v: any) => v.username).filter(Boolean);
+                    result.audioValidatedBy = audioUsernames.length > 0 ? audioUsernames.join(',') : undefined;
+                } else {
+                    result.audioValidationCount = 0;
+                    result.audioIsFullyValidated = false;
+                    result.audioValidatedBy = undefined;
                 }
             }
         }
