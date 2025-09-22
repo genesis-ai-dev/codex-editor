@@ -1,18 +1,11 @@
 import * as vscode from "vscode";
 import { basename, extname } from "path";
+import { CodexNotebookAsJSONData } from "@types";
 
 type ExportAudioOptions = {
     includeTimestamps?: boolean;
 };
 
-type CodexNotebookAsJSONData = {
-    cells: Array<{
-        kind: number;
-        value: string;
-        metadata: any;
-    }>;
-    metadata?: any;
-};
 
 function sanitizeFileComponent(input: string): string {
     return input
@@ -58,8 +51,15 @@ function formatTimeRangeSuffix(start?: number, end?: number): string {
     };
     const fmt = (v: number | undefined) => {
         if (v === undefined) return "";
-        // Use seconds with milliseconds, replace dot to avoid extra dots in filename
-        return v.toFixed(3).replace(".", "-");
+        // Truncate to milliseconds (no rounding up) and format like SRT/VTT but filename-safe: HH-MM-SS_mmm
+        const totalMs = Math.floor(v * 1000);
+        const hours = Math.floor(totalMs / 3600000);
+        const minutes = Math.floor((totalMs % 3600000) / 60000);
+        const seconds = Math.floor((totalMs % 60000) / 1000);
+        const millis = totalMs % 1000;
+        const pad2 = (n: number) => String(n).padStart(2, "0");
+        const pad3 = (n: number) => String(n).padStart(3, "0");
+        return `${pad2(hours)}-${pad2(minutes)}-${pad2(seconds)}_${pad3(millis)}`;
     };
     const s = fmt(coerce(start));
     const e = fmt(coerce(end));
@@ -189,9 +189,9 @@ export async function exportAudioAttachments(
 
                     // Build destination filename
                     const baseFromId = toBookChapterVerseBasename(cellId);
-                    const timeFromCell = cell?.metadata?.data || {};
-                    const start = includeTimestamps ? (timeFromCell.startTime ?? timeFromCell.begin ?? pick.start) : undefined;
-                    const end = includeTimestamps ? (timeFromCell.endTime ?? timeFromCell.stop ?? timeFromCell.duration ?? pick.end) : undefined;
+                    const timeFromCell = (cell?.metadata?.data || {}) as { startTime?: number; endTime?: number; };
+                    const start = includeTimestamps ? timeFromCell.startTime : undefined;
+                    const end = includeTimestamps ? timeFromCell.endTime : undefined;
                     const suffix = includeTimestamps ? formatTimeRangeSuffix(start, end) : "";
                     const ext = extname(absoluteSrc.fsPath) || ".wav";
                     let destName = `${baseFromId}${suffix}${ext}`;
