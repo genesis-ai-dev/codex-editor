@@ -11,6 +11,7 @@ import { CodexCellTypes } from "../../../../types/enums";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import { WebviewApi } from "vscode-webview";
 import ValidationButton from "./ValidationButton";
+import AudioValidationButton from "./AudioValidationButton";
 import { shouldDisableValidation } from "@sharedUtils";
 import { Button } from "../components/ui/button";
 import { getTranslationStyle, CellTranslationState } from "./CellTranslationStyles";
@@ -40,7 +41,7 @@ interface CellContentDisplayProps {
     handleCellTranslation?: (cellId: string) => void;
     handleCellClick: (cellId: string) => void;
     cellDisplayMode: CELL_DISPLAY_MODES;
-    audioAttachments?: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none" };
+    audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" | "missing" };
     footnoteOffset?: number; // Starting footnote number for this cell
     isCorrectionEditorMode?: boolean; // Whether correction editor mode is active
     translationUnits?: QuillCellContent[]; // Full list of translation units for finding previous cell
@@ -48,6 +49,7 @@ interface CellContentDisplayProps {
     // Derived, shared state to avoid per-cell lookups
     currentUsername?: string;
     requiredValidations?: number;
+    requiredAudioValidations?: number;
     isAudioOnly?: boolean;
 }
 
@@ -300,6 +302,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         unresolvedCommentsCount: initialUnresolvedCommentsCount = 0,
         currentUsername,
         requiredValidations,
+        requiredAudioValidations,
         isAudioOnly = false,
     }) => {
         // const { cellContent, timestamps, editHistory } = cell; // I don't think we use this
@@ -728,7 +731,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     direction: textDirection,
                     ...getBorderStyle(),
                     display: "flex",
-                    alignItems: "flex-start",
+                    alignItems: "center",
                     gap: isSourceText ? "0.25rem" : "0.0625rem",
                     padding: "0.25rem",
                     cursor: isSourceText && !isCorrectionEditorMode ? "default" : "pointer",
@@ -825,36 +828,61 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 )}
 
                                 {/* Audio Play Button */}
-                                {audioAttachments &&
-                                    audioAttachments[cellIds[0]] !== undefined &&
-                                    (() => {
-                                        const audioState = audioAttachments[cellIds[0]];
+                                <div className="flex flex-col items-center border border-gray-300 rounded-lg py-1">
+                                    {audioAttachments &&
+                                        audioAttachments[cellIds[0]] !== undefined &&
+                                        (() => {
+                                            const audioState = audioAttachments[cellIds[0]];
 
-                                        // For source text: show the button for available or missing; hide when none/deletedOnly
-                                        if (
-                                            isSourceText &&
-                                            !(
-                                                audioState === "available" ||
-                                                audioState === "missing"
+                                            // For source text: show the button for available or missing; hide when none/deletedOnly
+                                            if (
+                                                isSourceText &&
+                                                !(
+                                                    audioState === "available" ||
+                                                    audioState === "missing"
+                                                )
                                             )
-                                        )
-                                            return null;
+                                                return null;
 
-                                        return (
-                                            <AudioPlayButton
-                                                cellId={cellIds[0]}
-                                                vscode={vscode}
-                                                state={audioState}
-                                                onOpenCell={(id) => {
-                                                    // Use force variant to ensure editor opens even with unsaved state
-                                                    const open =
-                                                        (window as any).openCellByIdForce ||
-                                                        (window as any).openCellById;
-                                                    if (typeof open === "function") open(id);
-                                                }}
-                                            />
-                                        );
-                                    })()}
+                                            return (
+                                                <>
+                                                    <AudioValidationButton
+                                                        cellId={cellIds[0]}
+                                                        cell={cell}
+                                                        vscode={vscode}
+                                                        isSourceText={isSourceText}
+                                                        currentUsername={currentUsername}
+                                                        requiredAudioValidations={
+                                                            requiredAudioValidations
+                                                        }
+                                                        disabled={
+                                                            audioState === "none" ||
+                                                            audioState === "deletedOnly"
+                                                        }
+                                                        disabledReason={
+                                                            audioState === "none" ||
+                                                            audioState === "deletedOnly"
+                                                                ? "Audio validation requires audio"
+                                                                : undefined
+                                                        }
+                                                    />
+                                                    <AudioPlayButton
+                                                        cellId={cellIds[0]}
+                                                        vscode={vscode}
+                                                        state={audioState}
+                                                        onOpenCell={(id) => {
+                                                            // Use force variant to ensure editor opens even with unsaved state
+                                                            const open =
+                                                                (window as any).openCellByIdForce ||
+                                                                (window as any).openCellById;
+                                                            if (typeof open === "function")
+                                                                open(id);
+                                                        }}
+                                                    />
+                                                </>
+                                            );
+                                        })()}
+                                </div>
 
                                 {/* Merge Button - only show in correction editor mode for source text */}
                                 {isSourceText &&

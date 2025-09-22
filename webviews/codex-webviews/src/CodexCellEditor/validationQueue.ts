@@ -2,6 +2,7 @@
 export interface ValidationQueueItem {
     cellId: string;
     validate: boolean;
+    isAudioValidation?: boolean;
     timestamp: number;
     resolve: () => void;
     reject: (error: any) => void;
@@ -12,7 +13,7 @@ const validationQueue: ValidationQueueItem[] = [];
 let isProcessingQueue = false;
 
 // Process validation queue sequentially
-export const processValidationQueue = async (vscode: any) => {
+export const processValidationQueue = async (vscode: any, isAudioValidation: boolean = false) => {
     if (isProcessingQueue || validationQueue.length === 0) {
         return;
     }
@@ -25,8 +26,9 @@ export const processValidationQueue = async (vscode: any) => {
 
         try {
             // Send validation request to provider
+            const command = item.isAudioValidation ? "validateAudioCell" : "validateCell";
             vscode.postMessage({
-                command: "validateCell",
+                command,
                 content: {
                     cellId: item.cellId,
                     validate: item.validate,
@@ -46,11 +48,12 @@ export const processValidationQueue = async (vscode: any) => {
 };
 
 // Add validation request to queue
-export const enqueueValidation = (cellId: string, validate: boolean): Promise<void> => {
+export const enqueueValidation = (cellId: string, validate: boolean, isAudioValidation: boolean = false): Promise<void> => {
     return new Promise((resolve, reject) => {
         validationQueue.push({
             cellId,
             validate,
+            isAudioValidation,
             timestamp: Date.now(),
             resolve,
             reject,

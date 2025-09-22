@@ -949,13 +949,14 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         if (!cellToUpdate.metadata.edits || cellToUpdate.metadata.edits.length === 0) {
             console.warn("No edits found for cell to validate");
-            // repair the edit history by adding an llm generation wit hauthor unknown, and then a user edit with validation
+            // repair the edit history by adding an llm generation with author unknown, and then a user edit with validation
             cellToUpdate.metadata.edits = [
                 {
                     editMap: EditMapUtils.value(),
                     value: cellToUpdate.value,
                     author: "unknown",
                     validatedBy: [],
+                    audioValidatedBy: [],
                     timestamp: Date.now(),
                     type: EditType.LLM_GENERATION,
                 },
@@ -964,6 +965,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     value: cellToUpdate.value,
                     author: this._author,
                     validatedBy: [],
+                    audioValidatedBy: [],
                     timestamp: Date.now(),
                     type: EditType.USER_EDIT,
                 },
@@ -994,6 +996,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 value: cellToUpdate.value,
                 author: this._author,
                 validatedBy: [],
+                audioValidatedBy: [],
                 timestamp: currentTimestamp,
                 type: EditType.USER_EDIT,
             } as any);
@@ -1002,9 +1005,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const latestEdit = cellToUpdate.metadata.edits[targetEditIndex];
 
-        // Initialize validatedBy array if it doesn't exist
+        // Initialize validation arrays if they don't exist
         if (!latestEdit.validatedBy) {
             latestEdit.validatedBy = [];
+        }
+        if (!latestEdit.audioValidatedBy) {
+            latestEdit.audioValidatedBy = [];
         }
 
         // FIXME: we shouldn't be doing this constantly every time we validate a cell!
@@ -1078,6 +1084,165 @@ export class CodexCellDocument implements vscode.CustomDocument {
             validate,
             username,
             validationCount: latestEdit.validatedBy.filter(entry => this.isValidValidationEntry(entry) && !entry.isDeleted).length,
+            cellHasContent: !!(cellToUpdate.value && cellToUpdate.value.trim()),
+            editsCount: cellToUpdate.metadata.edits.length
+        });
+
+        // Database update will happen automatically when document is saved
+    }
+
+    // Method to validate a cell's audio by a user
+    public async validateCellAudio(cellId: string, validate: boolean = true) {
+        // First check if any validation needs fixing
+        this.checkAndFixValidationArray(cellId);
+
+        const indexOfCellToUpdate = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error("Could not find cell to validate audio");
+        }
+
+        const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
+
+        if (!cellToUpdate.metadata.edits || cellToUpdate.metadata.edits.length === 0) {
+            console.warn("No edits found for cell to validate audio");
+            // repair the edit history by adding an llm generation with author unknown, and then a user edit with validation
+            cellToUpdate.metadata.edits = [
+                {
+                    editMap: EditMapUtils.value(),
+                    value: cellToUpdate.value,
+                    author: "unknown",
+                    validatedBy: [],
+                    audioValidatedBy: [],
+                    timestamp: Date.now(),
+                    type: EditType.LLM_GENERATION,
+                },
+                {
+                    editMap: EditMapUtils.value(),
+                    value: cellToUpdate.value,
+                    author: this._author,
+                    validatedBy: [],
+                    audioValidatedBy: [],
+                    timestamp: Date.now(),
+                    type: EditType.USER_EDIT,
+                },
+            ];
+        }
+
+        // Find the correct edit corresponding to the CURRENT VALUE of the cell
+        // We must NOT validate metadata-only edits (e.g., label/timestamp). Validate the value edit
+        // whose value matches the current cell value.
+        let targetEditIndex = -1;
+        for (let i = cellToUpdate.metadata.edits.length - 1; i >= 0; i--) {
+            const e = cellToUpdate.metadata.edits[i];
+            // Identify value edits using EditMapUtils and also match the exact value
+            const isValueEdit = EditMapUtils.isValue
+                ? EditMapUtils.isValue(e.editMap)
+                : EditMapUtils.equals(e.editMap, EditMapUtils.value());
+            if (isValueEdit && e.value === cellToUpdate.value) {
+                targetEditIndex = i;
+                break;
+            }
+        }
+
+        // If we didn't find a value edit that matches current value, create one so validation history is consistent
+        if (targetEditIndex === -1) {
+            const currentTimestamp = Date.now();
+            cellToUpdate.metadata.edits.push({
+                editMap: EditMapUtils.value(),
+                value: cellToUpdate.value,
+                author: this._author,
+                validatedBy: [],
+                audioValidatedBy: [],
+                timestamp: currentTimestamp,
+                type: EditType.USER_EDIT,
+            } as any);
+            targetEditIndex = cellToUpdate.metadata.edits.length - 1;
+        }
+
+        const latestEdit = cellToUpdate.metadata.edits[targetEditIndex];
+
+        // Initialize validation arrays if they don't exist
+        if (!latestEdit.validatedBy) {
+            latestEdit.validatedBy = [];
+        }
+        if (!latestEdit.audioValidatedBy) {
+            latestEdit.audioValidatedBy = [];
+        }
+
+        // FIXME: we shouldn't be doing this constantly every time we validate a cell!
+        // we should just get the current user once at the top level of the codexCellEditorProvider
+        let username = "anonymous";
+        const currentTimestamp = Date.now();
+        try {
+            const authApi = await getAuthApi();
+            const userInfo = await authApi?.getUserInfo();
+            username = userInfo?.username || "anonymous";
+        } catch (e) {
+            console.error("Could not get user info in validateCellAudio", e);
+        }
+
+        // Find existing audio validation entry for this user
+        const existingEntryIndex = latestEdit.audioValidatedBy.findIndex(
+            (entry: ValidationEntry) =>
+                this.isValidValidationEntry(entry) && entry.username === username
+        );
+
+        if (validate) {
+            if (existingEntryIndex === -1) {
+                // User is not in the array, add a new entry
+                const newValidationEntry: ValidationEntry = {
+                    username,
+                    creationTimestamp: currentTimestamp,
+                    updatedTimestamp: currentTimestamp,
+                    isDeleted: false,
+                };
+                latestEdit.audioValidatedBy.push(newValidationEntry);
+            } else {
+                // User already has an entry, update it
+                latestEdit.audioValidatedBy[existingEntryIndex].updatedTimestamp = currentTimestamp;
+                latestEdit.audioValidatedBy[existingEntryIndex].isDeleted = false;
+            }
+        } else {
+            if (existingEntryIndex !== -1) {
+                // User is in the array, mark as deleted
+                latestEdit.audioValidatedBy[existingEntryIndex].updatedTimestamp = currentTimestamp;
+                latestEdit.audioValidatedBy[existingEntryIndex].isDeleted = true;
+            }
+            // If user is not in the array, do nothing when unvalidating
+        }
+
+        // Final check: ensure the audioValidatedBy array only contains valid ValidationEntry objects
+        latestEdit.audioValidatedBy = latestEdit.audioValidatedBy.filter((entry) =>
+            this.isValidValidationEntry(entry)
+        );
+
+        // Mark document as dirty
+        this._isDirty = true;
+
+        // Notify listeners that the document has changed
+        this._onDidChangeForVsCodeAndWebview.fire({
+            content: JSON.stringify({
+                cellId,
+                type: "audioValidation",
+                audioValidatedBy: latestEdit.audioValidatedBy,
+            }),
+            edits: [
+                {
+                    cellId,
+                    type: "audioValidation",
+                    audioValidatedBy: latestEdit.audioValidatedBy,
+                },
+            ],
+        });
+
+        // Log audio validation change for debugging
+        console.log(`[CodexDocument] 🎵 Audio validation change for cell ${cellId}:`, {
+            validate,
+            username,
+            audioValidationCount: latestEdit.audioValidatedBy.filter(entry => this.isValidValidationEntry(entry) && !entry.isDeleted).length,
             cellHasContent: !!(cellToUpdate.value && cellToUpdate.value.trim()),
             editsCount: cellToUpdate.metadata.edits.length
         });

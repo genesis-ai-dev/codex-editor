@@ -72,6 +72,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         document: CodexCellDocument;
         shouldUpdateValue: boolean;
         validationRequest?: boolean;
+        audioValidationRequest?: boolean;
         shouldValidate: boolean;
         resolve: (result: any) => void;
         reject: (error: any) => void;
@@ -2119,7 +2120,72 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                 const request = this.translationQueue[0];
 
-                // Handle validation request first if that's what it is
+                // Handle audio validation request first if that's what it is
+                if (request.audioValidationRequest) {
+                    try {
+                        debug(`Processing audio validation for cell ${request.cellId}`);
+
+                        // Start audio validation with UI notification
+                        this.webviewPanels.forEach((panel, docUri) => {
+                            if (docUri === request.document.uri.toString()) {
+                                this.postMessageToWebview(panel, {
+                                    type: "audioValidationInProgress" as any,
+                                    content: {
+                                        cellId: request.cellId,
+                                        inProgress: true,
+                                    },
+                                });
+                            }
+                        });
+
+                        // Perform the audio validation
+                        await request.document.validateCellAudio(
+                            request.cellId,
+                            request.shouldValidate
+                        );
+
+                        // Send completion notification
+                        this.webviewPanels.forEach((panel, docUri) => {
+                            if (docUri === request.document.uri.toString()) {
+                                this.postMessageToWebview(panel, {
+                                    type: "audioValidationInProgress" as any,
+                                    content: {
+                                        cellId: request.cellId,
+                                        inProgress: false,
+                                    },
+                                });
+                            }
+                        });
+
+                        // Remove the processed request from the queue and resolve
+                        this.translationQueue.shift();
+                        request.resolve(true);
+                    } catch (error) {
+                        debug(`Error processing audio validation for cell ${request.cellId}:`, error);
+
+                        // Send audio validation error notification
+                        this.webviewPanels.forEach((panel, docUri) => {
+                            if (docUri === request.document.uri.toString()) {
+                                this.postMessageToWebview(panel, {
+                                    type: "audioValidationInProgress" as any,
+                                    content: {
+                                        cellId: request.cellId,
+                                        inProgress: false, // Mark as complete even on error
+                                        error:
+                                            error instanceof Error ? error.message : String(error),
+                                    },
+                                });
+                            }
+                        });
+
+                        // Remove from queue and reject the promise
+                        this.translationQueue.shift();
+                        request.reject(error);
+                    }
+                    continue;
+                }
+
+                // Handle validation request if that's what it is
                 if (request.validationRequest) {
                     try {
                         debug(`Processing validation for cell ${request.cellId}`);
@@ -2817,6 +2883,34 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 document,
                 shouldUpdateValue: false,
                 validationRequest: true, // Flag to identify validation requests
+                shouldValidate,
+                resolve,
+                reject,
+            });
+
+            // Start processing the queue if it's not already in progress
+            if (!this.isProcessingQueue) {
+                this.processTranslationQueue();
+            }
+        });
+    }
+
+    // Add method to enqueue a validation
+    public enqueueAudioValidation(
+        cellId: string,
+        document: CodexCellDocument,
+        shouldValidate: boolean
+    ): Promise<any> {
+        debug(`Enqueueing audio validation for cell ${cellId}, validate: ${shouldValidate}`);
+
+        // Create a new promise for this request
+        return new Promise((resolve, reject) => {
+            // Add the request to the queue with a special validation type
+            this.translationQueue.push({
+                cellId,
+                document,
+                shouldUpdateValue: false,
+                audioValidationRequest: true, // Flag to identify validation requests
                 shouldValidate,
                 resolve,
                 reject,

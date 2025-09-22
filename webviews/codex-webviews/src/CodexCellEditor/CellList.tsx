@@ -39,7 +39,7 @@ export interface CellListProps {
     currentProcessingCellId?: string; // Currently processing cell ID
     cellsInAutocompleteQueue?: string[]; // Cells queued for autocompletion
     successfulCompletions?: Set<string>; // Cells that completed successfully
-    audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" }; // Cells that have audio attachments
+    audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" | "missing" }; // Cells that have audio attachments
     isSaving?: boolean;
     saveError?: boolean; // Whether there was a save error/timeout
     saveRetryCount?: number; // Number of save retry attempts
@@ -49,6 +49,7 @@ export interface CellListProps {
     // Derived, shared state to avoid per-cell auth/validation lookups
     currentUsername?: string | null;
     requiredValidations?: number;
+    requiredAudioValidations?: number;
     // Cells currently undergoing audio transcription
     transcribingCells?: Set<string>;
     isAudioOnly?: boolean;
@@ -91,6 +92,7 @@ const CellList: React.FC<CellListProps> = ({
     lineNumbersEnabled = true,
     currentUsername,
     requiredValidations,
+    requiredAudioValidations,
     transcribingCells,
     isAudioOnly = false,
 }) => {
@@ -647,6 +649,7 @@ const CellList: React.FC<CellListProps> = ({
                                 unresolvedCommentsCount={cellCommentsCount.get(cellMarkers[0]) || 0}
                                 currentUsername={currentUsername || undefined}
                                 requiredValidations={requiredValidations}
+                                requiredAudioValidations={requiredAudioValidations}
                                 isAudioOnly={isAudioOnly}
                             />
                         </span>
@@ -676,6 +679,8 @@ const CellList: React.FC<CellListProps> = ({
             openCellById,
             currentUsername,
             requiredValidations,
+            requiredAudioValidations,
+            isAudioOnly,
             lineNumbersEnabled,
         ]
     );
@@ -813,6 +818,7 @@ const CellList: React.FC<CellListProps> = ({
                                 unresolvedCommentsCount={cellCommentsCount.get(cellMarkers[0]) || 0}
                                 currentUsername={currentUsername || undefined}
                                 requiredValidations={requiredValidations}
+                                requiredAudioValidations={requiredAudioValidations}
                                 isAudioOnly={isAudioOnly}
                             />
                         </span>
@@ -861,6 +867,8 @@ const CellList: React.FC<CellListProps> = ({
         cellCommentsCount,
         currentUsername,
         requiredValidations,
+        requiredAudioValidations,
+        isAudioOnly,
     ]);
 
     // Fetch comments count for all visible cells (batched)

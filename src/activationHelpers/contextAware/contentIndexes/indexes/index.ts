@@ -1762,6 +1762,26 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     }, 100); // Small delay to ensure configuration is fully applied
                 }
             }
+
+            if (event.affectsConfiguration('codex-project-manager.validationCountAudio')) {
+                // Automatically recalculate validation status
+                if (translationPairsIndex instanceof SQLiteIndexManager) {
+                    // Use setTimeout to avoid blocking the configuration change
+                    setTimeout(async () => {
+                        try {
+                            const newThreshold = vscode.workspace.getConfiguration('codex-project-manager')
+                                .get('validationCountAudio', 1);
+
+                            const result = await translationPairsIndex.recalculateAllValidationStatus();
+
+                            // Log validation recalculation to console instead of showing to user
+                            console.log(`[SQLiteIndex] ✅ Database updated: ${result.updatedCells} cells recalculated with ${newThreshold} validator${newThreshold === 1 ? '' : 's'} threshold.`);
+                        } catch (error) {
+                            console.error('[SQLiteIndex] Auto-recalculation failed:', error);
+                        }
+                    }, 100); // Small delay to ensure configuration is fully applied
+                }
+            }
         });
 
         // Add the listener to context subscriptions for cleanup

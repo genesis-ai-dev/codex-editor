@@ -452,6 +452,13 @@
                         "minimum": 1,
                         "maximum": 15
                     },
+                    "codex-project-manager.validationCountAudio": {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "Number of required validations for each audio translation",
+                        "minimum": 1,
+                        "maximum": 15
+                    },
                     "codex-project-manager.userName": {
                         "type": "string",
                         "default": "",
