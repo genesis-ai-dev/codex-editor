@@ -1484,6 +1484,27 @@ export class CodexCellDocument implements vscode.CustomDocument {
         return latestEdit.validatedBy.filter((entry) => this.isValidValidationEntry(entry));
     }
 
+    public getCellAudioValidatedBy(cellId: string): ValidationEntry[] {
+        // First check if any validation needs fixing
+        this.checkAndFixValidationArray(cellId);
+
+        const cell = this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
+
+        if (!cell || !cell.metadata?.edits || cell.metadata.edits.length === 0) {
+            return [];
+        }
+
+        // Get the latest edit
+        const latestEdit = cell.metadata.edits[cell.metadata.edits.length - 1];
+
+        if (!latestEdit.audioValidatedBy) {
+            return [];
+        }
+
+        // Filter to only include proper ValidationEntry objects
+        return latestEdit.audioValidatedBy.filter((entry) => this.isValidValidationEntry(entry));
+    }
+
     /**
      * Returns all cell IDs in the document
      * @returns An array of cell IDs

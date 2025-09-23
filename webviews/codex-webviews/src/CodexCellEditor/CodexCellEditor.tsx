@@ -646,7 +646,7 @@ const CodexCellEditor: React.FC = () => {
             if (message?.type === "validationCount") {
                 setRequiredValidations(message.content);
             }
-            if (message?.type === "audioValidationCount") {
+            if (message?.type === "validationCountAudio") {
                 setRequiredAudioValidations(message.content);
             }
             if (message?.type === "configurationChanged") {
@@ -1407,14 +1407,16 @@ const CodexCellEditor: React.FC = () => {
         "codexCellEditor-bundledMetadata",
         (event: MessageEvent) => {
             if (event.data.type === "providerSendsInitialContent") {
+                console.log("event.data", event.data);
+
                 if (event.data.username !== undefined) {
                     setUsername(event.data.username);
                 }
                 if (event.data.validationCount !== undefined) {
                     setRequiredValidations(event.data.validationCount);
                 }
-                if (event.data.audioValidationCount !== undefined) {
-                    setRequiredAudioValidations(event.data.audioValidationCount);
+                if (event.data.validationCountAudio !== undefined) {
+                    setRequiredAudioValidations(event.data.validationCountAudio);
                 }
             }
         },

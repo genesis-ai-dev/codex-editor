@@ -141,7 +141,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                 setUsername(message.content.username);
             } else if (
                 requiredAudioValidationsProp == null &&
-                message.type === "audioValidationCount"
+                message.type === "validationCountAudio"
             ) {
                 setRequiredAudioValidations(message.content);
 
@@ -173,7 +173,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                     }
                 }
             } else if (message.type === "configurationChanged") {
-                // Configuration changes now send audioValidationCount directly, no need to refetch
+                // Configuration changes now send validationCountAudio directly, no need to refetch
                 console.log("Configuration changed - audio validation count will be sent directly");
             } else if (message.command === "updateAudioValidationCount") {
                 setValidationUsers(message.content.validations || []);

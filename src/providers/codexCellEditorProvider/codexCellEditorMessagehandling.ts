@@ -896,6 +896,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
     },
 
+    getValidationCountAudio: async ({ webviewPanel, provider }) => {
+        // Audio validation count is now bundled with initial content; only send on explicit request
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        const validationCountAudio = config.get("validationCountAudio", 1);
+        provider.postMessageToWebview(webviewPanel, {
+            type: "validationCountAudio",
+            content: validationCountAudio,
+        });
+    },
+
     adjustABTestingProbability: async ({ event, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "adjustABTestingProbability"; }> & { content: { delta: number; }; };
         const delta = Number((typedEvent as any)?.content?.delta) || 0;
