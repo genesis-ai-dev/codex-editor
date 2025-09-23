@@ -958,7 +958,7 @@
         "@types/jszip": "^3.4.1",
         "@types/lodash": "^4.17.13",
         "@types/md5": "^2.3.5",
-        "@types/mocha": "^10.0.9",
+        "@types/mocha": "^10.0.10",
         "@types/node": "^18.19.0",
         "@types/react": "^18.3.3",
         "@types/react-dom": "^18.3.1",
@@ -1012,9 +1012,7 @@
         "vscode-languageserver-textdocument": "^1.0.12",
         "vscode-test": "^1.5.0",
         "wdio-vscode-service": "^6.1.3",
-        "webdriverio": "^8.45.0",
-        "webpack": "^5.95.0",
-        "webpack-cli": "^5.1.4"
+        "webdriverio": "^8.45.0"
     },
     "dependencies": {
         "@types/better-sqlite3": "^7.6.11",
@@ -1056,6 +1054,8 @@
         "uuid": "^9.0.1",
         "vscode-languageclient": "^9.0.1",
         "vscode-uri": "^3.0.8",
+        "webpack": "^5.101.3",
+        "webpack-cli": "^5.1.4",
         "webvtt-parser": "^2.2.0",
         "xlsx": "^0.18.5",
         "xml2js": "^0.6.2",

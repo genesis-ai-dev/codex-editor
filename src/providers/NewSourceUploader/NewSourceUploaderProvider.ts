@@ -205,12 +205,13 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             metadata: {
                 id: processedCell.id,
                 type: CodexCellTypes.TEXT,
-                data: processedCell.metadata?.data || processedCell.metadata || {},
                 edits: [],
-                // Spread any additional metadata from the processed cell
+                // Spread all metadata from the processed cell first, preserving our enhanced structure
                 ...(processedCell.metadata && typeof processedCell.metadata === 'object'
                     ? processedCell.metadata
-                    : {})
+                    : {}),
+                // Then override with standard data field if it exists
+                data: processedCell.metadata?.data || {}
             }
         }));
 
