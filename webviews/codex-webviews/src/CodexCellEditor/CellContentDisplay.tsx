@@ -308,6 +308,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         // const { cellContent, timestamps, editHistory } = cell; // I don't think we use this
         const cellIds = cell.cellMarkers;
         const [fadingOut, setFadingOut] = useState(false);
+        const [isHoveringValidationButton, setIsHoveringValidationButton] = useState(false);
+        const [isHoveringAudioValidationButton, setIsHoveringAudioValidationButton] =
+            useState(false);
         const { showTooltip, hideTooltip } = useTooltip();
 
         const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -722,6 +725,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             );
         };
 
+        const audioState = audioAttachments?.[cellIds[0]] as any;
+
         return (
             <div
                 ref={cellRef}
@@ -756,29 +761,71 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                         !isSourceText &&
                                         SHOW_VALIDATION_BUTTON &&
                                         !isInTranslationProcess && (
-                                            <ValidationButton
-                                                cellId={cellIds[0]}
-                                                cell={cell}
-                                                vscode={vscode}
-                                                isSourceText={isSourceText}
-                                                currentUsername={currentUsername}
-                                                requiredValidations={requiredValidations}
-                                                disabled={shouldDisableValidation(
-                                                    cell.cellContent,
-                                                    audioAttachments?.[cellIds[0]] as any
-                                                )}
-                                                disabledReason={(() => {
-                                                    const audioState = audioAttachments?.[
-                                                        cellIds[0]
-                                                    ] as any;
-                                                    return shouldDisableValidation(
-                                                        cell.cellContent,
-                                                        audioState
-                                                    )
-                                                        ? "Validation disabled: no text and no audio"
-                                                        : undefined;
-                                                })()}
-                                            />
+                                            <div className="flex flex-col items-center justify-center border border-gray-300 rounded-lg p-0.5">
+                                                <div
+                                                    className="flex flex-col items-center justify-center"
+                                                    onMouseOver={() => {
+                                                        setIsHoveringValidationButton(true);
+                                                    }}
+                                                    onMouseOut={() => {
+                                                        setIsHoveringValidationButton(false);
+                                                    }}
+                                                >
+                                                    <ValidationButton
+                                                        cellId={cellIds[0]}
+                                                        cell={cell}
+                                                        vscode={vscode}
+                                                        isSourceText={isSourceText}
+                                                        currentUsername={currentUsername}
+                                                        requiredValidations={requiredValidations}
+                                                        disabled={shouldDisableValidation(
+                                                            cell.cellContent,
+                                                            audioAttachments?.[cellIds[0]] as any
+                                                        )}
+                                                        disabledReason={(() => {
+                                                            const audioState = audioAttachments?.[
+                                                                cellIds[0]
+                                                            ] as any;
+                                                            return shouldDisableValidation(
+                                                                cell.cellContent,
+                                                                audioState
+                                                            )
+                                                                ? "Validation disabled: no text and no audio"
+                                                                : undefined;
+                                                        })()}
+                                                    />
+                                                </div>
+                                                <div
+                                                    className="flex flex-col items-center justify-center"
+                                                    onMouseOver={() => {
+                                                        setIsHoveringAudioValidationButton(true);
+                                                    }}
+                                                    onMouseOut={() => {
+                                                        setIsHoveringAudioValidationButton(false);
+                                                    }}
+                                                >
+                                                    <AudioValidationButton
+                                                        cellId={cellIds[0]}
+                                                        cell={cell}
+                                                        vscode={vscode}
+                                                        isSourceText={isSourceText}
+                                                        currentUsername={currentUsername}
+                                                        requiredAudioValidations={
+                                                            requiredAudioValidations
+                                                        }
+                                                        disabled={
+                                                            audioState === "none" ||
+                                                            audioState === "deletedOnly"
+                                                        }
+                                                        disabledReason={
+                                                            audioState === "none" ||
+                                                            audioState === "deletedOnly"
+                                                                ? "Audio validation requires audio"
+                                                                : undefined
+                                                        }
+                                                    />
+                                                </div>
+                                            </div>
                                         )
                                     }
                                     content={
@@ -828,61 +875,44 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 )}
 
                                 {/* Audio Play Button */}
-                                <div className="flex flex-col items-center border border-gray-300 rounded-lg py-1">
-                                    {audioAttachments &&
-                                        audioAttachments[cellIds[0]] !== undefined &&
-                                        (() => {
-                                            const audioState = audioAttachments[cellIds[0]];
-
-                                            // For source text: show the button for available or missing; hide when none/deletedOnly
-                                            if (
-                                                isSourceText &&
-                                                !(
-                                                    audioState === "available" ||
-                                                    audioState === "missing"
-                                                )
+                                {audioAttachments &&
+                                    audioAttachments[cellIds[0]] !== undefined &&
+                                    (() => {
+                                        // For source text: show the button for available or missing; hide when none/deletedOnly
+                                        if (
+                                            isSourceText &&
+                                            !(
+                                                audioState === "available" ||
+                                                audioState === "missing"
                                             )
-                                                return null;
+                                        )
+                                            return null;
 
-                                            return (
-                                                <>
-                                                    <AudioValidationButton
-                                                        cellId={cellIds[0]}
-                                                        cell={cell}
-                                                        vscode={vscode}
-                                                        isSourceText={isSourceText}
-                                                        currentUsername={currentUsername}
-                                                        requiredAudioValidations={
-                                                            requiredAudioValidations
-                                                        }
-                                                        disabled={
-                                                            audioState === "none" ||
-                                                            audioState === "deletedOnly"
-                                                        }
-                                                        disabledReason={
-                                                            audioState === "none" ||
-                                                            audioState === "deletedOnly"
-                                                                ? "Audio validation requires audio"
-                                                                : undefined
-                                                        }
-                                                    />
-                                                    <AudioPlayButton
-                                                        cellId={cellIds[0]}
-                                                        vscode={vscode}
-                                                        state={audioState}
-                                                        onOpenCell={(id) => {
-                                                            // Use force variant to ensure editor opens even with unsaved state
-                                                            const open =
-                                                                (window as any).openCellByIdForce ||
-                                                                (window as any).openCellById;
-                                                            if (typeof open === "function")
-                                                                open(id);
-                                                        }}
-                                                    />
-                                                </>
-                                            );
-                                        })()}
-                                </div>
+                                        return (
+                                            <div
+                                                style={{
+                                                    ...(isHoveringAudioValidationButton && {
+                                                        animation: "pulse-glow 1.5s ease-in-out infinite",
+                                                        borderRadius: "4px",
+                                                        boxShadow: "0 0 1px var(--vscode-editor-selectionBackground)",
+                                                    }),
+                                                }}
+                                            >
+                                                <AudioPlayButton
+                                                    cellId={cellIds[0]}
+                                                    vscode={vscode}
+                                                    state={audioState}
+                                                    onOpenCell={(id) => {
+                                                        // Use force variant to ensure editor opens even with unsaved state
+                                                        const open =
+                                                            (window as any).openCellByIdForce ||
+                                                            (window as any).openCellById;
+                                                        if (typeof open === "function") open(id);
+                                                    }}
+                                                />
+                                            </div>
+                                        );
+                                    })()}
 
                                 {/* Merge Button - only show in correction editor mode for source text */}
                                 {isSourceText &&
@@ -970,7 +1000,19 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                             {label}
                         </div>
                     )}
-                    <div style={{ flex: 1, minWidth: 0 }}>{renderContent()}</div>
+                    <div
+                        style={{ 
+                            flex: 1,
+                            padding: "0 0.25rem",
+                            minWidth: 0,
+                            ...(isHoveringValidationButton && {
+                                animation: "pulse-glow 1.5s ease-in-out infinite",
+                                borderRadius: "4px",
+                            }),
+                        }}
+                    >
+                        {renderContent()}
+                    </div>
                 </div>
 
                 {/* Comments Badge positioned at far right of row */}

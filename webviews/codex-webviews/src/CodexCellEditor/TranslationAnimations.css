@@ -1,34 +1,50 @@
 /* Translation process animations */
 @keyframes pulseBorder {
-  0% {
-    border-color: rgba(255, 193, 77, 0.5);
-  }
-  50% {
-    border-color: #ffc14d;
-  }
-  100% {
-    border-color: rgba(255, 193, 77, 0.5);
-  }
+    0% {
+        border-color: rgba(255, 193, 77, 0.5);
+    }
+    50% {
+        border-color: #ffc14d;
+    }
+    100% {
+        border-color: rgba(255, 193, 77, 0.5);
+    }
 }
 
 /* Animation for cells using background color */
 @keyframes pulseBackground {
-  0% {
-    background-color: rgba(255, 193, 77, 0.05);
-  }
-  50% {
-    background-color: rgba(255, 193, 77, 0.2);
-  }
-  100% {
-    background-color: rgba(255, 193, 77, 0.05);
-  }
+    0% {
+        background-color: rgba(255, 193, 77, 0.05);
+    }
+    50% {
+        background-color: rgba(255, 193, 77, 0.2);
+    }
+    100% {
+        background-color: rgba(255, 193, 77, 0.05);
+    }
+}
+
+/* Pulse glow animation for validation button hover */
+@keyframes pulse-glow {
+    0% {
+        opacity: 0.6;
+        box-shadow: 0 0 1px var(--vscode-editor-selectionBackground);
+    }
+    50% {
+        opacity: 1.0;
+        box-shadow: 0 0 4px var(--vscode-editor-selectionBackground);
+    }
+    100% {
+        opacity: 0.6;
+        box-shadow: 0 0 1px var(--vscode-editor-selectionBackground);
+    }
 }
 
 /* These classes will be applied via JS */
 .cell-translation-animation-processing {
-  animation: pulseBorder 1.5s infinite ease-in-out;
+    animation: pulseBorder 1.5s infinite ease-in-out;
 }
 
 .cell-translation-animation-processing-background {
-  animation: pulseBackground 1.5s infinite ease-in-out;
-} 
+    animation: pulseBackground 1.5s infinite ease-in-out;
+}

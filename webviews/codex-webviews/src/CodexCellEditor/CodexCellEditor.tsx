@@ -1407,8 +1407,6 @@ const CodexCellEditor: React.FC = () => {
         "codexCellEditor-bundledMetadata",
         (event: MessageEvent) => {
             if (event.data.type === "providerSendsInitialContent") {
-                console.log("event.data", event.data);
-
                 if (event.data.username !== undefined) {
                     setUsername(event.data.username);
                 }
