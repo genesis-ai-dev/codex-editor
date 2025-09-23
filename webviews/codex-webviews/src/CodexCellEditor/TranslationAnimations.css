@@ -28,15 +28,15 @@
 @keyframes pulse-glow {
     0% {
         opacity: 0.6;
-        box-shadow: 0 0 1px var(--vscode-editor-selectionBackground);
+        box-shadow: 0 0 4px var(--vscode-editor-selectionBackground);
     }
     50% {
         opacity: 1.0;
-        box-shadow: 0 0 4px var(--vscode-editor-selectionBackground);
+        box-shadow: 0 0 8px var(--vscode-editor-selectionBackground);
     }
     100% {
         opacity: 0.6;
-        box-shadow: 0 0 1px var(--vscode-editor-selectionBackground);
+        box-shadow: 0 0 4px var(--vscode-editor-selectionBackground);
     }
 }
 

@@ -533,6 +533,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         // Line numbers are always generated and shown at the beginning of each line
         // Labels are optional and shown after line numbers when present
 
+        // TODO: Is this still used? It is taking up space in the UI when not needed.
         const AlertDot = ({ color }: { color: string }) => (
             <span
                 style={{
@@ -777,6 +778,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                         vscode={vscode}
                                                         isSourceText={isSourceText}
                                                         currentUsername={currentUsername}
+                                                        setIsHoveringValidationButton={setIsHoveringValidationButton}
                                                         requiredValidations={requiredValidations}
                                                         disabled={shouldDisableValidation(
                                                             cell.cellContent,
@@ -799,9 +801,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                     className="flex flex-col items-center justify-center"
                                                     onMouseOver={() => {
                                                         setIsHoveringAudioValidationButton(true);
+                                                        setIsHoveringValidationButton(false);
                                                     }}
                                                     onMouseOut={() => {
                                                         setIsHoveringAudioValidationButton(false);
+                                                        setIsHoveringValidationButton(false);
                                                     }}
                                                 >
                                                     <AudioValidationButton
@@ -810,6 +814,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                         vscode={vscode}
                                                         isSourceText={isSourceText}
                                                         currentUsername={currentUsername}
+                                                        setIsHoveringAudioValidationButton={setIsHoveringAudioValidationButton}
                                                         requiredAudioValidations={
                                                             requiredAudioValidations
                                                         }
@@ -890,6 +895,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
                                         return (
                                             <div
+                                                className="ml-0.5"
                                                 style={{
                                                     ...(isHoveringAudioValidationButton && {
                                                         animation: "pulse-glow 1.5s ease-in-out infinite",

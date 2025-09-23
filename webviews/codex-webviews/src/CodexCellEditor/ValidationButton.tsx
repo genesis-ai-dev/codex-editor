@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { Dispatch, SetStateAction, useState, useEffect, useRef, useMemo } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { QuillCellContent, ValidationEntry } from "../../../../types";
 import { getCellValueData } from "@sharedUtils";
@@ -23,6 +23,7 @@ interface ValidationButtonProps {
     vscode: any;
     isSourceText: boolean;
     currentUsername?: string | null;
+    setIsHoveringValidationButton: Dispatch<SetStateAction<boolean>>;
     requiredValidations?: number;
     // When true, the button is disabled (e.g., missing audio or text)
     disabled?: boolean;
@@ -36,6 +37,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     vscode,
     isSourceText,
     currentUsername,
+    setIsHoveringValidationButton,
     requiredValidations: requiredValidationsProp,
     disabled: externallyDisabled,
     disabledReason,
@@ -372,6 +374,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         }
     };
 
+    // TODO: This is not used anywhere. Maybe it was abandoned for doing it inline?
     const closePopover = (e: React.MouseEvent) => {
         e.stopPropagation();
         setShowPopover(false);
@@ -481,7 +484,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 ) : currentValidations === 0 ? (
                     // Empty circle - No validations
                     <i
-                        className="codicon codicon-circle-outline"
+                        className="codicon codicon-circle-outline rounded-lg"
                         style={{
                             fontSize: "12px",
                             // Keep original color, don't change for pending validation
@@ -494,7 +497,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                     isValidated ? (
                         // Double green checkmarks - Fully validated and current user has validated
                         <i
-                            className="codicon codicon-check-all"
+                            className="codicon codicon-check-all rounded-lg"
                             style={{
                                 fontSize: "12px",
                                 // Keep original color, don't change for pending validation
@@ -506,7 +509,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                     ) : (
                         // Double grey checkmarks - Fully validated but current user hasn't validated
                         <i
-                            className="codicon codicon-check-all"
+                            className="codicon codicon-check-all rounded-lg"
                             style={{
                                 fontSize: "12px",
                                 // Keep original color, don't change for pending validation
@@ -519,7 +522,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 ) : isValidated ? (
                     // Green checkmark - Current user validated but not fully validated
                     <i
-                        className="codicon codicon-check"
+                        className="codicon codicon-check rounded-lg"
                         style={{
                             fontSize: "12px",
                             // Keep original color, don't change for pending validation
@@ -531,7 +534,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 ) : (
                     // Grey filled circle - Has validations but not from current user
                     <i
-                        className="codicon codicon-circle-filled"
+                        className="codicon codicon-circle-filled rounded-lg"
                         style={{
                             fontSize: "12px",
                             // Keep original color, don't change for pending validation
@@ -605,6 +608,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                             onClick={(e) => {
                                 e.stopPropagation();
                                 setShowPopover(false);
+                                setIsHoveringValidationButton(false);
                                 setIsPersistentPopover(false);
                                 setIsDetailedView(false);
                                 popoverTracker.setActivePopover(null);
