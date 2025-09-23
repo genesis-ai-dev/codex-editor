@@ -405,12 +405,13 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
                         </Button>
                         {segments.length > 1 && (
                             <Button
-                                size="sm"
-                                variant="ghost"
+                                size="icon"
+                                variant="destructive"
                                 onClick={() => removeSplit(index)}
-                                className="text-destructive hover:text-destructive"
+                                className="h-8 w-8 rounded-full"
+                                title="Remove segment"
                             >
-                                <X className="h-3 w-3" />
+                                <X className="h-5 w-5" />
                             </Button>
                         )}
                     </div>

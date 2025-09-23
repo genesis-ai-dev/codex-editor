@@ -492,6 +492,22 @@ export async function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // Ensure sync commands exist in all environments (including tests)
+    try {
+        const cmds = await vscode.commands.getCommands(true);
+        if (!cmds.includes("extension.scheduleSync")) {
+            const { SyncManager } = await import("./projectManager/syncManager");
+            context.subscriptions.push(
+                vscode.commands.registerCommand("extension.scheduleSync", (message: string) => {
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.scheduleSyncOperation(message);
+                })
+            );
+        }
+    } catch (err) {
+        console.warn("Failed to ensure scheduleSync registration", err);
+    }
+
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor-extension.navigateToCellInComments", (cellId: string) => {
             // Get the comments provider and send reload message

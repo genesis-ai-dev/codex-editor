@@ -277,6 +277,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     );
 
     const [showHistoryModal, setShowHistoryModal] = useState(false);
+    const [historyTab, setHistoryTab] = useState<"history" | "llm-previews">("history");
     const [editHistoryForCell, setEditHistoryForCell] = useState<EditHistory[]>(props.editHistory);
 
     const [footnoteCount, setFootnoteCount] = useState(1);
@@ -763,20 +764,25 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
     // Add function to generate diff HTML
     const generateDiffHtml = (oldText: string, newText: string): string => {
-        // Strip HTML from both texts before comparing
+        // Helper to escape text for safe HTML insertion
+        const escapeHtml = (text: string): string =>
+            text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+        // Strip HTML tags (but decode entities to get true text content)
         const cleanOldText = stripHtmlAndDecode(oldText);
         const cleanNewText = stripHtmlAndDecode(newText);
 
         const diff = diffWords(cleanOldText, cleanNewText);
         return diff
             .map((part) => {
+                const safe = escapeHtml(part.value);
                 if (part.added) {
-                    return `<span style="background-color: var(--vscode-diffEditor-insertedTextBackground); text-decoration: none;">${part.value}</span>`;
+                    return `<span style="background-color: var(--vscode-diffEditor-insertedTextBackground); text-decoration: none;">${safe}</span>`;
                 }
                 if (part.removed) {
-                    return `<span style="background-color: var(--vscode-diffEditor-removedTextBackground); text-decoration: line-through;">${part.value}</span>`;
+                    return `<span style="background-color: var(--vscode-diffEditor-removedTextBackground); text-decoration: line-through;">${safe}</span>`;
                 }
-                return part.value;
+                return safe;
             })
             .join("");
     };
@@ -952,9 +958,13 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         // Update footnote numbering starting from the footnote offset for section-based numbering
         updateFootnoteNumbering(quill.root, props.footnoteOffset || 1, false);
 
-        // Force Quill to recognize the content change
-        quill.history.clear();
-        quill.update();
+        // Force Quill to recognize the content change (guard for test env stubs)
+        try {
+            (quill as any)?.history?.clear?.();
+        } catch { /* ignore */ }
+        try {
+            (quill as any)?.update?.();
+        } catch { /* ignore */ }
 
         // Restore cursor position after processing
         if (currentSelection && typeof (quill as any).setSelection === "function") {
@@ -964,7 +974,9 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         }
 
         // Emit a content change event to ensure everything is synchronized
-        quill.emitter.emit("text-change", null, null, "api");
+        try {
+            (quill as any)?.emitter?.emit?.("text-change", null, null, "api");
+        } catch { /* ignore */ }
     };
 
     // Save footnote content (for both creating new and editing existing)
@@ -1341,13 +1353,68 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                         </button>
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                            <button
+                                onClick={() => setHistoryTab("history")}
+                                style={{
+                                    backgroundColor:
+                                        historyTab === "history"
+                                            ? "var(--vscode-button-background)"
+                                            : "transparent",
+                                    color:
+                                        historyTab === "history"
+                                            ? "var(--vscode-button-foreground)"
+                                            : "var(--vscode-editor-foreground)",
+                                    border: "1px solid var(--vscode-editor-foreground)",
+                                    borderRadius: 4,
+                                    padding: "4px 8px",
+                                    cursor: "pointer",
+                                }}
+                            >
+                                History
+                            </button>
+                            <button
+                                onClick={() => setHistoryTab("llm-previews")}
+                                style={{
+                                    backgroundColor:
+                                        historyTab === "llm-previews"
+                                            ? "var(--vscode-button-background)"
+                                            : "transparent",
+                                    color:
+                                        historyTab === "llm-previews"
+                                            ? "var(--vscode-button-foreground)"
+                                            : "var(--vscode-editor-foreground)",
+                                    border: "1px solid var(--vscode-editor-foreground)",
+                                    borderRadius: 4,
+                                    padding: "4px 8px",
+                                    cursor: "pointer",
+                                }}
+                            >
+                                LLM Previews
+                            </button>
+                        </div>
+
                         {editHistoryForCell && editHistoryForCell.length > 0 ? (
                             [...editHistoryForCell]
-                                .filter(isValueEdit) // Only show content edits - TypeScript now knows these have string values
+                                .filter(isValueEdit)
                                 .reverse()
-                                // Filter out llm-generation entries that have the same content as the next user-edit
                                 .filter((entry, index, array) => {
-                                    const nextEntry = array[index - 1]; // Since array is reversed, previous entry is next chronologically
+                                    // Separate tabs: previews vs non-previews
+                                    const isPreview =
+                                        (entry as any).preview === true ||
+                                        (entry.type === "llm-generation" &&
+                                            (entry as any).preview === true);
+                                    if (historyTab === "llm-previews") {
+                                        return isPreview;
+                                    } else {
+                                        // Main history: exclude previews; keep non-preview LLM edits
+                                        return !isPreview;
+                                    }
+                                })
+                                .filter((entry, index, array) => {
+                                    // In the main history, still hide llm-generation entries that are identical to the next user-edit
+                                    if (historyTab === "llm-previews") return true;
+                                    const nextEntry = array[index - 1];
                                     return !(
                                         entry.type === "llm-generation" &&
                                         nextEntry?.type === "user-edit" &&
@@ -1356,12 +1423,37 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                 })
                                 .map((entry, index, array) => {
                                     const previousEntry = array[index + 1];
+
+                                    // Determine display styling by edit type
+                                    const type = (entry as any).type as string;
+                                    const typeLabelMap: Record<string, string> = {
+                                        "initial-import": "Initial Import",
+                                        "user-edit": "User Edit",
+                                        "llm-generation": "LLM Suggestion",
+                                        "llm-edit": "LLM Edit",
+                                        merge: "Merge",
+                                    };
+                                    const typeBorderColorMap: Record<string, string> = {
+                                        "initial-import":
+                                            "var(--vscode-editorGutter-modifiedBackground)",
+                                        "user-edit": "var(--vscode-editorGutter-addedBackground)",
+                                        "llm-generation":
+                                            "var(--vscode-editorGutter-deletedBackground)",
+                                        "llm-edit": "var(--vscode-editorGutter-modifiedBackground)",
+                                        merge: "var(--vscode-editorGutter-modifiedBackground)",
+                                    };
+                                    const typeLabel = typeLabelMap[type] || type || "Edit";
+                                    const typeBorderColor =
+                                        typeBorderColorMap[type] ||
+                                        "var(--vscode-editorGutter-modifiedBackground)";
+
+                                    // For initial import or when no previous entry exists, show a diff from empty → value
                                     const diffHtml = previousEntry
                                         ? generateDiffHtml(
                                               previousEntry.value as string,
                                               entry.value as string
                                           )
-                                        : stripHtmlAndDecode(entry.value as string);
+                                        : generateDiffHtml("", entry.value as string);
 
                                     // Check if this is the most recent entry that matches the initial value
                                     const isCurrentVersion =
@@ -1376,7 +1468,9 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                             style={{
                                                 padding: "8px",
                                                 border: "1px solid var(--vscode-editor-foreground)",
-                                                borderRadius: "4px",
+                                                // borderRadius: "4px",
+                                                borderLeft: `4px solid ${typeBorderColor}`,
+                                                paddingLeft: "12px",
                                                 backgroundColor: isCurrentVersion
                                                     ? "var(--vscode-editor-selectionBackground)"
                                                     : "transparent",
@@ -1390,11 +1484,32 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                                     display: "flex",
                                                     justifyContent: "space-between",
                                                     alignItems: "center",
+                                                    gap: "8px",
                                                 }}
                                             >
-                                                <div>
+                                                <div
+                                                    style={{
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                        gap: "8px",
+                                                    }}
+                                                >
                                                     {new Date(entry.timestamp).toLocaleString()} by{" "}
                                                     {entry.author}
+                                                    <span
+                                                        style={{
+                                                            fontSize: "0.75em",
+                                                            padding: "2px 6px",
+                                                            borderRadius: "9px",
+                                                            backgroundColor:
+                                                                "var(--vscode-badge-background)",
+                                                            color: "var(--vscode-badge-foreground)",
+                                                            border: `1px solid ${typeBorderColor}`,
+                                                            textAlign: "center",
+                                                        }}
+                                                    >
+                                                        {typeLabel}
+                                                    </span>
                                                 </div>
                                                 <div
                                                     style={{

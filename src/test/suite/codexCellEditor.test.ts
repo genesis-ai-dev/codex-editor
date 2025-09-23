@@ -285,6 +285,55 @@ suite("CodexCellEditorProvider Test Suite", () => {
         assert.strictEqual(afterCell.value, newValue, "Cell value should be updated to new value");
     });
 
+    test("saving cell with pre-existing content creates INITIAL_IMPORT and retains USER_EDIT as value", async () => {
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        // Select a target cell that has content but no prior edits
+        const cellId = "sample 1:cue-89.256-91.633";
+        const beforeDoc = JSON.parse(document.getText());
+        const targetCellBefore = beforeDoc.cells.find((c: any) => c.metadata.id === cellId);
+        assert.ok(targetCellBefore, "Target cell should exist");
+        assert.ok(
+            !targetCellBefore.metadata.edits || targetCellBefore.metadata.edits.length === 0,
+            "Cell should have no prior edits"
+        );
+
+        const previousValue = targetCellBefore.value;
+        const newValue = previousValue + " <b>user updated</b>";
+
+        // Perform a USER_EDIT which should also add an INITIAL_IMPORT first
+        await (document as any).updateCellContent(cellId, newValue, EditType.USER_EDIT);
+
+        // Save the document to persist changes
+        await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+
+        // Read file content from disk to verify persisted state
+        const fileBytes = await vscode.workspace.fs.readFile(tempUri);
+        const persisted = JSON.parse(new TextDecoder().decode(fileBytes));
+        const cellAfter = persisted.cells.find((c: any) => c.metadata.id === cellId);
+        assert.ok(cellAfter, "Cell should still exist after save");
+
+        // Assert value reflects the USER_EDIT (not the INITIAL_IMPORT)
+        assert.strictEqual(cellAfter.value, newValue, "Cell value should be updated to the user edit value");
+
+        // Assert edits include INITIAL_IMPORT followed by USER_EDIT, with timestamp ordering
+        const edits = cellAfter.metadata.edits || [];
+        assert.ok(edits.length >= 2, "Should have at least INITIAL_IMPORT and USER_EDIT edits");
+        const initialImport = edits.find((e: any) => e.type === EditType.INITIAL_IMPORT);
+        const userEdit = edits.reverse().find((e: any) => e.type === EditType.USER_EDIT); // last occurrence
+        assert.ok(initialImport, "INITIAL_IMPORT should be present");
+        assert.ok(userEdit, "USER_EDIT should be present");
+        assert.strictEqual(initialImport.value, previousValue, "INITIAL_IMPORT should capture original value");
+        assert.ok(
+            initialImport.timestamp < userEdit.timestamp,
+            "INITIAL_IMPORT timestamp should be earlier than USER_EDIT timestamp"
+        );
+    });
+
     test("updateCellTimestamps updates the cell timestamps", async () => {
         const document = await provider.openCustomDocument(
             tempUri,
