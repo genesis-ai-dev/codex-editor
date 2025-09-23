@@ -550,6 +550,7 @@ ChapterNavigationHeaderProps) {
 
     // Use dynamic responsive state variables based on content overflow
     const shouldUseMinimalLayout = isVerySmallScreen; // Use minimal layout for very small screens only
+    const shouldHideNavButtons = isVerySmallScreen; // Hide nav buttons on very small screens
 
     // Calculate progress for each subsection/page
     const calculateSubsectionProgress = (subsection: Subsection) => {
@@ -602,7 +603,7 @@ ChapterNavigationHeaderProps) {
 
     return (
         <div
-            className={`relative ${shouldUseMinimalLayout ? "flex flex-col p-1 space-y-1" : "flex flex-row p-2"} max-w-full items-center transition-all duration-200 ease-in-out`}
+            className={`relative flex flex-row ${shouldUseMinimalLayout ? "p-1" : "p-2"} max-w-full items-center transition-all duration-200 ease-in-out`}
             ref={headerContainerRef}
         >
             {/* Hamburger menu positioned on the left when space is insufficient */}
@@ -636,6 +637,15 @@ ChapterNavigationHeaderProps) {
                         openSourceText={openSourceText}
                         chapterNumber={chapterNumber}
                         isCorrectionEditorMode={isCorrectionEditorMode}
+                        totalChapters={totalChapters}
+                        setChapterNumber={setChapterNumber}
+                        jumpToChapter={jumpToChapter}
+                        showUnsavedWarning={() => {
+                            setShowUnsavedWarning(true);
+                            setTimeout(() => setShowUnsavedWarning(false), 3000);
+                        }}
+                        getSubsectionsForChapter={getSubsectionsForChapter}
+                        shouldHideNavButtons={shouldHideNavButtons}
                     />
                 </div>
             )}
@@ -677,8 +687,9 @@ ChapterNavigationHeaderProps) {
             <div
                 className={`flex-1 flex items-center justify-center space-x-2 min-w-0 mx-2 transition-all duration-200 ease-in-out`}
             >
-                {/* Navigation arrows - shown for all layouts */}
-                <Button
+                {/* Navigation arrows - hidden on very small screens */}
+                {!shouldHideNavButtons && (
+                    <Button
                     className="inline-flex transition-all duration-200 ease-in-out"
                     variant="outline"
                     size="default"
@@ -723,6 +734,7 @@ ChapterNavigationHeaderProps) {
                         }`}
                     />
                 </Button>
+                )}
 
                 <div
                     ref={chapterTitleRef}
@@ -738,7 +750,7 @@ ChapterNavigationHeaderProps) {
                         }
                     }}
                 >
-                    <h1 className={`${shouldUseMinimalLayout ? "text-lg" : "text-2xl"} flex items-center m-0 min-w-0 transition-all duration-200 ease-in-out`}>
+                    <h1 className={`${shouldUseMinimalLayout ? "text-sm" : "text-2xl"} flex items-center m-0 min-w-0 transition-all duration-200 ease-in-out`}>
                         <span className={`${shouldUseMinimalLayout || truncatedBookName !== null ? "truncate" : "whitespace-nowrap"} transition-all duration-200 ease-in-out`}>
                             {(() => {
                                 if (truncatedBookName !== null) {
@@ -780,10 +792,11 @@ ChapterNavigationHeaderProps) {
                     </h1>
                 </div>
 
-                <Button
-                    className="inline-flex transition-all duration-200 ease-in-out"
-                    variant="outline"
-                    size="default"
+                {!shouldHideNavButtons && (
+                    <Button
+                        className="inline-flex transition-all duration-200 ease-in-out"
+                        variant="outline"
+                        size="default"
                     onClick={() => {
                         if (!unsavedChanges) {
                             // Check if we're on the last page of the current chapter
@@ -823,6 +836,7 @@ ChapterNavigationHeaderProps) {
                         }`}
                     />
                 </Button>
+                )}
 
                 {/* Page selector - shown when not using hamburger menu */}
                 {subsections.length > 0 && !shouldShowHamburger && (
