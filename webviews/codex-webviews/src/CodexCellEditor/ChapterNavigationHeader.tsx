@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button } from "../components/ui/button";
 import { VSCodeBadge } from "@vscode/webview-ui-toolkit/react";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
@@ -137,6 +137,10 @@ ChapterNavigationHeaderProps) {
     const [truncatedBookName, setTruncatedBookName] = useState<string | null>(null);
     const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
 
+    // Responsive breakpoint state with hysteresis to prevent flickering
+    const [isMobileLayout, setIsMobileLayout] = useState(window.innerWidth < 640);
+    const [isVerySmallLayout, setIsVerySmallLayout] = useState(window.innerWidth < 400);
+
     // Font size state - default to 14 if not set in metadata
     const [fontSize, setFontSize] = useState(metadata?.fontSize || 14);
     const [pendingFontSize, setPendingFontSize] = useState<number | null>(null);
@@ -170,9 +174,47 @@ ChapterNavigationHeaderProps) {
         return `${displayBookName}\u00A0${chapterNum}`;
     }, [translationUnitsForSection, bibleBookMap]);
 
-    // Dynamic title truncation based on available space
-    useEffect(() => {
+    // Debounced resize handler to prevent excessive re-renders
+    const debouncedResizeHandler = useMemo(() => {
         let timeoutId: NodeJS.Timeout;
+        return (callback: () => void) => {
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => {
+                requestAnimationFrame(callback);
+            }, 150);
+        };
+    }, []);
+
+    // Responsive breakpoint management with hysteresis
+    useEffect(() => {
+        const handleBreakpointResize = () => {
+            const width = window.innerWidth;
+
+            // Mobile layout breakpoint with 5px buffer zone
+            if (!isMobileLayout && width < 635) {
+                setIsMobileLayout(true);
+            } else if (isMobileLayout && width > 645) {
+                setIsMobileLayout(false);
+            }
+
+            // Very small layout breakpoint with 5px buffer zone
+            if (!isVerySmallLayout && width < 395) {
+                setIsVerySmallLayout(true);
+            } else if (isVerySmallLayout && width > 405) {
+                setIsVerySmallLayout(false);
+            }
+        };
+
+        const debouncedBreakpointHandler = () => {
+            debouncedResizeHandler(handleBreakpointResize);
+        };
+
+        window.addEventListener('resize', debouncedBreakpointHandler);
+        return () => window.removeEventListener('resize', debouncedBreakpointHandler);
+    }, [isMobileLayout, isVerySmallLayout, debouncedResizeHandler]);
+
+    // Dynamic title truncation based on available space - now universal (not screen-size dependent)
+    useEffect(() => {
         const handleTitleResize = () => {
             const container = chapterTitleRef.current;
             if (!container) return;
@@ -193,10 +235,11 @@ ChapterNavigationHeaderProps) {
                 if (!parentRect) return;
 
                 // Calculate available width based on parent (not the title itself to avoid feedback)
+                // Use responsive states instead of direct window.innerWidth checks
                 const availableWidth = Math.min(
                     parentRect.width,
-                    window.innerWidth < 400 ? window.innerWidth * 0.5 : // On very small screens, limit to 50%
-                    window.innerWidth < 640 ? window.innerWidth * 0.6 : // On small screens, limit to 60%
+                    isVerySmallLayout ? window.innerWidth * 0.5 : // On very small screens, limit to 50%
+                    isMobileLayout ? window.innerWidth * 0.6 : // On small screens, limit to 60%
                     window.innerWidth * 0.4 // On larger screens, limit to 40%
                 );
 
@@ -207,9 +250,9 @@ ChapterNavigationHeaderProps) {
                 temp.style.fontSize = window.getComputedStyle(container.querySelector('h1') || container).fontSize;
                 temp.style.fontFamily = window.getComputedStyle(container.querySelector('h1') || container).fontFamily;
 
-                // Account for subsection label like "(1-50)" only when it's visible (>= 500px)
+                // Account for subsection label like "(1-50)" only when it should be visible
                 const subsectionLabel =
-                    window.innerWidth >= 500 &&
+                    !isMobileLayout && // Use responsive state instead of window.innerWidth >= 500
                     subsections.length > 0 &&
                     subsections[currentSubsectionIndex]?.label
                         ? ` (${subsections[currentSubsectionIndex].label})`
@@ -220,7 +263,7 @@ ChapterNavigationHeaderProps) {
                 const fullWidth = temp.getBoundingClientRect().width;
                 document.body.removeChild(temp);
 
-                // FIXED: If text is too wide, truncate the book name (now universal for all screen sizes)
+                // If text is too wide, truncate the book name (now universal, not screen-size dependent)
                 if (fullWidth > availableWidth && bookName.length > 3) {
                     // Calculate how many characters we can fit
                     const totalTextLength = fullTitle.length + subsectionLabel.length;
@@ -242,31 +285,32 @@ ChapterNavigationHeaderProps) {
             });
         };
 
+        const debouncedTitleHandler = () => {
+            debouncedResizeHandler(handleTitleResize);
+        };
+
         // Initial calculation
         handleTitleResize();
 
         // Add resize observer for container changes
         let resizeObserver: ResizeObserver | null = null;
         if (window.ResizeObserver && chapterTitleRef.current) {
-            resizeObserver = new ResizeObserver(handleTitleResize);
+            resizeObserver = new ResizeObserver(() => {
+                debouncedResizeHandler(handleTitleResize);
+            });
             resizeObserver.observe(chapterTitleRef.current);
         }
 
-        // Add debounced window resize listener as fallback
-        const debouncedResize = () => {
-            clearTimeout(timeoutId);
-            timeoutId = setTimeout(handleTitleResize, 100);
-        };
-        window.addEventListener('resize', debouncedResize);
+        // Add window resize listener as fallback
+        window.addEventListener('resize', debouncedTitleHandler);
 
         return () => {
-            clearTimeout(timeoutId);
             if (resizeObserver) {
                 resizeObserver.disconnect();
             }
-            window.removeEventListener('resize', debouncedResize);
+            window.removeEventListener('resize', debouncedTitleHandler);
         };
-    }, [getDisplayTitle, translationUnitsForSection, subsections, currentSubsectionIndex]);
+    }, [getDisplayTitle, translationUnitsForSection, subsections, currentSubsectionIndex, isMobileLayout, isVerySmallLayout, debouncedResizeHandler]);
 
 
     // Helper to determine if any translation is in progress
@@ -459,9 +503,9 @@ ChapterNavigationHeaderProps) {
         }
     };
 
-    // Define responsive layout variables
-    const shouldUseMobileLayout = window.innerWidth < 640;
-    const shouldUseThreeRowLayout = window.innerWidth < 400;
+    // Use responsive state variables instead of direct window.innerWidth checks
+    const shouldUseMobileLayout = isMobileLayout;
+    const shouldUseThreeRowLayout = isVerySmallLayout;
 
     // Calculate progress for each subsection/page
     const calculateSubsectionProgress = (subsection: Subsection) => {
@@ -514,8 +558,8 @@ ChapterNavigationHeaderProps) {
 
     return (
         <div className="relative flex flex-row p-2 max-w-full items-center transition-all duration-200 ease-in-out">
-            {/* Mobile hamburger menu - shows when page dropdown is hidden */}
-            <div className={`hidden items-center ${subsections.length > 0 ? "max-[639px]:flex" : "max-[399px]:flex"}`}>
+            {/* Mobile hamburger menu - shows when layout is mobile */}
+            <div className={`${shouldUseMobileLayout ? "flex" : "hidden"} items-center`}>
                 <MobileHeaderMenu
                     isAutocompletingChapter={isAutocompletingChapter}
                     isTranslatingCell={isTranslatingCell}
@@ -549,7 +593,7 @@ ChapterNavigationHeaderProps) {
             </div>
 
             {/* Desktop left controls */}
-            <div className={`${subsections.length > 0 ? "hidden min-[640px]:flex" : "hidden min-[400px]:flex"} items-center justify-start flex-shrink-0 transition-all duration-200 ease-in-out`}>
+            <div className={`${shouldUseMobileLayout ? "hidden" : "flex"} items-center justify-start flex-shrink-0 transition-all duration-200 ease-in-out`}>
                 {isSourceText ? (
                     <>
                         <Button variant="outline" onClick={toggleScrollSync}>
@@ -581,9 +625,9 @@ ChapterNavigationHeaderProps) {
 
             {/* Center navigation - flex centered */}
             <div className="flex-1 flex items-center justify-center space-x-2 min-w-0 mx-2">
-                {/* Navigation arrows - hidden on very small screens (< 400px) */}
+                {/* Navigation arrows - hidden on very small screens */}
                 <Button
-                    className="inline-flex transition-all duration-200 ease-in-out max-[399px]:opacity-0 max-[399px]:-translate-x-1 max-[399px]:pointer-events-none"
+                    className={`inline-flex transition-all duration-200 ease-in-out ${shouldUseThreeRowLayout ? "opacity-0 -translate-x-1 pointer-events-none" : ""}`}
                     variant="outline"
                     size="default"
                     onClick={() => {
@@ -630,7 +674,7 @@ ChapterNavigationHeaderProps) {
 
                 <div
                     ref={chapterTitleRef}
-                    className="chapter-title-container flex items-center min-w-0 max-w-full cursor-pointer rounded-md transition-all duration-200 ease-in-out"
+                    className="chapter-title-container flex items-center min-w-0 max-w-full cursor-pointer min-[400px]:cursor-pointer rounded-md transition-all duration-200 ease-in-out"
                     onClick={() => {
                         // Always allow opening the chapter selector when there are no unsaved changes
                         if (!unsavedChanges) {
@@ -642,7 +686,7 @@ ChapterNavigationHeaderProps) {
                         }
                     }}
                 >
-                    <h1 className="text-lg min-[400px]:text-2xl flex items-center m-0 min-w-0 transition-all duration-200 ease-in-out">
+                    <h1 className={`${shouldUseThreeRowLayout ? "text-lg" : "text-2xl"} flex items-center m-0 min-w-0 transition-all duration-200 ease-in-out`}>
                         <span className={`${shouldUseThreeRowLayout || truncatedBookName !== null ? "truncate" : "whitespace-nowrap"} transition-all duration-200 ease-in-out`}>
                             {(() => {
                                 if (truncatedBookName !== null) {
@@ -670,22 +714,22 @@ ChapterNavigationHeaderProps) {
                                     : "";
                             })()}
                         </span>
-                        {/* Show page info - hide on narrow screens to prevent collisions */}
-                        {subsections.length > 0 && (
-                            <span className="flex-shrink-0 ml-1 text-sm md:text-base hidden min-[500px]:inline transition-opacity duration-200 ease-in-out">
+                        {/* Show page info - hide on mobile to prevent collisions */}
+                        {subsections.length > 0 && !shouldUseMobileLayout && (
+                            <span className="flex-shrink-0 ml-1 text-sm md:text-base inline transition-opacity duration-200 ease-in-out">
                                 ({subsections[currentSubsectionIndex]?.label || ""})
                             </span>
                         )}
                         <i
                             className={`codicon ${
                                 showChapterSelector ? "codicon-chevron-up" : "codicon-chevron-down"
-                            } ml-1 flex-shrink-0 hidden min-[400px]:inline`}
+                            } ml-1 flex-shrink-0 ${shouldUseThreeRowLayout ? "hidden" : "inline"}`}
                         />
                     </h1>
                 </div>
 
                 <Button
-                    className="inline-flex transition-all duration-200 ease-in-out max-[399px]:opacity-0 max-[399px]:translate-x-1 max-[399px]:pointer-events-none"
+                    className={`inline-flex transition-all duration-200 ease-in-out ${shouldUseThreeRowLayout ? "opacity-0 translate-x-1 pointer-events-none" : ""}`}
                     variant="outline"
                     size="default"
                     onClick={() => {
@@ -728,9 +772,9 @@ ChapterNavigationHeaderProps) {
                     />
                 </Button>
 
-                {/* Page selector - dynamic threshold: higher for long chapters (50+ verses) */}
-                {subsections.length > 0 && (
-                    <div className="hidden min-[640px]:flex items-center ml-4 transition-all duration-200 ease-in-out">
+                {/* Page selector - shown on desktop layouts */}
+                {subsections.length > 0 && !shouldUseMobileLayout && (
+                    <div className="flex items-center ml-4 transition-all duration-200 ease-in-out">
                         <span className="mr-2">Page:</span>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -829,7 +873,7 @@ ChapterNavigationHeaderProps) {
             </div>
 
             {/* Desktop right controls */}
-            <div className={`${subsections.length > 0 ? "hidden min-[640px]:flex" : "hidden min-[400px]:flex"} items-center justify-end ml-auto space-x-2`}>
+            <div className={`${shouldUseMobileLayout ? "hidden" : "flex"} items-center justify-end ml-auto space-x-2`}>
                 {/* {getFileStatusButton()} // FIXME: we want to show the file status, but it needs to load immediately, and it needs to be more reliable. - test this and also think through UX */}
                 {/* Show left sidebar toggle only when editor is not leftmost
                 
