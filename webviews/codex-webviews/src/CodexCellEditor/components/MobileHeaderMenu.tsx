@@ -22,17 +22,17 @@ interface MobileHeaderMenuProps {
     onStopTranslation: () => void;
     unsavedChanges: boolean;
     isSourceText: boolean;
-    
+
     // Settings
     textDirection: "ltr" | "rtl";
     onSetTextDirection: (direction: "ltr" | "rtl") => void;
     cellDisplayMode: CELL_DISPLAY_MODES;
     onSetCellDisplayMode: (mode: CELL_DISPLAY_MODES) => void;
-    
+
     // Font size
     fontSize: number;
     onFontSizeChange: (value: number[]) => void;
-    
+
     // Metadata and video
     metadata: CustomNotebookMetadata | undefined;
     onMetadataChange: (key: string, value: string) => void;
@@ -40,20 +40,20 @@ interface MobileHeaderMenuProps {
     shouldShowVideoPlayer: boolean;
     onToggleVideoPlayer: () => void;
     onOpenMetadataModal: () => void;
-    
+
     // Page/subsection navigation
     subsections: Subsection[];
     currentSubsectionIndex: number;
     setCurrentSubsectionIndex: React.Dispatch<React.SetStateAction<number>>;
-    
-    // Chapter navigation (for ultra-small screens)
-    chapterNumber: number;
-    totalChapters: number;
-    jumpToChapter?: (chapterNumber: number) => void;
-    onPreviousChapter?: () => void;
-    onNextChapter?: () => void;
-    getDisplayTitle: () => string;
-    
+
+
+    // Left section controls (source text functionality)
+    toggleScrollSync?: () => void;
+    scrollSyncEnabled?: boolean;
+    openSourceText?: (chapterNumber: number) => void;
+    chapterNumber?: number;
+    isCorrectionEditorMode?: boolean;
+
     // VS Code integration
     vscode: any;
 }
@@ -80,12 +80,11 @@ export function MobileHeaderMenu({
     subsections,
     currentSubsectionIndex,
     setCurrentSubsectionIndex,
+    toggleScrollSync,
+    scrollSyncEnabled,
+    openSourceText,
     chapterNumber,
-    totalChapters,
-    jumpToChapter,
-    onPreviousChapter,
-    onNextChapter,
-    getDisplayTitle,
+    isCorrectionEditorMode,
     vscode,
 }: MobileHeaderMenuProps) {
     const isAnyTranslationInProgress = isAutocompletingChapter || isTranslatingCell;
@@ -96,7 +95,7 @@ export function MobileHeaderMenu({
                 <Button
                     variant="outline"
                     title="Menu"
-                    className={subsections.length > 0 ? "max-[639px]:inline-flex" : "max-[399px]:inline-flex"}
+                    className="inline-flex"
                 >
                     <i className="codicon codicon-menu" />
                 </Button>
@@ -108,23 +107,44 @@ export function MobileHeaderMenu({
                 className="w-64"
                 style={{ zIndex: 99999 }}
             >
-                {/* Chapter Navigation */}
-                <div className="px-3 py-1">
-                    <span className="text-sm text-muted-foreground">Chapter: {getDisplayTitle()}</span>
-                </div>
-                {onPreviousChapter && (
-                    <DropdownMenuItem onClick={onPreviousChapter} className="cursor-pointer">
-                        <i className="codicon codicon-chevron-left mr-2 h-4 w-4" />
-                        <span>Previous Chapter</span>
-                    </DropdownMenuItem>
+
+                {/* Left Section Controls (Source Text Functionality) */}
+                {isSourceText && toggleScrollSync && (
+                    <>
+                        <DropdownMenuItem
+                            onClick={toggleScrollSync}
+                            className="cursor-pointer"
+                        >
+                            <i
+                                className={`codicon ${
+                                    scrollSyncEnabled ? "codicon-lock" : "codicon-unlock"
+                                } mr-2 h-4 w-4`}
+                            />
+                            <span>Scroll Sync ({scrollSyncEnabled ? "Enabled" : "Disabled"})</span>
+                        </DropdownMenuItem>
+                        {isCorrectionEditorMode && (
+                            <div className="px-3 py-1">
+                                <span className="text-sm font-bold" style={{ color: "red" }}>
+                                    Source Editing Mode
+                                </span>
+                            </div>
+                        )}
+                        <DropdownMenuSeparator />
+                    </>
                 )}
-                {onNextChapter && (
-                    <DropdownMenuItem onClick={onNextChapter} className="cursor-pointer">
-                        <i className="codicon codicon-chevron-right mr-2 h-4 w-4" />
-                        <span>Next Chapter</span>
-                    </DropdownMenuItem>
+
+                {!isSourceText && openSourceText && chapterNumber && (
+                    <>
+                        <DropdownMenuItem
+                            onClick={() => openSourceText(chapterNumber)}
+                            className="cursor-pointer"
+                        >
+                            <i className="codicon codicon-open-preview mr-2 h-4 w-4" />
+                            <span>Open Source Text</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                    </>
                 )}
-                <DropdownMenuSeparator />
 
                 {/* Translation Controls */}
                 {!isSourceText && (
