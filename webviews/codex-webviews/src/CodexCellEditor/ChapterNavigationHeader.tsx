@@ -553,7 +553,7 @@ ChapterNavigationHeaderProps) {
     const shouldHideNavButtons = isVerySmallScreen; // Hide nav buttons on very small screens
 
     // Calculate progress for each subsection/page
-    const calculateSubsectionProgress = (subsection: Subsection) => {
+    const calculateSubsectionProgress = (subsection: Subsection, forSourceText: boolean = isSourceText) => {
         // Use allCellsForChapter if available, otherwise fall back to translationUnitsForSection
         const allChapterCells = allCellsForChapter || translationUnitsForSection;
 
@@ -570,30 +570,48 @@ ChapterNavigationHeaderProps) {
             return { isFullyTranslated: false, isFullyValidated: false };
         }
 
-        // Check if all cells have content (translated)
-        const translatedCells = validCells.filter(
-            (cell) =>
-                cell.cellContent &&
+        // Check if all cells have content (translated for target, existing for source)
+        const completedCells = validCells.filter((cell) => {
+            const hasContent = cell.cellContent &&
                 cell.cellContent.trim().length > 0 &&
-                cell.cellContent !== "<span></span>"
-        );
-        const isFullyTranslated = translatedCells.length === validCells.length;
+                cell.cellContent !== "<span></span>";
+
+            if (forSourceText) {
+                // For source text, we just check if content exists
+                return hasContent;
+            } else {
+                // For target text, we check if it's been translated (has content)
+                return hasContent;
+            }
+        });
+        const isFullyTranslated = completedCells.length === validCells.length;
 
         // Check if all cells are validated
         let isFullyValidated = false;
         if (isFullyTranslated) {
             const minimumValidationsRequired = 1; // Can be made configurable later
             const validatedCells = validCells.filter((cell) => {
-                const validatedBy =
-                    cell.editHistory
-                        ?.slice()
-                        .reverse()
-                        .find(
-                            (edit) =>
-                                EditMapUtils.isValue(edit.editMap) &&
-                                edit.value === cell.cellContent
-                        )?.validatedBy || [];
-                return validatedBy.filter((v) => !v.isDeleted).length >= minimumValidationsRequired;
+                if (forSourceText) {
+                    // For source text, validation might not apply the same way
+                    // Check if there's any validation history at all
+                    const hasAnyValidation = cell.editHistory &&
+                        cell.editHistory.some(edit =>
+                            edit.validatedBy && edit.validatedBy.filter(v => !v.isDeleted).length > 0
+                        );
+                    return hasAnyValidation;
+                } else {
+                    // For target text, use existing validation logic
+                    const validatedBy =
+                        cell.editHistory
+                            ?.slice()
+                            .reverse()
+                            .find(
+                                (edit) =>
+                                    EditMapUtils.isValue(edit.editMap) &&
+                                    edit.value === cell.cellContent
+                            )?.validatedBy || [];
+                    return validatedBy.filter((v) => !v.isDeleted).length >= minimumValidationsRequired;
+                }
             });
             isFullyValidated = validatedCells.length === validCells.length;
         }
@@ -646,6 +664,8 @@ ChapterNavigationHeaderProps) {
                         }}
                         getSubsectionsForChapter={getSubsectionsForChapter}
                         shouldHideNavButtons={shouldHideNavButtons}
+                        allCellsForChapter={allCellsForChapter}
+                        calculateSubsectionProgress={calculateSubsectionProgress}
                     />
                 </div>
             )}
@@ -852,7 +872,7 @@ ChapterNavigationHeaderProps) {
                                     {(() => {
                                         const currentSection = subsections[currentSubsectionIndex];
                                         const progress =
-                                            calculateSubsectionProgress(currentSection);
+                                            calculateSubsectionProgress(currentSection, isSourceText);
                                         return (
                                             <>
                                                 <span
@@ -892,7 +912,7 @@ ChapterNavigationHeaderProps) {
                                 style={{ zIndex: 99999 }}
                             >
                                 {subsections.map((section, index) => {
-                                    const progress = calculateSubsectionProgress(section);
+                                    const progress = calculateSubsectionProgress(section, isSourceText);
                                     return (
                                         <DropdownMenuItem
                                             key={section.id}

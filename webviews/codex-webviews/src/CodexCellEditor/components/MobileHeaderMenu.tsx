@@ -11,7 +11,7 @@ import {
 } from "../../components/ui/dropdown-menu";
 import { Slider } from "../../components/ui/slider";
 import { CELL_DISPLAY_MODES } from "../CodexCellEditor";
-import { type CustomNotebookMetadata } from "../../../../../types";
+import { type CustomNotebookMetadata, type QuillCellContent } from "../../../../../types";
 import { type Subsection } from "../../lib/types";
 
 interface MobileHeaderMenuProps {
@@ -64,6 +64,8 @@ interface MobileHeaderMenuProps {
     showUnsavedWarning?: () => void;
     getSubsectionsForChapter?: (chapterNum: number) => Subsection[];
     shouldHideNavButtons?: boolean;
+    allCellsForChapter?: QuillCellContent[];
+    calculateSubsectionProgress?: (subsection: Subsection, forSourceText?: boolean) => { isFullyTranslated: boolean; isFullyValidated: boolean };
 }
 
 export function MobileHeaderMenu({
@@ -100,6 +102,8 @@ export function MobileHeaderMenu({
     showUnsavedWarning,
     getSubsectionsForChapter,
     shouldHideNavButtons,
+    allCellsForChapter,
+    calculateSubsectionProgress,
 }: MobileHeaderMenuProps) {
     const isAnyTranslationInProgress = isAutocompletingChapter || isTranslatingCell;
 
@@ -301,19 +305,42 @@ export function MobileHeaderMenu({
                         <div className="px-3 py-1">
                             <span className="text-sm text-muted-foreground">Current Page: {subsections[currentSubsectionIndex]?.label || ""}</span>
                         </div>
-                        {subsections.map((section, index) => (
-                            <DropdownMenuItem
-                                key={section.id}
-                                onClick={() => setCurrentSubsectionIndex(index)}
-                                className={`cursor-pointer ${currentSubsectionIndex === index ? 'bg-accent' : ''}`}
-                            >
-                                <i className="codicon codicon-location mr-2 h-4 w-4" />
-                                <span>Go to {section.label}</span>
-                                {currentSubsectionIndex === index && (
-                                    <i className="codicon codicon-check ml-auto h-4 w-4" />
-                                )}
-                            </DropdownMenuItem>
-                        ))}
+                        {subsections.map((section, index) => {
+                            const progress = calculateSubsectionProgress ? calculateSubsectionProgress(section, isSourceText) : { isFullyTranslated: false, isFullyValidated: false };
+                            return (
+                                <DropdownMenuItem
+                                    key={section.id}
+                                    onClick={() => setCurrentSubsectionIndex(index)}
+                                    className={`cursor-pointer ${currentSubsectionIndex === index ? 'bg-accent' : ''}`}
+                                >
+                                    <i className="codicon codicon-location mr-2 h-4 w-4" />
+                                    <span>Go to {section.label}</span>
+                                    <div className="flex items-center gap-1 ml-auto">
+                                        {currentSubsectionIndex === index && (
+                                            <i className="codicon codicon-check h-4 w-4" />
+                                        )}
+                                        {progress.isFullyValidated && (
+                                            <div
+                                                className="w-2 h-2 rounded-full"
+                                                style={{
+                                                    backgroundColor: "var(--vscode-editorWarning-foreground)",
+                                                }}
+                                                title="Page fully validated"
+                                            />
+                                        )}
+                                        {!progress.isFullyValidated && progress.isFullyTranslated && (
+                                            <div
+                                                className="w-2 h-2 rounded-full"
+                                                style={{
+                                                    backgroundColor: "var(--vscode-charts-blue)",
+                                                }}
+                                                title="Page fully translated"
+                                            />
+                                        )}
+                                    </div>
+                                </DropdownMenuItem>
+                            );
+                        })}
                         <DropdownMenuSeparator />
                     </>
                 )}
