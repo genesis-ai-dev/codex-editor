@@ -1819,6 +1819,136 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
         );
 
+        // Register command to check audio validation data in database
+        const checkAudioValidationDataCommand = vscode.commands.registerCommand(
+            "codex-editor-extension.checkAudioValidationData",
+            async () => {
+                try {
+                    if (translationPairsIndex instanceof SQLiteIndexManager) {
+                        vscode.window.withProgress({
+                            location: vscode.ProgressLocation.Notification,
+                            title: "Checking audio validation data in database...",
+                            cancellable: false
+                        }, async (progress) => {
+                            // Log technical operation to console instead of showing to user
+                            debug("[SQLiteIndex] 🔍 Analyzing audio validation columns...");
+                            progress.report({ message: "Checking audio validation data..." });
+
+                            const db = translationPairsIndex.database;
+                            if (db) {
+                                try {
+                                    // Get audio validation statistics
+                                    const audioValidationStmt = db.prepare(`
+                                        SELECT 
+                                            COUNT(*) as total_target_cells,
+                                            COUNT(t_audio_validation_count) as cells_with_audio_validation_count,
+                                            COUNT(t_audio_validated_by) as cells_with_audio_validated_by,
+                                            SUM(CASE WHEN t_audio_is_fully_validated = 1 THEN 1 ELSE 0 END) as fully_audio_validated_cells,
+                                            AVG(t_audio_validation_count) as avg_audio_validation_count,
+                                            MAX(t_audio_validation_count) as max_audio_validation_count
+                                        FROM cells 
+                                        WHERE t_content IS NOT NULL AND t_content != ''
+                                    `);
+
+                                    let audioStats = {
+                                        totalTargetCells: 0,
+                                        cellsWithAudioValidationCount: 0,
+                                        cellsWithAudioValidatedBy: 0,
+                                        fullyAudioValidatedCells: 0,
+                                        avgAudioValidationCount: 0,
+                                        maxAudioValidationCount: 0
+                                    };
+
+                                    try {
+                                        audioValidationStmt.step();
+                                        const result = audioValidationStmt.getAsObject();
+                                        audioStats = {
+                                            totalTargetCells: (result.total_target_cells as number) || 0,
+                                            cellsWithAudioValidationCount: (result.cells_with_audio_validation_count as number) || 0,
+                                            cellsWithAudioValidatedBy: (result.cells_with_audio_validated_by as number) || 0,
+                                            fullyAudioValidatedCells: (result.fully_audio_validated_cells as number) || 0,
+                                            avgAudioValidationCount: (result.avg_audio_validation_count as number) || 0,
+                                            maxAudioValidationCount: (result.max_audio_validation_count as number) || 0
+                                        };
+                                    } finally {
+                                        audioValidationStmt.free();
+                                    }
+
+                                    // Get sample audio validation data
+                                    const sampleAudioStmt = db.prepare(`
+                                        SELECT 
+                                            cell_id,
+                                            t_audio_validation_count,
+                                            t_audio_validated_by,
+                                            t_audio_is_fully_validated,
+                                            t_current_edit_timestamp
+                                        FROM cells 
+                                        WHERE t_content IS NOT NULL AND t_content != ''
+                                        AND (t_audio_validation_count > 0 OR t_audio_validated_by IS NOT NULL OR t_audio_is_fully_validated = 1)
+                                        ORDER BY t_audio_validation_count DESC, t_current_edit_timestamp DESC
+                                        LIMIT 10
+                                    `);
+
+                                    const sampleAudioCells: any[] = [];
+                                    try {
+                                        while (sampleAudioStmt.step()) {
+                                            sampleAudioCells.push(sampleAudioStmt.getAsObject());
+                                        }
+                                    } finally {
+                                        sampleAudioStmt.free();
+                                    }
+
+                                    // Get audio validation threshold
+                                    const audioValidationThreshold = vscode.workspace.getConfiguration('codex-project-manager')
+                                        .get('validationCountAudio', 1);
+
+                                    progress.report({ message: "Analysis complete" });
+
+                                    let message = `Audio Validation Data Analysis (Schema v8):\\n\\n`;
+                                    message += `📊 Audio Validation Statistics:\\n`;
+                                    message += `• Total target cells with content: ${audioStats.totalTargetCells}\\n`;
+                                    message += `• Cells with audio validation count: ${audioStats.cellsWithAudioValidationCount}\\n`;
+                                    message += `• Cells with audio validated_by data: ${audioStats.cellsWithAudioValidatedBy}\\n`;
+                                    message += `• Fully audio validated cells: ${audioStats.fullyAudioValidatedCells}\\n`;
+                                    message += `• Average audio validation count: ${audioStats.avgAudioValidationCount.toFixed(2)}\\n`;
+                                    message += `• Max audio validation count: ${audioStats.maxAudioValidationCount}\\n`;
+                                    message += `• Audio validation threshold: ${audioValidationThreshold} validators\\n\\n`;
+
+                                    if (sampleAudioCells.length > 0) {
+                                        message += `🔍 Sample Audio Validated Cells:\\n`;
+                                        sampleAudioCells.forEach((cell, index) => {
+                                            message += `${index + 1}. ${cell.cell_id}:\\n`;
+                                            message += `   • Audio Count: ${cell.t_audio_validation_count || 0}\\n`;
+                                            message += `   • Audio By: ${cell.t_audio_validated_by || 'none'}\\n`;
+                                            message += `   • Fully audio validated: ${cell.t_audio_is_fully_validated ? 'Yes' : 'No'}\\n`;
+                                            if (cell.t_current_edit_timestamp) {
+                                                message += `   • Last edit: ${new Date(cell.t_current_edit_timestamp).toISOString()}\\n`;
+                                            }
+                                            message += `\\n`;
+                                        });
+                                    } else {
+                                        message += `⚠️ No audio validated cells found in database.\\n`;
+                                        message += `This might indicate audio validation updates are not reaching the database.\\n`;
+                                    }
+
+                                    vscode.window.showInformationMessage(message, { modal: true });
+
+                                } catch (error) {
+                                    vscode.window.showErrorMessage(`Audio validation analysis failed: ${error}`);
+                                }
+                            } else {
+                                vscode.window.showErrorMessage("Database not available");
+                            }
+                        });
+                    } else {
+                        vscode.window.showErrorMessage("Index manager not available");
+                    }
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Error checking audio validation data: ${error}`);
+                }
+            }
+        );
+
         // Register command to check validation data in database
         const checkValidationDataCommand = vscode.commands.registerCommand(
             "codex-editor-extension.checkValidationData",
@@ -1990,6 +2120,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 checkTargetTimestampsCommand,
                 diagnoseSchemaCommand,
                 checkValidationDataCommand,
+                checkAudioValidationDataCommand,
                 configureValidationThresholdCommand,
                 recalculateValidationStatusCommand
             ]
