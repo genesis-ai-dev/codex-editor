@@ -89,11 +89,21 @@ function calculateMeteorScore(llmText: string, userText: string): number {
     const cleanLlmText = stripHtmlTags(llmText);
     const cleanUserText = stripHtmlTags(userText);
 
-    // Simple METEOR implementation focusing on exact matches and word order
-    const llmWords = cleanLlmText.toLowerCase().split(/\s+/);
-    const userWords = cleanUserText.toLowerCase().split(/\s+/);
+    // Handle empty strings
+    if (!cleanLlmText.trim() || !cleanUserText.trim()) {
+        return 0;
+    }
 
-    // Calculate exact matches
+    // Simple METEOR implementation focusing on exact matches and word order
+    const llmWords = cleanLlmText.toLowerCase().split(/\s+/).filter(word => word.length > 0);
+    const userWords = cleanUserText.toLowerCase().split(/\s+/).filter(word => word.length > 0);
+
+    // Handle case where filtering results in empty arrays
+    if (llmWords.length === 0 || userWords.length === 0) {
+        return 0;
+    }
+
+    // Calculate exact matches (position-based as in original METEOR)
     const matches = llmWords.filter((word, i) => word === userWords[i]);
 
     // Calculate precision and recall
