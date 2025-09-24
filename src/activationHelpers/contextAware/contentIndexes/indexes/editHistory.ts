@@ -4,7 +4,7 @@ import { getTargetFilesContent } from "./fileReaders";
 import { EditType } from "../../../../../types/enums";
 import { EditMapUtils } from "../../../../utils/editMapUtils";
 interface Edit {
-    cellValue: string;
+    value: string;
     timestamp: number;
     type: EditType;
     author?: string;
@@ -186,7 +186,7 @@ export async function analyzeEditHistory(): Promise<{
                 }
 
                 if (edit.type === "llm-generation") {
-                    currentLLM = edit.cellValue;
+                    currentLLM = edit.value;
                     currentLLMTimestamp = edit.timestamp;
                     continue;
                 }
@@ -220,7 +220,7 @@ export async function analyzeEditHistory(): Promise<{
 
         // Strip HTML tags from both LLM generation and user edit
         const strippedLlmGeneration = stripHtmlTags(current.llmGeneration);
-        const strippedUserEdit = stripHtmlTags(current.edit.cellValue);
+        const strippedUserEdit = stripHtmlTags(current.edit.value);
 
         // If the stripped texts are identical, skip this edit pair
         if (strippedLlmGeneration === strippedUserEdit) continue;
@@ -249,7 +249,7 @@ export async function analyzeEditHistory(): Promise<{
         // Update current cell tracking
         currentCellId = current.cellId;
         currentEdits.push({
-            userEdit: current.edit.cellValue,
+            userEdit: current.edit.value,
             llmText: current.llmGeneration,
             llmTimestamp: current.llmTimestamp,
         });
