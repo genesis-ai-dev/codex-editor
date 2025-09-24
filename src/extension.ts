@@ -37,6 +37,7 @@ import {
     showWelcomeViewIfNeeded,
 } from "./providers/WelcomeView/register";
 import { SyncManager } from "./projectManager/syncManager";
+import { MetadataManager } from "./utils/metadataManager";
 import {
     registerSplashScreenProvider,
     showSplashScreen,
@@ -389,6 +390,19 @@ export async function activate(context: vscode.ExtensionContext) {
                 // DEBUGGING: Here is where the splash screen disappears - it was visible up till now
                 await vscode.workspace.fs.stat(metadataUri);
                 metadataExists = true;
+
+                // Update extension version requirements for conflict-free metadata management
+                try {
+                    const currentVersion = MetadataManager.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");
+                    const updateResult = await MetadataManager.updateExtensionVersions(workspaceFolders[0].uri, {
+                        codexEditor: currentVersion
+                    });
+                    if (!updateResult.success) {
+                        console.warn("[Extension] Failed to update extension version in metadata:", updateResult.error);
+                    }
+                } catch (error) {
+                    console.warn("[Extension] Error updating extension version requirements:", error);
+                }
             } catch {
                 metadataExists = false;
             }

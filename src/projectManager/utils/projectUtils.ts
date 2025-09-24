@@ -15,6 +15,7 @@ import http from "isomorphic-git/http/web";
 import { getAuthApi } from "../../extension";
 import { stageAndCommitAllAndSync } from "./merge";
 import { SyncManager } from "../syncManager";
+import { MetadataManager } from "../../utils/metadataManager";
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[ProjectUtils]", ...args) : () => { };
@@ -356,25 +357,48 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
     }
 
     const projectFilePath = vscode.Uri.joinPath(WORKSPACE_FOLDER.uri, "metadata.json");
-    const projectFileData = Buffer.from(JSON.stringify(newProject, null, 4), "utf8");
 
     try {
-        await vscode.workspace.fs.stat(projectFilePath);
-        // File exists, ask for confirmation to overwrite
-        const overwrite = await vscode.window.showWarningMessage(
-            "Project file already exists. Do you want to overwrite it?",
-            "Yes",
-            "No"
+        try {
+            await vscode.workspace.fs.stat(projectFilePath);
+            // File exists, ask for confirmation to overwrite
+            const overwrite = await vscode.window.showWarningMessage(
+                "Project file already exists. Do you want to overwrite it?",
+                "Yes",
+                "No"
+            );
+            if (overwrite !== "Yes") {
+                vscode.window.showInformationMessage("Project creation cancelled.");
+                return;
+            }
+        } catch (error) {
+            // File doesn't exist, we can proceed with creation
+        }
+
+        // Use MetadataManager to safely create the project metadata
+        const createResult = await MetadataManager.safeUpdateMetadata(
+            WORKSPACE_FOLDER.uri,
+            () => {
+                // Add extension version requirements to the new project
+                const projectWithVersions = {
+                    ...newProject,
+                    meta: {
+                        ...newProject.meta,
+                        requiredExtensions: {
+                            codexEditor: MetadataManager.getCurrentExtensionVersion("project-accelerate.codex-editor-extension")
+                        }
+                    }
+                };
+                return projectWithVersions;
+            }
         );
-        if (overwrite !== "Yes") {
-            vscode.window.showInformationMessage("Project creation cancelled.");
+
+        if (!createResult.success) {
+            console.error("Failed to create project metadata:", createResult.error);
+            vscode.window.showErrorMessage("Failed to create project metadata. Check the output panel for details.");
             return;
         }
-    } catch (error) {
-        // File doesn't exist, we can proceed with creation
-    }
-    try {
-        await vscode.workspace.fs.writeFile(projectFilePath, projectFileData);
+
         vscode.window.showInformationMessage(`Project created at ${projectFilePath.fsPath}`);
 
         // Check if git is already initialized
@@ -470,73 +494,67 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
 }
 
 export async function updateMetadataFile() {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
 
     if (!workspaceFolder) {
         console.error("No workspace folder found.");
         return;
     }
 
-    const projectFilePath = vscode.Uri.joinPath(vscode.Uri.file(workspaceFolder), "metadata.json");
-
-    let project;
-    try {
-        // Force read from disk to avoid cache issues
-        const projectFileData = await vscode.workspace.fs.readFile(projectFilePath);
-        project = JSON.parse(projectFileData.toString());
-        debug("Read existing metadata.json file");
-    } catch (error) {
-        console.warn("Metadata file does not exist, creating a new one.");
-        project = {}; // Initialize an empty project object if the file does not exist
-    }
-
     const projectSettings = vscode.workspace.getConfiguration("codex-project-manager");
 
-    // Preserving existing validation count if it exists
-    const existingValidationCount = project.meta?.validationCount;
-    const configValidationCount = projectSettings.get("validationCount", 1);
+    const result = await MetadataManager.safeUpdateMetadata(
+        workspaceFolder,
+        (project: any) => {
+            // Preserving existing validation count if it exists
+            const existingValidationCount = project.meta?.validationCount;
+            const configValidationCount = projectSettings.get("validationCount", 1);
 
-    debug(
-        `Updating metadata file - existing validation count: ${existingValidationCount}, config validation count: ${configValidationCount}`
+            debug(
+                `Updating metadata file - existing validation count: ${existingValidationCount}, config validation count: ${configValidationCount}`
+            );
+
+            // Check if we're in a sync disabled state (meaning a direct update is occurring)
+            if (syncDisabled) {
+                debug("Direct update in progress - using config value for validation count");
+            }
+
+            // Update project properties
+            project.projectName = projectSettings.get("projectName", "");
+            project.meta = project.meta || {}; // Ensure meta object exists
+
+            // Explicitly update validation count
+            project.meta.validationCount = configValidationCount;
+
+            project.meta.generator = project.meta.generator || {}; // Ensure generator object exists
+            project.meta.generator.userName = projectSettings.get("userName", "");
+            project.meta.generator.userEmail = projectSettings.get("userEmail", "");
+            project.languages = project.languages || [null, null];
+            project.languages[0] = projectSettings.get("sourceLanguage", project.languages[0] || "");
+            project.languages[1] = projectSettings.get("targetLanguage", project.languages[1] || "");
+            project.meta.abbreviation = projectSettings.get("abbreviation", "");
+            project.spellcheckIsEnabled = projectSettings.get("spellcheckIsEnabled", false);
+
+            debug("Project settings loaded, preparing to write to metadata.json");
+            return project;
+        }
     );
 
-    // Check if we're in a sync disabled state (meaning a direct update is occurring)
-    if (syncDisabled) {
-        debug("Direct update in progress - using config value for validation count");
-    }
-
-    // Update project properties
-    project.projectName = projectSettings.get("projectName", "");
-    project.meta = project.meta || {}; // Ensure meta object exists
-
-    // Explicitly update validation count
-    project.meta.validationCount = configValidationCount;
-
-    project.meta.generator = project.meta.generator || {}; // Ensure generator object exists
-    project.meta.generator.userName = projectSettings.get("userName", "");
-    project.meta.generator.userEmail = projectSettings.get("userEmail", "");
-    project.languages = project.languages || [null, null];
-    project.languages[0] = projectSettings.get("sourceLanguage", project.languages[0] || "");
-    project.languages[1] = projectSettings.get("targetLanguage", project.languages[1] || "");
-    project.meta.abbreviation = projectSettings.get("abbreviation", "");
-    project.spellcheckIsEnabled = projectSettings.get("spellcheckIsEnabled", false);
-
-    // Update other fields as needed
-    debug("Project settings loaded, preparing to write to metadata.json");
-
-    try {
-        const updatedProjectFileData = Buffer.from(JSON.stringify(project, null, 4), "utf8");
-        await vscode.workspace.fs.writeFile(projectFilePath, updatedProjectFileData);
-        debug(
-            "Successfully wrote metadata.json with validation count:",
-            project.meta.validationCount
+    if (!result.success) {
+        console.error("Failed to update metadata:", result.error);
+        vscode.window.showErrorMessage(
+            'Failed to update project metadata. Check the output panel for details.'
         );
-
-        // Small delay to ensure file system operations complete before further operations
-        await new Promise((resolve) => setTimeout(resolve, 100));
-    } catch (error) {
-        console.error("Error writing metadata.json:", error);
+        return;
     }
+
+    debug(
+        "Successfully wrote metadata.json with validation count:",
+        result.metadata?.meta?.validationCount
+    );
+
+    // Small delay to ensure file system operations complete before further operations
+    await new Promise((resolve) => setTimeout(resolve, 100));
 }
 
 export const projectFileExists = async () => {
@@ -806,16 +824,15 @@ export async function accessMetadataFile(): Promise<ProjectMetadata | undefined>
         return;
     }
     const workspaceFolder = workspaceFolders[0];
-    const metadataFilePath = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
-    try {
-        const fileData = await vscode.workspace.fs.readFile(metadataFilePath);
-        const metadata = JSON.parse(fileData.toString());
-        return metadata;
-    } catch (error) {
-        // File doesn't exist or can't be read, which is expected for a new project
-        debug("Metadata file not found or cannot be read. This is normal for a new project.");
+
+    const result = await MetadataManager.safeReadMetadata<ProjectMetadata>(workspaceFolder.uri);
+
+    if (!result.success) {
+        debug("Error reading metadata file:", result.error);
         return;
     }
+
+    return result.metadata;
 }
 export async function reopenWalkthrough() {
     await vscode.commands.executeCommand("workbench.action.closeAllGroups");
