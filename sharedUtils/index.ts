@@ -62,6 +62,7 @@ export const getCellValueData = (cell: QuillCellContent) => {
         cellContent: cell.cellContent || "",
         cellType: cell.cellType,
         validatedBy: latestEditThatMatchesCellValue?.validatedBy || [],
+        audioValidatedBy: latestEditThatMatchesCellValue?.audioValidatedBy || [],
         editType: latestEditThatMatchesCellValue?.type || "user-edit",
         author: latestEditThatMatchesCellValue?.author || "",
         timestamp: latestEditThatMatchesCellValue?.timestamp || Date.now(),

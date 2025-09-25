@@ -535,6 +535,7 @@ export type EditorPostMessages =
     | { command: "toggleSidebar"; content?: { isOpening: boolean; }; }
     | { command: "getEditorPosition"; }
     | { command: "validateCell"; content: { cellId: string; validate: boolean; }; }
+    | { command: "validateAudioCell"; content: { cellId: string; validate: boolean; }; }
     | {
         command: "queueValidation";
         content: { cellId: string; validate: boolean; pending: boolean; };
@@ -543,6 +544,7 @@ export type EditorPostMessages =
     | { command: "clearPendingValidations"; }
     | { command: "getCurrentUsername"; }
     | { command: "getValidationCount"; }
+    | { command: "getValidationCountAudio"; }
     | { command: "stopAutocompleteChapter"; }
     | { command: "stopSingleCellTranslation"; }
     | { command: "triggerReindexing"; }
@@ -778,6 +780,7 @@ type EditHistoryBase = {
     timestamp: number;
     type: import("./enums").EditType;
     validatedBy?: ValidationEntry[];
+    audioValidatedBy?: ValidationEntry[];
 };
 
 export type EditHistory<TEditMap extends readonly string[] = readonly string[]> = EditHistoryBase & {
@@ -910,6 +913,7 @@ interface ProjectOverview extends Project {
     targetLanguage: LanguageMetadata;
     category?: string; // Keep for backward compatibility
     validationCount?: number;
+    validationCountAudio?: number;
     userName: string;
     userEmail: string;
     sourceTexts?: vscode.Uri[] | never[];
@@ -920,6 +924,7 @@ interface ProjectOverview extends Project {
     meta: Omit<Project["meta"], "generator"> & {
         generator: Project["meta"]["generator"] & { userEmail?: string; };
         validationCount?: number;
+        validationCountAudio?: number;
     };
     spellcheckIsEnabled: boolean;
 }
@@ -1142,6 +1147,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "editAbbreviation"; }
     | { command: "selectCategory"; }
     | { command: "setValidationCount"; }
+    | { command: "setValidationCountAudio"; }
     | { command: "openSourceUpload"; }
     | { command: "openAISettings"; }
     | { command: "openLicenseSettings"; }
@@ -1519,6 +1525,7 @@ type EditorReceiveMessages =
         sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
         username?: string;
         validationCount?: number;
+        validationCountAudio?: number;
     }
     | {
         type: "preferredEditorTab";
@@ -1680,6 +1687,7 @@ type EditorReceiveMessages =
     }
     | { type: "currentUsername"; content: { username: string; }; }
     | { type: "validationCount"; content: number; }
+    | { type: "validationCountAudio"; content: number; }
     | { type: "configurationChanged"; }
     | {
         type: "validationInProgress";
@@ -1690,7 +1698,21 @@ type EditorReceiveMessages =
         };
     }
     | {
+        type: "audioValidationInProgress";
+        content: {
+            cellId: string;
+            inProgress: boolean;
+            error?: string;
+        };
+    }
+    | {
         type: "pendingValidationCleared";
+        content: {
+            cellIds: string[];
+        };
+    }
+    | {
+        type: "pendingAudioValidationCleared";
         content: {
             cellIds: string[];
         };
@@ -1708,6 +1730,13 @@ type EditorReceiveMessages =
         content: {
             cellId: string;
             validatedBy: ValidationEntry[];
+        };
+    }
+    | {
+        type: "providerUpdatesAudioValidationState";
+        content: {
+            cellId: string;
+            audioValidatedBy: ValidationEntry[];
         };
     }
     | {

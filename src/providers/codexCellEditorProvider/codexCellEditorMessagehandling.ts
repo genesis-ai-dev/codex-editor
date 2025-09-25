@@ -875,6 +875,17 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
+    validateAudioCell: async ({ event, document, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "validateAudioCell"; }>;
+        if (typedEvent.content?.cellId) {
+            await provider.enqueueAudioValidation(
+                typedEvent.content.cellId,
+                document,
+                typedEvent.content.validate
+            );
+        }
+    },
+
     getValidationCount: async ({ webviewPanel, provider }) => {
         // Validation count is now bundled with initial content; only send on explicit request
         const config = vscode.workspace.getConfiguration("codex-project-manager");
@@ -882,6 +893,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         provider.postMessageToWebview(webviewPanel, {
             type: "validationCount",
             content: validationCount,
+        });
+    },
+
+    getValidationCountAudio: async ({ webviewPanel, provider }) => {
+        // Audio validation count is now bundled with initial content; only send on explicit request
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        const validationCountAudio = config.get("validationCountAudio", 1);
+        provider.postMessageToWebview(webviewPanel, {
+            type: "validationCountAudio",
+            content: validationCountAudio,
         });
     },
 

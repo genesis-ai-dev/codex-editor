@@ -544,6 +544,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "changeSourceLanguage":
             case "changeTargetLanguage":
             case "setValidationCount":
+            case "setValidationCountAudio":
             case "downloadSourceText":
             case "openAISettings":
             case "openSourceUpload":
