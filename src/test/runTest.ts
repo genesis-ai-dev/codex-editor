@@ -8,7 +8,6 @@ async function runTests() {
 
         // The path to your test workspace folder
         await test.runTests({
-            version: "1.104.1",
             extensionDevelopmentPath,
             extensionTestsPath,
             launchArgs: [],
