@@ -24,7 +24,7 @@ import { smartSegmenterPlugin } from "./recursiveTextSplitter/index.tsx";
 import { paratextImporterPlugin } from "./paratext/index.tsx";
 import { spreadsheetImporterPlugin } from "./spreadsheet/index.tsx";
 import { audioImporterPlugin } from "./audio/index.tsx";
-import { tmsImporterPlugin } from "./tms/index.tsx";
+// import { tmsImporterPlugin } from "./tms/index.tsx";
 // import { rtfImporterPlugin } from "./rtf/index.tsx";
 // import { pdfImporterPlugin } from "./pdf/index.tsx";
 import { indesignImporterPlugin } from "./indesign/index.tsx";
@@ -83,12 +83,12 @@ export const importerPlugins: ImporterPlugin[] = [
         description: "Excel and Google Sheets",
         tags: [...(spreadsheetImporterPlugin.tags || []), "Essential", "Spreadsheet", "Excel"],
     },
-    {
-        ...tmsImporterPlugin,
-        name: "TMS Files",
-        description: "Translation memory and localization files",
-        tags: [...(tmsImporterPlugin.tags || []), "Translation", "Localization", "Bible"],
-    },
+    // {
+    //     ...tmsImporterPlugin,
+    //     name: "TMS Files",
+    //     description: "Translation memory and localization files",
+    //     tags: [...(tmsImporterPlugin.tags || []), "Translation", "Localization", "Bible"],
+    // },
     // {
     //     ...rtfImporterPlugin,
     //     name: "RTF Documents",
