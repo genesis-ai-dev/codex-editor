@@ -63,7 +63,7 @@ export const ProjectsHeader: React.FC<ProjectsHeaderProps> = ({
     };
 
     return (
-        <div className="sticky top-0 z-10 bg-background p-3 border-b shadow-sm">
+        <div className="sticky top-0 z-10 bg-background p-3 shadow-sm">
             <div className="flex gap-2 items-center">
                 <div className="relative flex-1">
                     <i className="codicon codicon-search absolute left-2 top-1/2 transform -translate-y-1/2 text-muted-foreground text-sm" />
@@ -71,7 +71,7 @@ export const ProjectsHeader: React.FC<ProjectsHeaderProps> = ({
                         placeholder="Search projects..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-8 h-8 text-sm"
+                        className="pl-8 h-9 text-sm"
                     />
                     {searchQuery && (
                         <Button
@@ -86,7 +86,7 @@ export const ProjectsHeader: React.FC<ProjectsHeaderProps> = ({
                 </div>
 
                 <Select value={filter} onValueChange={(value) => setFilter(value as ProjectFilter)}>
-                    <SelectTrigger className="w-40 h-8 text-sm">
+                    <SelectTrigger className="w-40 text-sm border border-gray-200">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -105,20 +105,6 @@ export const ProjectsHeader: React.FC<ProjectsHeaderProps> = ({
                         </SelectItem>
                     </SelectContent>
                 </Select>
-
-                {/* <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                        vscode.postMessage({
-                            command: "forceRefreshProjectsList",
-                        });
-                    }}
-                    className="h-8 w-8 p-0"
-                    title="Force refresh projects list"
-                >
-                    <i className="codicon codicon-refresh text-sm" />
-                </Button> */}
             </div>
         </div>
     );

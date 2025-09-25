@@ -1,14 +1,13 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { ProjectWithSyncStatus, ProjectSyncStatus } from "types";
-import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import { Card, CardContent, CardHeader } from "../../components/ui/card";
 import { Skeleton } from "../../components/ui/skeleton";
-import { cn } from "../../lib/utils";
 import { GroupSection } from "./projects-list/GroupSection";
 import { ProjectCard } from "./projects-list/ProjectCard";
 import { ProjectsHeader } from "./projects-list/ProjectsHeader";
 import { EmptyState } from "./projects-list/EmptyState";
+import { useNetworkState } from "@uidotdev/usehooks";
 
 // Filter options for projects
 type ProjectFilter = "all" | "local" | "remote" | "synced" | "non-synced";
@@ -72,6 +71,9 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     const [newlyAddedProjects, setNewlyAddedProjects] = useState<Set<string>>(new Set());
     const [statusChangedProjects, setStatusChangedProjects] = useState<Set<string>>(new Set());
 
+    const network = useNetworkState();
+    const isOnline = network?.online;
+    
     // Track newly added projects for animation
     useEffect(() => {
         const currentProjectNames = new Set(projects.map((p) => p.name));
@@ -240,48 +242,47 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         };
     };
 
-    const groupProjectsByHierarchy = (projects: ProjectWithSyncStatus[]) => {
-        const hierarchy: Record<string, ProjectGroup> = {};
-        const ungrouped: ProjectWithSyncStatus[] = [];
+    const { hierarchy, ungrouped: ungroupedProjects } = useMemo(() => {
+        const groupProjectsByHierarchy = (projects: ProjectWithSyncStatus[]) => {
+            const hierarchy: Record<string, ProjectGroup> = {};
+            const ungrouped: ProjectWithSyncStatus[] = [];
 
-        projects.forEach((project) => {
-            const { groups } = parseProjectUrl(project.gitOriginUrl);
+            projects.forEach((project) => {
+                const { groups } = parseProjectUrl(project.gitOriginUrl);
 
-            if (groups.length === 0) {
-                ungrouped.push(project);
-                return;
-            }
-
-            let currentLevel = hierarchy;
-            let currentPath = "";
-
-            groups.forEach((group, index) => {
-                currentPath = currentPath ? `${currentPath}/${group}` : group;
-
-                if (!currentLevel[group]) {
-                    currentLevel[group] = {
-                        name: group,
-                        projects: [],
-                        subgroups: {},
-                        isLast: index === groups.length - 1,
-                    };
+                if (groups.length === 0) {
+                    ungrouped.push(project);
+                    return;
                 }
 
-                if (index === groups.length - 1) {
-                    currentLevel[group].projects.push(project);
-                } else {
-                    currentLevel = currentLevel[group].subgroups;
-                }
+                let currentLevel = hierarchy;
+                let currentPath = "";
+
+                groups.forEach((group, index) => {
+                    currentPath = currentPath ? `${currentPath}/${group}` : group;
+
+                    if (!currentLevel[group]) {
+                        currentLevel[group] = {
+                            name: group,
+                            projects: [],
+                            subgroups: {},
+                            isLast: index === groups.length - 1,
+                        };
+                    }
+
+                    if (index === groups.length - 1) {
+                        currentLevel[group].projects.push(project);
+                    } else {
+                        currentLevel = currentLevel[group].subgroups;
+                    }
+                });
             });
-        });
 
-        return { hierarchy, ungrouped };
-    };
+            return { hierarchy, ungrouped };
+        };
 
-    const { hierarchy, ungrouped: ungroupedProjects } = useMemo(
-        () => groupProjectsByHierarchy(projectsWithProgress || []),
-        [projectsWithProgress]
-    );
+        return groupProjectsByHierarchy(projectsWithProgress || []);
+    }, [projectsWithProgress]);
 
     const filterProjects = (projects: ProjectWithSyncStatus[]) => {
         if (!projects) return [];
@@ -336,6 +337,19 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
 
     return (
         <div className="flex flex-col gap-3 h-[calc(100vh-130px)] w-full">
+            {!isOnline && (
+                <Card className="flex flex-col items-start justify-center bg-red-500/10 border-red-500/20">
+                    <CardHeader className="hidden"></CardHeader>
+                    <CardContent className="flex items-center justify-start gap-1 pt-6">
+                        <i className="codicon codicon-sync-ignored text-sm text-red-500" />
+                        <span>
+                            Currently offline. You can only work with previously opened
+                            projects.
+                        </span>
+                    </CardContent>
+                </Card>
+            )}
+
             <ProjectsHeader
                 searchQuery={searchQuery}
                 setSearchQuery={setSearchQuery}
@@ -401,7 +415,9 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                 <div className="border-t border-muted">
                                     {filteredUngroupedProjects.map((project) => (
                                         <ProjectCard
-                                            key={`${project.name}-${project.gitOriginUrl || 'no-url'}`}
+                                            key={`${project.name}-${
+                                                project.gitOriginUrl || "no-url"
+                                            }`}
                                             project={project}
                                             onCloneProject={onCloneProject}
                                             onOpenProject={onOpenProject}
