@@ -103,6 +103,14 @@ function getWebviewContent(
 ) {
     const hasLanguages = sourceLanguage?.refName && targetLanguage?.refName;
 
+    // Middle-truncate longer file names
+    const middleTruncateLongerFileNames = (fileName: string) => {
+        if (fileName.length > 20) {
+            fileName = fileName.slice(0, 10) + "..." + fileName.slice(-10);
+        }
+        return fileName;
+    };
+
     return `<!DOCTYPE html>
     <html>
         <head>
@@ -398,14 +406,19 @@ function getWebviewContent(
                 .map(
                     (file, index) => `
                                 <div class="file-item">
-                                    <input type="checkbox" 
-                                           id="file-${index}" 
-                                           value="${file.path}"
-                                           ${file.selected ? "checked" : ""}
-                                           onchange="updateFileSelection()">
-                                    <label for="file-${index}">
+                                    <input 
+                                        type="checkbox" 
+                                        id="file-${index}" 
+                                        value="${file.path}"
+                                        ${file.selected ? "checked" : ""}
+                                        onchange="updateFileSelection()"
+                                    >
+                                    <label 
+                                        for="file-${index}"
+                                        title="${file.name}"
+                                    >
                                         <i class="codicon codicon-file"></i>
-                                        ${file.name}
+                                        ${middleTruncateLongerFileNames(file.name)}
                                     </label>
                                 </div>
                             `
