@@ -533,7 +533,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         // Line numbers are always generated and shown at the beginning of each line
         // Labels are optional and shown after line numbers when present
 
-        // TODO: Is this still used? It is taking up space in the UI when not needed.
+        // TODO: This was used for spell checking primarily. Will leave in for now but 
+        // will not render it when it is undefined.
         const AlertDot = ({ color }: { color: string }) => (
             <span
                 style={{
@@ -548,7 +549,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         );
 
         const getAlertDot = () => {
-            if (alertColorCode === -1) return null;
+            if (alertColorCode === -1 || undefined) return null;
 
             const colors = {
                 "0": "transparent",
@@ -562,7 +563,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         colors[alertColorCode?.toString() as keyof typeof colors] || "transparent"
                     }
                 />
-            );
+            )
         };
 
         const getBackgroundColor = () => {
