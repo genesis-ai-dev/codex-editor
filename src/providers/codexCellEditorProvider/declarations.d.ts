@@ -3,7 +3,9 @@
 declare module '@/extension' {
     export function getAddWordToSpellcheckApi(): any;
     export function getSpellCheckResponseForText(): any;
-    export function getAuthApi(): Promise<any>;
+    // In runtime, getAuthApi() returns a FrontierAPI | undefined synchronously.
+    // Keep it as `any` here to avoid circular type deps.
+    export function getAuthApi(): any;
 }
 
 declare module '@/utils/semanticSearch' {

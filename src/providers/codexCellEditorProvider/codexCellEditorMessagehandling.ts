@@ -441,96 +441,116 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const cellId = typedEvent.content.currentLineId;
         const addContentToValue = typedEvent.content.addContentToValue;
 
-        try {
-            const isAudioOnly = Boolean((document as any)._documentData?.metadata?.audioOnly);
-            if (isAudioOnly) {
-                const sourceCell = await vscode.commands.executeCommand(
-                    "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
-                    cellId
-                ) as { cellId: string; content: string; } | null;
-                const contentIsEmpty = !sourceCell || !sourceCell.content || (sourceCell.content.replace(/<[^>]*>/g, "").trim() === "");
+        // Always preflight: if source text is empty, try to transcribe first, then only attempt LLM
+        const sourceCell = await vscode.commands.executeCommand(
+            "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+            cellId
+        ) as { cellId: string; content: string; } | null;
+        const contentIsEmpty = !sourceCell || !sourceCell.content || (sourceCell.content.replace(/<[^>]*>/g, "").trim() === "");
 
-                if (contentIsEmpty) {
-                    try {
-                        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-                        if (workspaceFolder) {
-                            const normalizedPath = document.uri.fsPath.replace(/\\/g, "/");
-                            const baseFileName = path.basename(normalizedPath);
-                            const sourceFileName = baseFileName.endsWith(".codex")
-                                ? baseFileName.replace(".codex", ".source")
-                                : baseFileName;
-                            const sourcePath = vscode.Uri.joinPath(
-                                workspaceFolder.uri,
-                                ".project",
-                                "sourceTexts",
-                                sourceFileName
-                            );
+        if (contentIsEmpty) {
+            try {
+                const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (!workspaceFolder) return;
 
-                            await vscode.commands.executeCommand(
-                                "vscode.openWith",
-                                sourcePath,
-                                "codex.cellEditor",
-                                { viewColumn: vscode.ViewColumn.One }
-                            );
+                const normalizedPath = document.uri.fsPath.replace(/\\/g, "/");
+                const baseFileName = path.basename(normalizedPath);
+                const sourceFileName = baseFileName.endsWith(".codex")
+                    ? baseFileName.replace(".codex", ".source")
+                    : baseFileName;
+                const sourcePath = vscode.Uri.joinPath(
+                    workspaceFolder.uri,
+                    ".project",
+                    "sourceTexts",
+                    sourceFileName
+                );
 
-                            const sourcePanel = provider.getWebviewPanels().get(sourcePath.toString());
-                            if (sourcePanel) {
-                                const NUMBER_OF_CELLS_TO_TRANSCRIBE_AHEAD = 1;
-                                await vscode.window.withProgress(
-                                    {
-                                        location: vscode.ProgressLocation.Notification,
-                                        title: "Transcribing source audio…",
-                                        cancellable: false,
-                                    },
-                                    async (progress) => {
-                                        // Start transcription for the specific cell only
-                                        safePostMessageToPanel(sourcePanel, {
-                                            type: "startBatchTranscription",
-                                            content: { count: NUMBER_OF_CELLS_TO_TRANSCRIBE_AHEAD, cellId }
-                                        } as any);
+                await vscode.commands.executeCommand(
+                    "vscode.openWith",
+                    sourcePath,
+                    "codex.cellEditor",
+                    { viewColumn: vscode.ViewColumn.One }
+                );
 
-                                        // Mock progress while polling for source content availability
-                                        let progressValue = 0;
-                                        const timer = setInterval(() => {
-                                            progressValue = Math.min(progressValue + 3, 95);
-                                            progress.report({ increment: 3 });
-                                        }, 500);
-
-                                        try {
-                                            const timeoutMs = 30000;
-                                            const start = Date.now();
-                                            for (; ;) {
-                                                const src = await vscode.commands.executeCommand(
-                                                    "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
-                                                    cellId
-                                                ) as { cellId: string; content: string; } | null;
-                                                const hasText = !!src && !!src.content && src.content.replace(/<[^>]*>/g, "").trim() !== "";
-                                                if (hasText) break;
-                                                if (Date.now() - start > timeoutMs) break;
-                                                await new Promise((r) => setTimeout(r, 400));
-                                            }
-                                        } finally {
-                                            clearInterval(timer);
-                                            progress.report({ increment: 100 - progressValue });
-                                        }
-                                    }
-                                );
-
-                                // After transcription completes (or timeout), proceed with LLM completion automatically
-                                await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
-                                return;
-                            }
-                        }
-                    } catch (e) {
-                        console.warn("Failed to initialize transcription before LLM completion", e);
+                // Wait briefly for the source panel to register
+                let sourcePanel = provider.getWebviewPanels().get(sourcePath.toString());
+                if (!sourcePanel) {
+                    const waitStart = Date.now();
+                    while (!sourcePanel && Date.now() - waitStart < 1500) {
+                        await new Promise((r) => setTimeout(r, 100));
+                        sourcePanel = provider.getWebviewPanels().get(sourcePath.toString());
                     }
                 }
+
+                if (!sourcePanel) {
+                    vscode.window.showWarningMessage("Could not open source for transcription. Please try again.");
+                    return;
+                }
+
+                await vscode.window.withProgress(
+                    {
+                        location: vscode.ProgressLocation.Notification,
+                        title: "Transcribing source audio…",
+                        cancellable: false,
+                    },
+                    async (progress) => {
+                        // Start transcription for the specific cell only
+                        safePostMessageToPanel(sourcePanel!, {
+                            type: "startBatchTranscription",
+                            content: { count: 1, cellId }
+                        } as any);
+
+                        // Mock progress while polling for source content availability
+                        let progressValue = 0;
+                        const timer = setInterval(() => {
+                            progressValue = Math.min(progressValue + 3, 95);
+                            progress.report({ increment: 3 });
+                        }, 500);
+
+                        try {
+                            const timeoutMs = 40000;
+                            const start = Date.now();
+                            for (; ;) {
+                                const src = await vscode.commands.executeCommand(
+                                    "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+                                    cellId
+                                ) as { cellId: string; content: string; } | null;
+                                const hasText = !!src && !!src.content && src.content.replace(/<[^>]*>/g, "").trim() !== "";
+                                if (hasText) break;
+                                if (Date.now() - start > timeoutMs) break;
+                                await new Promise((r) => setTimeout(r, 400));
+                            }
+                        } finally {
+                            clearInterval(timer);
+                            progress.report({ increment: 100 - progressValue });
+                        }
+                    }
+                );
+
+                // After transcription completes (or timeout), only then try LLM
+                const ready = await provider.isLLMReady().catch(() => false);
+                if (!ready) {
+                    vscode.window.showWarningMessage(
+                        "Transcription complete, but LLM is not configured. Set an API key or sign in to generate predictions."
+                    );
+                    return;
+                }
+                await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
+                return;
+            } catch (e) {
+                console.warn("Transcription preflight failed; not attempting LLM", e);
+                return; // Do not proceed to LLM on preflight error
             }
-        } catch (e) {
-            console.warn("Audio-only preflight failed; proceeding with normal completion", e);
         }
 
-        // Default: enqueue translation now
+        // If source already has text, proceed only if LLM is ready
+        const ready = await provider.isLLMReady().catch(() => false);
+        if (!ready) {
+            vscode.window.showWarningMessage(
+                "LLM is not configured. Set an API key or sign in to generate predictions."
+            );
+            return;
+        }
         await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
     },
 

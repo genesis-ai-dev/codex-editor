@@ -21,7 +21,6 @@ import {
     performLLMCompletion,
 } from "./codexCellEditorMessagehandling";
 import { GlobalProvider } from "../../globalProvider";
-import { getAuthApi } from "@/extension";
 import { initializeStateStore } from "../../stateStore";
 import { SyncManager } from "../../projectManager/syncManager";
 
@@ -29,6 +28,7 @@ import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-l
 import { getNonce } from "../dictionaryTable/utilities/getNonce";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import path from "path";
+import { getAuthApi } from "@/extension";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -1115,6 +1115,23 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Send state to webview
             this.broadcastAutocompletionState();
 
+            // Determine if LLM is ready (API key or auth token). We still run transcriptions even if not ready.
+            let llmReady = true;
+            try {
+                llmReady = await this.isLLMReady();
+                if (!llmReady) {
+                    vscode.window.showWarningMessage(
+                        "LLM not configured. Will transcribe sources but skip AI predictions."
+                    );
+                }
+            } catch {
+                // If readiness check fails, assume not ready
+                llmReady = false;
+                vscode.window.showWarningMessage(
+                    "LLM check failed. Will transcribe sources but skip AI predictions."
+                );
+            }
+
             // Enqueue all cells for processing - they will be processed one by one
             for (const cell of cellsToProcess) {
                 const cellId = cell.cellMarkers[0];
@@ -1123,22 +1140,29 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     continue;
                 }
 
-                // Add to the unified queue - no need to wait for completion here
-                this.enqueueTranslation(cellId, document, true)
-                    .then(() => {
-                        // Cell has been processed successfully
-                        // The queue processing will update progress automatically
-                    })
-                    .catch((error) => {
-                        // Check if this is a cancellation error
-                        const isCancellationError = error instanceof vscode.CancellationError ||
-                            (error instanceof Error && (error.message.includes('Canceled') || error.name === 'AbortError'));
-                        const isIntentionalCancellation = error instanceof Error && error.message.includes("Translation cancelled");
+                // Before enqueuing, ensure the source cell is transcribed (if needed)
+                try {
+                    await this.ensureSourceTranscribedIfNeeded(cellId, document, 40000);
+                } catch (e) {
+                    // Non-fatal: proceed to enqueue translation regardless
+                    console.warn(`Preflight transcription check failed for ${cellId}; continuing`, e);
+                }
 
-                        if (!isCancellationError && !isIntentionalCancellation) {
-                            console.error(`Error autocompleting cell ${cellId}:`, error);
-                        }
-                    });
+                // Only enqueue translation if LLM is ready
+                if (llmReady) {
+                    this.enqueueTranslation(cellId, document, true)
+                        .then(() => {
+                            // Cell processed successfully
+                        })
+                        .catch((error) => {
+                            const isCancellationError = error instanceof vscode.CancellationError ||
+                                (error instanceof Error && (error.message.includes('Canceled') || error.name === 'AbortError'));
+                            const isIntentionalCancellation = error instanceof Error && error.message.includes("Translation cancelled");
+                            if (!isCancellationError && !isIntentionalCancellation) {
+                                console.error(`Error autocompleting cell ${cellId}:`, error);
+                            }
+                        });
+                }
             }
 
             // Instead of waiting for all promises to complete, monitor the queue status
@@ -1199,6 +1223,110 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             }
             throw error;
         }
+    }
+
+    // Minimal helper: ensure the matching source cell has text by triggering
+    // a targeted transcription in the source editor, then polling for up to timeoutMs.
+    private async ensureSourceTranscribedIfNeeded(
+        cellId: string,
+        document: CodexCellDocument,
+        timeoutMs: number = 40000
+    ): Promise<void> {
+        try {
+            // Quick cancellation check
+            if (this.autocompleteCancellation?.token.isCancellationRequested) return;
+
+            // Check if the source cell already has any text content
+            const src = await vscode.commands.executeCommand(
+                "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+                cellId
+            ) as { cellId: string; content: string; } | null;
+
+            const hasText = !!src && !!src.content && src.content.replace(/<[^>]*>/g, "").trim() !== "";
+            if (hasText) return; // Nothing to do
+
+            // Open the corresponding source document
+            const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+            if (!workspaceFolder) return;
+
+            const normalizedPath = document.uri.fsPath.replace(/\\/g, "/");
+            const baseFileName = path.basename(normalizedPath);
+            const sourceFileName = baseFileName.endsWith(".codex")
+                ? baseFileName.replace(".codex", ".source")
+                : baseFileName;
+            const sourcePath = vscode.Uri.joinPath(
+                workspaceFolder.uri,
+                ".project",
+                "sourceTexts",
+                sourceFileName
+            );
+
+            try {
+                await vscode.commands.executeCommand(
+                    "vscode.openWith",
+                    sourcePath,
+                    "codex.cellEditor",
+                    { viewColumn: vscode.ViewColumn.One }
+                );
+            } catch (e) {
+                console.warn("Failed to open source editor for transcription preflight", e);
+                // Continue; we may already have a panel open
+            }
+
+            // Find the source panel
+            const sourcePanel = this.getWebviewPanels().get(sourcePath.toString());
+            if (sourcePanel) {
+                // Ask the webview to transcribe the specific cell if audio is available
+                safePostMessageToPanel(sourcePanel, {
+                    type: "startBatchTranscription",
+                    content: { count: 1, cellId },
+                } as any);
+            } else {
+                // If no panel is found, there's nothing more we can do
+                return;
+            }
+
+            // Poll for source text availability up to timeoutMs, respecting cancellation
+            const start = Date.now();
+            while (Date.now() - start < timeoutMs) {
+                if (this.autocompleteCancellation?.token.isCancellationRequested) return;
+
+                const check = await vscode.commands.executeCommand(
+                    "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+                    cellId
+                ) as { cellId: string; content: string; } | null;
+                const nowHasText = !!check && !!check.content && check.content.replace(/<[^>]*>/g, "").trim() !== "";
+                if (nowHasText) return;
+
+                await new Promise((r) => setTimeout(r, 400));
+            }
+            // Timeout hit; proceed without blocking
+            console.warn(`Transcription preflight timed out after ${timeoutMs}ms for cell ${cellId}`);
+        } catch (e) {
+            console.warn("ensureSourceTranscribedIfNeeded encountered an error", e);
+        }
+    }
+
+    // Check if LLM appears ready (either an API key is set or an auth token is available)
+    public async isLLMReady(): Promise<boolean> {
+        try {
+            const config = vscode.workspace.getConfiguration("codex-editor-extension");
+            const apiKey = (config.get("api_key") as string) || "";
+            if (apiKey && apiKey.trim().length > 0) return true;
+
+            try {
+                const frontierApi = getAuthApi();
+                if (frontierApi) {
+                    const token = await frontierApi.authProvider.getToken();
+                    if (token && token.trim().length > 0) return true;
+                }
+            } catch {
+                // ignore auth API failures; treat as not ready
+            }
+        } catch {
+            // ignore; treat as not ready
+        }
+        return false;
     }
 
     // New method to broadcast the current autocompletion state to all webviews
