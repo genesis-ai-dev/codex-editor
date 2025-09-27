@@ -828,6 +828,7 @@ type CustomCellMetaData = {
             updatedAt: number;
             isDeleted: boolean;
             isMissing?: boolean;
+            validatedBy?: ValidationEntry[];
         };
     };
     cellLabel?: string;
@@ -886,7 +887,7 @@ interface QuillCellContent {
     merged?: boolean;
     deleted?: boolean;
     data?: { [key: string]: any; footnotes?: Footnote[]; };
-    attachments?: { [attachmentId: string]: { type: string; isDeleted?: boolean; isMissing?: boolean; url?: string; }; };
+    attachments?: { [attachmentId: string]: { type: string; isDeleted?: boolean; isMissing?: boolean; url?: string; validatedBy?: ValidationEntry[]; }; };
 }
 
 interface Timestamps {
