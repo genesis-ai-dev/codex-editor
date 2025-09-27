@@ -57,12 +57,31 @@ export const getCellValueData = (cell: QuillCellContent) => {
         .reverse()
         .find((edit) => EditMapUtils.isValue(edit.editMap) && edit.value === cell.cellContent);
 
+    // Get audio validation from attachments instead of edits
+    let audioValidatedBy: any[] = [];
+    if (cell.attachments) {
+        const audioAttachments = Object.values(cell.attachments).filter((attachment: any) =>
+            attachment && attachment.type === "audio" && !attachment.isDeleted
+        );
+
+        if (audioAttachments.length > 0) {
+            // Get the current audio attachment (most recently updated)
+            const currentAudioAttachment = audioAttachments.sort((a: any, b: any) =>
+                (b.updatedAt || 0) - (a.updatedAt || 0)
+            )[0];
+
+            if (currentAudioAttachment.validatedBy) {
+                audioValidatedBy = currentAudioAttachment.validatedBy;
+            }
+        }
+    }
+
     return {
         cellId: cell.cellMarkers?.[0] || "",
         cellContent: cell.cellContent || "",
         cellType: cell.cellType,
         validatedBy: latestEditThatMatchesCellValue?.validatedBy || [],
-        audioValidatedBy: latestEditThatMatchesCellValue?.audioValidatedBy || [],
+        audioValidatedBy: audioValidatedBy,
         editType: latestEditThatMatchesCellValue?.type || "user-edit",
         author: latestEditThatMatchesCellValue?.author || "",
         timestamp: latestEditThatMatchesCellValue?.timestamp || Date.now(),

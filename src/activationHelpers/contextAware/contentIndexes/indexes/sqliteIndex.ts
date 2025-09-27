@@ -3446,8 +3446,6 @@ export class SQLiteIndexManager {
         // Extract edit information for target cells only
         const edits = metadata.edits || [];
 
-
-
         if (edits.length > 0) {
             // Filter to only value edits for validation tracking
             const valueEdits = edits.filter((edit: any) =>
@@ -3460,8 +3458,6 @@ export class SQLiteIndexManager {
 
                 // Extract validation information
                 if (lastEdit.validatedBy) {
-
-
                     const activeValidations = lastEdit.validatedBy.filter((v: any) =>
                         v && typeof v === 'object' && !v.isDeleted
                     );
@@ -3482,20 +3478,36 @@ export class SQLiteIndexManager {
                     result.validatedBy = undefined;
                 }
 
-                // Extract audio validation information
-                if (lastEdit.audioValidatedBy) {
-                    const activeAudioValidations = lastEdit.audioValidatedBy.filter((v: any) =>
-                        v && typeof v === 'object' && !v.isDeleted
-                    );
-                    result.audioValidationCount = activeAudioValidations.length;
+                // Extract audio validation information from attachments
+                const attachments = metadata.attachments || {};
+                const audioAttachments = Object.values(attachments).filter((attachment: any) =>
+                    attachment && attachment.type === "audio" && !attachment.isDeleted
+                );
 
-                    // Check against audio validation threshold
-                    const requiredAudioValidators = this.getAudioValidationThreshold();
-                    result.audioIsFullyValidated = activeAudioValidations.length >= requiredAudioValidators;
+                if (audioAttachments.length > 0) {
+                    // Get the current audio attachment (most recently updated)
+                    const currentAudioAttachment = audioAttachments.sort((a: any, b: any) =>
+                        (b.updatedAt || 0) - (a.updatedAt || 0)
+                    )[0];
 
-                    // Store comma-separated list of usernames
-                    const audioUsernames = activeAudioValidations.map((v: any) => v.username).filter(Boolean);
-                    result.audioValidatedBy = audioUsernames.length > 0 ? audioUsernames.join(',') : undefined;
+                    if ((currentAudioAttachment as any).validatedBy) {
+                        const activeAudioValidations = (currentAudioAttachment as any).validatedBy.filter((v: any) =>
+                            v && typeof v === 'object' && !v.isDeleted
+                        );
+                        result.audioValidationCount = activeAudioValidations.length;
+
+                        // Check against audio validation threshold
+                        const requiredAudioValidators = this.getAudioValidationThreshold();
+                        result.audioIsFullyValidated = activeAudioValidations.length >= requiredAudioValidators;
+
+                        // Store comma-separated list of usernames
+                        const audioUsernames = activeAudioValidations.map((v: any) => v.username).filter(Boolean);
+                        result.audioValidatedBy = audioUsernames.length > 0 ? audioUsernames.join(',') : undefined;
+                    } else {
+                        result.audioValidationCount = 0;
+                        result.audioIsFullyValidated = false;
+                        result.audioValidatedBy = undefined;
+                    }
                 } else {
                     result.audioValidationCount = 0;
                     result.audioIsFullyValidated = false;

@@ -611,6 +611,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             editHistory: cell.metadata.edits || [],
             timestamps: cell.metadata.data,
             cellLabel: cell.metadata.cellLabel,
+            attachments: cell.metadata.attachments || {},
         };
     }
 
@@ -1093,9 +1094,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
     // Method to validate a cell's audio by a user
     public async validateCellAudio(cellId: string, validate: boolean = true) {
-        // First check if any validation needs fixing
-        this.checkAndFixValidationArray(cellId);
-
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
             (cell) => cell.metadata?.id === cellId
         );
@@ -1106,70 +1104,17 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
 
-        if (!cellToUpdate.metadata.edits || cellToUpdate.metadata.edits.length === 0) {
-            console.warn("No edits found for cell to validate audio");
-            // repair the edit history by adding an llm generation with author unknown, and then a user edit with validation
-            cellToUpdate.metadata.edits = [
-                {
-                    editMap: EditMapUtils.value(),
-                    value: cellToUpdate.value,
-                    author: "unknown",
-                    validatedBy: [],
-                    audioValidatedBy: [],
-                    timestamp: Date.now(),
-                    type: EditType.LLM_GENERATION,
-                },
-                {
-                    editMap: EditMapUtils.value(),
-                    value: cellToUpdate.value,
-                    author: this._author,
-                    validatedBy: [],
-                    audioValidatedBy: [],
-                    timestamp: Date.now(),
-                    type: EditType.USER_EDIT,
-                },
-            ];
+        // Get the current audio attachment for this cell
+        const currentAttachment = this.getCurrentAttachment(cellId, "audio");
+        if (!currentAttachment) {
+            throw new Error("No audio attachment found for cell to validate");
         }
 
-        // Find the correct edit corresponding to the CURRENT VALUE of the cell
-        // We must NOT validate metadata-only edits (e.g., label/timestamp). Validate the value edit
-        // whose value matches the current cell value.
-        let targetEditIndex = -1;
-        for (let i = cellToUpdate.metadata.edits.length - 1; i >= 0; i--) {
-            const e = cellToUpdate.metadata.edits[i];
-            // Identify value edits using EditMapUtils and also match the exact value
-            const isValueEdit = EditMapUtils.isValue
-                ? EditMapUtils.isValue(e.editMap)
-                : EditMapUtils.equals(e.editMap, EditMapUtils.value());
-            if (isValueEdit && e.value === cellToUpdate.value) {
-                targetEditIndex = i;
-                break;
-            }
-        }
+        const { attachmentId, attachment } = currentAttachment;
 
-        // If we didn't find a value edit that matches current value, create one so validation history is consistent
-        if (targetEditIndex === -1) {
-            const currentTimestamp = Date.now();
-            cellToUpdate.metadata.edits.push({
-                editMap: EditMapUtils.value(),
-                value: cellToUpdate.value,
-                author: this._author,
-                validatedBy: [],
-                audioValidatedBy: [],
-                timestamp: currentTimestamp,
-                type: EditType.USER_EDIT,
-            } as any);
-            targetEditIndex = cellToUpdate.metadata.edits.length - 1;
-        }
-
-        const latestEdit = cellToUpdate.metadata.edits[targetEditIndex];
-
-        // Initialize validation arrays if they don't exist
-        if (!latestEdit.validatedBy) {
-            latestEdit.validatedBy = [];
-        }
-        if (!latestEdit.audioValidatedBy) {
-            latestEdit.audioValidatedBy = [];
+        // Initialize validation array if it doesn't exist
+        if (!attachment.validatedBy) {
+            attachment.validatedBy = [];
         }
 
         // FIXME: we shouldn't be doing this constantly every time we validate a cell!
@@ -1185,7 +1130,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         // Find existing audio validation entry for this user
-        const existingEntryIndex = latestEdit.audioValidatedBy.findIndex(
+        const existingEntryIndex = attachment.validatedBy.findIndex(
             (entry: ValidationEntry) =>
                 this.isValidValidationEntry(entry) && entry.username === username
         );
@@ -1199,25 +1144,31 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     updatedTimestamp: currentTimestamp,
                     isDeleted: false,
                 };
-                latestEdit.audioValidatedBy.push(newValidationEntry);
+                attachment.validatedBy.push(newValidationEntry);
             } else {
                 // User already has an entry, update it
-                latestEdit.audioValidatedBy[existingEntryIndex].updatedTimestamp = currentTimestamp;
-                latestEdit.audioValidatedBy[existingEntryIndex].isDeleted = false;
+                attachment.validatedBy[existingEntryIndex].updatedTimestamp = currentTimestamp;
+                attachment.validatedBy[existingEntryIndex].isDeleted = false;
             }
         } else {
             if (existingEntryIndex !== -1) {
                 // User is in the array, mark as deleted
-                latestEdit.audioValidatedBy[existingEntryIndex].updatedTimestamp = currentTimestamp;
-                latestEdit.audioValidatedBy[existingEntryIndex].isDeleted = true;
+                attachment.validatedBy[existingEntryIndex].updatedTimestamp = currentTimestamp;
+                attachment.validatedBy[existingEntryIndex].isDeleted = true;
             }
             // If user is not in the array, do nothing when unvalidating
         }
 
-        // Final check: ensure the audioValidatedBy array only contains valid ValidationEntry objects
-        latestEdit.audioValidatedBy = latestEdit.audioValidatedBy.filter((entry) =>
+        // Final check: ensure the validatedBy array only contains valid ValidationEntry objects
+        attachment.validatedBy = attachment.validatedBy.filter((entry: any) =>
             this.isValidValidationEntry(entry)
         );
+
+        // Update the attachment in the cell metadata
+        if (!cellToUpdate.metadata.attachments) {
+            cellToUpdate.metadata.attachments = {};
+        }
+        cellToUpdate.metadata.attachments[attachmentId] = attachment;
 
         // Mark document as dirty
         this._isDirty = true;
@@ -1227,13 +1178,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
             content: JSON.stringify({
                 cellId,
                 type: "audioValidation",
-                audioValidatedBy: latestEdit.audioValidatedBy,
+                audioValidatedBy: attachment.validatedBy,
             }),
             edits: [
                 {
                     cellId,
                     type: "audioValidation",
-                    audioValidatedBy: latestEdit.audioValidatedBy,
+                    audioValidatedBy: attachment.validatedBy,
                 },
             ],
         });
@@ -1242,9 +1193,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
         console.log(`[CodexDocument] 🎵 Audio validation change for cell ${cellId}:`, {
             validate,
             username,
-            audioValidationCount: latestEdit.audioValidatedBy.filter(entry => this.isValidValidationEntry(entry) && !entry.isDeleted).length,
+            audioValidationCount: attachment.validatedBy.filter((entry: any) => this.isValidValidationEntry(entry) && !entry.isDeleted).length,
             cellHasContent: !!(cellToUpdate.value && cellToUpdate.value.trim()),
-            editsCount: cellToUpdate.metadata.edits.length
+            attachmentId
         });
 
         // Database update will happen automatically when document is saved
