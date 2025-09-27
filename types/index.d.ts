@@ -780,7 +780,6 @@ type EditHistoryBase = {
     timestamp: number;
     type: import("./enums").EditType;
     validatedBy?: ValidationEntry[];
-    audioValidatedBy?: ValidationEntry[];
 };
 
 export type EditHistory<TEditMap extends readonly string[] = readonly string[]> = EditHistoryBase & {
@@ -1737,7 +1736,6 @@ type EditorReceiveMessages =
         type: "providerUpdatesAudioValidationState";
         content: {
             cellId: string;
-            audioValidatedBy: ValidationEntry[];
         };
     }
     | {

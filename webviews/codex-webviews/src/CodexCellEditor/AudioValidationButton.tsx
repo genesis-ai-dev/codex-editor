@@ -152,20 +152,22 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
             } else if (message.type === "providerUpdatesAudioValidationState") {
                 // Handle audio validation state updates from the backend
                 if (message.content.cellId === cellId) {
-                    const audioValidatedBy = message.content.audioValidatedBy || [];
+                    // Audio validation state has been updated, refresh the component
+                    const validatedBy = message.content.validatedBy || [];
                     if (username) {
-                        // Check if the user has an active audio validation (not deleted)
-                        const userEntry = audioValidatedBy.find(
-                            (entry: any) =>
+                        // Check if the user has an active validation (not deleted)
+                        const userEntry = validatedBy.find(
+                            (entry: ValidationEntry) =>
                                 isValidValidationEntry(entry) &&
                                 entry.username === username &&
                                 !entry.isDeleted
                         );
                         setIsValidated(!!userEntry);
 
-                        // Update the list of audio validation users
-                        const activeValidations = audioValidatedBy.filter(
-                            (entry: any) => isValidValidationEntry(entry) && !entry.isDeleted
+                        // Update the list of validation users
+                        const activeValidations = validatedBy.filter(
+                            (entry: ValidationEntry) =>
+                                isValidValidationEntry(entry) && !entry.isDeleted
                         );
                         setValidationUsers(activeValidations);
 

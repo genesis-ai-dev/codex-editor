@@ -957,7 +957,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     value: cellToUpdate.value,
                     author: "unknown",
                     validatedBy: [],
-                    audioValidatedBy: [],
                     timestamp: Date.now(),
                     type: EditType.LLM_GENERATION,
                 },
@@ -966,7 +965,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     value: cellToUpdate.value,
                     author: this._author,
                     validatedBy: [],
-                    audioValidatedBy: [],
                     timestamp: Date.now(),
                     type: EditType.USER_EDIT,
                 },
@@ -997,7 +995,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 value: cellToUpdate.value,
                 author: this._author,
                 validatedBy: [],
-                audioValidatedBy: [],
                 timestamp: currentTimestamp,
                 type: EditType.USER_EDIT,
             } as any);
@@ -1009,9 +1006,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // Initialize validation arrays if they don't exist
         if (!latestEdit.validatedBy) {
             latestEdit.validatedBy = [];
-        }
-        if (!latestEdit.audioValidatedBy) {
-            latestEdit.audioValidatedBy = [];
         }
 
         // FIXME: we shouldn't be doing this constantly every time we validate a cell!
@@ -1178,13 +1172,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
             content: JSON.stringify({
                 cellId,
                 type: "audioValidation",
-                audioValidatedBy: attachment.validatedBy,
+                validatedBy: attachment.validatedBy,
             }),
             edits: [
                 {
                     cellId,
                     type: "audioValidation",
-                    audioValidatedBy: attachment.validatedBy,
+                    validatedBy: attachment.validatedBy,
                 },
             ],
         });
@@ -1436,24 +1430,32 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     public getCellAudioValidatedBy(cellId: string): ValidationEntry[] {
-        // First check if any validation needs fixing
-        this.checkAndFixValidationArray(cellId);
-
         const cell = this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
 
-        if (!cell || !cell.metadata?.edits || cell.metadata.edits.length === 0) {
+        if (!cell || !cell.metadata?.attachments) {
             return [];
         }
 
-        // Get the latest edit
-        const latestEdit = cell.metadata.edits[cell.metadata.edits.length - 1];
+        // Get audio validation from attachments instead of edits
+        const audioAttachments = Object.values(cell.metadata.attachments).filter((attachment: any) =>
+            attachment && attachment.type === "audio" && !attachment.isDeleted
+        );
 
-        if (!latestEdit.audioValidatedBy) {
+        if (audioAttachments.length === 0) {
+            return [];
+        }
+
+        // Get the current audio attachment (most recently updated)
+        const currentAudioAttachment = audioAttachments.sort((a: any, b: any) =>
+            (b.updatedAt || 0) - (a.updatedAt || 0)
+        )[0];
+
+        if (!currentAudioAttachment.validatedBy) {
             return [];
         }
 
         // Filter to only include proper ValidationEntry objects
-        return latestEdit.audioValidatedBy.filter((entry) => this.isValidValidationEntry(entry));
+        return currentAudioAttachment.validatedBy.filter((entry) => this.isValidValidationEntry(entry));
     }
 
     /**

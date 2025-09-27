@@ -608,7 +608,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         type: "providerUpdatesAudioValidationState",
                         content: {
                             cellId: e.edits[0].cellId,
-                            audioValidatedBy: e.edits[0].audioValidatedBy,
+                            validatedBy: e.edits[0].validatedBy,
                         },
                     };
 
@@ -2079,7 +2079,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                         type: "providerUpdatesAudioValidationState" as any,
                                         content: {
                                             cellId,
-                                            audioValidatedBy,
+                                            validatedBy: audioValidatedBy,
                                         },
                                     });
                                 }
@@ -2843,7 +2843,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                                 type: "providerUpdatesAudioValidationState" as any,
                                                 content: {
                                                     cellId: validation.cellId,
-                                                    audioValidatedBy: audioValidatedEntries,
+                                                    validatedBy: audioValidatedEntries,
                                                 },
                                             });
                                         }
