@@ -50,9 +50,4 @@
         "**/.vscode-test": true,
         "**/.tsbuildinfo": true
     },
-    "workbench.colorCustomizations": {
-        "tab.activeBorder": "#006aff",
-        "tab.unfocusedActiveBorder": "#000000",
-        "tab.activeBackground": "#26549e"
-    }
 }
