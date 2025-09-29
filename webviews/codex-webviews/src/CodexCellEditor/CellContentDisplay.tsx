@@ -802,11 +802,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                     className="flex flex-col items-center justify-center"
                                                     onMouseOver={() => {
                                                         setIsHoveringAudioValidationButton(true);
-                                                        setIsHoveringValidationButton(false);
                                                     }}
                                                     onMouseOut={() => {
                                                         setIsHoveringAudioValidationButton(false);
-                                                        setIsHoveringValidationButton(false);
                                                     }}
                                                 >
                                                     <AudioValidationButton

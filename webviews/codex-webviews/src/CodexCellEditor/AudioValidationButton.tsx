@@ -698,6 +698,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                                                         );
 
                                                         // Immediately close the popover
+                                                        setIsHoveringAudioValidationButton(false);
                                                         setShowPopover(false);
                                                         setIsPersistentPopover(false);
                                                         setIsDetailedView(false);

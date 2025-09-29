@@ -698,6 +698,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                                                         );
 
                                                         // Immediately close the popover
+                                                        setIsHoveringValidationButton(false);
                                                         setShowPopover(false);
                                                         setIsPersistentPopover(false);
                                                         setIsDetailedView(false);
