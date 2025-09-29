@@ -3,6 +3,7 @@ import { nonCanonicalBookRefs, vrefData } from "./verseRefUtils/verseData";
 import { Project } from "codex-types";
 import { updateWorkspaceState } from "./workspaceEventListener";
 import { ProjectOverview } from "../../types";
+import { MetadataManager } from "./metadataManager";
 
 export const getWorkSpaceFolder = (): string | undefined => {
     /**
@@ -37,32 +38,23 @@ export async function getProjectMetadata(): Promise<ProjectOverview> {
         return Promise.reject("No workspace found");
     }
 
-    const projectMetadataPath = vscode.Uri.file(`${workspaceFolder}/metadata.json`);
-    try {
-        await vscode.workspace.fs.stat(projectMetadataPath);
-    } catch {
-        return Promise.reject("Project metadata file does not exist");
+    const workspaceUri = vscode.Uri.file(workspaceFolder);
+    const result = await MetadataManager.safeReadMetadata<ProjectOverview>(workspaceUri);
+
+    if (!result.success) {
+        if (result.error?.includes('FileNotFound')) {
+            return Promise.reject("Project metadata file does not exist");
+        } else {
+            vscode.window.showErrorMessage(`Failed to read project metadata: ${result.error}`);
+            return Promise.reject("Failed to read project metadata");
+        }
     }
 
-    const projectMetadata = await vscode.workspace.fs.readFile(projectMetadataPath).then(
-        (projectMetadata) => {
-            try {
-                return JSON.parse(Buffer.from(projectMetadata).toString()) as ProjectOverview;
-            } catch (error: any) {
-                vscode.window.showErrorMessage(
-                    `Failed to parse project metadata: ${error.message}`
-                );
-            }
-        },
-        (err) => {
-            vscode.window.showErrorMessage(`Failed to read project metadata: ${err.message}`);
-        }
-    );
-
-    if (!projectMetadata) {
+    if (!result.metadata) {
         return Promise.reject("No project metadata found");
     }
-    return projectMetadata;
+
+    return result.metadata;
 }
 
 export async function jumpToCellInNotebook(

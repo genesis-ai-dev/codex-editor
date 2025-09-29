@@ -3,6 +3,7 @@ export enum EditType {
     LLM_EDIT = "llm-edit",
     LLM_GENERATION = "llm-generation",
     INITIAL_IMPORT = "initial-import", // Note: this is not fully implemented yet sources will often still have an empty edit history
+    MERGE = "merge",
 }
 
 export enum CodexCellTypes {

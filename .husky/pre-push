@@ -41,5 +41,9 @@ restore_stash() {
 trap restore_stash EXIT INT TERM
 
 # Run tests in-place against the current repository (HEAD)
+echo "🧪 Running main extension tests..."
 npm test
+
+echo "🧪 Running webview tests..."
+npm run test:webviews
 

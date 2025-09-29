@@ -11,6 +11,7 @@ import { CodexCellTypes } from "../../../../types/enums";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import { WebviewApi } from "vscode-webview";
 import ValidationButton from "./ValidationButton";
+import { shouldDisableValidation } from "@sharedUtils";
 import { Button } from "../components/ui/button";
 import { getTranslationStyle, CellTranslationState } from "./CellTranslationStyles";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor"; // Import the cell display modes
@@ -39,7 +40,7 @@ interface CellContentDisplayProps {
     handleCellTranslation?: (cellId: string) => void;
     handleCellClick: (cellId: string) => void;
     cellDisplayMode: CELL_DISPLAY_MODES;
-    audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" };
+    audioAttachments?: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none" };
     footnoteOffset?: number; // Starting footnote number for this cell
     isCorrectionEditorMode?: boolean; // Whether correction editor mode is active
     translationUnits?: QuillCellContent[]; // Full list of translation units for finding previous cell
@@ -47,6 +48,7 @@ interface CellContentDisplayProps {
     // Derived, shared state to avoid per-cell lookups
     currentUsername?: string;
     requiredValidations?: number;
+    isAudioOnly?: boolean;
 }
 
 const DEBUG_ENABLED = false;
@@ -60,7 +62,7 @@ function debug(message: string, ...args: any[]): void {
 const AudioPlayButton: React.FC<{
     cellId: string;
     vscode: WebviewApi<unknown>;
-    state?: "available" | "deletedOnly" | "none";
+    state?: "available" | "missing" | "deletedOnly" | "none";
     onOpenCell?: (cellId: string) => void;
 }> = React.memo(({ cellId, vscode, state = "available", onOpenCell }) => {
     const [isPlaying, setIsPlaying] = useState(false);
@@ -155,10 +157,13 @@ const AudioPlayButton: React.FC<{
         try {
             // For any non-available state, open editor on audio tab and auto-start recording
             if (state !== "available") {
-                try {
-                    sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");
-                } catch (e) {
-                    void e;
+                // For missing audio, just open the editor without auto-starting recording
+                if (state !== "missing") {
+                    try {
+                        sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");
+                    } catch (e) {
+                        void e;
+                    }
                 }
                 vscode.postMessage({
                     command: "setPreferredEditorTab",
@@ -216,7 +221,14 @@ const AudioPlayButton: React.FC<{
                 titleSuffix: "(available)",
             } as const;
         }
-        // For any non-available state, show microphone to begin recording
+        if (state === "missing") {
+            return {
+                iconClass: "codicon-warning",
+                color: "var(--vscode-errorForeground)",
+                titleSuffix: "(missing)",
+            } as const;
+        }
+        // deletedOnly or none => show mic to begin recording
         return {
             iconClass: "codicon-mic",
             color: "var(--vscode-foreground)",
@@ -228,7 +240,15 @@ const AudioPlayButton: React.FC<{
         <button
             onClick={handlePlayAudio}
             className="audio-play-button"
-            title={isLoading ? "Preparing audio..." : state === "available" ? "Play" : "Record"}
+            title={
+                isLoading
+                    ? "Preparing audio..."
+                    : state === "available"
+                    ? "Play"
+                    : state === "missing"
+                    ? "Missing audio"
+                    : "Record"
+            }
             disabled={false}
             style={{
                 background: "none",
@@ -280,6 +300,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         unresolvedCommentsCount: initialUnresolvedCommentsCount = 0,
         currentUsername,
         requiredValidations,
+        isAudioOnly = false,
     }) => {
         // const { cellContent, timestamps, editHistory } = cell; // I don't think we use this
         const cellIds = cell.cellMarkers;
@@ -601,7 +622,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         // Function to render the content with footnote markers and proper spacing
         const renderContent = () => {
             // Handle empty cell case
-            if (!cell.cellContent || cell.cellContent.trim() === "") {
+            if (
+                (!cell.cellContent || cell.cellContent.trim() === "") &&
+                // don't show empty cell for source text with audio only
+                (!isSourceText || !isAudioOnly)
+            ) {
                 return (
                     <div
                         ref={contentRef}
@@ -621,20 +646,76 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 );
             }
 
-            // Use the proper HTML processing utility; timestamps are not displayed anymore
+            // Use the proper HTML processing utility
             const processedHtml = processHtmlContent(cell.cellContent || "");
+
+            const hasTimestamps = Boolean(
+                cell.timestamps &&
+                    (cell.timestamps.startTime !== undefined ||
+                        cell.timestamps.endTime !== undefined)
+            );
+
+            if (!hasTimestamps) {
+                return (
+                    <div
+                        ref={contentRef}
+                        className="cell-content"
+                        dangerouslySetInnerHTML={{
+                            __html: processedHtml,
+                        }}
+                        onClick={() => {
+                            hideTooltip();
+                            handleCellClick(cellIds[0]);
+                        }}
+                    />
+                );
+            }
+
+            // Render content with timestamp display when timestamps are present
             return (
                 <div
-                    ref={contentRef}
-                    className="cell-content"
-                    dangerouslySetInnerHTML={{
-                        __html: processedHtml,
-                    }}
                     onClick={() => {
                         hideTooltip();
                         handleCellClick(cellIds[0]);
                     }}
-                />
+                    style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}
+                >
+                    <div
+                        ref={contentRef}
+                        className="cell-content"
+                        dangerouslySetInnerHTML={{
+                            __html: processedHtml,
+                        }}
+                    />
+                    {cell.timestamps &&
+                        (cell.timestamps.startTime !== undefined ||
+                            cell.timestamps.endTime !== undefined) && (
+                            <div
+                                className="timestamp-display"
+                                style={{
+                                    fontSize: "0.75rem",
+                                    color: "var(--vscode-descriptionForeground)",
+                                    marginTop: "0.25rem",
+                                    fontFamily: "monospace",
+                                    opacity: 0.8,
+                                    textAlign: "start",
+                                    width: "100%",
+                                }}
+                            >
+                                {cell.timestamps.startTime !== undefined &&
+                                cell.timestamps.endTime !== undefined ? (
+                                    <span>
+                                        {formatTime(cell.timestamps.startTime)} →{" "}
+                                        {formatTime(cell.timestamps.endTime)}
+                                    </span>
+                                ) : cell.timestamps.startTime !== undefined ? (
+                                    <span>Start: {formatTime(cell.timestamps.startTime)}</span>
+                                ) : cell.timestamps.endTime !== undefined ? (
+                                    <span>End: {formatTime(cell.timestamps.endTime)}</span>
+                                ) : null}
+                            </div>
+                        )}
+                </div>
             );
         };
 
@@ -679,6 +760,21 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                 isSourceText={isSourceText}
                                                 currentUsername={currentUsername}
                                                 requiredValidations={requiredValidations}
+                                                disabled={shouldDisableValidation(
+                                                    cell.cellContent,
+                                                    audioAttachments?.[cellIds[0]] as any
+                                                )}
+                                                disabledReason={(() => {
+                                                    const audioState = audioAttachments?.[
+                                                        cellIds[0]
+                                                    ] as any;
+                                                    return shouldDisableValidation(
+                                                        cell.cellContent,
+                                                        audioState
+                                                    )
+                                                        ? "Validation disabled: no text and no audio"
+                                                        : undefined;
+                                                })()}
                                             />
                                         )
                                     }
@@ -734,8 +830,15 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                     (() => {
                                         const audioState = audioAttachments[cellIds[0]];
 
-                                        // For source text: only show the play button if audio is available.
-                                        if (isSourceText && audioState !== "available") return null;
+                                        // For source text: show the button for available or missing; hide when none/deletedOnly
+                                        if (
+                                            isSourceText &&
+                                            !(
+                                                audioState === "available" ||
+                                                audioState === "missing"
+                                            )
+                                        )
+                                            return null;
 
                                         return (
                                             <AudioPlayButton

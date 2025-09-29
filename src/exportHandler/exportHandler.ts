@@ -294,6 +294,7 @@ export enum CodexExportFormat {
     PLAINTEXT = "plaintext",
     USFM = "usfm",
     HTML = "html",
+    AUDIO = "audio",
     SUBTITLES_SRT = "subtitles-srt",
     SUBTITLES_VTT_WITH_STYLES = "subtitles-vtt-with-styles",
     SUBTITLES_VTT_WITHOUT_STYLES = "subtitles-vtt-without-styles",
@@ -586,6 +587,11 @@ export async function exportCodexContent(
         case CodexExportFormat.HTML:
             await exportCodexContentAsHtml(userSelectedPath, filesToExport, options);
             break;
+        case CodexExportFormat.AUDIO: {
+            const { exportAudioAttachments } = await import("./audioExporter");
+            await exportAudioAttachments(userSelectedPath, filesToExport, { includeTimestamps: (options as any)?.includeTimestamps });
+            break;
+        }
         case CodexExportFormat.SUBTITLES_VTT_WITH_STYLES:
             await exportCodexContentAsSubtitlesVtt(userSelectedPath, filesToExport, options, true);
             break;

@@ -10,8 +10,17 @@ suite("File System Operations Test Suite", () => {
         // Ensure a temporary workspace folder is available
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
+            // Create the directory first before adding it as a workspace folder
+            const tempWorkspaceUri = vscode.Uri.file("/tmp/test-workspace");
+            try {
+                await vscode.workspace.fs.createDirectory(tempWorkspaceUri);
+            } catch (error) {
+                // Directory might already exist, which is fine
+                console.log("Directory creation result:", error);
+            }
+
             await vscode.workspace.updateWorkspaceFolders(0, 0, {
-                uri: vscode.Uri.file("/tmp/test-workspace"),
+                uri: tempWorkspaceUri,
             });
         }
         workspaceUri = vscode.workspace.workspaceFolders![0].uri;

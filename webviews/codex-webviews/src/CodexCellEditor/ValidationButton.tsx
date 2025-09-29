@@ -3,18 +3,8 @@ import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { QuillCellContent, ValidationEntry } from "../../../../types";
 import { getCellValueData } from "@sharedUtils";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
-
-// Helper function to check if an entry is a valid ValidationEntry object
-export function isValidValidationEntry(entry: any): entry is ValidationEntry {
-    return (
-        entry !== null &&
-        typeof entry === "object" &&
-        typeof entry.username === "string" &&
-        typeof entry.creationTimestamp === "number" &&
-        typeof entry.updatedTimestamp === "number" &&
-        typeof entry.isDeleted === "boolean"
-    );
-}
+import { processValidationQueue, enqueueValidation } from "./validationQueue";
+import { isValidValidationEntry } from "./validationUtils";
 
 // Static tracking for active popover to ensure only one is shown at a time
 const popoverTracker = {
@@ -34,6 +24,10 @@ interface ValidationButtonProps {
     isSourceText: boolean;
     currentUsername?: string | null;
     requiredValidations?: number;
+    // When true, the button is disabled (e.g., missing audio or text)
+    disabled?: boolean;
+    // Optional tooltip to explain why disabled
+    disabledReason?: string;
 }
 
 const ValidationButton: React.FC<ValidationButtonProps> = ({
@@ -43,6 +37,8 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     isSourceText,
     currentUsername,
     requiredValidations: requiredValidationsProp,
+    disabled: externallyDisabled,
+    disabledReason,
 }) => {
     const [isValidated, setIsValidated] = useState(false);
     const [username, setUsername] = useState<string | null>(currentUsername ?? null);
@@ -125,7 +121,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             );
             setValidationUsers(activeValidations);
         }
-    }, [cell.editHistory, username]);
+    }, [cell, username]);
 
     // Get the current username when component mounts and listen for configuration changes
     useEffect(() => {
@@ -136,66 +132,70 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         // No need to request username separately - it comes bundled with initial content
     }, [currentUsername]);
 
-    useMessageHandler("validationButton", (event: MessageEvent) => {
-        const message = event.data;
-        if (!currentUsername && message.type === "currentUsername") {
-            setUsername(message.content.username);
-        } else if (requiredValidationsProp == null && message.type === "validationCount") {
-            setRequiredValidations(message.content);
+    useMessageHandler(
+        "validationButton",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (!currentUsername && message.type === "currentUsername") {
+                setUsername(message.content.username);
+            } else if (requiredValidationsProp == null && message.type === "validationCount") {
+                setRequiredValidations(message.content);
 
-            // The component will re-render with the new requiredValidations value
-            // which will recalculate isFullyValidated in the render function
-        } else if (message.type === "providerUpdatesValidationState") {
-            // Handle validation state updates from the backend
-            if (message.content.cellId === cellId) {
-                const validatedBy = message.content.validatedBy || [];
-                if (username) {
-                    // Check if the user has an active validation (not deleted)
-                    const userEntry = validatedBy.find(
-                        (entry: any) =>
-                            isValidValidationEntry(entry) &&
-                            entry.username === username &&
-                            !entry.isDeleted
-                    );
-                    setIsValidated(!!userEntry);
+                // The component will re-render with the new requiredValidations value
+                // which will recalculate isFullyValidated in the render function
+            } else if (message.type === "providerUpdatesValidationState") {
+                // Handle validation state updates from the backend
+                if (message.content.cellId === cellId) {
+                    const validatedBy = message.content.validatedBy || [];
+                    if (username) {
+                        // Check if the user has an active validation (not deleted)
+                        const userEntry = validatedBy.find(
+                            (entry: any) =>
+                                isValidValidationEntry(entry) &&
+                                entry.username === username &&
+                                !entry.isDeleted
+                        );
+                        setIsValidated(!!userEntry);
 
-                    // Update the list of validation users
-                    const activeValidations = validatedBy.filter(
-                        (entry: any) => isValidValidationEntry(entry) && !entry.isDeleted
-                    );
-                    setValidationUsers(activeValidations);
+                        // Update the list of validation users
+                        const activeValidations = validatedBy.filter(
+                            (entry: any) => isValidValidationEntry(entry) && !entry.isDeleted
+                        );
+                        setValidationUsers(activeValidations);
 
-                    // Validation is complete, clear pending state
+                        // Validation is complete, clear pending state
+                        setIsPendingValidation(false);
+                        setIsValidationInProgress(false);
+                    }
+                }
+            } else if (message.type === "configurationChanged") {
+                // Configuration changes now send validationCount directly, no need to refetch
+                console.log("Configuration changed - validation count will be sent directly");
+            } else if (message.command === "updateValidationCount") {
+                setValidationUsers(message.content.validations || []);
+                if (requiredValidationsProp == null) {
+                    setRequiredValidations(message.content.requiredValidations || 1);
+                }
+                setIsValidated(message.content.isValidated);
+                setUserCreatedLatestEdit(message.content.userCreatedLatestEdit);
+            } else if (message.type === "validationInProgress") {
+                // Handle validation in progress message
+                if (message.content.cellId === cellId) {
+                    setIsValidationInProgress(message.content.inProgress);
+                    if (!message.content.inProgress) {
+                        // If validation is complete, clear pending state as well
+                        setIsPendingValidation(false);
+                    }
+                }
+            } else if (message.type === "pendingValidationCleared") {
+                // Handle when all pending validations are cleared
+                if (message.content.cellIds.includes(cellId)) {
                     setIsPendingValidation(false);
-                    setIsValidationInProgress(false);
                 }
             }
-        } else if (message.type === "configurationChanged") {
-            // Configuration changes now send validationCount directly, no need to refetch
-            console.log("Configuration changed - validation count will be sent directly");
-        } else if (message.command === "updateValidationCount") {
-            setValidationUsers(message.content.validations || []);
-            if (requiredValidationsProp == null) {
-                setRequiredValidations(message.content.requiredValidations || 1);
-            }
-            setIsValidated(message.content.isValidated);
-            setUserCreatedLatestEdit(message.content.userCreatedLatestEdit);
-        } else if (message.type === "validationInProgress") {
-            // Handle validation in progress message
-            if (message.content.cellId === cellId) {
-                setIsValidationInProgress(message.content.inProgress);
-                if (!message.content.inProgress) {
-                    // If validation is complete, clear pending state as well
-                    setIsPendingValidation(false);
-                }
-            }
-        } else if (message.type === "pendingValidationCleared") {
-            // Handle when all pending validations are cleared
-            if (message.content.cellIds.includes(cellId)) {
-                setIsPendingValidation(false);
-            }
-        }
-    }, [cellId, username, currentUsername, requiredValidationsProp]);
+        },
+        [cellId, username, currentUsername, requiredValidationsProp]
+    );
 
     // Close popover when clicking outside of it
     useEffect(() => {
@@ -289,18 +289,23 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     const handleValidate = (e: React.MouseEvent) => {
         e.stopPropagation();
 
-        // Toggle the pending validation state for all validation operations
-        const newPendingState = !isPendingValidation;
-        setIsPendingValidation(newPendingState);
+        // Immediately set pending state
+        setIsPendingValidation(true);
 
-        // Queue the validation request (both for adding and removing validations)
-        vscode.postMessage({
-            command: "queueValidation",
-            content: {
-                cellId,
-                validate: !isValidated, // Toggle the current validation state
-                pending: newPendingState,
-            },
+        // Add to validation queue for sequential processing
+        enqueueValidation(cellId, !isValidated)
+            .then(() => {
+                // Validation request has been queued successfully
+            })
+            .catch((error) => {
+                console.error("Validation queue error:", error);
+                setIsPendingValidation(false);
+            });
+
+        // Process the queue
+        processValidationQueue(vscode).catch((error) => {
+            console.error("Validation queue processing error:", error);
+            setIsPendingValidation(false);
         });
 
         // Don't close popover immediately to allow user to see the change
@@ -311,12 +316,12 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 setIsDetailedView(false);
                 popoverTracker.setActivePopover(null);
             }
-        }, 1000);
+        }, 500);
     };
 
     const handleButtonClick = (e: React.MouseEvent) => {
         e.stopPropagation();
-
+        if (isDisabled) return;
         // If not validated yet, validate the cell
         if (!isValidated) {
             handleValidate(e);
@@ -333,7 +338,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     const showPopoverHandler = (e: React.MouseEvent) => {
         e.stopPropagation();
         e.preventDefault();
-
+        if (isDisabled) return;
         // Don't show on hover if already showing in persistent mode
         if (isPersistentPopover) return;
 
@@ -425,6 +430,8 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         return date.toLocaleDateString();
     };
 
+    const isDisabled = isSourceText || isValidationInProgress || Boolean(externallyDisabled);
+
     return (
         <div
             ref={buttonRef}
@@ -448,8 +455,11 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                     e.stopPropagation();
                     handleButtonClick(e);
                 }}
-                // We only disable for source text or when validation is in progress
-                disabled={isSourceText || isValidationInProgress}
+                // Disable for source text, in-progress, or when externally requested (e.g., no audio/text)
+                disabled={isDisabled}
+                title={
+                    isDisabled ? disabledReason || "Validation requires text and audio" : undefined
+                }
             >
                 {/* Show spinner when validation is in progress */}
                 {isValidationInProgress ? (
@@ -457,7 +467,9 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                         className="codicon codicon-loading"
                         style={{
                             fontSize: "12px",
-                            color: "var(--vscode-descriptionForeground)",
+                            color: isDisabled
+                                ? "var(--vscode-disabledForeground)"
+                                : "var(--vscode-descriptionForeground)",
                             animation: "spin 1.5s linear infinite",
                         }}
                     ></i>
@@ -468,7 +480,9 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                         style={{
                             fontSize: "12px",
                             // Keep original color, don't change for pending validation
-                            color: "var(--vscode-descriptionForeground)",
+                            color: isDisabled
+                                ? "var(--vscode-disabledForeground)"
+                                : "var(--vscode-descriptionForeground)",
                         }}
                     ></i>
                 ) : isFullyValidated ? (
@@ -479,7 +493,9 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                             style={{
                                 fontSize: "12px",
                                 // Keep original color, don't change for pending validation
-                                color: "var(--vscode-testing-iconPassed)",
+                                color: isDisabled
+                                    ? "var(--vscode-disabledForeground)"
+                                    : "var(--vscode-testing-iconPassed)",
                             }}
                         ></i>
                     ) : (
@@ -489,7 +505,9 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                             style={{
                                 fontSize: "12px",
                                 // Keep original color, don't change for pending validation
-                                color: "var(--vscode-descriptionForeground)",
+                                color: isDisabled
+                                    ? "var(--vscode-disabledForeground)"
+                                    : "var(--vscode-descriptionForeground)",
                             }}
                         ></i>
                     )
@@ -500,7 +518,9 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                         style={{
                             fontSize: "12px",
                             // Keep original color, don't change for pending validation
-                            color: "var(--vscode-testing-iconPassed)",
+                            color: isDisabled
+                                ? "var(--vscode-disabledForeground)"
+                                : "var(--vscode-testing-iconPassed)",
                         }}
                     ></i>
                 ) : (
@@ -510,7 +530,9 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                         style={{
                             fontSize: "12px",
                             // Keep original color, don't change for pending validation
-                            color: "var(--vscode-descriptionForeground)",
+                            color: isDisabled
+                                ? "var(--vscode-disabledForeground)"
+                                : "var(--vscode-descriptionForeground)",
                         }}
                     ></i>
                 )}
@@ -637,18 +659,27 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                                                     onClick={(e) => {
                                                         e.stopPropagation();
 
-                                                        // Queue the validation removal
-                                                        vscode.postMessage({
-                                                            command: "queueValidation",
-                                                            content: {
-                                                                cellId,
-                                                                validate: false,
-                                                                pending: true,
-                                                            },
-                                                        });
+                                                        // Add to validation queue for sequential processing
+                                                        enqueueValidation(cellId, false)
+                                                            .then(() => {
+                                                                // Validation request has been queued successfully
+                                                            })
+                                                            .catch((error) => {
+                                                                console.error(
+                                                                    "Validation queue error:",
+                                                                    error
+                                                                );
+                                                            });
 
-                                                        // Set the pending state
-                                                        setIsPendingValidation(true);
+                                                        // Process the queue
+                                                        processValidationQueue(vscode).catch(
+                                                            (error) => {
+                                                                console.error(
+                                                                    "Validation queue processing error:",
+                                                                    error
+                                                                );
+                                                            }
+                                                        );
 
                                                         // Immediately close the popover
                                                         setShowPopover(false);

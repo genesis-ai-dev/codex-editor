@@ -664,6 +664,12 @@ export type EditorPostMessages =
         };
     }
     | {
+        command: "revalidateMissingForCell";
+        content: {
+            cellId: string;
+        };
+    }
+    | {
         command: "restoreAudioAttachment";
         content: {
             cellId: string;
@@ -728,309 +734,7 @@ export type EditorPostMessages =
     }
     | { command: "adjustABTestingProbability"; content: { delta: number; }; };
 
-
-
-type EditorReceiveMessages =
-    | {
-        type: "providerSendsInitialContent";
-        content: QuillCellContent[];
-        isSourceText: boolean;
-        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
-        username?: string;
-        validationCount?: number;
-    }
-    | {
-        type: "preferredEditorTab";
-        tab:
-        | "source"
-        | "backtranslation"
-        | "footnotes"
-        | "timestamps"
-        | "audio";
-    }
-    | {
-        type: "providerAutocompletionState";
-        state: {
-            isProcessing: boolean;
-            totalCells: number;
-            completedCells: number;
-            currentCellId?: string;
-            cellsToProcess: string[];
-            progress: number;
-        };
-    }
-    | {
-        type: "providerSingleCellTranslationState";
-        state: {
-            isProcessing: boolean;
-            cellId?: string;
-            progress: number;
-        };
-    }
-    | {
-        type: "providerSingleCellQueueState";
-        state: {
-            isProcessing: boolean;
-            totalCells: number;
-            completedCells: number;
-            currentCellId?: string;
-            cellsToProcess: string[];
-            progress: number;
-        };
-    }
-    | {
-        type: "cellTranslationCompleted";
-        cellId: string;
-        success: boolean;
-        cancelled?: boolean;
-        error?: string;
-    }
-    | {
-        type: "providerUpdatesCell";
-        content: {
-            cellId: string;
-            progress: number;
-            completedCells?: number;
-            totalCells?: number;
-            text?: string;
-        };
-    }
-    | {
-        type: "providerCompletesChapterAutocompletion";
-        content?: {
-            progress?: number;
-            completedCells?: number;
-            totalCells?: number;
-        };
-    }
-    | {
-        type: "autocompleteChapterStart";
-        cellIds: string[];
-        totalCells: number;
-    }
-    | {
-        type: "processingCell";
-        cellId: string;
-        index: number;
-        totalCells: number;
-    }
-    | {
-        type: "cellCompleted";
-        cellId: string;
-        index: number;
-        totalCells: number;
-    }
-    | {
-        type: "cellError";
-        cellId: string;
-        index: number;
-        totalCells: number;
-    }
-    | {
-        type: "autocompleteChapterComplete";
-        totalCells?: number;
-    }
-    | { type: "providerSendsSpellCheckResponse"; content: SpellCheckResponse; }
-    | {
-        type: "providerSendsgetAlertCodeResponse";
-        content: { [cellId: string]: number; };
-    }
-    | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl"; }
-    | { type: "providerSendsLLMCompletionResponse"; content: { completion: string; cellId: string; }; }
-    | { type: "providerSendsABTestVariants"; content: { variants: string[]; cellId: string; testId: string; testName?: string; names?: string[]; winRates?: Record<string, { wins: number; total: number; winRate: number; }>; abProbability?: number; }; }
-    | { type: "abTestingProbabilityUpdated"; content: { value: number; }; }
-    | { type: "jumpToSection"; content: string; }
-    | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
-    | { type: "updateVideoUrlInWebview"; content: string; }
-    | {
-        type: "commentsForCell";
-        content: {
-            cellId: string;
-            unresolvedCount: number;
-        };
-    }
-    | {
-        type: "commentsForCells";
-        content: {
-            [cellId: string]: number; // cellId -> unresolvedCount
-        };
-    }
-    | { type: "providerSendsPromptedEditResponse"; content: string; }
-    | { type: "providerSendsSimilarCellIdsResponse"; content: { cellId: string; score: number; }[]; }
-    | { type: "providerSendsTopPrompts"; content: Array<{ prompt: string; isPinned: boolean; }>; }
-    | { type: "providerSendsSourceText"; content: string; }
-    | {
-        type: "providerSendsBacktranslation";
-        content: SavedBacktranslation | null;
-    }
-    | {
-        type: "providerSendsUpdatedBacktranslation";
-        content: SavedBacktranslation | null;
-    }
-    | {
-        type: "providerSendsExistingBacktranslation";
-        content: SavedBacktranslation | null;
-    }
-    | {
-        type: "singleCellTranslationStarted";
-        cellId: string;
-    }
-    | {
-        type: "singleCellTranslationProgress";
-        progress: number;
-        cellId: string;
-    }
-    | {
-        type: "singleCellTranslationCompleted";
-        cellId: string;
-    }
-    | {
-        type: "singleCellTranslationFailed";
-        cellId: string;
-        error: string;
-    }
-    | { type: "refreshFontSizes"; }
-    | { type: "refreshMetadata"; }
-    | { type: "asrConfig"; content: { endpoint: string; provider: string; model: string; language: string; phonetic: boolean; }; }
-    | { type: "startBatchTranscription"; content: { count: number; }; }
-    | {
-        type: "providerConfirmsBacktranslationSet";
-        content: SavedBacktranslation | null;
-    }
-    | { type: "currentUsername"; content: { username: string; }; }
-    | { type: "validationCount"; content: number; }
-    | { type: "configurationChanged"; }
-    | {
-        type: "validationInProgress";
-        content: {
-            cellId: string;
-            inProgress: boolean;
-            error?: string;
-        };
-    }
-    | {
-        type: "pendingValidationCleared";
-        content: {
-            cellIds: string[];
-        };
-    }
-    | {
-        type: "pendingValidationsUpdate";
-        content: {
-            count: number;
-            hasPending: boolean;
-        };
-    }
-    | { type: "setChapterNumber"; content: number; }
-    | {
-        type: "providerUpdatesValidationState";
-        content: {
-            cellId: string;
-            validatedBy: ValidationEntry[];
-        };
-    }
-    | {
-        type: "footnoteStored";
-        content: {
-            cellId: string;
-            footnoteId?: string;
-            content?: string;
-            position?: number;
-            deleteFootnote?: string;
-        };
-    }
-    | {
-        type: "updateFileStatus";
-        status: "dirty" | "syncing" | "synced" | "none";
-    }
-    | {
-        type: "editorPosition";
-        position: "leftmost" | "rightmost" | "center" | "single" | "unknown";
-    }
-    | {
-        type: "setBibleBookMap";
-        data: [string, { [key: string]: any; name: string; }][];
-    }
-    | {
-        type: "providerSendsAudioAttachments";
-        attachments: { [cellId: string]: "available" | "deletedOnly" | "none"; };
-    }
-    | {
-        type: "providerSendsAudioData";
-        content: {
-            cellId: string;
-            audioId: string;
-            audioUrl?: string; // URL to access the audio file
-            audioData?: string; // base64 data if needed
-            transcription?: {
-                content: string;
-                timestamp: number;
-                language?: string;
-            };
-        };
-    }
-    | {
-        type: "correctionEditorModeChanged";
-        enabled: boolean;
-    }
-    | {
-        type: "audioAttachmentSaved";
-        content: {
-            cellId: string;
-            audioId: string;
-            success: boolean;
-            error?: string;
-        };
-    }
-    | {
-        type: "audioAttachmentDeleted";
-        content: {
-            cellId: string;
-            audioId: string;
-            success: boolean;
-            error?: string;
-        };
-    }
-    | {
-        type: "audioHistoryReceived";
-        content: {
-            cellId: string;
-            audioHistory: Array<{
-                attachmentId: string;
-                attachment: {
-                    url: string;
-                    type: string;
-                    createdAt: number;
-                    updatedAt: number;
-                    isDeleted: boolean;
-                };
-            }>;
-            currentAttachmentId: string | null; // The ID of the currently selected/active attachment
-            hasExplicitSelection: boolean; // Whether user made explicit selection vs automatic behavior
-        };
-    }
-    | {
-        type: "audioAttachmentRestored";
-        content: {
-            cellId: string;
-            audioId: string;
-            success: boolean;
-            error?: string;
-        };
-    }
-    | {
-        type: "audioAttachmentSelected";
-        content: {
-            cellId: string;
-            audioId: string;
-            success: boolean;
-            error?: string;
-        };
-    }
-    | {
-        type: "refreshCommentCounts";
-        timestamp: string;
-    };
+// (revalidateMissingForCell added above in EditorPostMessages union)
 
 type AlertCodesServerResponse = {
     code: number;
@@ -1079,6 +783,8 @@ type EditHistoryBase = {
 export type EditHistory<TEditMap extends readonly string[] = readonly string[]> = EditHistoryBase & {
     editMap: TEditMap;
     value: EditMapValueType<TEditMap>;
+    /** Optional flag to indicate a non-persisting preview edit (e.g., LLM preview) */
+    preview?: boolean;
 };
 
 // Legacy alias for backward compatibility
@@ -1118,6 +824,7 @@ type CustomCellMetaData = {
             createdAt: number;
             updatedAt: number;
             isDeleted: boolean;
+            isMissing?: boolean;
         };
     };
     cellLabel?: string;
@@ -1145,6 +852,7 @@ export interface CustomNotebookMetadata {
     codexFsPath: string | undefined;
     navigation: NavigationCell[];
     videoUrl?: string;
+    audioOnly?: boolean; // When true, the document contains only audio segments with no source text
     sourceCreatedAt: string;
     codexLastModified?: string;
     corpusMarker: string;
@@ -1175,7 +883,7 @@ interface QuillCellContent {
     merged?: boolean;
     deleted?: boolean;
     data?: { [key: string]: any; footnotes?: Footnote[]; };
-    attachments?: { [attachmentId: string]: { type: string; isDeleted?: boolean; url?: string; }; };
+    attachments?: { [attachmentId: string]: { type: string; isDeleted?: boolean; isMissing?: boolean; url?: string; }; };
 }
 
 interface Timestamps {
@@ -1804,3 +1512,305 @@ interface CodexItem {
     wordCount?: number;
     isEnabled?: boolean;
 }
+type EditorReceiveMessages =
+    | {
+        type: "providerSendsInitialContent";
+        content: QuillCellContent[];
+        isSourceText: boolean;
+        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
+        username?: string;
+        validationCount?: number;
+    }
+    | {
+        type: "preferredEditorTab";
+        tab:
+        | "source"
+        | "backtranslation"
+        | "footnotes"
+        | "timestamps"
+        | "audio";
+    }
+    | {
+        type: "providerAutocompletionState";
+        state: {
+            isProcessing: boolean;
+            totalCells: number;
+            completedCells: number;
+            currentCellId?: string;
+            cellsToProcess: string[];
+            progress: number;
+        };
+    }
+    | {
+        type: "providerSingleCellTranslationState";
+        state: {
+            isProcessing: boolean;
+            cellId?: string;
+            progress: number;
+        };
+    }
+    | {
+        type: "providerSingleCellQueueState";
+        state: {
+            isProcessing: boolean;
+            totalCells: number;
+            completedCells: number;
+            currentCellId?: string;
+            cellsToProcess: string[];
+            progress: number;
+        };
+    }
+    | {
+        type: "cellTranslationCompleted";
+        cellId: string;
+        success: boolean;
+        cancelled?: boolean;
+        error?: string;
+    }
+    | {
+        type: "providerUpdatesCell";
+        content: {
+            cellId: string;
+            progress: number;
+            completedCells?: number;
+            totalCells?: number;
+            text?: string;
+        };
+    }
+    | {
+        type: "providerCompletesChapterAutocompletion";
+        content?: {
+            progress?: number;
+            completedCells?: number;
+            totalCells?: number;
+        };
+    }
+    | {
+        type: "autocompleteChapterStart";
+        cellIds: string[];
+        totalCells: number;
+    }
+    | {
+        type: "processingCell";
+        cellId: string;
+        index: number;
+        totalCells: number;
+    }
+    | {
+        type: "cellCompleted";
+        cellId: string;
+        index: number;
+        totalCells: number;
+    }
+    | {
+        type: "cellError";
+        cellId: string;
+        index: number;
+        totalCells: number;
+    }
+    | {
+        type: "autocompleteChapterComplete";
+        totalCells?: number;
+    }
+    | { type: "providerSendsSpellCheckResponse"; content: SpellCheckResponse; }
+    | {
+        type: "providerSendsgetAlertCodeResponse";
+        content: { [cellId: string]: number; };
+    }
+    | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl"; }
+    | { type: "providerSendsLLMCompletionResponse"; content: { completion: string; cellId: string; }; }
+    | { type: "providerSendsABTestVariants"; content: { variants: string[]; cellId: string; testId: string; testName?: string; names?: string[]; winRates?: Record<string, { wins: number; total: number; winRate: number; }>; abProbability?: number; }; }
+    | { type: "abTestingProbabilityUpdated"; content: { value: number; }; }
+    | { type: "jumpToSection"; content: string; }
+    | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
+    | { type: "updateVideoUrlInWebview"; content: string; }
+    | {
+        type: "commentsForCell";
+        content: {
+            cellId: string;
+            unresolvedCount: number;
+        };
+    }
+    | {
+        type: "commentsForCells";
+        content: {
+            [cellId: string]: number; // cellId -> unresolvedCount
+        };
+    }
+    | { type: "providerSendsPromptedEditResponse"; content: string; }
+    | { type: "providerSendsSimilarCellIdsResponse"; content: { cellId: string; score: number; }[]; }
+    | { type: "providerSendsTopPrompts"; content: Array<{ prompt: string; isPinned: boolean; }>; }
+    | { type: "providerSendsSourceText"; content: string; }
+    | {
+        type: "providerSendsBacktranslation";
+        content: SavedBacktranslation | null;
+    }
+    | {
+        type: "providerSendsUpdatedBacktranslation";
+        content: SavedBacktranslation | null;
+    }
+    | {
+        type: "providerSendsExistingBacktranslation";
+        content: SavedBacktranslation | null;
+    }
+    | {
+        type: "singleCellTranslationStarted";
+        cellId: string;
+    }
+    | {
+        type: "singleCellTranslationProgress";
+        progress: number;
+        cellId: string;
+    }
+    | {
+        type: "singleCellTranslationCompleted";
+        cellId: string;
+    }
+    | {
+        type: "singleCellTranslationFailed";
+        cellId: string;
+        error: string;
+    }
+    | { type: "refreshFontSizes"; }
+    | { type: "refreshMetadata"; }
+    | { type: "asrConfig"; content: { endpoint: string; provider: string; model: string; language: string; phonetic: boolean; }; }
+    | { type: "startBatchTranscription"; content: { count: number; }; }
+    | {
+        type: "providerConfirmsBacktranslationSet";
+        content: SavedBacktranslation | null;
+    }
+    | { type: "currentUsername"; content: { username: string; }; }
+    | { type: "validationCount"; content: number; }
+    | { type: "configurationChanged"; }
+    | {
+        type: "validationInProgress";
+        content: {
+            cellId: string;
+            inProgress: boolean;
+            error?: string;
+        };
+    }
+    | {
+        type: "pendingValidationCleared";
+        content: {
+            cellIds: string[];
+        };
+    }
+    | {
+        type: "pendingValidationsUpdate";
+        content: {
+            count: number;
+            hasPending: boolean;
+        };
+    }
+    | { type: "setChapterNumber"; content: number; }
+    | {
+        type: "providerUpdatesValidationState";
+        content: {
+            cellId: string;
+            validatedBy: ValidationEntry[];
+        };
+    }
+    | {
+        type: "footnoteStored";
+        content: {
+            cellId: string;
+            footnoteId?: string;
+            content?: string;
+            position?: number;
+            deleteFootnote?: string;
+        };
+    }
+    | {
+        type: "updateFileStatus";
+        status: "dirty" | "syncing" | "synced" | "none";
+    }
+    | {
+        type: "editorPosition";
+        position: "leftmost" | "rightmost" | "center" | "single" | "unknown";
+    }
+    | {
+        type: "setBibleBookMap";
+        data: [string, { [key: string]: any; name: string; }][];
+    }
+    | {
+        type: "providerSendsAudioAttachments";
+        attachments: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; };
+    }
+    | {
+        type: "providerSendsAudioData";
+        content: {
+            cellId: string;
+            audioId: string;
+            audioUrl?: string; // URL to access the audio file
+            audioData?: string; // base64 data if needed
+            transcription?: {
+                content: string;
+                timestamp: number;
+                language?: string;
+            };
+            fileModified?: number; // File modification timestamp for cache validation
+        };
+    }
+    | {
+        type: "correctionEditorModeChanged";
+        enabled: boolean;
+    }
+    | {
+        type: "audioAttachmentSaved";
+        content: {
+            cellId: string;
+            audioId: string;
+            success: boolean;
+            error?: string;
+        };
+    }
+    | {
+        type: "audioAttachmentDeleted";
+        content: {
+            cellId: string;
+            audioId: string;
+            success: boolean;
+            error?: string;
+        };
+    }
+    | {
+        type: "audioHistoryReceived";
+        content: {
+            cellId: string;
+            audioHistory: Array<{
+                attachmentId: string;
+                attachment: {
+                    url: string;
+                    type: string;
+                    createdAt: number;
+                    updatedAt: number;
+                    isDeleted: boolean;
+                };
+            }>;
+            currentAttachmentId: string | null; // The ID of the currently selected/active attachment
+            hasExplicitSelection: boolean; // Whether user made explicit selection vs automatic behavior
+        };
+    }
+    | {
+        type: "audioAttachmentRestored";
+        content: {
+            cellId: string;
+            audioId: string;
+            success: boolean;
+            error?: string;
+        };
+    }
+    | {
+        type: "audioAttachmentSelected";
+        content: {
+            cellId: string;
+            audioId: string;
+            success: boolean;
+            error?: string;
+        };
+    }
+    | {
+        type: "refreshCommentCounts";
+        timestamp: string;
+    };

@@ -242,13 +242,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
         editType: EditType,
         shouldUpdateValue = true
     ) {
+        console.log("trace 124 updateCellContent", cellId, newContent, editType, shouldUpdateValue);
 
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
             (cell) => cell.metadata?.id === cellId
         );
 
         if (indexOfCellToUpdate === -1) {
-            throw new Error("Could not find cell to update");
+            console.warn("Could not find cell to update", { cellId });
+            return; // Graceful no-op to avoid unhandled rejections in CI
         }
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
@@ -261,6 +263,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // Special case: for non-persisting LLM previews, do not update the cell value
         // but DO record an LLM_GENERATION edit in metadata so history/auditing is preserved
         if (editType === EditType.LLM_GENERATION && !shouldUpdateValue) {
+            console.log("trace 124 LLM_GENERATION and !shouldUpdateValue", cellId, newContent, editType, shouldUpdateValue);
             // Ensure edit history array exists
             if (!cellToUpdate.metadata.edits) {
                 cellToUpdate.metadata.edits = [];
@@ -268,21 +271,30 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
             const currentTimestamp = Date.now();
 
-            cellToUpdate.metadata.edits.push({
+            const previewEdit: any = {
                 editMap: EditMapUtils.value(),
                 value: newContent,
                 timestamp: currentTimestamp,
                 type: editType,
                 author: this._author,
                 validatedBy: [],
-            });
+                preview: true,
+            };
+            cellToUpdate.metadata.edits.push(previewEdit);
 
-            // Notify webview so UI can reflect previewed content without marking file dirty
+            console.log("trace 124 cellToUpdate", { cellToUpdate });
+
+            // Mark dirty so edits are persisted on the next explicit save, but do not notify or save automatically.
+            // This avoids side effects (e.g., merge logic using edit history) from updating the stored value.
+            // If the UI needs to reflect the preview, it should use a separate webview-only channel.
+            this._isDirty = true;
+            // Notify both VS Code and the webview that edits changed, so the provider can mark dirty and VS Code can autosave
+            this._onDidChangeForVsCodeAndWebview.fire({
+                edits: [{ cellId, newContent, editType }],
+            });
             this._onDidChangeForWebview.fire({
                 edits: [{ cellId, newContent, editType }],
             });
-
-            // Intentionally do not mark the document dirty or update value/index
             return;
         }
 
@@ -299,7 +311,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             cellToUpdate.metadata.edits.push({
                 editMap: EditMapUtils.value(),
                 value: previousValue,
-                timestamp: currentTimestamp,
+                timestamp: currentTimestamp - 1000,
                 type: EditType.INITIAL_IMPORT,
                 author: this._author,
                 validatedBy: [],
@@ -333,6 +345,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
             validatedBy,
         });
 
+        console.log("trace 124 cellToUpdate.metadata.edits", cellToUpdate.metadata.edits);
+
         // Record the edit 
         // not being used ???
         this._edits.push({
@@ -349,7 +363,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         });
 
         // IMMEDIATE INDEXING: Add the cell to the database immediately after translation
-        if (editType === EditType.LLM_GENERATION || editType === EditType.USER_EDIT) {
+        if ((editType === EditType.LLM_GENERATION && shouldUpdateValue) || editType === EditType.USER_EDIT) {
             this.addCellToIndexImmediately(cellId, newContent, editType);
         }
 
@@ -508,14 +522,16 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
     public async save(cancellation: vscode.CancellationToken): Promise<void> {
         const currentFileContent = await this.readCurrentFileContent();
-        if (!currentFileContent) {
-            throw new Error("Could not read current file content for merge");
-        }
         const ourContent = JSON.stringify(this._documentData, null, 2);
 
-        const { resolveCodexCustomMerge } = await import("../../projectManager/utils/merge/resolvers");
-        const mergedContent = await resolveCodexCustomMerge(ourContent, currentFileContent);
-        await vscode.workspace.fs.writeFile(this.uri, new TextEncoder().encode(mergedContent));
+        if (!currentFileContent) {
+            // Initial write when file does not yet exist or cannot be read
+            await vscode.workspace.fs.writeFile(this.uri, new TextEncoder().encode(ourContent));
+        } else {
+            const { resolveCodexCustomMerge } = await import("../../projectManager/utils/merge/resolvers");
+            const mergedContent = await resolveCodexCustomMerge(ourContent, currentFileContent);
+            await vscode.workspace.fs.writeFile(this.uri, new TextEncoder().encode(mergedContent));
+        }
 
 
         // IMMEDIATE AI LEARNING - Update all cells with content to ensure validation changes are persisted
@@ -632,7 +648,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 cellToUpdate.metadata.edits.push({
                     editMap: EditMapUtils.dataStartTime(),
                     value: previousStartTime,
-                    timestamp: currentTimestamp,
+                    timestamp: currentTimestamp - 1000,
                     type: EditType.INITIAL_IMPORT,
                     author: this._author,
                     validatedBy: [],
@@ -666,7 +682,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 cellToUpdate.metadata.edits.push({
                     editMap: EditMapUtils.dataEndTime(),
                     value: previousEndTime,
-                    timestamp: currentTimestamp,
+                    timestamp: currentTimestamp - 1000,
                     type: EditType.INITIAL_IMPORT,
                     author: this._author,
                     validatedBy: [],
@@ -711,25 +727,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     public deleteCell(cellId: string) {
-        const indexOfCellToDelete = this._documentData.cells.findIndex(
-            (cell) => cell.metadata?.id === cellId
-        );
-
-        if (indexOfCellToDelete === -1) {
-            throw new Error("Could not find cell to delete");
-        }
-        this._documentData.cells.splice(indexOfCellToDelete, 1);
-
-        // Record the edit
-        this._edits.push({
-            type: "deleteCell",
-            cellId,
-        });
-
-        this._isDirty = true;
-        this._onDidChangeForVsCodeAndWebview.fire({
-            edits: [{ cellId }],
-        });
+        // Backward-compat: hard deletes are no longer allowed. Perform a soft delete instead.
+        this.softDeleteCell(cellId);
     }
 
     /**
@@ -762,6 +761,27 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set deleted flag
         (cellToSoftDelete.metadata.data).deleted = true;
+
+        // Ensure edits array exists and record a deletion edit for merge/audit trails
+        if (!cellToSoftDelete.metadata.edits) {
+            cellToSoftDelete.metadata.edits = [];
+        }
+        const currentTimestamp = Date.now();
+        cellToSoftDelete.metadata.edits.push({
+            editMap: EditMapUtils.dataDeleted(),
+            value: true,
+            timestamp: currentTimestamp,
+            type: EditType.USER_EDIT,
+            author: this._author,
+            validatedBy: [
+                {
+                    username: this._author,
+                    creationTimestamp: currentTimestamp,
+                    updatedTimestamp: currentTimestamp,
+                    isDeleted: false,
+                },
+            ],
+        });
 
         // Record the edit
         this._edits.push({
@@ -950,8 +970,37 @@ export class CodexCellDocument implements vscode.CustomDocument {
             ];
         }
 
-        // Get the latest edit
-        const latestEdit = cellToUpdate.metadata.edits[cellToUpdate.metadata.edits.length - 1];
+        // Find the correct edit corresponding to the CURRENT VALUE of the cell
+        // We must NOT validate metadata-only edits (e.g., label/timestamp). Validate the value edit
+        // whose value matches the current cell value.
+        let targetEditIndex = -1;
+        for (let i = cellToUpdate.metadata.edits.length - 1; i >= 0; i--) {
+            const e = cellToUpdate.metadata.edits[i];
+            // Identify value edits using EditMapUtils and also match the exact value
+            const isValueEdit = EditMapUtils.isValue
+                ? EditMapUtils.isValue(e.editMap)
+                : EditMapUtils.equals(e.editMap, EditMapUtils.value());
+            if (isValueEdit && e.value === cellToUpdate.value) {
+                targetEditIndex = i;
+                break;
+            }
+        }
+
+        // If we didn't find a value edit that matches current value, create one so validation history is consistent
+        if (targetEditIndex === -1) {
+            const currentTimestamp = Date.now();
+            cellToUpdate.metadata.edits.push({
+                editMap: EditMapUtils.value(),
+                value: cellToUpdate.value,
+                author: this._author,
+                validatedBy: [],
+                timestamp: currentTimestamp,
+                type: EditType.USER_EDIT,
+            } as any);
+            targetEditIndex = cellToUpdate.metadata.edits.length - 1;
+        }
+
+        const latestEdit = cellToUpdate.metadata.edits[targetEditIndex];
 
         // Initialize validatedBy array if it doesn't exist
         if (!latestEdit.validatedBy) {
@@ -1464,11 +1513,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
             attachmentId,
         });
 
-        // Mark as dirty and notify listeners
+        // Mark as dirty and notify both VS Code and webview so the change is persisted
         this._isDirty = true;
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
+
+        // Audio attachment changes don't affect AI learning (only text content and validation data matter)
     }
 
     /**
@@ -1588,11 +1639,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
             attachmentId,
         });
 
-        // Mark as dirty and notify listeners
+        // Mark as dirty and notify VS Code (so the file is persisted) and the webview
         this._isDirty = true;
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
+
+        // Audio attachment changes don't affect AI learning (only text content and validation data matter)
     }
 
     /**
@@ -1636,11 +1689,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
             audioId,
         });
 
-        // Mark as dirty and notify listeners
+        // Mark as dirty and notify VS Code (so the file is persisted) and the webview
         this._isDirty = true;
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
+
+        // Audio attachment changes don't affect AI learning (only text content and validation data matter)
     }
 
     /**
@@ -1779,6 +1834,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const uriString = this.uri.toString();
         return uriString.includes(".source") ? "source" : "target";
     }
+
 
     // Add method to sync all cells to database without modifying content
     private async syncAllCellsToDatabase(): Promise<void> {

@@ -103,6 +103,14 @@ function getWebviewContent(
 ) {
     const hasLanguages = sourceLanguage?.refName && targetLanguage?.refName;
 
+    // Middle-truncate longer file names
+    const middleTruncateLongerFileNames = (fileName: string) => {
+        if (fileName.length > 20) {
+            fileName = fileName.slice(0, 10) + "..." + fileName.slice(-10);
+        }
+        return fileName;
+    };
+
     return `<!DOCTYPE html>
     <html>
         <head>
@@ -322,6 +330,17 @@ function getWebviewContent(
                                     <span class="format-tag">InDesign</span>
                                 </div>
                             </div>
+                            <div class="format-option" data-format="audio" style="flex: 1;">
+                                <i class="codicon codicon-mic"></i>
+                                <div>
+                                    <strong>Audio</strong>
+                                    <p>Export per-cell audio attachments to a folder</p>
+                                    <div style="margin-top: 6px; display: flex; align-items: center; gap: 6px;">
+                                        <input type="checkbox" id="audioIncludeTimestamps" />
+                                        <label for="audioIncludeTimestamps">Include timestamps in filenames (when available)</label>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Data Export Section -->
@@ -395,14 +414,19 @@ function getWebviewContent(
                 .map(
                     (file, index) => `
                                 <div class="file-item">
-                                    <input type="checkbox" 
-                                           id="file-${index}" 
-                                           value="${file.path}"
-                                           ${file.selected ? "checked" : ""}
-                                           onchange="updateFileSelection()">
-                                    <label for="file-${index}">
+                                    <input 
+                                        type="checkbox" 
+                                        id="file-${index}" 
+                                        value="${file.path}"
+                                        ${file.selected ? "checked" : ""}
+                                        onchange="updateFileSelection()"
+                                    >
+                                    <label 
+                                        for="file-${index}"
+                                        title="${file.name}"
+                                    >
                                         <i class="codicon codicon-file"></i>
-                                        ${file.name}
+                                        ${middleTruncateLongerFileNames(file.name)}
                                     </label>
                                 </div>
                             `
@@ -556,6 +580,10 @@ function getWebviewContent(
                     // Add USFM-specific options
                     if (selectedFormat === 'usfm') {
                         options.skipValidation = document.getElementById('skipValidation').checked;
+                    }
+                    // Add Audio-specific options
+                    if (selectedFormat === 'audio') {
+                        options.includeTimestamps = document.getElementById('audioIncludeTimestamps').checked;
                     }
                     
                     vscode.postMessage({

@@ -7,7 +7,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/toolti
 import { Separator } from "../components/ui/separator";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { SyncSettings } from "../components/SyncSettings";
-import { TextDisplaySettingsModal, type TextDisplaySettings } from "../components/TextDisplaySettingsModal";
+import {
+    TextDisplaySettingsModal,
+    type TextDisplaySettings,
+} from "../components/TextDisplaySettingsModal";
 import { cn } from "../lib/utils";
 import "../tailwind.css";
 
@@ -459,12 +462,12 @@ function MainMenu() {
                                     backgroundColor: "var(--card)",
                                 }}
                             >
-                                <CardHeader className="pb-4">
-                                    <CardTitle 
+                                <CardHeader className="pb-4 rounded-t-lg">
+                                    <CardTitle
                                         className="text-lg font-semibold flex items-center gap-2"
                                         style={{ color: "var(--foreground)" }}
                                     >
-                                        <i 
+                                        <i
                                             className="codicon codicon-folder-opened text-xl"
                                             style={{ color: "var(--ring)" }}
                                         />
@@ -572,7 +575,7 @@ function MainMenu() {
                                         </div>
                                     </div>
 
-                                    <Separator />
+                                    {/* <Separator /> // TODO: Put this back in when we reinsert spell check*/}
 
                                     <div
                                         className="flex items-center justify-between p-3 rounded-lg border"
@@ -661,7 +664,7 @@ function MainMenu() {
                                         backgroundColor: "var(--card)",
                                     }}
                                 >
-                                    <CardHeader className="pb-4">
+                                    <CardHeader className="pb-4 rounded-t-lg">
                                         <CardTitle
                                             className="flex items-center gap-3 text-lg font-bold"
                                             style={{ color: "var(--foreground)" }}
@@ -730,7 +733,7 @@ function MainMenu() {
                                     backgroundColor: "var(--card)",
                                 }}
                             >
-                                <CardHeader className="pb-4">
+                                <CardHeader className="pb-4 rounded-t-lg">
                                     <CardTitle
                                         className="text-lg font-semibold flex items-center gap-2"
                                         style={{ color: "var(--foreground)" }}
@@ -1003,11 +1006,10 @@ function MainMenu() {
 
             {/* Speech to Text settings moved to Copilot Settings */}
 
-            <div className="mt-auto pt-6 text-center border-t border-border">
-                <Badge variant="secondary" className="text-xs opacity-70">
-                    Codex Translation Editor - Patch Version:{" "}
-                    {projectState.appVersion ? `v${projectState.appVersion}` : "unknown"}
-                </Badge>
+            <div className="flex flex-col items-center pt-6 text-center text-xs opacity-70">
+                Codex Translation Editor
+                <br />
+                Patch Version: {projectState.appVersion ? `${projectState.appVersion}` : "unknown"}
             </div>
 
             {/* Text Display Settings Modal */}

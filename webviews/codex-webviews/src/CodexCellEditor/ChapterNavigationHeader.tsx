@@ -1,6 +1,5 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button } from "../components/ui/button";
-import { VSCodeBadge } from "@vscode/webview-ui-toolkit/react";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import NotebookMetadataModal from "./NotebookMetadataModal";
 import { AutocompleteModal } from "./modals/AutocompleteModal";
@@ -9,10 +8,8 @@ import { MobileHeaderMenu } from "./components/MobileHeaderMenu";
 import {
     type QuillCellContent,
     type CustomNotebookMetadata,
-    type EditorPostMessages,
 } from "../../../../types";
 import { EditMapUtils } from "../../../../src/utils/editMapUtils";
-import { WebviewApi } from "vscode-webview";
 import { type FileStatus, type EditorPosition, type Subsection } from "../lib/types";
 import {
     DropdownMenu,
@@ -134,8 +131,13 @@ ChapterNavigationHeaderProps) {
     const [showChapterSelector, setShowChapterSelector] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const chapterTitleRef = useRef<HTMLDivElement>(null);
+    const headerContainerRef = useRef<HTMLDivElement>(null);
     const [truncatedBookName, setTruncatedBookName] = useState<string | null>(null);
     const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
+
+    // Responsive breakpoint state with hysteresis to prevent flickering
+    const [shouldShowHamburger, setShouldShowHamburger] = useState(window.innerWidth < 635);
+    const [isVerySmallScreen, setIsVerySmallScreen] = useState(window.innerWidth < 395);
 
     // Font size state - default to 14 if not set in metadata
     const [fontSize, setFontSize] = useState(metadata?.fontSize || 14);
@@ -143,6 +145,9 @@ ChapterNavigationHeaderProps) {
 
     // Get subsections early so it's available for all hooks
     const subsections = getSubsectionsForChapter(chapterNumber);
+
+    // Helper to determine if any translation is in progress
+    const isAnyTranslationInProgress = isAutocompletingChapter || isTranslatingCell;
 
     // Update font size when metadata changes
     useEffect(() => {
@@ -153,7 +158,7 @@ ChapterNavigationHeaderProps) {
     }, [metadata?.fontSize]);
 
     // Determine the display name using the map
-    const getDisplayTitle = () => {
+    const getDisplayTitle = useCallback(() => {
         const firstMarker = translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]; // e.g., "GEN 1"
         if (!firstMarker) return "Chapter"; // Fallback title
 
@@ -168,9 +173,157 @@ ChapterNavigationHeaderProps) {
         const displayBookName = localizedName || bookAbbr;
 
         return `${displayBookName}\u00A0${chapterNum}`;
-    };
+    }, [translationUnitsForSection, bibleBookMap]);
 
-    // Dynamic title truncation based on available space
+    // Centralized title measurement logic
+    const measureAndTruncateTitle = useCallback(() => {
+        const container = chapterTitleRef.current;
+        if (!container) return;
+
+        const fullTitle = getDisplayTitle();
+        const lastSpaceIndex = Math.max(
+            fullTitle.lastIndexOf('\u00A0'),
+            fullTitle.lastIndexOf(' ')
+        );
+        const bookName = lastSpaceIndex > 0 ? fullTitle.substring(0, lastSpaceIndex) : fullTitle;
+        const chapterNum = lastSpaceIndex > 0 ? fullTitle.substring(lastSpaceIndex + 1) : "";
+
+        requestAnimationFrame(() => {
+            const parentRect = container.parentElement?.getBoundingClientRect();
+            if (!parentRect) return;
+
+            const availableWidth = Math.min(
+                parentRect.width,
+                isVerySmallScreen ? window.innerWidth * 0.5 :
+                shouldShowHamburger ? window.innerWidth * 0.6 :
+                window.innerWidth * 0.4
+            );
+
+            const temp = document.createElement('span');
+            const h1 = container.querySelector('h1') as HTMLElement | null;
+            temp.style.visibility = 'hidden';
+            temp.style.position = 'absolute';
+            temp.style.fontSize = window.getComputedStyle(h1 || container).fontSize;
+            temp.style.fontFamily = window.getComputedStyle(h1 || container).fontFamily;
+
+            const subsectionLabel =
+                !shouldShowHamburger &&
+                subsections.length > 0 &&
+                subsections[currentSubsectionIndex]?.label
+                    ? ` (${subsections[currentSubsectionIndex].label})`
+                    : "";
+            temp.textContent = fullTitle + subsectionLabel;
+            document.body.appendChild(temp);
+
+            const fullWidth = temp.getBoundingClientRect().width;
+            document.body.removeChild(temp);
+
+            if (fullWidth > availableWidth && bookName.length > 3) {
+                const totalTextLength = fullTitle.length + subsectionLabel.length;
+                const avgCharWidth = fullWidth / totalTextLength;
+                const chapterNumWidth = chapterNum.length * avgCharWidth;
+                const subsectionLabelWidth = subsectionLabel.length * avgCharWidth;
+                const ellipsisWidth = 3 * avgCharWidth;
+                const availableForBookName = availableWidth - chapterNumWidth - subsectionLabelWidth - ellipsisWidth;
+                const maxBookNameChars = Math.floor(availableForBookName / avgCharWidth);
+
+                if (maxBookNameChars > 0) {
+                    const truncated = bookName.substring(0, Math.max(1, maxBookNameChars - 1));
+                    setTruncatedBookName((prev) => (prev !== truncated ? truncated : prev));
+                }
+            } else {
+                setTruncatedBookName((prev) => (prev !== null ? null : prev));
+            }
+        });
+    }, [getDisplayTitle, isVerySmallScreen, shouldShowHamburger, subsections, currentSubsectionIndex]);
+
+    // Unified resize handling with RAF throttling
+    useEffect(() => {
+        let ticking = false;
+        const onResize = () => {
+            if (ticking) return;
+            ticking = true;
+            requestAnimationFrame(() => {
+                ticking = false;
+                const width = window.innerWidth;
+
+                if (!shouldShowHamburger && width < 635) {
+                    setShouldShowHamburger(true);
+                } else if (shouldShowHamburger && width > 645) {
+                    setShouldShowHamburger(false);
+                }
+
+                if (!isVerySmallScreen && width < 395) {
+                    setIsVerySmallScreen(true);
+                } else if (isVerySmallScreen && width > 405) {
+                    setIsVerySmallScreen(false);
+                }
+
+                measureAndTruncateTitle();
+            });
+        };
+
+        // Initial run
+        onResize();
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, [measureAndTruncateTitle, shouldShowHamburger, isVerySmallScreen]);
+
+    // Observe container size changes that may affect title truncation
+    useEffect(() => {
+        if (!window.ResizeObserver) return;
+        const obs = new ResizeObserver(() => {
+            requestAnimationFrame(() => measureAndTruncateTitle());
+        });
+        if (headerContainerRef.current) obs.observe(headerContainerRef.current);
+        if (chapterTitleRef.current) obs.observe(chapterTitleRef.current);
+        return () => obs.disconnect();
+    }, [measureAndTruncateTitle]);
+
+    // Debounced resize handler to prevent excessive re-renders
+    const debouncedResizeHandler = useMemo(() => {
+        let timeoutId: ReturnType<typeof setTimeout>;
+        return (callback: () => void) => {
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => {
+                requestAnimationFrame(callback);
+            }, 150);
+        };
+    }, []);
+
+    // Responsive breakpoint management with hysteresis
+    useEffect(() => {
+        const handleBreakpointResize = () => {
+            const width = window.innerWidth;
+
+            // Hamburger menu breakpoint with 5px buffer zone
+            if (!shouldShowHamburger && width < 635) {
+                setShouldShowHamburger(true);
+            } else if (shouldShowHamburger && width > 645) {
+                setShouldShowHamburger(false);
+            }
+
+            // Very small screen breakpoint with 5px buffer zone
+            if (!isVerySmallScreen && width < 395) {
+                setIsVerySmallScreen(true);
+            } else if (isVerySmallScreen && width > 405) {
+                setIsVerySmallScreen(false);
+            }
+        };
+
+        // Run initial check
+        handleBreakpointResize();
+
+        const debouncedBreakpointHandler = () => {
+            debouncedResizeHandler(handleBreakpointResize);
+        };
+
+        window.addEventListener('resize', debouncedBreakpointHandler);
+        return () => window.removeEventListener('resize', debouncedBreakpointHandler);
+    }, [shouldShowHamburger, isVerySmallScreen, debouncedResizeHandler]);
+
+
+    // Dynamic title truncation based on available space - now universal (not screen-size dependent)
     useEffect(() => {
         const handleTitleResize = () => {
             const container = chapterTitleRef.current;
@@ -178,27 +331,23 @@ ChapterNavigationHeaderProps) {
 
             const fullTitle = getDisplayTitle();
             const lastSpaceIndex = Math.max(
-                fullTitle.lastIndexOf('\u00A0'), 
+                fullTitle.lastIndexOf('\u00A0'),
                 fullTitle.lastIndexOf(' ')
             );
             const bookName = lastSpaceIndex > 0 ? fullTitle.substring(0, lastSpaceIndex) : fullTitle;
             const chapterNum = lastSpaceIndex > 0 ? fullTitle.substring(lastSpaceIndex + 1) : "";
 
-            // Reset to full title first
-            setTruncatedBookName(null);
-
             // Use requestAnimationFrame to ensure DOM has updated
             requestAnimationFrame(() => {
-                const containerRect = container.getBoundingClientRect();
                 const parentRect = container.parentElement?.getBoundingClientRect();
-                
+
                 if (!parentRect) return;
 
-                // Calculate available width (with some buffer for safe spacing)
+                // Calculate available width based on responsive states
                 const availableWidth = Math.min(
-                    containerRect.width,
-                    window.innerWidth < 400 ? window.innerWidth * 0.5 : // On very small screens, limit to 50%
-                    window.innerWidth < 640 ? window.innerWidth * 0.6 : // On small screens, limit to 60%
+                    parentRect.width,
+                    isVerySmallScreen ? window.innerWidth * 0.5 : // On very small screens, limit to 50%
+                    shouldShowHamburger ? window.innerWidth * 0.6 : // On mobile layout, limit to 60%
                     window.innerWidth * 0.4 // On larger screens, limit to 40%
                 );
 
@@ -208,18 +357,21 @@ ChapterNavigationHeaderProps) {
                 temp.style.position = 'absolute';
                 temp.style.fontSize = window.getComputedStyle(container.querySelector('h1') || container).fontSize;
                 temp.style.fontFamily = window.getComputedStyle(container.querySelector('h1') || container).fontFamily;
-                
-                // Account for subsection label like "(1-50)" if it exists
-                const subsectionLabel = subsections.length > 0 && subsections[currentSubsectionIndex]?.label 
-                    ? ` (${subsections[currentSubsectionIndex].label})` 
-                    : "";
+
+                // Account for subsection label like "(1-50)" only when it should be visible
+                const subsectionLabel =
+                    !shouldShowHamburger && // Use responsive state - show subsection label when not using hamburger menu
+                    subsections.length > 0 &&
+                    subsections[currentSubsectionIndex]?.label
+                        ? ` (${subsections[currentSubsectionIndex].label})`
+                        : "";
                 temp.textContent = fullTitle + subsectionLabel;
                 document.body.appendChild(temp);
 
                 const fullWidth = temp.getBoundingClientRect().width;
                 document.body.removeChild(temp);
 
-                // If text is too wide, truncate the book name
+                // If text is too wide, truncate the book name (now universal, not screen-size dependent)
                 if (fullWidth > availableWidth && bookName.length > 3) {
                     // Calculate how many characters we can fit
                     const totalTextLength = fullTitle.length + subsectionLabel.length;
@@ -229,13 +381,20 @@ ChapterNavigationHeaderProps) {
                     const ellipsisWidth = 3 * avgCharWidth; // "..." width
                     const availableForBookName = availableWidth - chapterNumWidth - subsectionLabelWidth - ellipsisWidth;
                     const maxBookNameChars = Math.floor(availableForBookName / avgCharWidth);
-                    
+
                     if (maxBookNameChars > 0) {
                         const truncated = bookName.substring(0, Math.max(1, maxBookNameChars - 1));
-                        setTruncatedBookName(truncated);
+                        setTruncatedBookName((prev) => (prev !== truncated ? truncated : prev));
                     }
+                } else {
+                    // Ensure we clear truncation only when needed to avoid extra renders
+                    setTruncatedBookName((prev) => (prev !== null ? null : prev));
                 }
             });
+        };
+
+        const debouncedTitleHandler = () => {
+            debouncedResizeHandler(handleTitleResize);
         };
 
         // Initial calculation
@@ -244,24 +403,22 @@ ChapterNavigationHeaderProps) {
         // Add resize observer for container changes
         let resizeObserver: ResizeObserver | null = null;
         if (window.ResizeObserver && chapterTitleRef.current) {
-            resizeObserver = new ResizeObserver(handleTitleResize);
+            resizeObserver = new ResizeObserver(() => {
+                debouncedResizeHandler(handleTitleResize);
+            });
             resizeObserver.observe(chapterTitleRef.current);
         }
 
         // Add window resize listener as fallback
-        window.addEventListener('resize', handleTitleResize);
+        window.addEventListener('resize', debouncedTitleHandler);
 
         return () => {
             if (resizeObserver) {
                 resizeObserver.disconnect();
             }
-            window.removeEventListener('resize', handleTitleResize);
+            window.removeEventListener('resize', debouncedTitleHandler);
         };
-    }, [getDisplayTitle, translationUnitsForSection, subsections, currentSubsectionIndex]);
-
-
-    // Helper to determine if any translation is in progress
-    const isAnyTranslationInProgress = isAutocompletingChapter || isTranslatingCell;
+    }, [getDisplayTitle, translationUnitsForSection, subsections, currentSubsectionIndex, shouldShowHamburger, isVerySmallScreen, debouncedResizeHandler]);
 
     // Common handler for stopping any kind of translation
     const handleStopTranslation = () => {
@@ -336,7 +493,7 @@ ChapterNavigationHeaderProps) {
                 // Fallback to old method if handler not provided
                 onMetadataChange("fontSize", pendingFontSize.toString());
                 const updatedMetadata = { ...metadata, fontSize: pendingFontSize };
-                (window as any).vscodeApi.postMessage({
+                vscode.postMessage({
                     command: "updateNotebookMetadata",
                     content: updatedMetadata,
                 });
@@ -359,53 +516,7 @@ ChapterNavigationHeaderProps) {
         }
     };
 
-    // Function to get file status icon and color
-    const getFileStatusButton = () => {
-        if (fileStatus === "none") return null;
-
-        let icon: string;
-        let color: string;
-        let title: string;
-        let clickHandler: (() => void) | undefined = undefined;
-
-        switch (fileStatus) {
-            case "dirty":
-                icon = "codicon-cloud";
-                color = "var(--vscode-editorWarning-foreground)"; // Yellow warning color
-                title = "Unsaved changes - Click to sync";
-                clickHandler = onTriggerSync;
-                break;
-            case "syncing":
-                icon = "codicon-sync";
-                color = "var(--vscode-descriptionForeground)"; // Gray for syncing
-                title = "Syncing changes";
-                break;
-            case "synced":
-                icon = "codicon-check-all";
-                color = "var(--vscode-terminal-ansiGreen)"; // Green for synced
-                title = "All changes saved";
-                break;
-            default:
-                return null;
-        }
-
-        return (
-            <Button
-                variant="outline"
-                title={title}
-                style={{ color }}
-                onClick={clickHandler}
-                disabled={fileStatus === "syncing"}
-            >
-                <i
-                    className={`codicon ${icon}`}
-                    style={{
-                        animation: fileStatus === "syncing" ? "rotate 2s linear infinite" : "none",
-                    }}
-                />
-            </Button>
-        );
-    };
+    // Removed unused getFileStatusButton to reduce dead code
 
     // Add CSS for rotation animation
     useEffect(() => {
@@ -425,7 +536,7 @@ ChapterNavigationHeaderProps) {
     // Update the jumpToChapter function to be reusable
     const jumpToChapter = (newChapter: number) => {
         if (!unsavedChanges && newChapter !== chapterNumber) {
-            (window as any).vscodeApi.postMessage({
+            vscode.postMessage({
                 command: "jumpToChapter",
                 chapterNumber: newChapter,
             });
@@ -435,27 +546,14 @@ ChapterNavigationHeaderProps) {
         }
     };
 
-    // Navigation functions for mobile menu
-    const handlePreviousChapter = () => {
-        if (!unsavedChanges) {
-            const newChapter = chapterNumber === 1 ? totalChapters : chapterNumber - 1;
-            jumpToChapter(newChapter);
-        }
-    };
+    // Removed unused handlePreviousChapter/handleNextChapter to reduce dead code
 
-    const handleNextChapter = () => {
-        if (!unsavedChanges) {
-            const newChapter = chapterNumber === totalChapters ? 1 : chapterNumber + 1;
-            jumpToChapter(newChapter);
-        }
-    };
-
-    // Define responsive layout variables
-    const shouldUseMobileLayout = window.innerWidth < 640;
-    const shouldUseThreeRowLayout = window.innerWidth < 400;
+    // Use dynamic responsive state variables based on content overflow
+    const shouldUseMinimalLayout = isVerySmallScreen; // Use minimal layout for very small screens only
+    const shouldHideNavButtons = isVerySmallScreen; // Hide nav buttons on very small screens
 
     // Calculate progress for each subsection/page
-    const calculateSubsectionProgress = (subsection: Subsection) => {
+    const calculateSubsectionProgress = (subsection: Subsection, forSourceText: boolean = isSourceText) => {
         // Use allCellsForChapter if available, otherwise fall back to translationUnitsForSection
         const allChapterCells = allCellsForChapter || translationUnitsForSection;
 
@@ -472,30 +570,48 @@ ChapterNavigationHeaderProps) {
             return { isFullyTranslated: false, isFullyValidated: false };
         }
 
-        // Check if all cells have content (translated)
-        const translatedCells = validCells.filter(
-            (cell) =>
-                cell.cellContent &&
+        // Check if all cells have content (translated for target, existing for source)
+        const completedCells = validCells.filter((cell) => {
+            const hasContent = cell.cellContent &&
                 cell.cellContent.trim().length > 0 &&
-                cell.cellContent !== "<span></span>"
-        );
-        const isFullyTranslated = translatedCells.length === validCells.length;
+                cell.cellContent !== "<span></span>";
+
+            if (forSourceText) {
+                // For source text, we just check if content exists
+                return hasContent;
+            } else {
+                // For target text, we check if it's been translated (has content)
+                return hasContent;
+            }
+        });
+        const isFullyTranslated = completedCells.length === validCells.length;
 
         // Check if all cells are validated
         let isFullyValidated = false;
         if (isFullyTranslated) {
             const minimumValidationsRequired = 1; // Can be made configurable later
             const validatedCells = validCells.filter((cell) => {
-                const validatedBy =
-                    cell.editHistory
-                        ?.slice()
-                        .reverse()
-                        .find(
-                            (edit) =>
-                                EditMapUtils.isValue(edit.editMap) &&
-                                edit.value === cell.cellContent
-                        )?.validatedBy || [];
-                return validatedBy.filter((v) => !v.isDeleted).length >= minimumValidationsRequired;
+                if (forSourceText) {
+                    // For source text, validation might not apply the same way
+                    // Check if there's any validation history at all
+                    const hasAnyValidation = cell.editHistory &&
+                        cell.editHistory.some(edit =>
+                            edit.validatedBy && edit.validatedBy.filter(v => !v.isDeleted).length > 0
+                        );
+                    return hasAnyValidation;
+                } else {
+                    // For target text, use existing validation logic
+                    const validatedBy =
+                        cell.editHistory
+                            ?.slice()
+                            .reverse()
+                            .find(
+                                (edit) =>
+                                    EditMapUtils.isValue(edit.editMap) &&
+                                    edit.value === cell.cellContent
+                            )?.validatedBy || [];
+                    return validatedBy.filter((v) => !v.isDeleted).length >= minimumValidationsRequired;
+                }
             });
             isFullyValidated = validatedCells.length === validCells.length;
         }
@@ -504,43 +620,60 @@ ChapterNavigationHeaderProps) {
     };
 
     return (
-        <div className="relative flex flex-row p-2 max-w-full items-center">
-            {/* Mobile hamburger menu - shows when page dropdown is hidden */}
-            <div className={`hidden items-center ${subsections.length > 0 ? "max-[639px]:flex" : "max-[399px]:flex"}`}>
-                <MobileHeaderMenu
-                    isAutocompletingChapter={isAutocompletingChapter}
-                    isTranslatingCell={isTranslatingCell}
-                    onAutocompleteClick={handleAutocompleteClick}
-                    onStopTranslation={handleStopTranslation}
-                    unsavedChanges={unsavedChanges}
-                    isSourceText={isSourceText}
-                    textDirection={textDirection}
-                    onSetTextDirection={onSetTextDirection}
-                    cellDisplayMode={cellDisplayMode}
-                    onSetCellDisplayMode={onSetCellDisplayMode}
-                    fontSize={fontSize}
-                    onFontSizeChange={handleFontSizeChange}
-                    metadata={metadata}
-                    onMetadataChange={onMetadataChange}
-                    documentHasVideoAvailable={documentHasVideoAvailable}
-                    shouldShowVideoPlayer={shouldShowVideoPlayer}
-                    onToggleVideoPlayer={handleToggleVideoPlayer}
-                    onOpenMetadataModal={handleOpenMetadataModal}
-                    subsections={subsections}
-                    currentSubsectionIndex={currentSubsectionIndex}
-                    setCurrentSubsectionIndex={setCurrentSubsectionIndex}
-                    chapterNumber={chapterNumber}
-                    totalChapters={totalChapters}
-                    jumpToChapter={jumpToChapter}
-                    onPreviousChapter={handlePreviousChapter}
-                    onNextChapter={handleNextChapter}
-                    getDisplayTitle={getDisplayTitle}
-                    vscode={vscode}
-                />
-            </div>
+        <div
+            className={`relative flex flex-row ${shouldUseMinimalLayout ? "p-1" : "p-2"} max-w-full items-center transition-all duration-200 ease-in-out`}
+            ref={headerContainerRef}
+        >
+            {/* Hamburger menu positioned on the left when space is insufficient */}
+            {shouldShowHamburger && (
+                <div className="flex items-center">
+                    <MobileHeaderMenu
+                        isAutocompletingChapter={isAutocompletingChapter}
+                        isTranslatingCell={isTranslatingCell}
+                        onAutocompleteClick={handleAutocompleteClick}
+                        onStopTranslation={handleStopTranslation}
+                        unsavedChanges={unsavedChanges}
+                        isSourceText={isSourceText}
+                        textDirection={textDirection}
+                        onSetTextDirection={onSetTextDirection}
+                        cellDisplayMode={cellDisplayMode}
+                        onSetCellDisplayMode={onSetCellDisplayMode}
+                        fontSize={fontSize}
+                        onFontSizeChange={handleFontSizeChange}
+                        metadata={metadata}
+                        onMetadataChange={onMetadataChange}
+                        documentHasVideoAvailable={documentHasVideoAvailable}
+                        shouldShowVideoPlayer={shouldShowVideoPlayer}
+                        onToggleVideoPlayer={handleToggleVideoPlayer}
+                        onOpenMetadataModal={handleOpenMetadataModal}
+                        subsections={subsections}
+                        currentSubsectionIndex={currentSubsectionIndex}
+                        setCurrentSubsectionIndex={setCurrentSubsectionIndex}
+                        vscode={vscode}
+                        toggleScrollSync={toggleScrollSync}
+                        scrollSyncEnabled={scrollSyncEnabled}
+                        openSourceText={openSourceText}
+                        chapterNumber={chapterNumber}
+                        isCorrectionEditorMode={isCorrectionEditorMode}
+                        totalChapters={totalChapters}
+                        setChapterNumber={setChapterNumber}
+                        jumpToChapter={jumpToChapter}
+                        showUnsavedWarning={() => {
+                            setShowUnsavedWarning(true);
+                            setTimeout(() => setShowUnsavedWarning(false), 3000);
+                        }}
+                        getSubsectionsForChapter={getSubsectionsForChapter}
+                        shouldHideNavButtons={shouldHideNavButtons}
+                        allCellsForChapter={allCellsForChapter}
+                        calculateSubsectionProgress={calculateSubsectionProgress}
+                    />
+                </div>
+            )}
 
-            {/* Desktop left controls */}
-            <div className={`${subsections.length > 0 ? "hidden min-[640px]:flex" : "hidden min-[400px]:flex"} items-center justify-start flex-shrink-0`}>
+            {/* Desktop left controls - hidden when hamburger is active */}
+            <div
+                className={`${shouldShowHamburger ? "hidden" : "flex"} items-center justify-start flex-shrink-0 transition-all duration-200 ease-in-out`}
+            >
                 {isSourceText ? (
                     <>
                         <Button variant="outline" onClick={toggleScrollSync}>
@@ -570,11 +703,14 @@ ChapterNavigationHeaderProps) {
                 )}
             </div>
 
-            {/* Center navigation - flex centered */}
-            <div className="flex-1 flex items-center justify-center space-x-2 min-w-0 mx-2">
-                {/* Navigation arrows - hidden on very small screens (< 400px) */}
-                <Button
-                    className="hidden min-[400px]:inline-flex"
+            {/* Center navigation - always visible, scales down when space is limited */}
+            <div
+                className={`flex-1 flex items-center justify-center space-x-2 min-w-0 mx-2 transition-all duration-200 ease-in-out`}
+            >
+                {/* Navigation arrows - hidden on very small screens */}
+                {!shouldHideNavButtons && (
+                    <Button
+                    className="inline-flex transition-all duration-200 ease-in-out"
                     variant="outline"
                     size="default"
                     onClick={() => {
@@ -618,10 +754,11 @@ ChapterNavigationHeaderProps) {
                         }`}
                     />
                 </Button>
+                )}
 
                 <div
                     ref={chapterTitleRef}
-                    className="chapter-title-container flex items-center min-w-0 max-w-[40vw] min-[400px]:max-w-[50vw] sm:max-w-sm cursor-pointer min-[400px]:cursor-pointer"
+                    className="chapter-title-container flex items-center min-w-0 max-w-full cursor-pointer rounded-md transition-all duration-200 ease-in-out px-2"
                     onClick={() => {
                         // Always allow opening the chapter selector when there are no unsaved changes
                         if (!unsavedChanges) {
@@ -633,8 +770,8 @@ ChapterNavigationHeaderProps) {
                         }
                     }}
                 >
-                    <h1 className="text-lg min-[400px]:text-2xl flex items-center m-0 min-w-0">
-                        <span className="truncate">
+                    <h1 className={`${shouldUseMinimalLayout ? "text-sm" : "text-2xl"} flex items-center m-0 min-w-0 transition-all duration-200 ease-in-out`}>
+                        <span className={`${shouldUseMinimalLayout || truncatedBookName !== null ? "truncate" : "whitespace-nowrap"} transition-all duration-200 ease-in-out`}>
                             {(() => {
                                 if (truncatedBookName !== null) {
                                     return truncatedBookName + "...";
@@ -661,24 +798,25 @@ ChapterNavigationHeaderProps) {
                                     : "";
                             })()}
                         </span>
-                        {/* Show page info - hide on narrow screens to prevent collisions */}
-                        {subsections.length > 0 && (
-                            <span className="flex-shrink-0 ml-1 text-sm md:text-base hidden min-[500px]:inline">
+                        {/* Show page info - hide when using hamburger menu to prevent collisions */}
+                        {subsections.length > 0 && !shouldShowHamburger && (
+                            <span className={`flex-shrink-0 ml-1 ${shouldUseMinimalLayout ? "text-xs" : "text-sm"} inline transition-opacity duration-200 ease-in-out`}>
                                 ({subsections[currentSubsectionIndex]?.label || ""})
                             </span>
                         )}
                         <i
                             className={`codicon ${
                                 showChapterSelector ? "codicon-chevron-up" : "codicon-chevron-down"
-                            } ml-1 flex-shrink-0 hidden min-[400px]:inline`}
+                            } ml-1 flex-shrink-0 ${shouldUseMinimalLayout ? "hidden" : "inline"}`}
                         />
                     </h1>
                 </div>
 
-                <Button
-                    className="hidden min-[400px]:inline-flex"
-                    variant="outline"
-                    size="default"
+                {!shouldHideNavButtons && (
+                    <Button
+                        className="inline-flex transition-all duration-200 ease-in-out"
+                        variant="outline"
+                        size="default"
                     onClick={() => {
                         if (!unsavedChanges) {
                             // Check if we're on the last page of the current chapter
@@ -718,10 +856,11 @@ ChapterNavigationHeaderProps) {
                         }`}
                     />
                 </Button>
+                )}
 
-                {/* Page selector - dynamic threshold: higher for long chapters (50+ verses) */}
-                {subsections.length > 0 && (
-                    <div className="hidden min-[640px]:flex items-center ml-4">
+                {/* Page selector - shown when not using hamburger menu */}
+                {subsections.length > 0 && !shouldShowHamburger && (
+                    <div className="flex items-center ml-4 transition-all duration-200 ease-in-out">
                         <span className="mr-2">Page:</span>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -733,7 +872,7 @@ ChapterNavigationHeaderProps) {
                                     {(() => {
                                         const currentSection = subsections[currentSubsectionIndex];
                                         const progress =
-                                            calculateSubsectionProgress(currentSection);
+                                            calculateSubsectionProgress(currentSection, isSourceText);
                                         return (
                                             <>
                                                 <span
@@ -773,7 +912,7 @@ ChapterNavigationHeaderProps) {
                                 style={{ zIndex: 99999 }}
                             >
                                 {subsections.map((section, index) => {
-                                    const progress = calculateSubsectionProgress(section);
+                                    const progress = calculateSubsectionProgress(section, isSourceText);
                                     return (
                                         <DropdownMenuItem
                                             key={section.id}
@@ -819,8 +958,10 @@ ChapterNavigationHeaderProps) {
                 )}
             </div>
 
-            {/* Desktop right controls */}
-            <div className={`${subsections.length > 0 ? "hidden min-[640px]:flex" : "hidden min-[400px]:flex"} items-center justify-end ml-auto space-x-2`}>
+            {/* Desktop right controls - hidden when hamburger is active */}
+            <div
+                className={`${shouldShowHamburger ? "hidden" : "flex"} items-center justify-end ml-auto space-x-2`}
+            >
                 {/* {getFileStatusButton()} // FIXME: we want to show the file status, but it needs to load immediately, and it needs to be more reliable. - test this and also think through UX */}
                 {/* Show left sidebar toggle only when editor is not leftmost
                 
@@ -911,7 +1052,7 @@ ChapterNavigationHeaderProps) {
                                         ? CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
                                         : CELL_DISPLAY_MODES.INLINE;
                                 onSetCellDisplayMode(newMode);
-                                (window as any).vscodeApi.postMessage({
+                                vscode.postMessage({
                                     command: "updateCellDisplayMode",
                                     mode: newMode,
                                 });
@@ -1004,7 +1145,7 @@ ChapterNavigationHeaderProps) {
                         )}
                         <DropdownMenuSeparator />
                         <div className="px-3 py-1">
-                            <div className="flex items-center justify-between mb-0.2">
+                            <div className="flex items-center justify-between mb-0.5">
                                 <span className="text-sm text-muted-foreground">{fontSize}px</span>
                             </div>
                             <div className="flex items-center gap-1">
@@ -1029,9 +1170,9 @@ ChapterNavigationHeaderProps) {
             {/* Warning alert for unsaved changes */}
             {showUnsavedWarning && (
                 <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 z-50 w-80 max-w-[90vw]">
-                    <Alert variant="destructive">
+                    <Alert variant="destructive" className="bg-red-50 border-red-200 shadow-lg">
                         <i className="codicon codicon-warning h-4 w-4" />
-                        <AlertDescription>
+                        <AlertDescription className="text-red-800">
                             Please close the editor or save your changes before navigating away from this section.
                         </AlertDescription>
                     </Alert>

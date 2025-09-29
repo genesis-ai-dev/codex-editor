@@ -5,6 +5,7 @@ import { TranslationPair, MinimalCellResult } from "../../../../../types";
 import { updateSplashScreenTimings } from "../../../../providers/SplashScreen/register";
 import { ActivationTiming } from "../../../../extension";
 import { debounce } from "lodash";
+import { EditMapUtils } from "../../../../utils/editMapUtils";
 
 const INDEX_DB_PATH = [".project", "indexes.sqlite"];
 
@@ -3341,31 +3342,38 @@ export class SQLiteIndexManager {
 
 
         if (edits.length > 0) {
-            const lastEdit = edits[edits.length - 1];
-            result.currentEditTimestamp = lastEdit.timestamp || null;
+            // Filter to only value edits for validation tracking
+            const valueEdits = edits.filter((edit: any) =>
+                edit.editMap && EditMapUtils.isValue(edit.editMap)
+            );
 
-            // Extract validation information
-            if (lastEdit.validatedBy) {
+            if (valueEdits.length > 0) {
+                const lastEdit = valueEdits[valueEdits.length - 1];
+                result.currentEditTimestamp = lastEdit.timestamp || null;
 
-
-                const activeValidations = lastEdit.validatedBy.filter((v: any) =>
-                    v && typeof v === 'object' && !v.isDeleted
-                );
-                result.validationCount = activeValidations.length;
-
-                // NEW: Check against validation threshold instead of just > 0
-                const requiredValidators = this.getValidationThreshold();
-                result.isFullyValidated = activeValidations.length >= requiredValidators;
-
-                // Store comma-separated list of usernames
-                const usernames = activeValidations.map((v: any) => v.username).filter(Boolean);
-                result.validatedBy = usernames.length > 0 ? usernames.join(',') : undefined;
+                // Extract validation information
+                if (lastEdit.validatedBy) {
 
 
-            } else {
-                result.validationCount = 0;
-                result.isFullyValidated = false;
-                result.validatedBy = undefined;
+                    const activeValidations = lastEdit.validatedBy.filter((v: any) =>
+                        v && typeof v === 'object' && !v.isDeleted
+                    );
+                    result.validationCount = activeValidations.length;
+
+                    // NEW: Check against validation threshold instead of just > 0
+                    const requiredValidators = this.getValidationThreshold();
+                    result.isFullyValidated = activeValidations.length >= requiredValidators;
+
+                    // Store comma-separated list of usernames
+                    const usernames = activeValidations.map((v: any) => v.username).filter(Boolean);
+                    result.validatedBy = usernames.length > 0 ? usernames.join(',') : undefined;
+
+
+                } else {
+                    result.validationCount = 0;
+                    result.isFullyValidated = false;
+                    result.validatedBy = undefined;
+                }
             }
         }
         // No edits found - defaults are already set

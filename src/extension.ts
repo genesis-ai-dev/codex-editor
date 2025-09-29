@@ -37,6 +37,7 @@ import {
     showWelcomeViewIfNeeded,
 } from "./providers/WelcomeView/register";
 import { SyncManager } from "./projectManager/syncManager";
+import { MetadataManager } from "./utils/metadataManager";
 import {
     registerSplashScreenProvider,
     showSplashScreen,
@@ -304,6 +305,22 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         stepStart = trackTiming("Connecting Authentication Service", authStart);
 
+        // Update git configuration files after Frontier auth is connected
+        // This ensures .gitignore and .gitattributes are current when extension starts
+        const gitConfigStart = globalThis.performance.now();
+        if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+            try {
+                // Import and run git config update (only if we have a workspace)
+                const { ensureGitConfigsAreUpToDate } = await import("./projectManager/utils/projectUtils");
+                await ensureGitConfigsAreUpToDate();
+                console.log("[Extension] Git configuration files updated on startup");
+            } catch (error) {
+                console.error("[Extension] Error updating git config files on startup:", error);
+                // Don't fail startup due to git config update errors
+            }
+        }
+        stepStart = trackTiming("Updating Git Configuration", gitConfigStart);
+
         // Run independent initialization steps in parallel (excluding auth which is needed by startup flow)
         const parallelInitStart = globalThis.performance.now();
         await Promise.all([
@@ -373,6 +390,19 @@ export async function activate(context: vscode.ExtensionContext) {
                 // DEBUGGING: Here is where the splash screen disappears - it was visible up till now
                 await vscode.workspace.fs.stat(metadataUri);
                 metadataExists = true;
+
+                // Update extension version requirements for conflict-free metadata management
+                try {
+                    const currentVersion = MetadataManager.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");
+                    const updateResult = await MetadataManager.updateExtensionVersions(workspaceFolders[0].uri, {
+                        codexEditor: currentVersion
+                    });
+                    if (!updateResult.success) {
+                        console.warn("[Extension] Failed to update extension version in metadata:", updateResult.error);
+                    }
+                } catch (error) {
+                    console.warn("[Extension] Error updating extension version requirements:", error);
+                }
             } catch {
                 metadataExists = false;
             }
@@ -475,6 +505,22 @@ export async function activate(context: vscode.ExtensionContext) {
             vscode.commands.executeCommand("comments-sidebar.focus");
         })
     );
+
+    // Ensure sync commands exist in all environments (including tests)
+    try {
+        const cmds = await vscode.commands.getCommands(true);
+        if (!cmds.includes("extension.scheduleSync")) {
+            const { SyncManager } = await import("./projectManager/syncManager");
+            context.subscriptions.push(
+                vscode.commands.registerCommand("extension.scheduleSync", (message: string) => {
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.scheduleSyncOperation(message);
+                })
+            );
+        }
+    } catch (err) {
+        console.warn("Failed to ensure scheduleSync registration", err);
+    }
 
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor-extension.navigateToCellInComments", (cellId: string) => {
