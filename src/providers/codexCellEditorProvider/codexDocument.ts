@@ -1183,15 +1183,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
             ],
         });
 
-        // Log audio validation change for debugging
-        console.log(`[CodexDocument] 🎵 Audio validation change for cell ${cellId}:`, {
-            validate,
-            username,
-            audioValidationCount: attachment.validatedBy.filter((entry: any) => this.isValidValidationEntry(entry) && !entry.isDeleted).length,
-            cellHasContent: !!(cellToUpdate.value && cellToUpdate.value.trim()),
-            attachmentId
-        });
-
         // Database update will happen automatically when document is saved
     }
 

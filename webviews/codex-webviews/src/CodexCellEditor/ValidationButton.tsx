@@ -134,6 +134,13 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         // No need to request username separately - it comes bundled with initial content
     }, [currentUsername]);
 
+    // Update requiredValidations when prop changes
+    useEffect(() => {
+        if (requiredValidationsProp !== undefined && requiredValidationsProp !== null) {
+            setRequiredValidations(requiredValidationsProp);
+        }
+    }, [requiredValidationsProp]);
+
     useMessageHandler(
         "validationButton",
         (event: MessageEvent) => {

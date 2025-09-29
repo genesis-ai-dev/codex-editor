@@ -2025,7 +2025,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Get the current validation count
         const config = vscode.workspace.getConfiguration("codex-project-manager");
-        const validationCount = config.get("validationCount", 1);
 
         // For each document URI in the webview panels map
         this.webviewPanels.forEach((panel, docUri) => {

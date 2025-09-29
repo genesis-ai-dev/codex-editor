@@ -135,6 +135,13 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         }
     }, [currentUsername]);
 
+    // Update requiredAudioValidations when prop changes
+    useEffect(() => {
+        if (requiredAudioValidationsProp !== undefined && requiredAudioValidationsProp !== null) {
+            setRequiredAudioValidations(requiredAudioValidationsProp);
+        }
+    }, [requiredAudioValidationsProp]);
+
     useMessageHandler(
         "audioValidationButton",
         (event: MessageEvent) => {
