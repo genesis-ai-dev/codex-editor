@@ -2030,6 +2030,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                         // Prepare metadata for database - this will handle validation extraction
                         const cellMetadata = {
                             edits: cell.metadata?.edits || [],
+                            attachments: cell.metadata?.attachments || {}, // Include attachments for audio validation
                             type: "ai_learning",
                             lastUpdated: Date.now()
                         };
