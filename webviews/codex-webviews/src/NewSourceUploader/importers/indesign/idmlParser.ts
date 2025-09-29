@@ -321,8 +321,9 @@ export class IDMLParser {
      * Extract individual story
      */
     private async extractStory(storyElement: Element): Promise<IDMLStory> {
-        const storyId = storyElement.getAttribute('id') || undefined; // Only use ID if it exists in original
-        const storyName = storyElement.getAttribute('name') || undefined;
+        // IDML often uses capitalized attribute names: 'Self' and 'Name'
+        const storyId = storyElement.getAttribute('id') || storyElement.getAttribute('Self') || undefined; // Only use ID if it exists in original
+        const storyName = storyElement.getAttribute('name') || storyElement.getAttribute('Name') || undefined;
 
         this.debugLog(`extractStory: Processing story ${storyId || 'no-id'}, name: ${storyName}`);
 
@@ -362,10 +363,23 @@ export class IDMLParser {
      * Extract individual paragraph
      */
     private async extractParagraph(paragraphElement: Element): Promise<IDMLParagraph> {
-        const paragraphId = paragraphElement.getAttribute('id') || undefined; // Only use ID if it exists in original
+        const paragraphId = paragraphElement.getAttribute('id') || paragraphElement.getAttribute('Self') || undefined; // Only use ID if it exists in original
 
         const paragraphStyleRange = await this.extractParagraphStyleRange(paragraphElement);
         const characterStyleRanges = await this.extractCharacterStyleRanges(paragraphElement);
+
+        // Capture trailing CharacterStyleRange blocks without <Content> (e.g., <Br/> with ParagraphBreakType)
+        const trailingRuns: string[] = [];
+        const childNodes = Array.from(paragraphElement.getElementsByTagName('CharacterStyleRange')) as Element[];
+        for (const node of childNodes) {
+            const hasContent = node.getElementsByTagName('Content').length > 0;
+            if (!hasContent) {
+                trailingRuns.push(node.outerHTML);
+            }
+        }
+        if (trailingRuns.length > 0) {
+            (paragraphStyleRange as any).dataAfter = trailingRuns;
+        }
 
         return {
             id: paragraphId, // undefined if no ID in original
@@ -379,7 +393,7 @@ export class IDMLParser {
      * Extract paragraph style range
      */
     private async extractParagraphStyleRange(paragraphElement: Element): Promise<IDMLParagraphStyleRange> {
-        const id = paragraphElement.getAttribute('id') || undefined; // Only use ID if it exists in original
+        const id = paragraphElement.getAttribute('id') || paragraphElement.getAttribute('Self') || undefined; // Only use ID if it exists in original
         // Read AppliedParagraphStyle regardless of attribute casing
         const appliedParagraphStyle =
             paragraphElement.getAttribute('AppliedParagraphStyle') ||
@@ -814,30 +828,51 @@ export class IDMLParser {
             // Extract stories from designmap
             const stories: IDMLStory[] = [];
 
-            // Get story list from designmap.xml
+            // Build list of story srcs from designmap (prefer explicit idPkg:Story entries)
+            const storySrcs: string[] = [];
+            const storyPkgNodes = Array.from(designmapDoc.getElementsByTagName('idPkg:Story')) as Element[];
+            if (storyPkgNodes.length > 0) {
+                for (const node of storyPkgNodes) {
+                    const src = node.getAttribute('src');
+                    if (src) storySrcs.push(src);
+                }
+            } else {
+                // Fallback for XML parsers that drop namespace prefix: look for Story nodes with src
+                const genericStoryNodes = Array.from(designmapDoc.getElementsByTagName('Story')) as Element[];
+                for (const node of genericStoryNodes) {
+                    const src = node.getAttribute('src');
+                    if (src) storySrcs.push(src);
+                }
+            }
+
+            // Secondary fallback: some documents expose StoryList attribute of raw IDs
             const documentElement = designmapDoc.documentElement;
             const storyListAttr = documentElement.getAttribute('StoryList');
-
             if (storyListAttr) {
                 const storyIds = storyListAttr.split(' ').filter(id => id.trim());
-
-                for (const storyId of storyIds) {
-                    // Look for story file
-                    let storyFile = zip.file(`Stories/Story_${storyId}.xml`);
-                    if (!storyFile) {
-                        // Try with 'u' prefix
-                        storyFile = zip.file(`Stories/Story_u${storyId}.xml`);
-                    }
-
-                    if (storyFile) {
-                        const storyContent = await storyFile.async('text');
-                        const storyDoc = parser.parseFromString(storyContent, 'text/xml');
-                        const story = await this.extractStory(storyDoc.documentElement);
-                        stories.push(story);
-                    } else {
-                        this.debugLog(`parseZippedIDMLFromArrayBuffer: Story file not found for ID: ${storyId}`);
-                    }
+                for (const id of storyIds) {
+                    const withPrefix = `Stories/Story_${id}.xml`;
+                    const withUPrefix = `Stories/Story_u${id}.xml`;
+                    if (zip.file(withPrefix)) storySrcs.push(withPrefix);
+                    else if (zip.file(withUPrefix)) storySrcs.push(withUPrefix);
+                    else this.debugLog(`parseZippedIDMLFromArrayBuffer: Story file not found for ID: ${id}`);
                 }
+            }
+
+            // Deduplicate sources while preserving order
+            const seen = new Set<string>();
+            const uniqueSrcs = storySrcs.filter((s) => (s = s.replace(/^\.\//, ''), !seen.has(s) && seen.add(s)));
+
+            for (const src of uniqueSrcs) {
+                const normalizedSrc = src.replace(/^\.\//, '');
+                const storyFile = zip.file(normalizedSrc);
+                if (!storyFile) continue;
+                const storyContent = await storyFile.async('text');
+                const storyDoc = parser.parseFromString(storyContent, 'text/xml');
+                // Find the inner Story element if present; fallback to root
+                const innerStory = storyDoc.getElementsByTagName('Story')[0] || storyDoc.documentElement;
+                const story = await this.extractStory(innerStory);
+                stories.push(story);
             }
 
             this.debugLog(`parseZippedIDMLFromArrayBuffer: Total stories extracted: ${stories.length}`);
