@@ -126,7 +126,7 @@ interface CellEditorProps {
     footnoteOffset?: number;
     prevEndTime?: number;
     nextStartTime?: number;
-    audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" };
+    audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" | "missing" };
 }
 
 // Simple ISO-639-1 to ISO-639-3 mapping for common languages; default to 'eng'
@@ -2341,9 +2341,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         )}
                                         <div className="flex flex-wrap items-center justify-center gap-2 mt-3 px-2">
                                             <Button
-                                                onClick={isRecording ? stopRecording : startRecording}
+                                                onClick={
+                                                    isRecording ? stopRecording : startRecording
+                                                }
                                                 variant={isRecording ? "secondary" : "default"}
-                                                className={`h-8 px-2 text-xs ${isRecording ? "animate-pulse" : ""}`}
+                                                className={`h-8 px-2 text-xs ${
+                                                    isRecording ? "animate-pulse" : ""
+                                                }`}
                                             >
                                                 {isRecording ? (
                                                     <>
@@ -2365,7 +2369,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     onChange={handleFileUpload}
                                                     className="sr-only"
                                                 />
-                                                <Button variant="outline" className="h-8 px-2 text-xs" asChild>
+                                                <Button
+                                                    variant="outline"
+                                                    className="h-8 px-2 text-xs"
+                                                    asChild
+                                                >
                                                     <span>
                                                         <FolderOpen className="h-3 w-3 mr-2" />
                                                         <Upload className="h-3 w-3" />
@@ -2390,7 +2398,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 minWidth: "1.5rem",
                                                                 height: "1.25rem",
                                                                 padding: "0 6px",
-                                                                backgroundColor: "var(--vscode-badge-background)",
+                                                                backgroundColor:
+                                                                    "var(--vscode-badge-background)",
                                                                 color: "var(--vscode-badge-foreground)",
                                                                 border: "1px solid var(--vscode-panel-border)",
                                                                 fontSize: "0.75rem",
@@ -2422,9 +2431,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         )}
                                         <div className="flex flex-wrap items-center justify-center gap-2 mt-3 px-2">
                                             <Button
-                                                onClick={isRecording ? stopRecording : startRecording}
+                                                onClick={
+                                                    isRecording ? stopRecording : startRecording
+                                                }
                                                 variant={isRecording ? "secondary" : "default"}
-                                                className={`h-8 px-2 text-xs ${isRecording ? "animate-pulse" : ""}`}
+                                                className={`h-8 px-2 text-xs ${
+                                                    isRecording ? "animate-pulse" : ""
+                                                }`}
                                             >
                                                 {isRecording ? (
                                                     <>
@@ -2446,7 +2459,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     onChange={handleFileUpload}
                                                     className="sr-only"
                                                 />
-                                                <Button variant="outline" className="h-8 px-2 text-xs" asChild>
+                                                <Button
+                                                    variant="outline"
+                                                    className="h-8 px-2 text-xs"
+                                                    asChild
+                                                >
                                                     <span>
                                                         <FolderOpen className="h-3 w-3 mr-2" />
                                                         <Upload className="h-3 w-3" />
@@ -2471,7 +2488,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 minWidth: "1.5rem",
                                                                 height: "1.25rem",
                                                                 padding: "0 6px",
-                                                                backgroundColor: "var(--vscode-badge-background)",
+                                                                backgroundColor:
+                                                                    "var(--vscode-badge-background)",
                                                                 color: "var(--vscode-badge-foreground)",
                                                                 border: "1px solid var(--vscode-panel-border)",
                                                                 fontSize: "0.75rem",
