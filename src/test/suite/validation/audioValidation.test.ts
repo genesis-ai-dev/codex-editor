@@ -152,7 +152,7 @@ suite("Audio Validation Test Suite", () => {
             try {
                 await document.validateCellAudio(cellId, true);
                 assert.fail("Should have thrown an error");
-            } catch (error) {
+            } catch (error: any) {
                 assert.strictEqual(error.message, "No audio attachment found for cell to validate");
             }
 
@@ -501,7 +501,7 @@ suite("Audio Validation Test Suite", () => {
         });
 
         test("should handle edge cases in validation arrays", async () => {
-            // Arrange: Open document and get a cell
+            // Arrange: Open document and get a cell, then add an audio attachment
             const document = await provider.openCustomDocument(
                 tempUri,
                 { backupId: undefined },
@@ -510,6 +510,16 @@ suite("Audio Validation Test Suite", () => {
 
             const cellId = (document as any)._documentData.cells[0].metadata?.id;
             assert.ok(cellId, "Cell should have an ID");
+
+            // Add an audio attachment to the cell
+            const audioId = "test-audio-edge-cases";
+            document.updateCellAttachment(cellId, audioId, {
+                url: "test-audio.webm",
+                type: "audio",
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                isDeleted: false,
+            });
 
             // Act: Validate audio multiple times to test array handling
             await document.validateCellAudio(cellId, true);
@@ -543,7 +553,7 @@ suite("Audio Validation Test Suite", () => {
 
     suite("Database Integration", () => {
         test("should handle database sync for audio validation", async () => {
-            // Arrange: Open document and get a cell
+            // Arrange: Open document and get a cell, then add an audio attachment
             const document = await provider.openCustomDocument(
                 tempUri,
                 { backupId: undefined },
@@ -552,6 +562,16 @@ suite("Audio Validation Test Suite", () => {
 
             const cellId = (document as any)._documentData.cells[0].metadata?.id;
             assert.ok(cellId, "Cell should have an ID");
+
+            // Add an audio attachment to the cell
+            const audioId = "test-audio-db-sync";
+            document.updateCellAttachment(cellId, audioId, {
+                url: "test-audio.webm",
+                type: "audio",
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                isDeleted: false,
+            });
 
             // Note: syncAllCellsToDatabase is already stubbed in setup method
             // We can verify the stub was called by checking if it exists
@@ -607,22 +627,33 @@ suite("Audio Validation Test Suite", () => {
             };
             (document as any)._documentData.cells.push(newCell);
 
+            // Add an audio attachment to the cell
+            const audioId = "test-audio-malformed";
+            document.updateCellAttachment(cellId, audioId, {
+                url: "test-audio.webm",
+                type: "audio",
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                isDeleted: false,
+            });
+
             // Act: Validate audio (should not throw)
             await assert.doesNotReject(
                 document.validateCellAudio(cellId, true),
                 "Should handle missing edit history gracefully"
             );
 
-            // Assert: Edit history should have been created
+            // Assert: Audio validation should have been added to the attachment
             const cell = (document as any)._documentData.cells.find((c: any) => c.metadata?.id === cellId);
-            assert.ok(cell?.metadata?.edits, "Should have created edit history");
-            assert.ok(cell.metadata.edits.length > 0, "Should have at least one edit");
+            const audioAttachment = cell?.metadata?.attachments?.[audioId];
+            assert.ok(audioAttachment?.validatedBy, "Should have validatedBy array on audio attachment");
+            assert.ok(audioAttachment.validatedBy.length > 0, "Should have at least one validation entry");
 
             document.dispose();
         });
 
         test("should handle authentication errors gracefully", async () => {
-            // Arrange: Open document and get a cell
+            // Arrange: Open document and get a cell, then add an audio attachment
             const document = await provider.openCustomDocument(
                 tempUri,
                 { backupId: undefined },
@@ -631,6 +662,16 @@ suite("Audio Validation Test Suite", () => {
 
             const cellId = (document as any)._documentData.cells[0].metadata?.id;
             assert.ok(cellId, "Cell should have an ID");
+
+            // Add an audio attachment to the cell
+            const audioId = "test-audio-auth-error";
+            document.updateCellAttachment(cellId, audioId, {
+                url: "test-audio.webm",
+                type: "audio",
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                isDeleted: false,
+            });
 
             // Mock auth API to throw error by stubbing the extension's getAuthApi function
             const authStub = sinon.stub().rejects(new Error("Auth failed"));
@@ -648,8 +689,8 @@ suite("Audio Validation Test Suite", () => {
 
             // Assert: Should fall back to anonymous user
             const cell = (document as any)._documentData.cells.find((c: any) => c.metadata?.id === cellId);
-            const latestEdit = cell?.metadata?.edits?.[cell.metadata.edits.length - 1];
-            const validationEntry = latestEdit?.audioValidatedBy?.[0];
+            const audioAttachment = cell?.metadata?.attachments?.[audioId];
+            const validationEntry = audioAttachment?.validatedBy?.[0];
 
             assert.strictEqual(validationEntry?.username, "anonymous", "Should fall back to anonymous user");
 
@@ -659,7 +700,7 @@ suite("Audio Validation Test Suite", () => {
         });
 
         test("should handle concurrent validation requests", async () => {
-            // Arrange: Open document and get a cell
+            // Arrange: Open document and get a cell, then add an audio attachment
             const document = await provider.openCustomDocument(
                 tempUri,
                 { backupId: undefined },
@@ -668,6 +709,16 @@ suite("Audio Validation Test Suite", () => {
 
             const cellId = (document as any)._documentData.cells[0].metadata?.id;
             assert.ok(cellId, "Cell should have an ID");
+
+            // Add an audio attachment to the cell
+            const audioId = "test-audio-concurrent";
+            document.updateCellAttachment(cellId, audioId, {
+                url: "test-audio.webm",
+                type: "audio",
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                isDeleted: false,
+            });
 
             // Act: Start multiple concurrent validations
             const promises = [
@@ -685,8 +736,8 @@ suite("Audio Validation Test Suite", () => {
 
             // Verify final state
             const cell = (document as any)._documentData.cells.find((c: any) => c.metadata?.id === cellId);
-            const latestEdit = cell?.metadata?.edits?.[cell.metadata.edits.length - 1];
-            const activeValidations = latestEdit?.audioValidatedBy?.filter((entry: ValidationEntry) => !entry.isDeleted) || [];
+            const audioAttachment = cell?.metadata?.attachments?.[audioId];
+            const activeValidations = audioAttachment?.validatedBy?.filter((entry: ValidationEntry) => !entry.isDeleted) || [];
 
             assert.strictEqual(activeValidations.length, 1, "Should have one active validation after concurrent operations");
 

@@ -10,8 +10,8 @@ This document describes the comprehensive test suite created for the audio valid
 
 Tests the `CodexCellDocument.validateCellAudio()` method and related functionality:
 
-- **Basic Validation**: Tests validating and unvalidating audio for cells
-- **Edit History Management**: Tests creation of edit history when none exists
+- **Basic Validation**: Tests validating and unvalidating audio for cells with audio attachments
+- **Audio Attachment Management**: Tests validation works with audio attachments instead of edit history
 - **Multi-User Support**: Tests multiple users validating the same cell
 - **Duplicate Prevention**: Tests updating existing validation entries instead of creating duplicates
 - **Document State**: Tests that document is marked as dirty after validation
@@ -47,7 +47,7 @@ Tests the core logic and data structures used by the React component:
 
 ### 4. Database Integration Tests
 
-**Note**: Database integration tests were removed due to API compatibility issues with the current SQLiteIndexManager implementation. The core audio validation functionality is thoroughly tested through the document-level tests in `audioValidation.test.ts`.
+**Note**: Database integration tests are included in `audioValidation.test.ts` and test that validation data is properly structured for database storage. The core audio validation functionality is thoroughly tested through the document-level tests.
 
 ## Test Coverage
 
@@ -58,7 +58,7 @@ The test suite provides comprehensive coverage of:
 - ✅ Audio validation and unvalidation
 - ✅ Multi-user validation support
 - ✅ Validation state management
-- ✅ Edit history creation and management
+- ✅ Audio attachment management
 - ✅ Document state tracking
 
 ### User Interface
