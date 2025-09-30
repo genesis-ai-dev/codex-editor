@@ -1,4 +1,4 @@
-import React, { Dispatch, SetStateAction, useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { QuillCellContent, ValidationEntry } from "../../../../types";
 import { getCellValueData } from "@sharedUtils";
@@ -23,7 +23,6 @@ interface AudioValidationButtonProps {
     vscode: any;
     isSourceText: boolean;
     currentUsername?: string | null;
-    setIsHoveringAudioValidationButton: Dispatch<SetStateAction<boolean>>;
     requiredAudioValidations?: number;
     // When true, the button is disabled (e.g., missing audio)
     disabled?: boolean;
@@ -37,7 +36,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     vscode,
     isSourceText,
     currentUsername,
-    setIsHoveringAudioValidationButton,
     requiredAudioValidations: requiredAudioValidationsProp,
     disabled: externallyDisabled,
     disabledReason,
@@ -615,7 +613,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                             onClick={(e) => {
                                 e.stopPropagation();
                                 setShowPopover(false);
-                                setIsHoveringAudioValidationButton(false);
                                 setIsPersistentPopover(false);
                                 setIsDetailedView(false);
                                 audioPopoverTracker.setActivePopover(null);
@@ -698,7 +695,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                                                         );
 
                                                         // Immediately close the popover
-                                                        setIsHoveringAudioValidationButton(false);
                                                         setShowPopover(false);
                                                         setIsPersistentPopover(false);
                                                         setIsDetailedView(false);

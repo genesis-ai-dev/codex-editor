@@ -13,7 +13,6 @@ import { WebviewApi } from "vscode-webview";
 import { Button } from "../components/ui/button";
 import { CodexCellTypes } from "../../../../types/enums";
 import { getEmptyCellTranslationStyle, CellTranslationState } from "./CellTranslationStyles";
-import AnimatedReveal from "../components/AnimatedReveal";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import CommentsBadge from "./CommentsBadge";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";

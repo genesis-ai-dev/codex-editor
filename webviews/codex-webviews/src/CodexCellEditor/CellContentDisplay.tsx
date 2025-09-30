@@ -17,7 +17,6 @@ import { Button } from "../components/ui/button";
 import { getTranslationStyle, CellTranslationState } from "./CellTranslationStyles";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor"; // Import the cell display modes
 import "./TranslationAnimations.css"; // Import the animation CSS
-import AnimatedReveal from "../components/AnimatedReveal";
 import { useTooltip } from "./contextProviders/TooltipContext";
 import CommentsBadge from "./CommentsBadge";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
@@ -256,7 +255,7 @@ const AudioPlayButton: React.FC<{
                 background: "none",
                 border: "none",
                 cursor: "pointer",
-                padding: "4px",
+                padding: "1px",
                 borderRadius: "4px",
                 display: "flex",
                 alignItems: "center",
@@ -264,6 +263,7 @@ const AudioPlayButton: React.FC<{
                 color,
                 opacity: isPlaying ? 1 : 0.8,
                 transition: "opacity 0.2s",
+                marginRight: "0.25rem",
             }}
             onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
             onMouseLeave={(e) => (e.currentTarget.style.opacity = isPlaying ? "1" : "0.8")}
@@ -308,9 +308,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         // const { cellContent, timestamps, editHistory } = cell; // I don't think we use this
         const cellIds = cell.cellMarkers;
         const [fadingOut, setFadingOut] = useState(false);
-        const [isHoveringValidationButton, setIsHoveringValidationButton] = useState(false);
-        const [isHoveringAudioValidationButton, setIsHoveringAudioValidationButton] =
-            useState(false);
+        const [showSparkleButton, setShowSparkleButton] = useState(false);
         const { showTooltip, hideTooltip } = useTooltip();
 
         const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -549,7 +547,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         );
 
         const getAlertDot = () => {
-            if (alertColorCode === -1 || undefined) return null;
+            if (alertColorCode === -1 || alertColorCode === undefined) return null;
 
             const colors = {
                 "0": "transparent",
@@ -732,13 +730,13 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         return (
             <div
                 ref={cellRef}
-                className={`cell-content-display ${getAnimationClassName()}`}
+                className={`cell-content-display my-4 ${getAnimationClassName()}`}
                 style={{
                     backgroundColor: getBackgroundColor(),
                     direction: textDirection,
                     ...getBorderStyle(),
                     display: "flex",
-                    alignItems: "center",
+                    alignItems: "baseline",
                     gap: isSourceText ? "0.25rem" : "0.0625rem",
                     padding: "0.25rem",
                     cursor: isSourceText && !isCorrectionEditorMode ? "default" : "pointer",
@@ -755,113 +753,47 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             >
                 <div className="cell-header flex justify-start items-start shrink-0 gap-[1px]">
                     {cellDisplayMode !== CELL_DISPLAY_MODES.INLINE && (
-                        <div className="cell-actions flex justify-start items-center">
-                            <div className="action-button-container flex items-center gap-px">
-                                <AnimatedReveal
-                                    mode="reveal"
-                                    button={
-                                        !isSourceText &&
-                                        SHOW_VALIDATION_BUTTON &&
-                                        !isInTranslationProcess && (
-                                            <div className="flex flex-col items-center justify-center border border-gray-300 rounded-lg p-0.5">
-                                                <div
-                                                    className="flex flex-col items-center justify-center"
-                                                    onMouseOver={() => {
-                                                        setIsHoveringValidationButton(true);
-                                                    }}
-                                                    onMouseOut={() => {
-                                                        setIsHoveringValidationButton(false);
-                                                    }}
-                                                >
-                                                    <ValidationButton
-                                                        cellId={cellIds[0]}
-                                                        cell={cell}
-                                                        vscode={vscode}
-                                                        isSourceText={isSourceText}
-                                                        currentUsername={currentUsername}
-                                                        setIsHoveringValidationButton={setIsHoveringValidationButton}
-                                                        requiredValidations={requiredValidations}
-                                                        disabled={shouldDisableValidation(
-                                                            cell.cellContent,
-                                                            audioAttachments?.[cellIds[0]] as any
-                                                        )}
-                                                        disabledReason={(() => {
-                                                            const audioState = audioAttachments?.[
-                                                                cellIds[0]
-                                                            ] as any;
-                                                            return shouldDisableValidation(
-                                                                cell.cellContent,
-                                                                audioState
-                                                            )
-                                                                ? "Validation disabled: no text and no audio"
-                                                                : undefined;
-                                                        })()}
-                                                    />
-                                                </div>
-                                                <div
-                                                    className="flex flex-col items-center justify-center"
-                                                    onMouseOver={() => {
-                                                        setIsHoveringAudioValidationButton(true);
-                                                    }}
-                                                    onMouseOut={() => {
-                                                        setIsHoveringAudioValidationButton(false);
-                                                    }}
-                                                >
-                                                    <AudioValidationButton
-                                                        cellId={cellIds[0]}
-                                                        cell={cell}
-                                                        vscode={vscode}
-                                                        isSourceText={isSourceText}
-                                                        currentUsername={currentUsername}
-                                                        setIsHoveringAudioValidationButton={setIsHoveringAudioValidationButton}
-                                                        requiredAudioValidations={
-                                                            requiredAudioValidations
-                                                        }
-                                                        disabled={
-                                                            audioState === "none" ||
-                                                            audioState === "deletedOnly"
-                                                        }
-                                                        disabledReason={
-                                                            audioState === "none" ||
-                                                            audioState === "deletedOnly"
-                                                                ? "Audio validation requires audio"
-                                                                : undefined
-                                                        }
-                                                    />
-                                                </div>
-                                            </div>
-                                        )
-                                    }
-                                    content={
-                                        !isSourceText && (
-                                            <Button
-                                                style={{
-                                                    height: "16px",
-                                                    width: "16px",
-                                                    padding: 0,
-                                                    display: "flex",
-                                                    alignItems: "center",
-                                                    justifyContent: "center",
-                                                    position: "relative",
-                                                }}
-                                                onClick={
-                                                    isInTranslationProcess
-                                                        ? handleStopTranslation
-                                                        : handleSparkleButtonClick
-                                                }
-                                            >
-                                                <i
-                                                    className={`codicon ${
-                                                        isInTranslationProcess
-                                                            ? "codicon-loading codicon-modifier-spin"
-                                                            : "codicon-sparkle"
-                                                    }`}
-                                                    style={{ fontSize: "12px" }}
-                                                ></i>
-                                            </Button>
-                                        )
-                                    }
-                                />
+                        <div 
+                            className={`cell-actions flex justify-start items-center ${lineNumbersEnabled ? "flex-col gap-[0.25rem]" : "flex-row"}`}
+                            onMouseOver={() => {
+                                setShowSparkleButton(true);
+                            }}
+                            onMouseOut={() => {
+                                setShowSparkleButton(false);
+                            }}
+                        >
+                            {/* This is a spacer div to base align the action buttons with the text if line numbers are enabled */}
+                            <div className={`cell-label-text ${lineNumbersEnabled ? "invisible" : "hidden"}`}>{lineNumber}</div>
+                            <div className="action-button-container flex items-center gap-1">
+                                {!isSourceText && (
+                                    <Button
+                                        style={{
+                                            height: "16px",
+                                            width: "16px",
+                                            padding: 0,
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                            position: "relative",
+                                            opacity: showSparkleButton ? 1 : 0,
+                                            transform: `translateX(${showSparkleButton ? "0" : "20px"}) scale(${
+                                                showSparkleButton ? 1 : 0
+                                            })`,
+                                            transition:
+                                                "all 0.2s ease-in-out, transform 0.2s cubic-bezier(.68,-0.75,.27,1.75)",
+                                            visibility: showSparkleButton ? "visible" : "hidden",
+                                        }}
+                                    >
+                                        <i
+                                            className={`codicon ${
+                                                isInTranslationProcess
+                                                    ? "codicon-loading codicon-modifier-spin"
+                                                    : "codicon-sparkle"
+                                            }`}
+                                            style={{ fontSize: "12px" }}
+                                        ></i>
+                                    </Button>
+                                )}
                                 {lineNumber && lineNumbersEnabled && (
                                     <div
                                         className="cell-line-number whitespace-nowrap text-right mr-[0.25rem]"
@@ -877,47 +809,91 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                         {lineNumber}
                                     </div>
                                 )}
+                                {!isSourceText &&
+                                    SHOW_VALIDATION_BUTTON &&
+                                    !isInTranslationProcess && (
+                                        <>
+                                            <div className="flex items-center justify-center">
+                                                <div className="flex items-center justify-center">
+                                                    <AudioValidationButton
+                                                        cellId={cellIds[0]}
+                                                        cell={cell}
+                                                        vscode={vscode}
+                                                        isSourceText={isSourceText}
+                                                        currentUsername={currentUsername}
+                                                        requiredAudioValidations={
+                                                            requiredAudioValidations
+                                                        }
+                                                        disabled={
+                                                            audioState === "none" ||
+                                                            audioState === "deletedOnly"
+                                                        }
+                                                        disabledReason={
+                                                            audioState === "none" ||
+                                                            audioState === "deletedOnly"
+                                                                ? "Audio validation requires audio"
+                                                                : undefined
+                                                        }
+                                                    />
+                                                </div>
+                                                {/* Audio Play Button */}
+                                                {audioAttachments &&
+                                                    audioAttachments[cellIds[0]] !== undefined &&
+                                                    (() => {
+                                                        // For source text: show the button for available or missing; hide when none/deletedOnly
+                                                        if (
+                                                            isSourceText &&
+                                                            !(
+                                                                audioState === "available" ||
+                                                                audioState === "missing"
+                                                            )
+                                                        )
+                                                            return null;
 
-                                {/* Audio Play Button */}
-                                {audioAttachments &&
-                                    audioAttachments[cellIds[0]] !== undefined &&
-                                    (() => {
-                                        // For source text: show the button for available or missing; hide when none/deletedOnly
-                                        if (
-                                            isSourceText &&
-                                            !(
-                                                audioState === "available" ||
-                                                audioState === "missing"
-                                            )
-                                        )
-                                            return null;
-
-                                        return (
-                                            <div
-                                                className="ml-0.5"
-                                                style={{
-                                                    ...(isHoveringAudioValidationButton && {
-                                                        animation: "pulse-glow 1.5s ease-in-out infinite",
-                                                        borderRadius: "4px",
-                                                        boxShadow: "0 0 1px var(--vscode-editor-selectionBackground)",
-                                                    }),
-                                                }}
-                                            >
-                                                <AudioPlayButton
+                                                        return (
+                                                            <AudioPlayButton
+                                                                cellId={cellIds[0]}
+                                                                vscode={vscode}
+                                                                state={audioState}
+                                                                onOpenCell={(id) => {
+                                                                    // Use force variant to ensure editor opens even with unsaved state
+                                                                    const open =
+                                                                        (window as any).openCellByIdForce ||
+                                                                        (window as any).openCellById;
+                                                                    if (typeof open === "function") open(id);
+                                                                }}
+                                                            />
+                                                        );
+                                                    })()}
+                                            </div>
+                                            <div className="flex flex-col items-center justify-center">
+                                                <ValidationButton
                                                     cellId={cellIds[0]}
+                                                    cell={cell}
                                                     vscode={vscode}
-                                                    state={audioState}
-                                                    onOpenCell={(id) => {
-                                                        // Use force variant to ensure editor opens even with unsaved state
-                                                        const open =
-                                                            (window as any).openCellByIdForce ||
-                                                            (window as any).openCellById;
-                                                        if (typeof open === "function") open(id);
-                                                    }}
+                                                    isSourceText={isSourceText}
+                                                    currentUsername={currentUsername}
+                                                    requiredValidations={requiredValidations}
+                                                    disabled={shouldDisableValidation(
+                                                        cell.cellContent,
+                                                        audioAttachments?.[cellIds[0]] as any
+                                                    )}
+                                                    disabledReason={(() => {
+                                                        const audioState = audioAttachments?.[
+                                                            cellIds[0]
+                                                        ] as any;
+                                                        return shouldDisableValidation(
+                                                            cell.cellContent,
+                                                            audioState
+                                                        )
+                                                            ? "Validation disabled: no text and no audio"
+                                                            : undefined;
+                                                    })()}
                                                 />
                                             </div>
-                                        );
-                                    })()}
+                                        </>
+                                    )
+                                }
 
                                 {/* Merge Button - only show in correction editor mode for source text */}
                                 {isSourceText &&
@@ -983,10 +959,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 </div>
 
                 {/* Right side: wrappable label + content */}
-                <div
-                    className="flex flex-wrap items-baseline gap-[0.25rem] flex-1 min-w-0"
-                    style={{ flexDirection: lineNumbersEnabled ? "column" : "row" }}
-                >
+                <div className={`flex flex-wrap items-baseline gap-[0.25rem] flex-1 min-w-0 ${lineNumbersEnabled ? "flex-col" : "flex-row"}`}>
                     {/* Cell label - shown after line number when present */}
                     {label && (
                         <div
@@ -1008,12 +981,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     <div
                         style={{ 
                             flex: 1,
-                            padding: "0 0.25rem",
+                            padding: lineNumbersEnabled ? "0 0.25rem 0 0" : "0 0.25rem",
                             minWidth: 0,
-                            ...(isHoveringValidationButton && {
-                                animation: "pulse-glow 1.5s ease-in-out infinite",
-                                borderRadius: "4px",
-                            }),
                         }}
                     >
                         {renderContent()}

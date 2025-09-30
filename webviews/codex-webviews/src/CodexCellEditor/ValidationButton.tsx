@@ -1,4 +1,4 @@
-import React, { Dispatch, SetStateAction, useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { QuillCellContent, ValidationEntry } from "../../../../types";
 import { getCellValueData } from "@sharedUtils";
@@ -23,7 +23,6 @@ interface ValidationButtonProps {
     vscode: any;
     isSourceText: boolean;
     currentUsername?: string | null;
-    setIsHoveringValidationButton: Dispatch<SetStateAction<boolean>>;
     requiredValidations?: number;
     // When true, the button is disabled (e.g., missing audio or text)
     disabled?: boolean;
@@ -37,7 +36,6 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     vscode,
     isSourceText,
     currentUsername,
-    setIsHoveringValidationButton,
     requiredValidations: requiredValidationsProp,
     disabled: externallyDisabled,
     disabledReason,
@@ -615,7 +613,6 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                             onClick={(e) => {
                                 e.stopPropagation();
                                 setShowPopover(false);
-                                setIsHoveringValidationButton(false);
                                 setIsPersistentPopover(false);
                                 setIsDetailedView(false);
                                 popoverTracker.setActivePopover(null);
@@ -698,7 +695,6 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                                                         );
 
                                                         // Immediately close the popover
-                                                        setIsHoveringValidationButton(false);
                                                         setShowPopover(false);
                                                         setIsPersistentPopover(false);
                                                         setIsDetailedView(false);
