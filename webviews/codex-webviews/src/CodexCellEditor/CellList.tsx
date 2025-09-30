@@ -39,7 +39,7 @@ export interface CellListProps {
     currentProcessingCellId?: string; // Currently processing cell ID
     cellsInAutocompleteQueue?: string[]; // Cells queued for autocompletion
     successfulCompletions?: Set<string>; // Cells that completed successfully
-    audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" }; // Cells that have audio attachments
+    audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" | "missing" }; // Cells that have audio attachments
     isSaving?: boolean;
     saveError?: boolean; // Whether there was a save error/timeout
     saveRetryCount?: number; // Number of save retry attempts
