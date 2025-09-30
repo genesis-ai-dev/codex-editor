@@ -19,7 +19,38 @@ import {
     IDMLParseError,
     IDMLImportConfig
 } from './types';
-import { computeSHA256, normalizeXMLForHashing } from './tests/hashUtils';
+
+// Local hashing helpers to avoid test-only imports
+function toArrayBufferForHash(input: string | ArrayBuffer): ArrayBuffer {
+    if (input instanceof ArrayBuffer) return input;
+    return new TextEncoder().encode(input).buffer;
+}
+
+function bytesToHex(bytes: ArrayBuffer): string {
+    const view = new Uint8Array(bytes);
+    let hex = '';
+    for (let i = 0; i < view.length; i++) {
+        hex += view[i].toString(16).padStart(2, '0');
+    }
+    return hex;
+}
+
+async function computeSHA256(input: string | ArrayBuffer): Promise<string> {
+    const cryptoObj: any = (globalThis as any).crypto;
+    const data = toArrayBufferForHash(input);
+    if (cryptoObj?.subtle?.digest) {
+        const digest = await cryptoObj.subtle.digest('SHA-256', data);
+        return bytesToHex(digest);
+    }
+    // Fallback: non-crypto hash to keep function available if SubtleCrypto is absent
+    const bytes = new Uint8Array(data);
+    let h1 = 0x811c9dc5;
+    for (let i = 0; i < bytes.length; i++) {
+        h1 ^= bytes[i];
+        h1 = (h1 * 0x01000193) >>> 0; // FNV-1a like
+    }
+    return h1.toString(16).padStart(8, '0');
+}
 
 export class IDMLParser {
     private config: IDMLImportConfig;
