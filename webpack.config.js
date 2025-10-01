@@ -266,9 +266,13 @@ const testConfig = {
                 path: "path-browserify",
                 stream: "stream-browserify",
                 util: "util/",
+                http: "stream-http",
+                https: "https-browserify",
             };
-            const mappedModule = moduleMap[module] || `${module}/`;
-            resource.request = require.resolve(mappedModule);
+            const mappedModule = moduleMap[module];
+            if (mappedModule) {
+                resource.request = require.resolve(mappedModule);
+            }
         }),
         // ... other plugins if necessary
     ],
