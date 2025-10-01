@@ -263,7 +263,6 @@ const AudioPlayButton: React.FC<{
                 color,
                 opacity: isPlaying ? 1 : 0.8,
                 transition: "opacity 0.2s",
-                marginRight: "0.25rem",
             }}
             onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
             onMouseLeave={(e) => (e.currentTarget.style.opacity = isPlaying ? "1" : "0.8")}
@@ -783,6 +782,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                 "all 0.2s ease-in-out, transform 0.2s cubic-bezier(.68,-0.75,.27,1.75)",
                                             visibility: showSparkleButton ? "visible" : "hidden",
                                         }}
+                                        onClick={(e) => {
+                                            handleSparkleButtonClick(e);
+                                        }}
                                     >
                                         <i
                                             className={`codicon ${
@@ -813,29 +815,27 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                     SHOW_VALIDATION_BUTTON &&
                                     !isInTranslationProcess && (
                                         <>
-                                            <div className="flex items-center justify-center">
-                                                <div className="flex items-center justify-center">
-                                                    <AudioValidationButton
-                                                        cellId={cellIds[0]}
-                                                        cell={cell}
-                                                        vscode={vscode}
-                                                        isSourceText={isSourceText}
-                                                        currentUsername={currentUsername}
-                                                        requiredAudioValidations={
-                                                            requiredAudioValidations
-                                                        }
-                                                        disabled={
-                                                            audioState === "none" ||
-                                                            audioState === "deletedOnly"
-                                                        }
-                                                        disabledReason={
-                                                            audioState === "none" ||
-                                                            audioState === "deletedOnly"
-                                                                ? "Audio validation requires audio"
-                                                                : undefined
-                                                        }
-                                                    />
-                                                </div>
+                                            <div className="flex items-center justify-center gap-x-px">
+                                                <AudioValidationButton
+                                                    cellId={cellIds[0]}
+                                                    cell={cell}
+                                                    vscode={vscode}
+                                                    isSourceText={isSourceText}
+                                                    currentUsername={currentUsername}
+                                                    requiredAudioValidations={
+                                                        requiredAudioValidations
+                                                    }
+                                                    disabled={
+                                                        audioState === "none" ||
+                                                        audioState === "deletedOnly"
+                                                    }
+                                                    disabledReason={
+                                                        audioState === "none" ||
+                                                        audioState === "deletedOnly"
+                                                            ? "Audio validation requires audio"
+                                                            : undefined
+                                                    }
+                                                />
                                                 {/* Audio Play Button */}
                                                 {audioAttachments &&
                                                     audioAttachments[cellIds[0]] !== undefined &&
@@ -886,7 +886,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                             cell.cellContent,
                                                             audioState
                                                         )
-                                                            ? "Validation disabled: no text and no audio"
+                                                            ? "Validation disabled: no text"
                                                             : undefined;
                                                     })()}
                                                 />
@@ -963,7 +963,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     {/* Cell label - shown after line number when present */}
                     {label && (
                         <div
-                            className="cell-label-text text-primary inline-block text-right relative -top-[2px]"
+                            className="cell-label-text text-primary inline-block text-right relative -top-[2px] ml-px"
                             style={{
                                 fontWeight:
                                     cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
