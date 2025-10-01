@@ -95,10 +95,11 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         }
     };
 
-    // Update validation state when editHistory changes
+    // Update validation state when attachments changes
     useEffect(() => {
         // Check if there are any edits
-        if (!cell.editHistory || cell.editHistory.length === 0) {
+        // if (!cell.editHistory || cell.editHistory.length === 0) {
+        if (!cell.attachments) {
             return;
         }
 

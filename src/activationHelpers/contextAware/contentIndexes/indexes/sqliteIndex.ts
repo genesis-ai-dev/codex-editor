@@ -3400,7 +3400,6 @@ export class SQLiteIndexManager {
                 WHEN t_audio_validation_count >= ? THEN 1 
                 ELSE 0 
             END
-            WHERE t_content IS NOT NULL AND t_content != ''
         `);
 
         try {
@@ -3439,28 +3438,21 @@ export class SQLiteIndexManager {
             audioIsFullyValidated?: boolean;
         } = {};
 
-        if (!metadata || typeof metadata !== 'object' || cellType !== 'target') {
+        if (!metadata || typeof metadata !== "object" || cellType !== "target") {
             return result;
         }
 
-        // Extract edit information for target cells only
         const edits = metadata.edits || [];
 
         if (edits.length > 0) {
-            // Filter to only value edits for validation tracking
-            const valueEdits = edits.filter((edit: any) =>
-                edit.editMap && EditMapUtils.isValue(edit.editMap)
-            );
+            const valueEdits = edits.filter((edit: any) => edit.editMap && EditMapUtils.isValue(edit.editMap));
 
             if (valueEdits.length > 0) {
                 const lastEdit = valueEdits[valueEdits.length - 1];
                 result.currentEditTimestamp = lastEdit.timestamp || null;
 
-                // Extract validation information
                 if (lastEdit.validatedBy) {
-                    const activeValidations = lastEdit.validatedBy.filter((v: any) =>
-                        v && typeof v === 'object' && !v.isDeleted
-                    );
+                    const activeValidations = lastEdit.validatedBy.filter((v: any) => v && typeof v === "object" && !v.isDeleted);
                     result.validationCount = activeValidations.length;
 
                     // NEW: Check against validation threshold instead of just > 0
@@ -3468,56 +3460,107 @@ export class SQLiteIndexManager {
                     result.isFullyValidated = activeValidations.length >= requiredValidators;
 
                     // Store comma-separated list of usernames
-                    const usernames = activeValidations.map((v: any) => v.username).filter(Boolean);
-                    result.validatedBy = usernames.length > 0 ? usernames.join(',') : undefined;
-
-
-                } else {
-                    result.validationCount = 0;
-                    result.isFullyValidated = false;
-                    result.validatedBy = undefined;
-                }
-
-                // Extract audio validation information from attachments
-                const attachments = metadata.attachments || {};
-                const audioAttachments = Object.values(attachments).filter((attachment: any) =>
-                    attachment && attachment.type === "audio" && !attachment.isDeleted
-                );
-
-                if (audioAttachments.length > 0) {
-                    // Get the current audio attachment (most recently updated)
-                    const currentAudioAttachment = audioAttachments.sort((a: any, b: any) =>
-                        (b.updatedAt || 0) - (a.updatedAt || 0)
-                    )[0];
-
-                    if ((currentAudioAttachment as any).validatedBy) {
-                        const activeAudioValidations = (currentAudioAttachment as any).validatedBy.filter((v: any) =>
-                            v && typeof v === 'object' && !v.isDeleted
-                        );
-                        result.audioValidationCount = activeAudioValidations.length;
-
-                        // Check against audio validation threshold
-                        const requiredAudioValidators = this.getAudioValidationThreshold();
-                        result.audioIsFullyValidated = activeAudioValidations.length >= requiredAudioValidators;
-
-                        // Store comma-separated list of usernames
-                        const audioUsernames = activeAudioValidations.map((v: any) => v.username).filter(Boolean);
-                        result.audioValidatedBy = audioUsernames.length > 0 ? audioUsernames.join(',') : undefined;
-                    } else {
-                        result.audioValidationCount = 0;
-                        result.audioIsFullyValidated = false;
-                        result.audioValidatedBy = undefined;
-                    }
-                } else {
-                    result.audioValidationCount = 0;
-                    result.audioIsFullyValidated = false;
-                    result.audioValidatedBy = undefined;
+                    const usernames = activeValidations.map((v: any) => v.username).filter((name: any) => typeof name === "string" && name.trim().length > 0);
+                    result.validatedBy = usernames.length > 0 ? usernames.join(",") : undefined;
                 }
             }
         }
-        // No edits found - defaults are already set
+
+        if (result.validationCount === undefined) {
+            result.validationCount = 0;
+            result.isFullyValidated = false;
+            result.validatedBy = undefined;
+        }
+
+        // Extract audio validation information from attachments
+        const audioDetails = this.collectAudioValidationDetails(metadata.attachments || {});
+        result.audioValidationCount = audioDetails.count;
+        result.audioValidatedBy = audioDetails.usernames;
+        result.audioIsFullyValidated = audioDetails.isFullyValidated;
+
+        if (!result.currentEditTimestamp && audioDetails.latestTimestamp !== null) {
+            result.currentEditTimestamp = audioDetails.latestTimestamp;
+        }
 
         return result;
+    }
+
+    private collectAudioValidationDetails(attachments: Record<string, any>): {
+        count: number;
+        usernames?: string;
+        isFullyValidated: boolean;
+        latestTimestamp: number | null;
+    } {
+        if (!attachments || typeof attachments !== "object") {
+            return { count: 0, isFullyValidated: false, latestTimestamp: null };
+        }
+
+        const audioAttachments = Object.values(attachments).filter((attachment: any) =>
+            attachment && attachment.type === "audio"
+        );
+
+        if (audioAttachments.length === 0) {
+            return { count: 0, isFullyValidated: false, latestTimestamp: null };
+        }
+
+        const currentAudioAttachment = audioAttachments.sort((a: any, b: any) =>
+            (b.updatedAt || 0) - (a.updatedAt || 0)
+        )[0];
+
+        const validatedBy = Array.isArray((currentAudioAttachment as any).validatedBy)
+            ? (currentAudioAttachment as any).validatedBy
+            : [];
+
+        const activeAudioValidations = validatedBy.filter((entry: any) =>
+            entry && typeof entry === "object" && !entry.isDeleted
+        );
+
+        const count = activeAudioValidations.length;
+        // Check against audio validation threshold
+        const requiredAudioValidators = this.getAudioValidationThreshold();
+        let threshold = requiredAudioValidators;
+        if (currentAudioAttachment && currentAudioAttachment.type === "audio") {
+            const attachmentMetadata = (currentAudioAttachment as any).metadata;
+            if (
+                attachmentMetadata &&
+                typeof attachmentMetadata === "object" &&
+                typeof attachmentMetadata.requiredAudioValidations === "number"
+            ) {
+                threshold = attachmentMetadata.requiredAudioValidations;
+            }
+        }
+
+        const isFullyValidated = count >= threshold;
+
+        const usernames = activeAudioValidations
+            .map((entry: any) => entry.username)
+            .filter((name: any) => typeof name === "string" && name.trim().length > 0);
+
+        const latestTimestamp = activeAudioValidations
+            .map((entry: any) =>
+                typeof entry.updatedTimestamp === "number"
+                    ? entry.updatedTimestamp
+                    : typeof entry.creationTimestamp === "number"
+                        ? entry.creationTimestamp
+                        : null
+            )
+            .filter((ts: number | null) => typeof ts === "number")
+            .reduce((latest: number | null, ts: number | null) => {
+                if (typeof ts !== "number") {
+                    return latest;
+                }
+                if (latest === null || ts > latest) {
+                    return ts;
+                }
+                return latest;
+            }, null as number | null);
+
+        return {
+            count,
+            usernames: usernames.length > 0 ? usernames.join(",") : undefined,
+            isFullyValidated,
+            latestTimestamp,
+        };
     }
 
     /**
