@@ -95,7 +95,23 @@ export type AudioAvailabilityState = boolean | "available" | "deletedOnly" | "no
 export const hasTextContent = (htmlContent: string | undefined | null): boolean => {
     if (!htmlContent) return false;
     const text = removeHtmlTags(htmlContent);
-    return text.length > 0;
+    if (text.length === 0) {
+        return false;
+    }
+
+    // eslint-disable-next-line no-misleading-character-class
+    const normalized = text.replace(/[\u200B\u200C\u200D\u200E\u200F\u202F\u2060\uFEFF]/g, "");
+    const trimmed = normalized.trim().toLowerCase();
+
+    if (trimmed.length === 0) {
+        return false;
+    }
+
+    if (trimmed === "click to translate" || trimmed === "no text") {
+        return false;
+    }
+
+    return true;
 };
 
 export const hasAudioAvailable = (state: AudioAvailabilityState): boolean => {
@@ -107,8 +123,5 @@ export const shouldDisableValidation = (
     htmlContent: string | undefined | null,
     audioState: AudioAvailabilityState
 ): boolean => {
-    const textPresent = hasTextContent(htmlContent);
-    const audioPresent = hasAudioAvailable(audioState);
-    // Disabled only if neither text nor audio is present
-    return !(textPresent || audioPresent);
+    return !hasTextContent(htmlContent);
 };

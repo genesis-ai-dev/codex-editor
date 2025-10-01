@@ -782,17 +782,16 @@ suite("CodexCellEditorProvider Test Suite", () => {
         vscode.commands.executeCommand = originalExecuteCommand2;
     });
 
-    test("validation enablement uses text OR audio (disabled only if neither)", () => {
-        // Text only
+    test("validation button requires text even if audio exists", () => {
+        // Text present ⇒ validation enabled
         assert.strictEqual(shouldDisableValidation("<p>hello</p>", "none"), false);
         assert.strictEqual(shouldDisableValidation("Some text", undefined), false);
 
-        // Audio only (string state path)
-        assert.strictEqual(shouldDisableValidation("", "available"), false);
-        // Audio only (boolean path)
-        assert.strictEqual(shouldDisableValidation(undefined as any, true), false);
+        // Audio only ⇒ still disabled
+        assert.strictEqual(shouldDisableValidation("", "available"), true);
+        assert.strictEqual(shouldDisableValidation(undefined as any, true), true);
 
-        // Neither text nor audio
+        // Neither text nor audio ⇒ disabled
         assert.strictEqual(shouldDisableValidation("", "none"), true);
         assert.strictEqual(shouldDisableValidation("   &nbsp;   ", undefined), true);
 

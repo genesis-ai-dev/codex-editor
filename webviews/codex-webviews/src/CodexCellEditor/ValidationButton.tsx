@@ -452,7 +452,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             onMouseEnter={showPopoverHandler}
             onMouseLeave={hidePopoverHandler}
             onClick={handleButtonClick}
-            style={{ position: "relative", display: "inline-block", zIndex: 999 }}
+            style={{ position: "relative", display: "inline-block" }}
         >
             <VSCodeButton
                 appearance="icon"

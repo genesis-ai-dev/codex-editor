@@ -455,7 +455,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
             onMouseEnter={showPopoverHandler}
             onMouseLeave={hidePopoverHandler}
             onClick={handleButtonClick}
-            style={{ position: "relative", display: "inline-block", zIndex: 999 }}
+            style={{ position: "relative", display: "inline-block" }}
         >
             <VSCodeButton
                 appearance="icon"
