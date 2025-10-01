@@ -198,6 +198,7 @@ const testConfig = {
             // Map Node.js scheme imports to browser polyfills for the test bundle
             "node:http": require.resolve("stream-http"),
             "node:https": require.resolve("https-browserify"),
+            "node:url": require.resolve("url/"),
             "node:buffer": require.resolve("buffer/"),
             "node:events": require.resolve("events/"),
             "node:path": require.resolve("path-browserify"),
@@ -268,6 +269,7 @@ const testConfig = {
                 util: "util/",
                 http: "stream-http",
                 https: "https-browserify",
+                url: "url/",
             };
             const mappedModule = moduleMap[module];
             if (mappedModule) {
