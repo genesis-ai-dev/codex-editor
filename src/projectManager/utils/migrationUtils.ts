@@ -2,6 +2,9 @@ import * as vscode from "vscode";
 import * as path from "path";
 import { CodexContentSerializer } from "@/serializer";
 import { vrefData } from "@/utils/verseRefUtils/verseData";
+import { EditMapUtils } from "@/utils/editMapUtils";
+import { EditType } from "../../../types/enums";
+import type { ValidationEntry } from "../../../types";
 
 // FIXME: move notebook format migration here
 
@@ -235,6 +238,168 @@ export const migration_editHistoryFormat = async (context?: vscode.ExtensionCont
         console.error("Error running edit history format migration:", error);
     }
 };
+
+/**
+ * Adds validations to value edits that match the current cell value, if and only if
+ * the matching edit is a USER_EDIT. The validation will be attributed to the edit's author.
+ * This migration is idempotent: it will not duplicate existing validations.
+ */
+export const migration_addValidationsForUserEdits = async () => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        const workspaceFolder = workspaceFolders[0];
+
+        // Only target Codex translation files
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+
+        if (codexFiles.length === 0) {
+            console.log("No codex files found for validation migration");
+            return;
+        }
+
+        let processedFiles = 0;
+        let migratedFiles = 0;
+
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Migrating validations for user edits",
+                cancellable: false,
+            },
+            async (progress) => {
+                for (let i = 0; i < codexFiles.length; i++) {
+                    const file = codexFiles[i];
+                    progress.report({
+                        message: `Processing ${path.basename(file.fsPath)}`,
+                        increment: 100 / codexFiles.length,
+                    });
+
+                    try {
+                        const wasMigrated = await migrateValidationsForFile(file);
+                        processedFiles++;
+                        if (wasMigrated) {
+                            migratedFiles++;
+                        }
+                    } catch (error) {
+                        console.error(`Error processing ${file.fsPath}:`, error);
+                    }
+                }
+            }
+        );
+
+        console.log(
+            `Validation migration completed: ${processedFiles} files processed, ${migratedFiles} files updated`
+        );
+        if (migratedFiles > 0) {
+            vscode.window.showInformationMessage(
+                `Validation migration complete: ${migratedFiles} files updated`
+            );
+        }
+    } catch (error) {
+        console.error("Error running validation migration:", error);
+    }
+};
+
+async function migrateValidationsForFile(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        // Read the file content
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = notebookData.cells || [];
+        let hasChanges = false;
+
+        for (const cell of cells) {
+            const cellValue: string = cell?.value;
+            const edits: any[] = (cell?.metadata?.edits as any[]) || [];
+            if (!cellValue || !Array.isArray(edits) || edits.length === 0) continue;
+
+            // Find latest value-edit whose value matches the current cell value
+            let targetEdit: any | undefined;
+            for (let i = edits.length - 1; i >= 0; i--) {
+                const e = edits[i];
+                const isValueEdit = EditMapUtils.isValue(e?.editMap || []);
+                if (isValueEdit && e?.value === cellValue) {
+                    targetEdit = e;
+                    break;
+                }
+            }
+
+            if (!targetEdit) continue;
+            if (targetEdit.type !== EditType.USER_EDIT) continue; // Only add validation to user edits
+
+            // Normalize validatedBy to be an array of ValidationEntry objects
+            if (!Array.isArray(targetEdit.validatedBy)) {
+                targetEdit.validatedBy = [] as ValidationEntry[];
+            } else {
+                // Convert any string entries (legacy) to ValidationEntry objects
+                const normalized: ValidationEntry[] = [];
+                for (const entry of targetEdit.validatedBy) {
+                    if (typeof entry === "string") {
+                        const ts = Number(targetEdit.timestamp) || Date.now();
+                        normalized.push({
+                            username: entry,
+                            creationTimestamp: ts,
+                            updatedTimestamp: ts,
+                            isDeleted: false,
+                        });
+                    } else if (entry && typeof entry === "object") {
+                        normalized.push(entry as ValidationEntry);
+                    }
+                }
+                targetEdit.validatedBy = normalized;
+            }
+
+            const author: string = targetEdit.author || "anonymous";
+            const ts = Number(targetEdit.timestamp) || Date.now();
+
+            // Check for existing non-deleted validation by the author
+            const alreadyValidated = (targetEdit.validatedBy as ValidationEntry[]).some(
+                (v) => v && v.username === author && v.isDeleted === false
+            );
+            if (!alreadyValidated) {
+                const newEntry: ValidationEntry = {
+                    username: author,
+                    creationTimestamp: ts,
+                    updatedTimestamp: ts,
+                    isDeleted: false,
+                };
+                (targetEdit.validatedBy as ValidationEntry[]).push(newEntry);
+                hasChanges = true;
+            }
+        }
+
+        if (hasChanges) {
+            // Mark migration flag
+            try {
+                notebookData.metadata = notebookData.metadata || {};
+                notebookData.metadata.validationMigrationComplete = true;
+            } catch { /* ignore */ }
+
+            const updatedContent = await serializer.serializeNotebook(
+                notebookData,
+                new vscode.CancellationTokenSource().token
+            );
+            await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+            return true;
+        }
+
+        return false;
+    } catch (error) {
+        console.error(`Error migrating validations for ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
 
 async function migrateEditHistoryForFile(fileUri: vscode.Uri): Promise<boolean> {
     try {
