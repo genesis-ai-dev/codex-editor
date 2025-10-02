@@ -603,12 +603,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Still update the current webview with the full content
                     updateWebview();
                 } else if (e.edits && e.edits.length > 0 && e.edits[0].type === "audioValidation") {
+                    const selectedAudioId = document.getExplicitAudioSelection(e.edits[0].cellId) ?? undefined;
                     // Broadcast the audio validation update to all webviews for this document
                     const audioValidationUpdate = {
                         type: "providerUpdatesAudioValidationState",
                         content: {
                             cellId: e.edits[0].cellId,
                             validatedBy: e.edits[0].validatedBy,
+                            selectedAudioId,
                         },
                     };
 
@@ -2054,10 +2056,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         // Only send updates for cells that have validations
                         if (validatedBy && validatedBy.length > 0) {
                             // Post validation state update to all panels for this document
-                            this.webviewPanels.forEach((webviewPanel, panelUri) => {
-                                if (panelUri === docUri) {
-                                    // Use type assertion to allow sending the validation state message
-                                    this.postMessageToWebview(webviewPanel, {
+                            this.webviewPanels.forEach((panel, uri) => {
+                                if (uri === docUri) {
+                                    this.postMessageToWebview(panel, {
                                         type: "providerUpdatesValidationState" as any,
                                         content: {
                                             cellId,
@@ -2070,15 +2071,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                         // Only send updates for cells that have audio validations
                         if (audioValidatedBy && audioValidatedBy.length > 0) {
+                            const selectedAudioId = doc.getExplicitAudioSelection(cellId) ?? undefined;
+
                             // Post audio validation state update to all panels for this document
-                            this.webviewPanels.forEach((webviewPanel, panelUri) => {
-                                if (panelUri === docUri) {
-                                    // Use type assertion to allow sending the audio validation state message
-                                    this.postMessageToWebview(webviewPanel, {
+                            this.webviewPanels.forEach((panel, uri) => {
+                                if (uri === docUri) {
+                                    this.postMessageToWebview(panel, {
                                         type: "providerUpdatesAudioValidationState" as any,
                                         content: {
                                             cellId,
                                             validatedBy: audioValidatedBy,
+                                            selectedAudioId,
                                         },
                                     });
                                 }

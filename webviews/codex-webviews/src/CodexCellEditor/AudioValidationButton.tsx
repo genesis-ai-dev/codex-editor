@@ -17,6 +17,44 @@ const audioPopoverTracker = {
     },
 };
 
+const dedupeActiveValidations = (entries: ValidationEntry[]): ValidationEntry[] => {
+    const userMap = new Map<string, ValidationEntry>();
+
+    entries.forEach((entry) => {
+        if (!isValidValidationEntry(entry) || entry.isDeleted) {
+            return;
+        }
+
+        const existing = userMap.get(entry.username);
+        if (!existing || entry.updatedTimestamp > existing.updatedTimestamp) {
+            userMap.set(entry.username, entry);
+        }
+    });
+
+    return Array.from(userMap.values());
+};
+
+const areValidationListsEqual = (a: ValidationEntry[], b: ValidationEntry[]): boolean => {
+    if (a.length !== b.length) {
+        return false;
+    }
+
+    const sortByUsername = (list: ValidationEntry[]) =>
+        [...list].sort((left, right) => left.username.localeCompare(right.username));
+
+    const sortedA = sortByUsername(a);
+    const sortedB = sortByUsername(b);
+
+    return sortedA.every((entry, index) => {
+        const other = sortedB[index];
+        return (
+            entry.username === other.username &&
+            entry.updatedTimestamp === other.updatedTimestamp &&
+            entry.isDeleted === other.isDeleted
+        );
+    });
+};
+
 interface AudioValidationButtonProps {
     cellId: string;
     cell: QuillCellContent;
@@ -55,6 +93,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     const [isValidationInProgress, setIsValidationInProgress] = useState(false);
     const buttonRef = useRef<HTMLDivElement>(null);
     const popoverRef = useRef<HTMLDivElement>(null);
+    const selectedAudioIdRef = useRef<string | undefined>(cell.metadata?.selectedAudioId);
     const uniqueId = useRef(
         `audio-validation-${cellId}-${Math.random().toString(36).substring(2, 11)}`
     );
@@ -97,32 +136,35 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
 
     // Update validation state when attachments changes
     useEffect(() => {
-        // Check if there are any edits
-        // if (!cell.editHistory || cell.editHistory.length === 0) {
         if (!cell.attachments) {
             return;
         }
 
-        // Get the latest edit
-        const cellValueData = getCellValueData(cell);
+        const effectiveSelectedAudioId =
+            selectedAudioIdRef.current ?? cell.metadata?.selectedAudioId;
+
+        const cellValueData = getCellValueData({
+            ...cell,
+            metadata: {
+                ...(cell.metadata || {}),
+                selectedAudioId: effectiveSelectedAudioId,
+            },
+        } as any);
+
         setUserCreatedLatestEdit(
             cellValueData.author === username && cellValueData.editType === "user-edit"
         );
 
-        // Check if the current user has already validated this edit for audio
-        if (cellValueData.audioValidatedBy && username) {
-            // Look for the user's entry in audioValidatedBy and check if isDeleted is false
-            const userEntry = cellValueData.audioValidatedBy.find(
-                (entry: ValidationEntry) =>
-                    isValidValidationEntry(entry) && entry.username === username && !entry.isDeleted
-            );
-            setIsValidated(!!userEntry);
+        const activeValidations = dedupeActiveValidations(cellValueData.audioValidatedBy || []);
+        setValidationUsers((previous) =>
+            areValidationListsEqual(previous, activeValidations) ? previous : activeValidations
+        );
 
-            // Get all active audio validation users
-            const activeValidations = cellValueData.audioValidatedBy.filter(
-                (entry: ValidationEntry) => isValidValidationEntry(entry) && !entry.isDeleted
-            );
-            setValidationUsers(activeValidations);
+        if (username) {
+            const userEntry = activeValidations.find((entry) => entry.username === username);
+            console.log("userEntry", userEntry);
+
+            setIsValidated(!!userEntry);
         }
     }, [cell, username]);
 
@@ -158,6 +200,9 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
             } else if (message.type === "providerUpdatesAudioValidationState") {
                 // Handle audio validation state updates from the backend
                 if (message.content.cellId === cellId) {
+                    selectedAudioIdRef.current =
+                        message.content.selectedAudioId ?? selectedAudioIdRef.current;
+
                     // Audio validation state has been updated, refresh the component
                     const validatedBy = message.content.validatedBy || [];
                     if (username) {

@@ -60,18 +60,31 @@ export const getCellValueData = (cell: QuillCellContent) => {
     // Get audio validation from attachments instead of edits
     let audioValidatedBy: any[] = [];
     if (cell.attachments) {
-        const audioAttachments = Object.values(cell.attachments).filter((attachment: any) =>
+        const audioAttachments = Object.entries(cell.attachments).filter(([, attachment]: [string, any]) =>
             attachment && attachment.type === "audio" && !attachment.isDeleted
         );
 
         if (audioAttachments.length > 0) {
-            // Get the current audio attachment (most recently updated)
-            const currentAudioAttachment = audioAttachments.sort((a: any, b: any) =>
-                (b.updatedAt || 0) - (a.updatedAt || 0)
-            )[0];
+            // Prefer the explicitly selected audio attachment when available
+            let currentAudioAttachmentEntry: [string, any] | null = null;
 
-            if (currentAudioAttachment.validatedBy) {
-                audioValidatedBy = currentAudioAttachment.validatedBy;
+            const selectedAudioId = cell.metadata?.selectedAudioId;
+            if (selectedAudioId) {
+                currentAudioAttachmentEntry =
+                    audioAttachments.find(([attachmentId]) => attachmentId === selectedAudioId) ?? null;
+            }
+
+            // Fall back to the most recently updated audio attachment
+            if (!currentAudioAttachmentEntry) {
+                currentAudioAttachmentEntry = audioAttachments
+                    .sort(([, a]: [string, any], [, b]: [string, any]) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+            }
+
+            if (currentAudioAttachmentEntry) {
+                const [, currentAudioAttachment] = currentAudioAttachmentEntry;
+                if (currentAudioAttachment?.validatedBy) {
+                    audioValidatedBy = currentAudioAttachment.validatedBy;
+                }
             }
         }
     }

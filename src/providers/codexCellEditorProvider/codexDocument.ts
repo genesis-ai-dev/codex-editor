@@ -1421,32 +1421,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     public getCellAudioValidatedBy(cellId: string): ValidationEntry[] {
-        const cell = this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
+        const currentAttachment = this.getCurrentAttachment(cellId, "audio");
 
-        if (!cell || !cell.metadata?.attachments) {
+        if (!currentAttachment || !Array.isArray(currentAttachment.attachment?.validatedBy)) {
             return [];
         }
 
-        // Get audio validation from attachments instead of edits
-        const audioAttachments = Object.values(cell.metadata.attachments).filter((attachment: any) =>
-            attachment && attachment.type === "audio" && !attachment.isDeleted
+        return currentAttachment.attachment.validatedBy.filter((entry: any) =>
+            this.isValidValidationEntry(entry)
         );
-
-        if (audioAttachments.length === 0) {
-            return [];
-        }
-
-        // Get the current audio attachment (most recently updated)
-        const currentAudioAttachment = audioAttachments.sort((a: any, b: any) =>
-            (b.updatedAt || 0) - (a.updatedAt || 0)
-        )[0];
-
-        if (!currentAudioAttachment.validatedBy) {
-            return [];
-        }
-
-        // Filter to only include proper ValidationEntry objects
-        return currentAudioAttachment.validatedBy.filter((entry) => this.isValidValidationEntry(entry));
     }
 
     /**

@@ -887,6 +887,10 @@ interface QuillCellContent {
     deleted?: boolean;
     data?: { [key: string]: any; footnotes?: Footnote[]; };
     attachments?: { [attachmentId: string]: { type: string; isDeleted?: boolean; isMissing?: boolean; url?: string; validatedBy?: ValidationEntry[]; }; };
+    metadata?: {
+        selectedAudioId?: string;
+        [key: string]: any;
+    };
 }
 
 interface Timestamps {
@@ -1736,6 +1740,8 @@ type EditorReceiveMessages =
         type: "providerUpdatesAudioValidationState";
         content: {
             cellId: string;
+            validatedBy: ValidationEntry[];
+            selectedAudioId?: string;
         };
     }
     | {
