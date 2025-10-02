@@ -350,6 +350,13 @@ export interface NotificationMessage {
     message: string;
 }
 
+export interface SaveFileMessage {
+    command: 'saveFile';
+    fileName: string;
+    dataBase64: string; // may be data: URL or raw base64
+    mime?: string;
+}
+
 export interface ImportBookNamesMessage {
     command: 'importBookNames';
     xmlContent: string;
@@ -397,4 +404,4 @@ export interface StartTranslatingMessage {
     command: 'startTranslating';
 }
 
-export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage | OverwriteConfirmationMessage | OverwriteResponseMessage | DownloadResourceMessage | DownloadResourceProgressMessage | DownloadResourceCompleteMessage | StartTranslatingMessage; 
+export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage | OverwriteConfirmationMessage | OverwriteResponseMessage | DownloadResourceMessage | DownloadResourceProgressMessage | DownloadResourceCompleteMessage | StartTranslatingMessage | SaveFileMessage; 

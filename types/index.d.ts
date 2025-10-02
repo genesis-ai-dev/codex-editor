@@ -1153,6 +1153,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "setValidationCount"; }
     | { command: "setValidationCountAudio"; }
     | { command: "openSourceUpload"; }
+    | { command: "openExportView"; }
     | { command: "openAISettings"; }
     | { command: "openLicenseSettings"; }
     | { command: "openExportView"; }

@@ -322,6 +322,14 @@ function getWebviewContent(
                                     <span class="format-tag">Translation Ready</span>
                                 </div>
                             </div>
+                            <div class="format-option" data-format="idml-roundtrip" style="flex: 1;">
+                                <i class="codicon codicon-package"></i>
+                                <div>
+                                    <strong>IDML Round-trip</strong>
+                                    <p>Export translated content back into the original IDML structure</p>
+                                    <span class="format-tag">InDesign</span>
+                                </div>
+                            </div>
                             <div class="format-option" data-format="audio" style="flex: 1;">
                                 <i class="codicon codicon-mic"></i>
                                 <div>

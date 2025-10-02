@@ -205,12 +205,13 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             metadata: {
                 id: processedCell.id,
                 type: CodexCellTypes.TEXT,
-                data: processedCell.metadata?.data || processedCell.metadata || {},
                 edits: [],
-                // Spread any additional metadata from the processed cell
+                // Spread all metadata from the processed cell first, preserving our enhanced structure
                 ...(processedCell.metadata && typeof processedCell.metadata === 'object'
                     ? processedCell.metadata
-                    : {})
+                    : {}),
+                // Then override with standard data field if it exists
+                data: processedCell.metadata?.data || {}
             }
         }));
 
@@ -442,6 +443,63 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             await vscode.window.withProgress(progressOptions, async (progress) => {
                 progress.report({ increment: 0, message: "Preparing media attachments..." });
 
+                // Helper to download a remote file into a Buffer (uses fetch when available, falls back to https)
+                const downloadRemoteToBuffer = async (url: string): Promise<{ buffer: Buffer; mime: string; fileNameHint?: string; }> => {
+                    try {
+                        const anyGlobal: any = globalThis as any;
+                        if (anyGlobal.fetch) {
+                            const res = await anyGlobal.fetch(url);
+                            if (!res.ok) {
+                                throw new Error(`HTTP ${res.status} ${res.statusText}`);
+                            }
+                            const arrayBuffer = await res.arrayBuffer();
+                            const mime = (res.headers?.get && res.headers.get('content-type')) || '';
+                            const cd = (res.headers?.get && res.headers.get('content-disposition')) || '';
+                            const cdMatch = cd.match(/filename\*?=(?:UTF-8''|")?([^";\r\n]+)/i);
+                            const fileNameHint = cdMatch ? decodeURIComponent(cdMatch[1].replace(/"/g, '')) : undefined;
+                            return { buffer: Buffer.from(arrayBuffer), mime, fileNameHint };
+                        }
+                    } catch (e) {
+                        // fall through to https fallback
+                    }
+
+                    const { request } = await import('node:https');
+                    const { parse } = await import('node:url');
+                    const urlObj = parse(url);
+                    const isHttps = true;
+                    const maxRedirects = 5;
+                    const fetchWithRedirects = (currentUrl: string, redirectsLeft: number): Promise<{ buffer: Buffer; mime: string; fileNameHint?: string; }> => {
+                        return new Promise((resolve, reject) => {
+                            const req = request(currentUrl, (res) => {
+                                if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                                    if (redirectsLeft <= 0) return reject(new Error('Too many redirects'));
+                                    const nextUrl = res.headers.location.startsWith('http') ? res.headers.location : new URL(res.headers.location, currentUrl).toString();
+                                    res.resume();
+                                    return resolve(fetchWithRedirects(nextUrl, redirectsLeft - 1));
+                                }
+                                if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+                                    return reject(new Error(`HTTP ${res.statusCode}`));
+                                }
+                                const chunks: Buffer[] = [];
+                                res.on('data', (d) => chunks.push(Buffer.isBuffer(d) ? d : Buffer.from(d)));
+                                res.on('end', () => {
+                                    const buffer = Buffer.concat(chunks);
+                                    const mime = (res.headers['content-type'] as string) || '';
+                                    const cd = (res.headers['content-disposition'] as string) || '';
+                                    const cdMatch = cd.match(/filename\*?=(?:UTF-8''|")?([^";\r\n]+)/i);
+                                    const fileNameHint = cdMatch ? decodeURIComponent(cdMatch[1].replace(/"/g, '')) : undefined;
+                                    resolve({ buffer, mime, fileNameHint });
+                                });
+                                res.on('error', reject);
+                            });
+                            req.on('error', reject);
+                            req.end();
+                        });
+                    };
+
+                    return await fetchWithRedirects(url, maxRedirects);
+                };
+
                 // Process attachments in smaller batches to avoid blocking
                 const batchSize = 3;
                 for (let i = 0; i < message.attachments.length; i += batchSize) {
@@ -449,7 +507,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
                     // Process batch in parallel
                     await Promise.all(batch.map(async (attachment) => {
-                        const { cellId, attachmentId, fileName, dataBase64, sourceFileId, isFromVideo } = attachment as any;
+                        const { cellId, attachmentId, fileName, dataBase64, sourceFileId, isFromVideo, remoteUrl } = attachment as any;
                         const docSegment = (cellId || "").split(" ")[0] || "UNKNOWN";
                         const filesDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "attachments", "files", docSegment);
                         const pointersDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "attachments", "pointers", docSegment);
@@ -457,6 +515,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         await vscode.workspace.fs.createDirectory(pointersDir);
 
                         let audioBuffer: Buffer;
+                        let effectiveFileName = fileName as string;
 
                         // Handle segments with actual data
                         if (dataBase64) {
@@ -476,8 +535,21 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             audioBuffer = await processMediaAttachment(attachment, isFromVideo || false);
 
                             // Write the audio file
-                            const filesPath = vscode.Uri.joinPath(filesDir, fileName);
-                            const pointersPath = vscode.Uri.joinPath(pointersDir, fileName);
+                            const filesPath = vscode.Uri.joinPath(filesDir, effectiveFileName);
+                            const pointersPath = vscode.Uri.joinPath(pointersDir, effectiveFileName);
+                            await vscode.workspace.fs.writeFile(filesPath, audioBuffer);
+                            await vscode.workspace.fs.writeFile(pointersPath, audioBuffer);
+                        } else if (remoteUrl) {
+                            // Download remotely (bypasses webview CORS)
+                            const { buffer, mime, fileNameHint } = await downloadRemoteToBuffer(remoteUrl);
+                            audioBuffer = buffer;
+                            // If no extension on provided fileName, infer from mime or hint
+                            if (!/\.[a-z0-9]+$/i.test(effectiveFileName)) {
+                                const extFromMime = (mime && mime.includes('/')) ? mime.split('/').pop() || 'mp3' : 'mp3';
+                                effectiveFileName = fileNameHint || `${attachmentId}.${extFromMime}`;
+                            }
+                            const filesPath = vscode.Uri.joinPath(filesDir, effectiveFileName);
+                            const pointersPath = vscode.Uri.joinPath(pointersDir, effectiveFileName);
                             await vscode.workspace.fs.writeFile(filesPath, audioBuffer);
                             await vscode.workspace.fs.writeFile(pointersPath, audioBuffer);
                         } else if (sourceFileId) {
@@ -494,8 +566,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                                 };
                                 // Extract the specific time range from the video
                                 const processedAudio = await processMediaAttachment(tempAttachment, true);
-                                const filesPath = vscode.Uri.joinPath(filesDir, fileName);
-                                const pointersPath = vscode.Uri.joinPath(pointersDir, fileName);
+                                const filesPath = vscode.Uri.joinPath(filesDir, effectiveFileName);
+                                const pointersPath = vscode.Uri.joinPath(pointersDir, effectiveFileName);
                                 await vscode.workspace.fs.writeFile(filesPath, processedAudio);
                                 await vscode.workspace.fs.writeFile(pointersPath, processedAudio);
                             } else {

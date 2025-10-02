@@ -330,6 +330,15 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 }
                 break;
             }
+            case "openExportView": {
+                try {
+                    await vscode.commands.executeCommand("codex-project-manager.openExportView");
+                } catch (error) {
+                    console.error("Error opening export view:", error);
+                    vscode.window.showErrorMessage(`Failed to open export view: ${error}`);
+                }
+                break;
+            }
             case "editBookName": {
                 try {
                     await vscode.commands.executeCommand("codex-editor.openBookNameEditor");

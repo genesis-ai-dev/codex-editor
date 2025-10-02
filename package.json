@@ -426,6 +426,11 @@
                 "category": "Codex Maintenance"
             },
             {
+                "command": "codex-editor-extension.migrateValidationsForUserEdits",
+                "title": "Codex: Migrate Validations for User Edits",
+                "category": "Codex Maintenance"
+            },
+            {
                 "command": "codex-editor-extension.focusCommentsView",
                 "title": "Focus Comments View",
                 "category": "Codex Comments"
@@ -970,7 +975,7 @@
         "@types/jszip": "^3.4.1",
         "@types/lodash": "^4.17.13",
         "@types/md5": "^2.3.5",
-        "@types/mocha": "^10.0.9",
+        "@types/mocha": "^10.0.10",
         "@types/node": "^18.19.0",
         "@types/react": "^18.3.3",
         "@types/react-dom": "^18.3.1",
@@ -1025,8 +1030,8 @@
         "vscode-languageserver-textdocument": "^1.0.12",
         "wdio-vscode-service": "^6.1.3",
         "webdriverio": "^8.45.0",
-        "webpack": "^5.95.0",
-        "webpack-cli": "^5.1.4"
+        "webpack": "^5.101.3",
+        "webpack-cli": "^6.0.1"
     },
     "dependencies": {
         "@types/better-sqlite3": "^7.6.11",
