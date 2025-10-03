@@ -55,25 +55,72 @@ export const migration_chatSystemMessageSetting = async () => {
             newSettingInspection?.workspaceFolderValue !== undefined ||
             newSettingInspection?.globalValue !== undefined;
 
-        if (hasNewValue) {
-            console.log('New chatSystemMessage setting already has a value. Skipping migration.');
-            return;
-        }
-
         // Check if the old setting has a value (excluding default)
         const oldSettingInspection = oldConfig.inspect("chatSystemMessage");
         const oldValue = oldSettingInspection?.workspaceValue ||
             oldSettingInspection?.workspaceFolderValue ||
             oldSettingInspection?.globalValue;
 
-        if (oldValue) {
-            console.log('Migrating chatSystemMessage from translators-copilot to codex-editor-extension namespace...');
+        // CASE 1: Both keys exist - delete the old one (but warn if values differ)
+        if (hasNewValue && oldValue) {
+            // Get the new value to compare
+            const newValue = newSettingInspection?.workspaceValue ||
+                newSettingInspection?.workspaceFolderValue ||
+                newSettingInspection?.globalValue;
 
-            // Migrate to workspace scope to match the old setting's scope
+            // Warn if values are different
+            if (JSON.stringify(newValue) !== JSON.stringify(oldValue)) {
+                console.warn('⚠️ Both chatSystemMessage keys exist with DIFFERENT values!');
+                console.warn(`  Old (translators-copilot): ${JSON.stringify(oldValue)}`);
+                console.warn(`  New (codex-editor-extension): ${JSON.stringify(newValue)}`);
+                console.warn('  → Keeping NEW value and deleting old key...');
+            } else {
+                console.log('Both chatSystemMessage keys exist with same value. Removing deprecated key...');
+            }
+
             const targetScope = oldSettingInspection?.workspaceValue ? vscode.ConfigurationTarget.Workspace :
                 oldSettingInspection?.workspaceFolderValue ? vscode.ConfigurationTarget.WorkspaceFolder :
                     vscode.ConfigurationTarget.Global;
 
+            try {
+                await oldConfig.update(
+                    "chatSystemMessage",
+                    undefined, // Setting to undefined removes the key
+                    targetScope
+                );
+
+                // Verify deletion worked
+                const verifyOldConfig = vscode.workspace.getConfiguration("translators-copilot");
+                const stillExists = verifyOldConfig.inspect("chatSystemMessage")?.workspaceValue ||
+                    verifyOldConfig.inspect("chatSystemMessage")?.workspaceFolderValue ||
+                    verifyOldConfig.inspect("chatSystemMessage")?.globalValue;
+
+                if (stillExists) {
+                    console.error('⚠️ Failed to delete old chatSystemMessage key! It may still exist in a different scope.');
+                } else {
+                    console.log('✅ Successfully removed deprecated setting (new key already exists).');
+                }
+            } catch (error) {
+                console.error('❌ Error removing deprecated chatSystemMessage:', error);
+            }
+            return;
+        }
+
+        // CASE 2: Only new key exists - nothing to do
+        if (hasNewValue && !oldValue) {
+            console.log('New chatSystemMessage setting already exists, old setting not found. No migration needed.');
+            return;
+        }
+
+        // CASE 3: Only old key exists - migrate and delete
+        if (!hasNewValue && oldValue) {
+            console.log('Migrating chatSystemMessage from translators-copilot to codex-editor-extension namespace...');
+
+            const targetScope = oldSettingInspection?.workspaceValue ? vscode.ConfigurationTarget.Workspace :
+                oldSettingInspection?.workspaceFolderValue ? vscode.ConfigurationTarget.WorkspaceFolder :
+                    vscode.ConfigurationTarget.Global;
+
+            // Copy value to new key
             await codexConfig.update(
                 "chatSystemMessage",
                 oldValue,
@@ -82,9 +129,20 @@ export const migration_chatSystemMessageSetting = async () => {
 
             console.log(`Successfully migrated chatSystemMessage setting to ${targetScope === vscode.ConfigurationTarget.Workspace ? 'workspace' :
                 targetScope === vscode.ConfigurationTarget.WorkspaceFolder ? 'workspace folder' : 'global'} scope.`);
-        } else {
-            console.log('No chatSystemMessage setting found in translators-copilot namespace. No migration needed.');
+
+            // Delete the old key
+            console.log('Removing deprecated translators-copilot.chatSystemMessage setting...');
+            await oldConfig.update(
+                "chatSystemMessage",
+                undefined, // Setting to undefined removes the key
+                targetScope
+            );
+            console.log('Successfully removed deprecated setting.');
+            return;
         }
+
+        // CASE 4: Neither key exists - nothing to do
+        console.log('No chatSystemMessage setting found in either namespace. No migration needed.');
     } catch (error) {
         console.error('Error during chatSystemMessage migration:', error);
     }
