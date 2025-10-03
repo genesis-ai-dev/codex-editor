@@ -875,6 +875,17 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
+    validateAudioCell: async ({ event, document, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "validateAudioCell"; }>;
+        if (typedEvent.content?.cellId) {
+            await provider.enqueueAudioValidation(
+                typedEvent.content.cellId,
+                document,
+                typedEvent.content.validate
+            );
+        }
+    },
+
     getValidationCount: async ({ webviewPanel, provider }) => {
         // Validation count is now bundled with initial content; only send on explicit request
         const config = vscode.workspace.getConfiguration("codex-project-manager");
@@ -882,6 +893,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         provider.postMessageToWebview(webviewPanel, {
             type: "validationCount",
             content: validationCount,
+        });
+    },
+
+    getValidationCountAudio: async ({ webviewPanel, provider }) => {
+        // Audio validation count is now bundled with initial content; only send on explicit request
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        const validationCountAudio = config.get("validationCountAudio", 1);
+        provider.postMessageToWebview(webviewPanel, {
+            type: "validationCountAudio",
+            content: validationCountAudio,
         });
     },
 
@@ -1515,9 +1536,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     getAudioHistory: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "getAudioHistory"; }>;
-        console.log("getAudioHistory message received", {
-            cellId: typedEvent.content.cellId
-        });
 
         // Clean up any invalid audio selections (safe to do now that document is loaded)
         document.cleanupInvalidAudioSelections();
@@ -1601,6 +1619,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
             const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
             const availability: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; } = {} as any;
+            let validatedByArray: ValidationEntry[] = [];
 
             for (const cell of cells) {
                 const cellId = cell?.metadata?.id;
@@ -1609,6 +1628,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 let hasMissing = false;
                 let hasDeleted = false;
                 const atts = cell?.metadata?.attachments || {};
+
                 for (const key of Object.keys(atts)) {
                     const att: any = (atts as any)[key];
                     if (att && att.type === "audio") {
@@ -1620,6 +1640,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             hasAvailable = true;
                         }
                     }
+
+                    if (cellId === typedEvent.content.cellId && key === cell?.metadata?.selectedAudioId) {
+                        const validatedBy = Array.isArray(att?.validatedBy) ? att.validatedBy : [];
+                        validatedByArray = [...validatedBy];
+                    }
                 }
                 availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
             }
@@ -1628,6 +1653,17 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 type: "providerSendsAudioAttachments",
                 attachments: availability as any,
             });
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerUpdatesAudioValidationState",
+                content: {
+                    cellId: typedEvent.content.cellId,
+                    selectedAudioId: typedEvent.content.audioId,
+                    validatedBy: validatedByArray
+                },
+            });
+
+
 
             // Save the changes to the document
 

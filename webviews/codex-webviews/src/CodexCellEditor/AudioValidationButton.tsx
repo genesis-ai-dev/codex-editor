@@ -7,7 +7,7 @@ import { processValidationQueue, enqueueValidation } from "./validationQueue";
 import { isValidValidationEntry } from "./validationUtils";
 
 // Static tracking for active popover to ensure only one is shown at a time
-const popoverTracker = {
+const audioPopoverTracker = {
     activePopoverId: null as string | null,
     setActivePopover(id: string | null) {
         this.activePopoverId = id;
@@ -17,32 +17,72 @@ const popoverTracker = {
     },
 };
 
-interface ValidationButtonProps {
+const dedupeActiveValidations = (entries: ValidationEntry[]): ValidationEntry[] => {
+    const userMap = new Map<string, ValidationEntry>();
+
+    entries.forEach((entry) => {
+        if (!isValidValidationEntry(entry) || entry.isDeleted) {
+            return;
+        }
+
+        const existing = userMap.get(entry.username);
+        if (!existing || entry.updatedTimestamp > existing.updatedTimestamp) {
+            userMap.set(entry.username, entry);
+        }
+    });
+
+    return Array.from(userMap.values());
+};
+
+const areValidationListsEqual = (a: ValidationEntry[], b: ValidationEntry[]): boolean => {
+    if (a.length !== b.length) {
+        return false;
+    }
+
+    const sortByUsername = (list: ValidationEntry[]) =>
+        [...list].sort((left, right) => left.username.localeCompare(right.username));
+
+    const sortedA = sortByUsername(a);
+    const sortedB = sortByUsername(b);
+
+    return sortedA.every((entry, index) => {
+        const other = sortedB[index];
+        return (
+            entry.username === other.username &&
+            entry.updatedTimestamp === other.updatedTimestamp &&
+            entry.isDeleted === other.isDeleted
+        );
+    });
+};
+
+interface AudioValidationButtonProps {
     cellId: string;
     cell: QuillCellContent;
     vscode: any;
     isSourceText: boolean;
     currentUsername?: string | null;
-    requiredValidations?: number;
-    // When true, the button is disabled (e.g., missing audio or text)
+    requiredAudioValidations?: number;
+    // When true, the button is disabled (e.g., missing audio)
     disabled?: boolean;
     // Optional tooltip to explain why disabled
     disabledReason?: string;
 }
 
-const ValidationButton: React.FC<ValidationButtonProps> = ({
+const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     cellId,
     cell,
     vscode,
     isSourceText,
     currentUsername,
-    requiredValidations: requiredValidationsProp,
+    requiredAudioValidations: requiredAudioValidationsProp,
     disabled: externallyDisabled,
     disabledReason,
 }) => {
     const [isValidated, setIsValidated] = useState(false);
     const [username, setUsername] = useState<string | null>(currentUsername ?? null);
-    const [requiredValidations, setRequiredValidations] = useState(requiredValidationsProp ?? 1);
+    const [requiredAudioValidations, setRequiredAudioValidations] = useState(
+        requiredAudioValidationsProp ?? 1
+    );
     const [userCreatedLatestEdit, setUserCreatedLatestEdit] = useState(false);
     const [showPopover, setShowPopover] = useState(false);
     const [isPersistentPopover, setIsPersistentPopover] = useState(false);
@@ -53,7 +93,9 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     const [isValidationInProgress, setIsValidationInProgress] = useState(false);
     const buttonRef = useRef<HTMLDivElement>(null);
     const popoverRef = useRef<HTMLDivElement>(null);
-    const uniqueId = useRef(`validation-${cellId}-${Math.random().toString(36).substring(2, 11)}`);
+    const uniqueId = useRef(
+        `audio-validation-${cellId}-${Math.random().toString(36).substring(2, 11)}`
+    );
 
     // Create a deduplicated list of validation users
     const uniqueValidationUsers = useMemo(() => {
@@ -81,45 +123,45 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         return uniqueValidationUsers.length;
     }, [uniqueValidationUsers]);
 
-    // Function to fetch validation count
-    const fetchValidationCount = () => {
+    // Function to fetch audio validation count
+    const fetchValidationCountAudio = () => {
         // Only fetch if parent hasn't provided it
-        if (requiredValidationsProp == null) {
+        if (requiredAudioValidationsProp == null) {
             vscode.postMessage({
-                command: "getValidationCount",
+                command: "getValidationCountAudio",
             });
         }
     };
 
-    // Update validation state when editHistory changes
+    // Update validation state when attachments changes
     useEffect(() => {
-        // Validation count is now bundled with initial content, no need to fetch repeatedly
-
-        // Check if there are any edits
-        if (!cell.editHistory || cell.editHistory.length === 0) {
+        if (!cell.attachments) {
             return;
         }
 
-        // Get the latest edit
-        const cellValueData = getCellValueData(cell);
+        const effectiveSelectedAudioId = cell.metadata?.selectedAudioId ?? "";
+
+        const cellValueData = getCellValueData({
+            ...cell,
+            metadata: {
+                ...(cell.metadata || {}),
+                selectedAudioId: effectiveSelectedAudioId,
+            },
+        } as any);
+
         setUserCreatedLatestEdit(
             cellValueData.author === username && cellValueData.editType === "user-edit"
         );
 
-        // Check if the current user has already validated this edit
-        if (cellValueData.validatedBy && username) {
-            // Look for the user's entry in validatedBy and check if isDeleted is false
-            const userEntry = cellValueData.validatedBy.find(
-                (entry) =>
-                    isValidValidationEntry(entry) && entry.username === username && !entry.isDeleted
-            );
-            setIsValidated(!!userEntry);
+        const activeValidations = dedupeActiveValidations(cellValueData.audioValidatedBy || []);
+        setValidationUsers((previous) =>
+            areValidationListsEqual(previous, activeValidations) ? previous : activeValidations
+        );
 
-            // Get all active validation users
-            const activeValidations = cellValueData.validatedBy.filter(
-                (entry) => isValidValidationEntry(entry) && !entry.isDeleted
-            );
-            setValidationUsers(activeValidations);
+        if (username) {
+            const userEntry = activeValidations.find((entry) => entry.username === username);
+
+            setIsValidated(!!userEntry);
         }
     }, [cell, username]);
 
@@ -129,64 +171,69 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         if (currentUsername) {
             setUsername(currentUsername);
         }
-        // No need to request username separately - it comes bundled with initial content
     }, [currentUsername]);
 
-    // Update requiredValidations when prop changes
+    // Update requiredAudioValidations when prop changes
     useEffect(() => {
-        if (requiredValidationsProp !== undefined && requiredValidationsProp !== null) {
-            setRequiredValidations(requiredValidationsProp);
+        if (requiredAudioValidationsProp !== undefined && requiredAudioValidationsProp !== null) {
+            setRequiredAudioValidations(requiredAudioValidationsProp);
         }
-    }, [requiredValidationsProp]);
+    }, [requiredAudioValidationsProp]);
+
+    // Consolidated handler to update state from a validatedBy list
+    const applyValidatedByUpdate = (validatedBy: ValidationEntry[] | undefined) => {
+        const list = validatedBy || [];
+        if (username) {
+            // Check if the user has an active validation (not deleted)
+            const userEntry = list.find(
+                (entry: ValidationEntry) =>
+                    isValidValidationEntry(entry) && entry.username === username && !entry.isDeleted
+            );
+            setIsValidated(!!userEntry);
+
+            // Update the list of validation users
+            const activeValidations = list.filter(
+                (entry: ValidationEntry) => isValidValidationEntry(entry) && !entry.isDeleted
+            );
+            setValidationUsers(activeValidations);
+
+            // Validation is complete, clear pending/in-progress state
+            setIsPendingValidation(false);
+            setIsValidationInProgress(false);
+        }
+    };
 
     useMessageHandler(
-        "validationButton",
+        "audioValidationButton",
         (event: MessageEvent) => {
             const message = event.data;
             if (!currentUsername && message.type === "currentUsername") {
                 setUsername(message.content.username);
-            } else if (requiredValidationsProp == null && message.type === "validationCount") {
-                setRequiredValidations(message.content);
+            } else if (
+                requiredAudioValidationsProp == null &&
+                message.type === "validationCountAudio"
+            ) {
+                setRequiredAudioValidations(message.content);
 
-                // The component will re-render with the new requiredValidations value
+                // The component will re-render with the new requiredAudioValidations value
                 // which will recalculate isFullyValidated in the render function
-            } else if (message.type === "providerUpdatesValidationState") {
-                // Handle validation state updates from the backend
+            } else if (message.type === "providerUpdatesAudioValidationState") {
+                // Handle audio validation state updates from the backend
                 if (message.content.cellId === cellId) {
-                    const validatedBy = message.content.validatedBy || [];
-                    if (username) {
-                        // Check if the user has an active validation (not deleted)
-                        const userEntry = validatedBy.find(
-                            (entry: any) =>
-                                isValidValidationEntry(entry) &&
-                                entry.username === username &&
-                                !entry.isDeleted
-                        );
-                        setIsValidated(!!userEntry);
-
-                        // Update the list of validation users
-                        const activeValidations = validatedBy.filter(
-                            (entry: any) => isValidValidationEntry(entry) && !entry.isDeleted
-                        );
-                        setValidationUsers(activeValidations);
-
-                        // Validation is complete, clear pending state
-                        setIsPendingValidation(false);
-                        setIsValidationInProgress(false);
-                    }
+                    applyValidatedByUpdate(message.content.validatedBy);
                 }
             } else if (message.type === "configurationChanged") {
-                // Configuration changes now send validationCount directly, no need to refetch
-                console.log("Configuration changed - validation count will be sent directly");
-            } else if (message.command === "updateValidationCount") {
+                // Configuration changes now send validationCountAudio directly, no need to refetch
+                console.log("Configuration changed - audio validation count will be sent directly");
+            } else if (message.command === "updateAudioValidationCount") {
                 setValidationUsers(message.content.validations || []);
-                if (requiredValidationsProp == null) {
-                    setRequiredValidations(message.content.requiredValidations || 1);
+                if (requiredAudioValidationsProp == null) {
+                    setRequiredAudioValidations(message.content.requiredAudioValidations || 1);
                 }
                 setIsValidated(message.content.isValidated);
                 setUserCreatedLatestEdit(message.content.userCreatedLatestEdit);
-            } else if (message.type === "validationInProgress") {
-                // Handle validation in progress message
+            } else if (message.type === "audioValidationInProgress") {
+                // Handle audio validation in progress message
                 if (message.content.cellId === cellId) {
                     setIsValidationInProgress(message.content.inProgress);
                     if (!message.content.inProgress) {
@@ -194,14 +241,16 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                         setIsPendingValidation(false);
                     }
                 }
-            } else if (message.type === "pendingValidationCleared") {
-                // Handle when all pending validations are cleared
+            } else if (message.type === "pendingAudioValidationCleared") {
+                // Handle when all pending audio validations are cleared
                 if (message.content.cellIds.includes(cellId)) {
                     setIsPendingValidation(false);
                 }
+            } else if (message.type === "audioHistorySelectionChanged") {
+                applyValidatedByUpdate(message.content.validatedBy);
             }
         },
-        [cellId, username, currentUsername, requiredValidationsProp]
+        [cellId, username, currentUsername, requiredAudioValidationsProp]
     );
 
     // Close popover when clicking outside of it
@@ -211,8 +260,8 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 setShowPopover(false);
                 setIsPersistentPopover(false);
                 setIsDetailedView(false);
-                if (popoverTracker.getActivePopover() === uniqueId.current) {
-                    popoverTracker.setActivePopover(null);
+                if (audioPopoverTracker.getActivePopover() === uniqueId.current) {
+                    audioPopoverTracker.setActivePopover(null);
                 }
             }
         };
@@ -225,7 +274,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
 
     // Check if we should close our popover when another becomes active
     useEffect(() => {
-        if (showPopover && popoverTracker.getActivePopover() !== uniqueId.current) {
+        if (showPopover && audioPopoverTracker.getActivePopover() !== uniqueId.current) {
             setShowPopover(false);
             setIsPersistentPopover(false);
             setIsDetailedView(false);
@@ -299,19 +348,20 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         // Immediately set pending state
         setIsPendingValidation(true);
 
-        // Add to validation queue for sequential processing
-        enqueueValidation(cellId, !isValidated)
+        // Add to audio validation queue for sequential processing
+        enqueueValidation(cellId, !isValidated, true) // true indicates audio validation
             .then(() => {
                 // Validation request has been queued successfully
             })
             .catch((error) => {
-                console.error("Validation queue error:", error);
+                console.error("Audio validation queue error:", error);
                 setIsPendingValidation(false);
             });
 
         // Process the queue
-        processValidationQueue(vscode).catch((error) => {
-            console.error("Validation queue processing error:", error);
+        processValidationQueue(vscode, true).catch((error) => {
+            // true indicates audio validation
+            console.error("Audio validation queue processing error:", error);
             setIsPendingValidation(false);
         });
 
@@ -321,13 +371,14 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 setShowPopover(false);
                 setIsPersistentPopover(false);
                 setIsDetailedView(false);
-                popoverTracker.setActivePopover(null);
+                audioPopoverTracker.setActivePopover(null);
             }
         }, 500);
     };
 
     const handleButtonClick = (e: React.MouseEvent) => {
         e.stopPropagation();
+
         if (isDisabled) return;
         // If not validated yet, validate the cell
         if (!isValidated) {
@@ -335,11 +386,11 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             return;
         }
 
-        // For validated cells, toggle the persistent popover with detailed view
+        // // For validated cells, toggle the persistent popover with detailed view
         setShowPopover(true);
         setIsPersistentPopover(true);
         setIsDetailedView(true);
-        popoverTracker.setActivePopover(uniqueId.current);
+        audioPopoverTracker.setActivePopover(uniqueId.current);
     };
 
     const showPopoverHandler = (e: React.MouseEvent) => {
@@ -353,7 +404,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         if (!showPopover && uniqueValidationUsers.length > 0) {
             setShowPopover(true);
             setIsDetailedView(false); // Simple view on hover
-            popoverTracker.setActivePopover(uniqueId.current);
+            audioPopoverTracker.setActivePopover(uniqueId.current);
         }
     };
 
@@ -371,31 +422,25 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 if (!buttonRef.current?.matches(":hover")) {
                     setShowPopover(false);
                     setIsDetailedView(false);
-                    if (popoverTracker.getActivePopover() === uniqueId.current) {
-                        popoverTracker.setActivePopover(null);
+                    if (audioPopoverTracker.getActivePopover() === uniqueId.current) {
+                        audioPopoverTracker.setActivePopover(null);
                     }
                 }
             }, 100);
         }
     };
 
-    // TODO: This is not used anywhere. Maybe it was abandoned for doing it inline?
     const closePopover = (e: React.MouseEvent) => {
         e.stopPropagation();
         setShowPopover(false);
         setIsPersistentPopover(false);
         setIsDetailedView(false);
-        if (popoverTracker.getActivePopover() === uniqueId.current) {
-            popoverTracker.setActivePopover(null);
+        if (audioPopoverTracker.getActivePopover() === uniqueId.current) {
+            audioPopoverTracker.setActivePopover(null);
         }
     };
 
-    // Don't show validation button for source text or if no username is available
-    if (isSourceText || !username) {
-        return null;
-    }
-
-    const isFullyValidated = currentValidations >= requiredValidations;
+    const isFullyValidated = currentValidations >= requiredAudioValidations;
 
     const buttonStyle = {
         height: "16px",
@@ -404,6 +449,101 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
+    };
+
+    const renderStatusIcon = () => {
+        if (isValidationInProgress) {
+            return (
+                <i
+                    className="codicon codicon-loading"
+                    style={{
+                        fontSize: "12px",
+                        color: isDisabled
+                            ? "var(--vscode-disabledForeground)"
+                            : "var(--vscode-descriptionForeground)",
+                        animation: "spin 1.5s linear infinite",
+                    }}
+                ></i>
+            );
+        }
+
+        if (currentValidations === 0) {
+            // Empty circle - No validations
+            return (
+                <i
+                    className="codicon codicon-circle-outline"
+                    style={{
+                        fontSize: "12px",
+                        // Keep original color, don't change for pending validation
+                        color: isDisabled
+                            ? "var(--vscode-disabledForeground)"
+                            : "var(--vscode-descriptionForeground)",
+                    }}
+                ></i>
+            );
+        }
+
+        if (isFullyValidated) {
+            if (isValidated) {
+                // Double green checkmarks - Fully validated and current user has validated
+                return (
+                    <i
+                        className="codicon codicon-check-all"
+                        style={{
+                            fontSize: "12px",
+                            // Keep original color, don't change for pending validation
+                            color: isDisabled
+                                ? "var(--vscode-disabledForeground)"
+                                : "var(--vscode-testing-iconPassed)",
+                        }}
+                    ></i>
+                );
+            }
+
+            // Double grey checkmarks - Fully validated but current user hasn't validated
+            return (
+                <i
+                    className="codicon codicon-check-all"
+                    style={{
+                        fontSize: "12px",
+                        // Keep original color, don't change for pending validation
+                        color: isDisabled
+                            ? "var(--vscode-disabledForeground)"
+                            : "var(--vscode-descriptionForeground)",
+                    }}
+                ></i>
+            );
+        }
+
+        if (isValidated) {
+            // Green checkmark - Current user validated but not fully validated
+            return (
+                <i
+                    className="codicon codicon-check"
+                    style={{
+                        fontSize: "12px",
+                        // Keep original color, don't change for pending validation
+                        color: isDisabled
+                            ? "var(--vscode-disabledForeground)"
+                            : "var(--vscode-testing-iconPassed)",
+                    }}
+                ></i>
+            );
+        }
+
+        // Grey filled circle - Has validations but not from current user
+        return (
+            <i
+                className="codicon codicon-circle-filled"
+                style={{
+                    fontSize: "12px",
+                    // Keep original color, don't change for pending validation
+                    color: isDisabled
+                        ? "var(--vscode-disabledForeground)"
+                        : "var(--vscode-descriptionForeground)",
+                }}
+            ></i>
+        );
     };
 
     // Helper function to format timestamps
@@ -440,7 +580,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
 
     const isDisabled = isSourceText || isValidationInProgress || Boolean(externallyDisabled);
 
-    // Don't show validation button for source text or if no username is available
+    // Don't show audio validation button for source text or if no username is available
     if (isSourceText || !username) {
         return null;
     }
@@ -448,7 +588,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     return (
         <div
             ref={buttonRef}
-            className="validation-button-container"
+            className="audio-validation-button-container"
             onMouseEnter={showPopoverHandler}
             onMouseLeave={hidePopoverHandler}
             onClick={handleButtonClick}
@@ -468,87 +608,11 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                     e.stopPropagation();
                     handleButtonClick(e);
                 }}
-                // Disable for source text, in-progress, or when externally requested (e.g., no audio/text)
+                // Disable for source text, in-progress, or when externally requested (e.g., no audio)
                 disabled={isDisabled}
-                title={
-                    isDisabled ? disabledReason || "Validation requires text and audio" : undefined
-                }
+                title={isDisabled ? disabledReason || "Audio validation requires audio" : undefined}
             >
-                {/* Show spinner when validation is in progress */}
-                {isValidationInProgress ? (
-                    <i
-                        className="codicon codicon-loading"
-                        style={{
-                            fontSize: "12px",
-                            color: isDisabled
-                                ? "var(--vscode-disabledForeground)"
-                                : "var(--vscode-descriptionForeground)",
-                            animation: "spin 1.5s linear infinite",
-                        }}
-                    ></i>
-                ) : currentValidations === 0 ? (
-                    // Empty circle - No validations
-                    <i
-                        className="codicon codicon-circle-outline rounded-lg"
-                        style={{
-                            fontSize: "12px",
-                            // Keep original color, don't change for pending validation
-                            color: isDisabled
-                                ? "var(--vscode-disabledForeground)"
-                                : "var(--vscode-descriptionForeground)",
-                        }}
-                    ></i>
-                ) : isFullyValidated ? (
-                    isValidated ? (
-                        // Double green checkmarks - Fully validated and current user has validated
-                        <i
-                            className="codicon codicon-check-all rounded-lg"
-                            style={{
-                                fontSize: "12px",
-                                // Keep original color, don't change for pending validation
-                                color: isDisabled
-                                    ? "var(--vscode-disabledForeground)"
-                                    : "var(--vscode-testing-iconPassed)",
-                            }}
-                        ></i>
-                    ) : (
-                        // Double grey checkmarks - Fully validated but current user hasn't validated
-                        <i
-                            className="codicon codicon-check-all rounded-lg"
-                            style={{
-                                fontSize: "12px",
-                                // Keep original color, don't change for pending validation
-                                color: isDisabled
-                                    ? "var(--vscode-disabledForeground)"
-                                    : "var(--vscode-descriptionForeground)",
-                            }}
-                        ></i>
-                    )
-                ) : isValidated ? (
-                    // Green checkmark - Current user validated but not fully validated
-                    <i
-                        className="codicon codicon-check rounded-lg"
-                        style={{
-                            fontSize: "12px",
-                            // Keep original color, don't change for pending validation
-                            color: isDisabled
-                                ? "var(--vscode-disabledForeground)"
-                                : "var(--vscode-testing-iconPassed)",
-                        }}
-                    ></i>
-                ) : (
-                    // Grey filled circle - Has validations but not from current user
-                    <i
-                        className="codicon codicon-circle-filled rounded-lg"
-                        style={{
-                            fontSize: "12px",
-                            // Keep original color, don't change for pending validation
-                            color: isDisabled
-                                ? "var(--vscode-disabledForeground)"
-                                : "var(--vscode-descriptionForeground)",
-                        }}
-                    ></i>
-                )}
+                {renderStatusIcon()}
             </VSCodeButton>
 
             {/* Add style for spinner animation */}
@@ -558,7 +622,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                     from { transform: rotate(0deg); }
                     to { transform: rotate(360deg); }
                 }
-                .validation-button-container .pending {
+                .audio-validation-button-container .pending {
                     border: 2px solid #f5a623; /* Consistent orange color for both themes */
                     border-radius: 50%;
                 }
@@ -569,7 +633,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             {showPopover && uniqueValidationUsers.length > 0 && (
                 <div
                     ref={popoverRef}
-                    className={`validation-popover ${
+                    className={`audio-validation-popover ${
                         isDetailedView ? "detailed-view" : "simple-view"
                     }`}
                     style={{
@@ -615,7 +679,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                                 setShowPopover(false);
                                 setIsPersistentPopover(false);
                                 setIsDetailedView(false);
-                                popoverTracker.setActivePopover(null);
+                                audioPopoverTracker.setActivePopover(null);
                             }}
                         >
                             <i className="codicon codicon-close" />
@@ -632,7 +696,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                                     paddingBottom: "4px",
                                 }}
                             >
-                                Validators
+                                Audio Validators
                             </div>
                             {uniqueValidationUsers.map((user) => {
                                 const isCurrentUser = user.username === username;
@@ -672,23 +736,23 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                                                     onClick={(e) => {
                                                         e.stopPropagation();
 
-                                                        // Add to validation queue for sequential processing
-                                                        enqueueValidation(cellId, false)
+                                                        // Add to audio validation queue for sequential processing
+                                                        enqueueValidation(cellId, false, true)
                                                             .then(() => {
                                                                 // Validation request has been queued successfully
                                                             })
                                                             .catch((error) => {
                                                                 console.error(
-                                                                    "Validation queue error:",
+                                                                    "Audio validation queue error:",
                                                                     error
                                                                 );
                                                             });
 
                                                         // Process the queue
-                                                        processValidationQueue(vscode).catch(
+                                                        processValidationQueue(vscode, true).catch(
                                                             (error) => {
                                                                 console.error(
-                                                                    "Validation queue processing error:",
+                                                                    "Audio validation queue processing error:",
                                                                     error
                                                                 );
                                                             }
@@ -699,14 +763,16 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                                                         setIsPersistentPopover(false);
                                                         setIsDetailedView(false);
                                                         if (
-                                                            popoverTracker.getActivePopover() ===
+                                                            audioPopoverTracker.getActivePopover() ===
                                                             uniqueId.current
                                                         ) {
-                                                            popoverTracker.setActivePopover(null);
+                                                            audioPopoverTracker.setActivePopover(
+                                                                null
+                                                            );
                                                         }
                                                     }}
-                                                    title="Remove your validation"
-                                                    className="validation-trash-icon"
+                                                    title="Remove your audio validation"
+                                                    className="audio-validation-trash-icon"
                                                     style={{
                                                         cursor: "pointer",
                                                         display: "flex",
@@ -771,7 +837,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                         </div>
                     ) : (
                         // Simple view with just usernames separated by dots
-                        <div className="validators-simple-view">
+                        <div className="audio-validators-simple-view">
                             {uniqueValidationUsers.map((user, index) => (
                                 <React.Fragment key={user.username}>
                                     <span
@@ -793,10 +859,10 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                     {/* Add this CSS to the component */}
                     <style>
                         {`
-                        div:hover > .delete-validation-button {
+                        div:hover > .delete-audio-validation-button {
                             opacity: 1 !important;
                         }
-                        .validators-simple-view {
+                        .audio-validators-simple-view {
                             padding: 4px 8px;
                             display: flex;
                             flex-wrap: wrap;
@@ -804,17 +870,17 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                             align-items: center;
                             max-width: 200px;
                         }
-                        .validators-simple-view .current-user {
+                        .audio-validators-simple-view .current-user {
                             font-weight: 600;
                         }
-                        .validators-simple-view .separator {
+                        .audio-validators-simple-view .separator {
                             color: var(--vscode-descriptionForeground);
                             margin: 0 2px;
                             pointer-events: none;
                             background: none !important;
                             user-select: none;
                         }
-                        .validation-trash-icon:hover {
+                        .audio-validation-trash-icon:hover {
                             background-color: rgba(255, 82, 82, 0.1) !important;
                         }
                         `}
@@ -825,4 +891,4 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     );
 };
 
-export default ValidationButton;
+export default AudioValidationButton;
