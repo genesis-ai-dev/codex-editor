@@ -421,6 +421,11 @@
                 "category": "Codex Maintenance"
             },
             {
+                "command": "codex-editor-extension.migrateValidationsForUserEdits",
+                "title": "Codex: Migrate Validations for User Edits",
+                "category": "Codex Maintenance"
+            },
+            {
                 "command": "codex-editor-extension.focusCommentsView",
                 "title": "Focus Comments View",
                 "category": "Codex Comments"

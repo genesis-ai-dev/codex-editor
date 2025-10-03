@@ -54,6 +54,7 @@ import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 import { migrateAudioAttachments } from "./utils/audioAttachmentsMigrationUtils";
 import { registerTestingCommands } from "./evaluation/testingCommands";
 import { initializeABTesting } from "./utils/abTestingSetup";
+import { migration_addValidationsForUserEdits } from "./projectManager/utils/migrationUtils";
 
 const DEBUG_MODE = false;
 function debug(...args: any[]): void {
@@ -496,6 +497,16 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor.openCellLabelImporter", () =>
             openCellLabelImporter(context)
+        )
+    );
+
+    // Command: Migrate validations for user edits across project
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.migrateValidationsForUserEdits",
+            async () => {
+                await migration_addValidationsForUserEdits();
+            }
         )
     );
 
