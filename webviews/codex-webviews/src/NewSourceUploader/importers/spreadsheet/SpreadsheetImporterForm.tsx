@@ -324,14 +324,37 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                     const docId = parsedData.filename.replace(/\s+/g, "");
                     const allAttachments: WriteNotebooksWithAttachmentsMessage["attachments"] = [];
 
-                    const fileNameFromUrl = (url: string, attachmentId: string) => {
+                    const looksLikeAudioName = (name: string) => /\.(mp3|wav|m4a|aac|ogg|webm|flac)$/i.test(name || "");
+                    const sanitizeFileName = (name: string) => {
+                        const base = (name || "").trim();
+                        let out = "";
+                        for (let i = 0; i < base.length; i++) {
+                            const ch = base[i];
+                            const code = base.charCodeAt(i);
+                            // Skip reserved characters and ASCII control codes (0x00-0x1F)
+                            if (code < 32) continue;
+                            if (ch === '<' || ch === '>' || ch === ':' || ch === '"' || ch === '/' || ch === '\\' || ch === '|' || ch === '?' || ch === '*') continue;
+                            out += ch;
+                        }
+                        return out;
+                    };
+                    const fileNameFromUrl = (url: string, attachmentId: string, row?: string[]) => {
+                        const fallback = `${attachmentId}.mp3`;
+                        let candidate = "";
                         try {
                             const u = new URL(url);
-                            const base = u.pathname.split("/").filter(Boolean).pop() || `${attachmentId}.mp3`;
-                            return base;
+                            const lastSegment = u.pathname.split("/").filter(Boolean).pop() || "";
+                            // Decode percent-encoding and strip trailing dots
+                            candidate = decodeURIComponent(lastSegment).replace(/\.+$/, "");
                         } catch {
-                            return `${attachmentId}.mp3`;
+                            // ignore URL parse errors
                         }
+                        // If URL does not yield a plausible audio filename, fall back to first column in the row
+                        if (!looksLikeAudioName(candidate) && row && row[0] && looksLikeAudioName(row[0])) {
+                            candidate = row[0].trim();
+                        }
+                        candidate = candidate || fallback;
+                        return sanitizeFileName(candidate);
                     };
 
                     const isAudioByExt = (name: string) => /\.(mp3|wav|m4a|aac|ogg|webm|flac)$/i.test(name);
@@ -416,7 +439,7 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                         for (const u of urls) {
                             const attachmentId = `audio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
                             if (!firstAttachmentId) firstAttachmentId = attachmentId;
-                            let fileName = fileNameFromUrl(u, attachmentId);
+                            let fileName = fileNameFromUrl(u, attachmentId, row as any);
                             try {
                                 const { dataUrl, mime } = await fetchAsDataUrl(u);
                                 if (!/\.[a-z0-9]+$/i.test(fileName)) {
