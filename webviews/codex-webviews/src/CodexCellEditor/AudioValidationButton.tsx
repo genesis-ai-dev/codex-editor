@@ -4,7 +4,8 @@ import { QuillCellContent, ValidationEntry } from "../../../../types";
 import { getCellValueData } from "@sharedUtils";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { processValidationQueue, enqueueValidation } from "./validationQueue";
-import { isValidValidationEntry } from "./validationUtils";
+import { isValidValidationEntry, computeAudioValidationUpdate } from "./validationUtils";
+import AudioValidationStatusIcon from "./AudioValidationStatusIcon";
 
 // Static tracking for active popover to ensure only one is shown at a time
 const audioPopoverTracker = {
@@ -182,25 +183,14 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
 
     // Consolidated handler to update state from a validatedBy list
     const applyValidatedByUpdate = (validatedBy: ValidationEntry[] | undefined) => {
-        const list = validatedBy || [];
-        if (username) {
-            // Check if the user has an active validation (not deleted)
-            const userEntry = list.find(
-                (entry: ValidationEntry) =>
-                    isValidValidationEntry(entry) && entry.username === username && !entry.isDeleted
-            );
-            setIsValidated(!!userEntry);
-
-            // Update the list of validation users
-            const activeValidations = list.filter(
-                (entry: ValidationEntry) => isValidValidationEntry(entry) && !entry.isDeleted
-            );
-            setValidationUsers(activeValidations);
-
-            // Validation is complete, clear pending/in-progress state
-            setIsPendingValidation(false);
-            setIsValidationInProgress(false);
-        }
+        const { isValidated: validated, activeValidations } = computeAudioValidationUpdate(
+            validatedBy,
+            username
+        );
+        setIsValidated(validated);
+        setValidationUsers(activeValidations);
+        setIsPendingValidation(false);
+        setIsValidationInProgress(false);
     };
 
     useMessageHandler(
@@ -451,100 +441,15 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         justifyContent: "center",
     };
 
-    const renderStatusIcon = () => {
-        if (isValidationInProgress) {
-            return (
-                <i
-                    className="codicon codicon-loading"
-                    style={{
-                        fontSize: "12px",
-                        color: isDisabled
-                            ? "var(--vscode-disabledForeground)"
-                            : "var(--vscode-descriptionForeground)",
-                        animation: "spin 1.5s linear infinite",
-                    }}
-                ></i>
-            );
-        }
-
-        if (currentValidations === 0) {
-            // Empty circle - No validations
-            return (
-                <i
-                    className="codicon codicon-circle-outline"
-                    style={{
-                        fontSize: "12px",
-                        // Keep original color, don't change for pending validation
-                        color: isDisabled
-                            ? "var(--vscode-disabledForeground)"
-                            : "var(--vscode-descriptionForeground)",
-                    }}
-                ></i>
-            );
-        }
-
-        if (isFullyValidated) {
-            if (isValidated) {
-                // Double green checkmarks - Fully validated and current user has validated
-                return (
-                    <i
-                        className="codicon codicon-check-all"
-                        style={{
-                            fontSize: "12px",
-                            // Keep original color, don't change for pending validation
-                            color: isDisabled
-                                ? "var(--vscode-disabledForeground)"
-                                : "var(--vscode-testing-iconPassed)",
-                        }}
-                    ></i>
-                );
-            }
-
-            // Double grey checkmarks - Fully validated but current user hasn't validated
-            return (
-                <i
-                    className="codicon codicon-check-all"
-                    style={{
-                        fontSize: "12px",
-                        // Keep original color, don't change for pending validation
-                        color: isDisabled
-                            ? "var(--vscode-disabledForeground)"
-                            : "var(--vscode-descriptionForeground)",
-                    }}
-                ></i>
-            );
-        }
-
-        if (isValidated) {
-            // Green checkmark - Current user validated but not fully validated
-            return (
-                <i
-                    className="codicon codicon-check"
-                    style={{
-                        fontSize: "12px",
-                        // Keep original color, don't change for pending validation
-                        color: isDisabled
-                            ? "var(--vscode-disabledForeground)"
-                            : "var(--vscode-testing-iconPassed)",
-                    }}
-                ></i>
-            );
-        }
-
-        // Grey filled circle - Has validations but not from current user
-        return (
-            <i
-                className="codicon codicon-circle-filled"
-                style={{
-                    fontSize: "12px",
-                    // Keep original color, don't change for pending validation
-                    color: isDisabled
-                        ? "var(--vscode-disabledForeground)"
-                        : "var(--vscode-descriptionForeground)",
-                }}
-            ></i>
-        );
-    };
+    const renderStatusIcon = () => (
+        <AudioValidationStatusIcon
+            isValidationInProgress={isValidationInProgress}
+            isDisabled={isDisabled}
+            currentValidations={currentValidations}
+            requiredValidations={requiredAudioValidations}
+            isValidatedByCurrentUser={isValidated}
+        />
+    );
 
     // Helper function to format timestamps
     const formatTimestamp = (timestamp: number): string => {

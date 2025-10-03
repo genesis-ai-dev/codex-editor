@@ -2593,6 +2593,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 <AudioHistoryViewer
                     cellId={cellMarkers[0]}
                     vscode={window.vscodeApi}
+                    currentUsername={(window as any)?.initialData?.username || null}
+                    requiredAudioValidations={
+                        (window as any)?.initialData?.validationCountAudio ?? undefined
+                    }
                     onClose={() => setShowAudioHistory(false)}
                 />
             )}

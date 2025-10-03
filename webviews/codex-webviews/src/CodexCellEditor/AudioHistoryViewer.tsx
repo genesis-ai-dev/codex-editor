@@ -15,6 +15,9 @@ import {
 } from "lucide-react";
 import { WebviewApi } from "vscode-webview";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
+import { ValidationEntry } from "../../../../types";
+import { getActiveAudioValidations } from "./validationUtils";
+import AudioValidationStatusIcon from "./AudioValidationStatusIcon";
 
 interface AudioHistoryEntry {
     attachmentId: string;
@@ -25,6 +28,7 @@ interface AudioHistoryEntry {
         updatedAt: number;
         isDeleted: boolean;
         isMissing?: boolean; // Added for missing audio
+        validatedBy?: ValidationEntry[];
     };
 }
 
@@ -32,12 +36,16 @@ interface AudioHistoryViewerProps {
     cellId: string;
     vscode: WebviewApi<unknown>;
     onClose: () => void;
+    currentUsername?: string | null;
+    requiredAudioValidations?: number;
 }
 
 export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     cellId,
     vscode,
     onClose,
+    currentUsername,
+    requiredAudioValidations: requiredAudioValidationsProp,
 }) => {
     const [audioHistory, setAudioHistory] = useState<AudioHistoryEntry[]>([]);
     const [playingId, setPlayingId] = useState<string | null>(null);
@@ -54,6 +62,13 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     const pendingPlayRefs = useRef<Map<string, boolean>>(new Map());
     const blobUrlsRef = useRef<Set<string>>(new Set());
     const loadingTimersRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+    const [username, setUsername] = useState<string | null>(currentUsername ?? null);
+    const [requiredAudioValidations, setRequiredAudioValidations] = useState<number | null>(
+        requiredAudioValidationsProp ?? null
+    );
+
+    const effectiveRequiredAudioValidations =
+        (requiredAudioValidationsProp ?? requiredAudioValidations ?? 1) || 1;
 
     // Request audio history when component mounts
     useEffect(() => {
@@ -70,7 +85,25 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
             command: "getAudioHistory",
             content: { cellId },
         });
-    }, [cellId, vscode]);
+
+        // Proactively fetch validationCountAudio if not provided
+        if (requiredAudioValidationsProp == null) {
+            try {
+                vscode.postMessage({ command: "getValidationCountAudio" } as any);
+            } catch {
+                /* ignore */
+            }
+        }
+
+        // Proactively fetch current username if not provided
+        if (!currentUsername) {
+            try {
+                vscode.postMessage({ command: "getCurrentUsername" } as any);
+            } catch {
+                /* ignore */
+            }
+        }
+    }, [cellId, vscode, currentUsername, requiredAudioValidationsProp]);
 
     // Listen for audio history response
     useMessageHandler(
@@ -105,6 +138,20 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                     command: "getAudioHistory",
                     content: { cellId },
                 });
+            }
+            if (message.type === "currentUsername") {
+                setUsername(message.content?.username || null);
+            }
+            if (message.type === "validationCountAudio") {
+                setRequiredAudioValidations(message.content || 1);
+            }
+            if (message.type === "providerSendsInitialContent") {
+                if (message.username !== undefined) {
+                    setUsername(message.username || null);
+                }
+                if (message.validationCountAudio !== undefined) {
+                    setRequiredAudioValidations(message.validationCountAudio);
+                }
             }
             if (message.type === "audioAttachmentSelected" && message.content.cellId === cellId) {
                 if (message.content.success) {
@@ -141,7 +188,9 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                     // Handle current-audio fallback (no specific audioId)
                     if (!audioId) {
                         if (audioData) {
-                            const hasPendingPlay = Array.from(pendingPlayRefs.current.values()).some(Boolean);
+                            const hasPendingPlay = Array.from(
+                                pendingPlayRefs.current.values()
+                            ).some(Boolean);
                             if (hasPendingPlay) {
                                 onClose();
                                 vscode.postMessage({
@@ -150,7 +199,9 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                 });
                                 try {
                                     sessionStorage.setItem(`start-audio-playback-${cellId}`, "1");
-                                } catch {}
+                                } catch (e) {
+                                    // ignore
+                                }
                             }
                         }
                         return;
@@ -194,7 +245,8 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                 setAudioUrls((prev) => new Map(prev).set(audioId, blobUrl));
 
                                 // Auto-play if there was a pending play request
-                                const hadPendingPlayForThisAudio = pendingPlayRefs.current.get(audioId);
+                                const hadPendingPlayForThisAudio =
+                                    pendingPlayRefs.current.get(audioId);
                                 if (hadPendingPlayForThisAudio) {
                                     pendingPlayRefs.current.set(audioId, false); // Clear the pending flag
                                     try {
@@ -262,7 +314,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
             fetchCurrentOnCloseRef.current = false;
             vscode.postMessage({
                 command: "requestAudioForCell",
-                content: { cellId }
+                content: { cellId },
             });
         }
         onClose();
@@ -491,6 +543,26 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                 entry.attachment?.isMissing === true;
                             const isValidating = validatingIds.has(entry.attachmentId);
 
+                            // Compute validation status from attachment.validatedBy
+                            const activeValidations = getActiveAudioValidations(
+                                entry.attachment.validatedBy
+                            );
+                            const uniqueLatestByUser = new Map<string, ValidationEntry>();
+                            activeValidations.forEach((v) => {
+                                const existing = uniqueLatestByUser.get(v.username);
+                                if (!existing || v.updatedTimestamp > existing.updatedTimestamp) {
+                                    uniqueLatestByUser.set(v.username, v);
+                                }
+                            });
+                            const currentValidations = uniqueLatestByUser.size;
+                            const isValidatedByCurrentUser = username
+                                ? Array.from(uniqueLatestByUser.values()).some(
+                                      (validate) =>
+                                          (validate.username || "").toLowerCase() ===
+                                          (username || "").toLowerCase()
+                                  )
+                                : false;
+
                             return (
                                 <div
                                     key={entry.attachmentId}
@@ -647,7 +719,9 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                                 size="sm"
                                                 variant={isSelected ? "default" : "outline"}
                                                 className="transition-none"
-                                                onClick={() => handleSelectAudio(entry.attachmentId)}
+                                                onClick={() =>
+                                                    handleSelectAudio(entry.attachmentId)
+                                                }
                                                 disabled={isSelected || isValidating}
                                             >
                                                 {isSelected ? (
@@ -692,15 +766,39 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             )
                                         )}
 
-                                        <span
-                                            style={{
-                                                fontSize: "0.8em",
-                                                color: "var(--vscode-descriptionForeground)",
-                                                marginLeft: "auto",
-                                            }}
-                                        >
-                                            ID: {entry.attachmentId.split("-").slice(-1)[0]}
-                                        </span>
+                                        <div className="flex flex-col flex-grow items-end justify-end gap-1">
+                                            <span
+                                                style={{
+                                                    fontSize: "0.8em",
+                                                    color: "var(--vscode-descriptionForeground)",
+                                                    marginLeft: "auto",
+                                                }}
+                                            >
+                                                ID: {entry.attachmentId.split("-").slice(-1)[0]}
+                                            </span>
+                                            <span
+                                                style={{
+                                                    fontSize: "0.8em",
+                                                    color: "var(--vscode-descriptionForeground)",
+                                                    marginLeft: "auto",
+                                                }}
+                                            >
+                                                <AudioValidationStatusIcon
+                                                    isValidationInProgress={false}
+                                                    isDisabled={
+                                                        entry.attachment.isDeleted || hasError
+                                                    }
+                                                    currentValidations={currentValidations}
+                                                    requiredValidations={
+                                                        effectiveRequiredAudioValidations
+                                                    }
+                                                    isValidatedByCurrentUser={
+                                                        isValidatedByCurrentUser
+                                                    }
+                                                    displayValidationText
+                                                />
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
                             );

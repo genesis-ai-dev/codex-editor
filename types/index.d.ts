@@ -1820,6 +1820,8 @@ type EditorReceiveMessages =
                     createdAt: number;
                     updatedAt: number;
                     isDeleted: boolean;
+                    isMissing?: boolean;
+                    validatedBy?: ValidationEntry[];
                 };
             }>;
             currentAttachmentId: string | null; // The ID of the currently selected/active attachment
@@ -1847,7 +1849,7 @@ type EditorReceiveMessages =
     | {
         type: "refreshCommentCounts";
         timestamp: string;
-    } 
+    }
     | {
         type: "audioHistorySelectionChanged";
         content: {
