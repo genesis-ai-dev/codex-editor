@@ -264,8 +264,14 @@ const AudioPlayButton: React.FC<{
                 opacity: isPlaying ? 1 : 0.8,
                 transition: "opacity 0.2s",
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-            onMouseLeave={(e) => (e.currentTarget.style.opacity = isPlaying ? "1" : "0.8")}
+            onMouseEnter={(e) => {
+                e.stopPropagation();
+                e.currentTarget.style.opacity = "1";
+            }}
+            onMouseLeave={(e) => {
+                e.stopPropagation();
+                e.currentTarget.style.opacity = isPlaying ? "1" : "0.8";
+            }}
         >
             <i
                 className={`codicon ${iconClass}`}
@@ -530,7 +536,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         // Line numbers are always generated and shown at the beginning of each line
         // Labels are optional and shown after line numbers when present
 
-        // TODO: This was used for spell checking primarily. Will leave in for now but 
+        // TODO: This was used for spell checking primarily. Will leave in for now but
         // will not render it when it is undefined.
         const AlertDot = ({ color }: { color: string }) => (
             <span
@@ -560,7 +566,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         colors[alertColorCode?.toString() as keyof typeof colors] || "transparent"
                     }
                 />
-            )
+            );
         };
 
         const getBackgroundColor = () => {
@@ -752,17 +758,27 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             >
                 <div className="cell-header flex justify-start items-start shrink-0 gap-[1px]">
                     {cellDisplayMode !== CELL_DISPLAY_MODES.INLINE && (
-                        <div 
-                            className={`cell-actions flex justify-start items-center ${lineNumbersEnabled ? "flex-col gap-[0.25rem]" : "flex-row"}`}
-                            onMouseOver={() => {
+                        <div
+                            className={`cell-actions flex justify-start items-center ${
+                                lineNumbersEnabled ? "flex-col gap-[0.25rem]" : "flex-row"
+                            }`}
+                            onMouseOver={(e) => {
+                                e.stopPropagation();
                                 setShowSparkleButton(true);
                             }}
-                            onMouseOut={() => {
+                            onMouseOut={(e) => {
+                                e.stopPropagation();
                                 setShowSparkleButton(false);
                             }}
                         >
                             {/* This is a spacer div to base align the action buttons with the text if line numbers are enabled */}
-                            <div className={`cell-label-text ${lineNumbersEnabled ? "invisible" : "hidden"}`}>{lineNumber}</div>
+                            <div
+                                className={`cell-label-text ${
+                                    lineNumbersEnabled ? "invisible" : "hidden"
+                                }`}
+                            >
+                                {lineNumber}
+                            </div>
                             <div className="action-button-container flex items-center gap-1">
                                 {!isSourceText && (
                                     <Button
@@ -775,14 +791,15 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                             justifyContent: "center",
                                             position: "relative",
                                             opacity: showSparkleButton ? 1 : 0,
-                                            transform: `translateX(${showSparkleButton ? "0" : "20px"}) scale(${
-                                                showSparkleButton ? 1 : 0
-                                            })`,
+                                            transform: `translateX(${
+                                                showSparkleButton ? "0" : "20px"
+                                            }) scale(${showSparkleButton ? 1 : 0})`,
                                             transition:
                                                 "all 0.2s ease-in-out, transform 0.2s cubic-bezier(.68,-0.75,.27,1.75)",
                                             visibility: showSparkleButton ? "visible" : "hidden",
                                         }}
                                         onClick={(e) => {
+                                            e.stopPropagation();
                                             handleSparkleButtonClick(e);
                                         }}
                                     >
@@ -858,9 +875,12 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                                 onOpenCell={(id) => {
                                                                     // Use force variant to ensure editor opens even with unsaved state
                                                                     const open =
-                                                                        (window as any).openCellByIdForce ||
-                                                                        (window as any).openCellById;
-                                                                    if (typeof open === "function") open(id);
+                                                                        (window as any)
+                                                                            .openCellByIdForce ||
+                                                                        (window as any)
+                                                                            .openCellById;
+                                                                    if (typeof open === "function")
+                                                                        open(id);
                                                                 }}
                                                             />
                                                         );
@@ -892,8 +912,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                 />
                                             </div>
                                         </>
-                                    )
-                                }
+                                    )}
 
                                 {/* Merge Button - only show in correction editor mode for source text */}
                                 {isSourceText &&
@@ -959,7 +978,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 </div>
 
                 {/* Right side: wrappable label + content */}
-                <div className={`flex flex-wrap items-baseline gap-[0.25rem] flex-1 min-w-0 ${lineNumbersEnabled ? "flex-col" : "flex-row"}`}>
+                <div
+                    className={`flex flex-wrap items-baseline gap-[0.25rem] flex-1 min-w-0 ${
+                        lineNumbersEnabled ? "flex-col" : "flex-row"
+                    }`}
+                >
                     {/* Cell label - shown after line number when present */}
                     {label && (
                         <div
@@ -979,7 +1002,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         </div>
                     )}
                     <div
-                        style={{ 
+                        style={{
                             flex: 1,
                             padding: lineNumbersEnabled ? "0 0.25rem 0 0" : "0 0.25rem",
                             minWidth: 0,

@@ -3473,7 +3473,11 @@ export class SQLiteIndexManager {
         }
 
         // Extract audio validation information from attachments
-        const audioDetails = this.collectAudioValidationDetails(metadata.attachments || {});
+        const audioDetails = this.collectAudioValidationDetails(
+            metadata.attachments || {},
+            metadata.selectedAudioId,
+            metadata.selectionTimestamp
+        );
         result.audioValidationCount = audioDetails.count;
         result.audioValidatedBy = audioDetails.usernames;
         result.audioIsFullyValidated = audioDetails.isFullyValidated;
@@ -3485,7 +3489,7 @@ export class SQLiteIndexManager {
         return result;
     }
 
-    private collectAudioValidationDetails(attachments: Record<string, any>): {
+    private collectAudioValidationDetails(attachments: Record<string, any>, selectedAudioId?: string, selectionTimestamp?: number): {
         count: number;
         usernames?: string;
         isFullyValidated: boolean;
@@ -3495,17 +3499,26 @@ export class SQLiteIndexManager {
             return { count: 0, isFullyValidated: false, latestTimestamp: null };
         }
 
-        const audioAttachments = Object.values(attachments).filter((attachment: any) =>
-            attachment && attachment.type === "audio"
-        );
+        const entries = Object.entries(attachments)
+            .filter(([_, attachment]: [string, any]) => attachment && attachment.type === "audio");
 
-        if (audioAttachments.length === 0) {
-            return { count: 0, isFullyValidated: false, latestTimestamp: null };
+        let currentAudioAttachment: any | null = null;
+        if (selectedAudioId) {
+            const selected = attachments[selectedAudioId];
+            if (selected && selected.type === "audio" && !selected.isDeleted) {
+                currentAudioAttachment = selected;
+            }
         }
 
-        const currentAudioAttachment = audioAttachments.sort((a: any, b: any) =>
-            (b.updatedAt || 0) - (a.updatedAt || 0)
-        )[0];
+        if (!currentAudioAttachment) {
+            const audioAttachments = entries.map(([_, att]) => att);
+            if (audioAttachments.length === 0) {
+                return { count: 0, isFullyValidated: false, latestTimestamp: null };
+            }
+            currentAudioAttachment = audioAttachments.sort((a: any, b: any) =>
+                (b.updatedAt || 0) - (a.updatedAt || 0)
+            )[0];
+        }
 
         const validatedBy = Array.isArray((currentAudioAttachment as any).validatedBy)
             ? (currentAudioAttachment as any).validatedBy
@@ -3555,11 +3568,15 @@ export class SQLiteIndexManager {
                 return latest;
             }, null as number | null);
 
+        const effectiveTimestamp = selectionTimestamp && selectionTimestamp > (latestTimestamp || 0)
+            ? selectionTimestamp
+            : latestTimestamp;
+
         return {
             count,
             usernames: usernames.length > 0 ? usernames.join(",") : undefined,
             isFullyValidated,
-            latestTimestamp,
+            latestTimestamp: effectiveTimestamp,
         };
     }
 

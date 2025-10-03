@@ -1536,9 +1536,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     getAudioHistory: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "getAudioHistory"; }>;
-        console.log("getAudioHistory message received", {
-            cellId: typedEvent.content.cellId
-        });
 
         // Clean up any invalid audio selections (safe to do now that document is loaded)
         document.cleanupInvalidAudioSelections();
@@ -1622,6 +1619,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
             const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
             const availability: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; } = {} as any;
+            let validatedByArray: ValidationEntry[] = [];
 
             for (const cell of cells) {
                 const cellId = cell?.metadata?.id;
@@ -1630,6 +1628,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 let hasMissing = false;
                 let hasDeleted = false;
                 const atts = cell?.metadata?.attachments || {};
+
                 for (const key of Object.keys(atts)) {
                     const att: any = (atts as any)[key];
                     if (att && att.type === "audio") {
@@ -1641,6 +1640,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             hasAvailable = true;
                         }
                     }
+
+                    if (cellId === typedEvent.content.cellId && key === cell?.metadata?.selectedAudioId) {
+                        const validatedBy = Array.isArray(att?.validatedBy) ? att.validatedBy : [];
+                        validatedByArray = [...validatedBy];
+                    }
                 }
                 availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
             }
@@ -1649,6 +1653,17 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 type: "providerSendsAudioAttachments",
                 attachments: availability as any,
             });
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerUpdatesAudioValidationState",
+                content: {
+                    cellId: typedEvent.content.cellId,
+                    selectedAudioId: typedEvent.content.audioId,
+                    validatedBy: validatedByArray
+                },
+            });
+
+
 
             // Save the changes to the document
 

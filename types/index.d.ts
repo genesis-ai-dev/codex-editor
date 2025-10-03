@@ -1847,4 +1847,12 @@ type EditorReceiveMessages =
     | {
         type: "refreshCommentCounts";
         timestamp: string;
+    } 
+    | {
+        type: "audioHistorySelectionChanged";
+        content: {
+            cellId: string;
+            selectedAudioId: string;
+            validatedBy: ValidationEntry[];
+        };
     };

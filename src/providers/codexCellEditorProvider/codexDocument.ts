@@ -1952,8 +1952,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
     // Add method to sync all cells to database without modifying content
     private async syncAllCellsToDatabase(): Promise<void> {
         try {
-            console.log(`[CodexDocument] AI learning from your updates...`);
-
             if (!this._indexManager) {
                 this._indexManager = getSQLiteIndexManager();
                 if (!this._indexManager) {
@@ -2039,6 +2037,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     const cellMetadata = {
                         edits: cell.metadata?.edits || [],
                         attachments: cell.metadata?.attachments || {},
+                        selectedAudioId: cell.metadata?.selectedAudioId,
+                        selectionTimestamp: cell.metadata?.selectionTimestamp,
                         type: "ai_learning",
                         lastUpdated: Date.now(),
                     };
@@ -2049,17 +2049,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     const hasTextValidation = lastEdit?.validatedBy && lastEdit.validatedBy.length > 0;
 
                     if (hasTextValidation && lastEdit?.validatedBy) {
-                        const activeValidations = lastEdit.validatedBy.filter((v: any) => v && !v.isDeleted);
-                        console.log(
-                            `[CodexDocument] 🔄 AI learning validation data for cell ${cellId}: ${activeValidations.length} validators`
-                        );
                         syncedValidations++;
                     }
 
                     if (hasAudioValidation) {
-                        console.log(
-                            `[CodexDocument] 🔊 AI learning audio validation data for cell ${cellId}: ${activeAudioValidators.length} validators`
-                        );
                         syncedValidations++;
                     }
 

@@ -93,7 +93,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     const [isValidationInProgress, setIsValidationInProgress] = useState(false);
     const buttonRef = useRef<HTMLDivElement>(null);
     const popoverRef = useRef<HTMLDivElement>(null);
-    const selectedAudioIdRef = useRef<string | undefined>(cell.metadata?.selectedAudioId);
     const uniqueId = useRef(
         `audio-validation-${cellId}-${Math.random().toString(36).substring(2, 11)}`
     );
@@ -140,8 +139,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
             return;
         }
 
-        const effectiveSelectedAudioId =
-            selectedAudioIdRef.current ?? cell.metadata?.selectedAudioId;
+        const effectiveSelectedAudioId = cell.metadata?.selectedAudioId ?? "";
 
         const cellValueData = getCellValueData({
             ...cell,
@@ -162,7 +160,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
 
         if (username) {
             const userEntry = activeValidations.find((entry) => entry.username === username);
-            console.log("userEntry", userEntry);
 
             setIsValidated(!!userEntry);
         }
@@ -200,9 +197,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
             } else if (message.type === "providerUpdatesAudioValidationState") {
                 // Handle audio validation state updates from the backend
                 if (message.content.cellId === cellId) {
-                    selectedAudioIdRef.current =
-                        message.content.selectedAudioId ?? selectedAudioIdRef.current;
-
                     // Audio validation state has been updated, refresh the component
                     const validatedBy = message.content.validatedBy || [];
                     if (username) {
@@ -250,6 +244,30 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                 // Handle when all pending audio validations are cleared
                 if (message.content.cellIds.includes(cellId)) {
                     setIsPendingValidation(false);
+                }
+            } else if (message.type === "audioHistorySelectionChanged") {
+                // Audio validation state has been updated, refresh the component
+                const validatedBy = message.content.validatedBy || [];
+                if (username) {
+                    // Check if the user has an active validation (not deleted)
+                    const userEntry = validatedBy.find(
+                        (entry: ValidationEntry) =>
+                            isValidValidationEntry(entry) &&
+                            entry.username === username &&
+                            !entry.isDeleted
+                    );
+                    setIsValidated(!!userEntry);
+
+                    // Update the list of validation users
+                    const activeValidations = validatedBy.filter(
+                        (entry: ValidationEntry) =>
+                            isValidValidationEntry(entry) && !entry.isDeleted
+                    );
+                    setValidationUsers(activeValidations);
+
+                    // Validation is complete, clear pending state
+                    setIsPendingValidation(false);
+                    setIsValidationInProgress(false);
                 }
             }
         },
@@ -454,6 +472,101 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         justifyContent: "center",
     };
 
+    const renderStatusIcon = () => {
+        if (isValidationInProgress) {
+            return (
+                <i
+                    className="codicon codicon-loading"
+                    style={{
+                        fontSize: "12px",
+                        color: isDisabled
+                            ? "var(--vscode-disabledForeground)"
+                            : "var(--vscode-descriptionForeground)",
+                        animation: "spin 1.5s linear infinite",
+                    }}
+                ></i>
+            );
+        }
+
+        if (currentValidations === 0) {
+            // Empty circle - No validations
+            return (
+                <i
+                    className="codicon codicon-circle-outline"
+                    style={{
+                        fontSize: "12px",
+                        // Keep original color, don't change for pending validation
+                        color: isDisabled
+                            ? "var(--vscode-disabledForeground)"
+                            : "var(--vscode-descriptionForeground)",
+                    }}
+                ></i>
+            );
+        }
+
+        if (isFullyValidated) {
+            if (isValidated) {
+                // Double green checkmarks - Fully validated and current user has validated
+                return (
+                    <i
+                        className="codicon codicon-check-all"
+                        style={{
+                            fontSize: "12px",
+                            // Keep original color, don't change for pending validation
+                            color: isDisabled
+                                ? "var(--vscode-disabledForeground)"
+                                : "var(--vscode-testing-iconPassed)",
+                        }}
+                    ></i>
+                );
+            }
+
+            // Double grey checkmarks - Fully validated but current user hasn't validated
+            return (
+                <i
+                    className="codicon codicon-check-all"
+                    style={{
+                        fontSize: "12px",
+                        // Keep original color, don't change for pending validation
+                        color: isDisabled
+                            ? "var(--vscode-disabledForeground)"
+                            : "var(--vscode-descriptionForeground)",
+                    }}
+                ></i>
+            );
+        }
+
+        if (isValidated) {
+            // Green checkmark - Current user validated but not fully validated
+            return (
+                <i
+                    className="codicon codicon-check"
+                    style={{
+                        fontSize: "12px",
+                        // Keep original color, don't change for pending validation
+                        color: isDisabled
+                            ? "var(--vscode-disabledForeground)"
+                            : "var(--vscode-testing-iconPassed)",
+                    }}
+                ></i>
+            );
+        }
+
+        // Grey filled circle - Has validations but not from current user
+        return (
+            <i
+                className="codicon codicon-circle-filled"
+                style={{
+                    fontSize: "12px",
+                    // Keep original color, don't change for pending validation
+                    color: isDisabled
+                        ? "var(--vscode-disabledForeground)"
+                        : "var(--vscode-descriptionForeground)",
+                }}
+            ></i>
+        );
+    };
+
     // Helper function to format timestamps
     const formatTimestamp = (timestamp: number): string => {
         if (!timestamp) return "";
@@ -520,81 +633,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                 disabled={isDisabled}
                 title={isDisabled ? disabledReason || "Audio validation requires audio" : undefined}
             >
-                {/* Show spinner when validation is in progress */}
-                {isValidationInProgress ? (
-                    <i
-                        className="codicon codicon-loading"
-                        style={{
-                            fontSize: "12px",
-                            color: isDisabled
-                                ? "var(--vscode-disabledForeground)"
-                                : "var(--vscode-descriptionForeground)",
-                            animation: "spin 1.5s linear infinite",
-                        }}
-                    ></i>
-                ) : currentValidations === 0 ? (
-                    // Empty circle - No validations
-                    <i
-                        className="codicon codicon-circle-outline"
-                        style={{
-                            fontSize: "12px",
-                            // Keep original color, don't change for pending validation
-                            color: isDisabled
-                                ? "var(--vscode-disabledForeground)"
-                                : "var(--vscode-descriptionForeground)",
-                        }}
-                    ></i>
-                ) : isFullyValidated ? (
-                    isValidated ? (
-                        // Double green checkmarks - Fully validated and current user has validated
-                        <i
-                            className="codicon codicon-check-all"
-                            style={{
-                                fontSize: "12px",
-                                // Keep original color, don't change for pending validation
-                                color: isDisabled
-                                    ? "var(--vscode-disabledForeground)"
-                                    : "var(--vscode-testing-iconPassed)",
-                            }}
-                        ></i>
-                    ) : (
-                        // Double grey checkmarks - Fully validated but current user hasn't validated
-                        <i
-                            className="codicon codicon-check-all"
-                            style={{
-                                fontSize: "12px",
-                                // Keep original color, don't change for pending validation
-                                color: isDisabled
-                                    ? "var(--vscode-disabledForeground)"
-                                    : "var(--vscode-descriptionForeground)",
-                            }}
-                        ></i>
-                    )
-                ) : isValidated ? (
-                    // Green checkmark - Current user validated but not fully validated
-                    <i
-                        className="codicon codicon-check"
-                        style={{
-                            fontSize: "12px",
-                            // Keep original color, don't change for pending validation
-                            color: isDisabled
-                                ? "var(--vscode-disabledForeground)"
-                                : "var(--vscode-testing-iconPassed)",
-                        }}
-                    ></i>
-                ) : (
-                    // Grey filled circle - Has validations but not from current user
-                    <i
-                        className="codicon codicon-circle-filled"
-                        style={{
-                            fontSize: "12px",
-                            // Keep original color, don't change for pending validation
-                            color: isDisabled
-                                ? "var(--vscode-disabledForeground)"
-                                : "var(--vscode-descriptionForeground)",
-                        }}
-                    ></i>
-                )}
+                {renderStatusIcon()}
             </VSCodeButton>
 
             {/* Add style for spinner animation */}

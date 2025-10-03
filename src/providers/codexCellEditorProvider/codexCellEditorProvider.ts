@@ -1613,6 +1613,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             merged: cell.metadata?.data?.merged,
             deleted: cell.metadata?.data?.deleted,
             attachments: cell.metadata?.attachments,
+            metadata: {
+                selectedAudioId: cell.metadata?.selectedAudioId,
+                selectionTimestamp: cell.metadata?.selectionTimestamp,
+            },
         }));
         debug("Translation units:", translationUnits);
 
@@ -1664,6 +1668,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 cellLabel: cell.cellLabel,
                 merged: cell.merged,
                 attachments: cell.attachments,
+                metadata: cell.metadata,
             });
         });
 
