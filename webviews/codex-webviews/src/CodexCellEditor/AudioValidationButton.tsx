@@ -180,6 +180,29 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         }
     }, [requiredAudioValidationsProp]);
 
+    // Consolidated handler to update state from a validatedBy list
+    const applyValidatedByUpdate = (validatedBy: ValidationEntry[] | undefined) => {
+        const list = validatedBy || [];
+        if (username) {
+            // Check if the user has an active validation (not deleted)
+            const userEntry = list.find(
+                (entry: ValidationEntry) =>
+                    isValidValidationEntry(entry) && entry.username === username && !entry.isDeleted
+            );
+            setIsValidated(!!userEntry);
+
+            // Update the list of validation users
+            const activeValidations = list.filter(
+                (entry: ValidationEntry) => isValidValidationEntry(entry) && !entry.isDeleted
+            );
+            setValidationUsers(activeValidations);
+
+            // Validation is complete, clear pending/in-progress state
+            setIsPendingValidation(false);
+            setIsValidationInProgress(false);
+        }
+    };
+
     useMessageHandler(
         "audioValidationButton",
         (event: MessageEvent) => {
@@ -197,29 +220,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
             } else if (message.type === "providerUpdatesAudioValidationState") {
                 // Handle audio validation state updates from the backend
                 if (message.content.cellId === cellId) {
-                    // Audio validation state has been updated, refresh the component
-                    const validatedBy = message.content.validatedBy || [];
-                    if (username) {
-                        // Check if the user has an active validation (not deleted)
-                        const userEntry = validatedBy.find(
-                            (entry: ValidationEntry) =>
-                                isValidValidationEntry(entry) &&
-                                entry.username === username &&
-                                !entry.isDeleted
-                        );
-                        setIsValidated(!!userEntry);
-
-                        // Update the list of validation users
-                        const activeValidations = validatedBy.filter(
-                            (entry: ValidationEntry) =>
-                                isValidValidationEntry(entry) && !entry.isDeleted
-                        );
-                        setValidationUsers(activeValidations);
-
-                        // Validation is complete, clear pending state
-                        setIsPendingValidation(false);
-                        setIsValidationInProgress(false);
-                    }
+                    applyValidatedByUpdate(message.content.validatedBy);
                 }
             } else if (message.type === "configurationChanged") {
                 // Configuration changes now send validationCountAudio directly, no need to refetch
@@ -246,29 +247,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                     setIsPendingValidation(false);
                 }
             } else if (message.type === "audioHistorySelectionChanged") {
-                // Audio validation state has been updated, refresh the component
-                const validatedBy = message.content.validatedBy || [];
-                if (username) {
-                    // Check if the user has an active validation (not deleted)
-                    const userEntry = validatedBy.find(
-                        (entry: ValidationEntry) =>
-                            isValidValidationEntry(entry) &&
-                            entry.username === username &&
-                            !entry.isDeleted
-                    );
-                    setIsValidated(!!userEntry);
-
-                    // Update the list of validation users
-                    const activeValidations = validatedBy.filter(
-                        (entry: ValidationEntry) =>
-                            isValidValidationEntry(entry) && !entry.isDeleted
-                    );
-                    setValidationUsers(activeValidations);
-
-                    // Validation is complete, clear pending state
-                    setIsPendingValidation(false);
-                    setIsValidationInProgress(false);
-                }
+                applyValidatedByUpdate(message.content.validatedBy);
             }
         },
         [cellId, username, currentUsername, requiredAudioValidationsProp]
