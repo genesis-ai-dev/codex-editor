@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, Dispatch, SetStateAction } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { QuillCellContent, ValidationEntry } from "../../../../types";
 import { getCellValueData } from "@sharedUtils";
@@ -19,6 +19,7 @@ interface AudioValidationButtonProps {
     requiredAudioValidations?: number;
     disabled?: boolean;
     disabledReason?: string;
+    setShowSparkleButton?: Dispatch<SetStateAction<boolean>>;
 }
 
 const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
@@ -30,6 +31,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     requiredAudioValidations: requiredAudioValidationsProp,
     disabled: externallyDisabled,
     disabledReason,
+    setShowSparkleButton,
 }) => {
     const [isValidated, setIsValidated] = useState(false);
     const [username, setUsername] = useState<string | null>(currentUsername ?? null);
@@ -202,44 +204,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         audioPopoverTracker.setActivePopover(uniqueId.current);
     };
 
-    const showPopoverHandler = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        e.preventDefault();
-        if (isDisabled) return;
-        if (isPersistentPopover) return;
-        if (!showPopover && uniqueValidationUsers.length > 0) {
-            setShowPopover(true);
-            audioPopoverTracker.setActivePopover(uniqueId.current);
-        }
-    };
-
-    const hidePopoverHandler = (e?: React.MouseEvent) => {
-        if (e) {
-            e.stopPropagation();
-            e.preventDefault();
-        }
-        if (!isPersistentPopover) {
-            setTimeout(() => {
-                // Check if the mouse is still outside before hiding
-                if (!buttonRef.current?.matches(":hover")) {
-                    setShowPopover(false);
-                    if (audioPopoverTracker.getActivePopover() === uniqueId.current) {
-                        audioPopoverTracker.setActivePopover(null);
-                    }
-                }
-            }, 100);
-        }
-    };
-
-    const closePopover = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        setShowPopover(false);
-        setIsPersistentPopover(false);
-        if (audioPopoverTracker.getActivePopover() === uniqueId.current) {
-            audioPopoverTracker.setActivePopover(null);
-        }
-    };
-
     const buttonStyle = {
         height: "16px",
         width: "16px",
@@ -312,6 +276,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                     currentUsername={username}
                     uniqueId={uniqueId.current}
                     persistent={isPersistentPopover}
+                    onRequestClose={() => setShowSparkleButton && setShowSparkleButton(false)}
                     onRemoveSelf={() => {
                         enqueueValidation(cellId, false, true)
                             .then(() => {})

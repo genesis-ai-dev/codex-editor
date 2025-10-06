@@ -842,6 +842,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                     requiredAudioValidations={
                                                         requiredAudioValidations
                                                     }
+                                                    setShowSparkleButton={setShowSparkleButton}
                                                     disabled={
                                                         audioState === "none" ||
                                                         audioState === "deletedOnly"
