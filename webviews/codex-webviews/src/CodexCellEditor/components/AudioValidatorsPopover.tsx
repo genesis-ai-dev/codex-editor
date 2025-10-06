@@ -83,66 +83,58 @@ export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
     return (
         <div
             ref={popoverRef}
-            className="audio-validation-popover min-w-3xs sm:min-w-2xs"
+            className="audio-validation-popover absolute flex flex-col flex-1 gap-y-2 min-w-3xs sm:min-w-2xs rounded-md shadow-md p-2"
             style={{
-                position: "absolute",
                 zIndex: 100000,
                 opacity: show ? "1" : "0",
                 transition: "opacity 0.2s ease-in-out",
                 pointerEvents: show ? "auto" : "none",
                 backgroundColor: "var(--vscode-editor-background)",
-                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
                 border: "1px solid var(--vscode-editorWidget-border)",
             }}
         >
-            <div
-                style={{ position: "absolute", right: "8px", top: "8px", cursor: "pointer" }}
-                onClick={(e) => {
-                    e.stopPropagation();
-                    setShow(false);
-                    onRequestClose && onRequestClose();
-                    if (audioPopoverTracker.getActivePopover() === uniqueId) {
-                        audioPopoverTracker.setActivePopover(null);
-                    }
-                }}
-            >
-                <i className="codicon codicon-close" />
-            </div>
-            <div style={{ padding: "0 8px" }}>
-                <div
-                    style={{
-                        fontWeight: "bold",
-                        marginBottom: "4px",
-                        borderBottom: "1px solid var(--vscode-editorWidget-border)",
-                        paddingBottom: "4px",
-                    }}
-                >
+            <div className="flex items-center justify-between w-full">
+                <div className="font-extralight text-lg">
                     Audio Validators
                 </div>
+                <div
+                    className="flex items-baseline justify-end cursor-pointer font-light text-gray-400"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setShow(false);
+                        onRequestClose && onRequestClose();
+                        if (audioPopoverTracker.getActivePopover() === uniqueId) {
+                            audioPopoverTracker.setActivePopover(null);
+                        }
+                    }}
+                >
+                    <i className="codicon codicon-close" />
+                </div>
+            </div>
+            <div className="flex flex-col gap-y-2">
                 {validators.map((user) => {
                     const isCurrentUser = user.username === currentUsername;
+
                     return (
                         <div
+                            className="relative flex items-center justify-between"
                             key={user.username}
-                            style={{
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "space-between",
-                                padding: "3px 0",
-                                position: "relative",
-                            }}
                         >
-                            <div
-                                style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: "8px",
-                                    flex: "1",
-                                }}
-                            >
-                                <span style={{ fontWeight: isCurrentUser ? "600" : "400" }}>
-                                    {user.username}
-                                </span>
+                            <div className="flex flex-1 items-center justify-between">
+                                <div className="flex flex-col">
+                                    <span className={`${isCurrentUser ? "font-bold" : "font-normal"}`}>
+                                        {user.username}
+                                    </span>
+                                    <span
+                                        className="flex text-xs"
+                                        style={{
+                                            color: "var(--vscode-descriptionForeground)",
+                                        }}
+                                    >
+                                        {formatTimestamp(user.updatedTimestamp)}
+                                    </span>
+                                </div>
+
                                 {isCurrentUser && onRemoveSelf && (
                                     <span
                                         onClick={(e) => {
@@ -156,20 +148,14 @@ export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
                                             }
                                         }}
                                         title="Remove your audio validation"
-                                        className="audio-validation-trash-icon"
+                                        className="audio-validation-trash-icon flex items-start justify-center cursor-pointer h-8"
                                         style={{
-                                            cursor: "pointer",
-                                            display: "flex",
-                                            alignItems: "center",
-                                            justifyContent: "center",
-                                            padding: "2px",
-                                            borderRadius: "3px",
                                             transition: "background-color 0.2s",
                                         }}
                                     >
                                         <svg
-                                            width="14"
-                                            height="14"
+                                            width="16"
+                                            height="16"
                                             viewBox="0 0 24 24"
                                             fill="none"
                                             xmlns="http://www.w3.org/2000/svg"
@@ -205,15 +191,6 @@ export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
                                         </svg>
                                     </span>
                                 )}
-                                <span
-                                    style={{
-                                        fontSize: "11px",
-                                        color: "var(--vscode-descriptionForeground)",
-                                        marginLeft: "auto",
-                                    }}
-                                >
-                                    {formatTimestamp(user.updatedTimestamp)}
-                                </span>
                             </div>
                         </div>
                     );
