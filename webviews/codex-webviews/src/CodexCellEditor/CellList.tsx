@@ -757,6 +757,8 @@ const CellList: React.FC<CellListProps> = ({
                             audioAttachments={audioAttachments}
                             requiredValidations={requiredValidations}
                             currentUsername={currentUsername || undefined}
+                            vscode={vscode}
+                            isSourceText={isSourceText}
                         />
                     </span>
                 );

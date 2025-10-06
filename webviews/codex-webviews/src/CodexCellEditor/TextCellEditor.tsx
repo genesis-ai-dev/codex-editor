@@ -131,6 +131,8 @@ interface CellEditorProps {
     audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" | "missing" };
     requiredValidations?: number;
     currentUsername?: string | null;
+    vscode?: any;
+    isSourceText?: boolean;
 }
 
 // Simple ISO-639-1 to ISO-639-3 mapping for common languages; default to 'eng'
@@ -233,6 +235,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     audioAttachments,
     requiredValidations,
     currentUsername,
+    vscode,
+    isSourceText
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
@@ -2614,6 +2618,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     }
                                                 })(),
                                                 displayValidationText: true,
+                                            }}
+                                            audioValidationPopoverProps={{
+                                                cellId: cell.cellMarkers[0],
+                                                cell: cell,
+                                                vscode: vscode,
+                                                isSourceText: isSourceText ?? false,
+                                                currentUsername: currentUsername,
+                                                requiredAudioValidations: requiredValidations,
                                             }}
                                         />
 
