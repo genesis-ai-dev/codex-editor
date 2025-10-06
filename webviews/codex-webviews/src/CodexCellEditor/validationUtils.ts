@@ -41,3 +41,46 @@ export function computeAudioValidationUpdate(
     const isValidated = Boolean(username) && activeValidations.some((e) => e.username === username);
     return { isValidated, activeValidations };
 }
+
+// Format timestamps
+export const formatTimestamp = (timestamp: number): string => {
+    if (!timestamp) return "";
+
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    // For recent validations (less than a day)
+    if (diffDays < 1) {
+        if (diffHours < 1) {
+            if (diffMins < 1) {
+                return "just now";
+            }
+            return `${diffMins}m ago`;
+        }
+        return `${diffHours}h ago`;
+    }
+
+    // For older validations
+    if (diffDays < 7) {
+        return `${diffDays}d ago`;
+    }
+
+    // Format date if more than a week ago
+    return date.toLocaleDateString();
+};
+
+// Shared tracker to ensure only one audio validators popover is active
+export const audioPopoverTracker = {
+    activePopoverId: null as string | null,
+    setActivePopover(id: string | null) {
+        this.activePopoverId = id;
+    },
+    getActivePopover() {
+        return this.activePopoverId;
+    },
+};

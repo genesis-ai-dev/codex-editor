@@ -4,7 +4,7 @@ import { QuillCellContent, ValidationEntry } from "../../../../types";
 import { getCellValueData } from "@sharedUtils";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { processValidationQueue, enqueueValidation } from "./validationQueue";
-import { isValidValidationEntry } from "./validationUtils";
+import { formatTimestamp, isValidValidationEntry } from "./validationUtils";
 
 // Static tracking for active popover to ensure only one is shown at a time
 const popoverTracker = {
@@ -406,38 +406,6 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         justifyContent: "center",
     };
 
-    // Helper function to format timestamps
-    const formatTimestamp = (timestamp: number): string => {
-        if (!timestamp) return "";
-
-        const date = new Date(timestamp);
-        const now = new Date();
-        const diffMs = now.getTime() - date.getTime();
-        const diffSecs = Math.floor(diffMs / 1000);
-        const diffMins = Math.floor(diffSecs / 60);
-        const diffHours = Math.floor(diffMins / 60);
-        const diffDays = Math.floor(diffHours / 24);
-
-        // For recent validations (less than a day)
-        if (diffDays < 1) {
-            if (diffHours < 1) {
-                if (diffMins < 1) {
-                    return "just now";
-                }
-                return `${diffMins}m ago`;
-            }
-            return `${diffHours}h ago`;
-        }
-
-        // For older validations
-        if (diffDays < 7) {
-            return `${diffDays}d ago`;
-        }
-
-        // Format date if more than a week ago
-        return date.toLocaleDateString();
-    };
-
     const isDisabled = isSourceText || isValidationInProgress || Boolean(externallyDisabled);
 
     // Don't show validation button for source text or if no username is available
@@ -636,9 +604,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                             </div>
                             {uniqueValidationUsers.map((user) => {
                                 const isCurrentUser = user.username === username;
-                                const canDelete = isCurrentUser && isValidated;
-                                const formattedTime = formatTimestamp(user.updatedTimestamp);
-
+                                
                                 return (
                                     <div
                                         key={user.username}
