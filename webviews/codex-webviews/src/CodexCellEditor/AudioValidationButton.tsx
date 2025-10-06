@@ -430,8 +430,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         }
     };
 
-    const isFullyValidated = currentValidations >= requiredAudioValidations;
-
     const buttonStyle = {
         height: "16px",
         width: "16px",

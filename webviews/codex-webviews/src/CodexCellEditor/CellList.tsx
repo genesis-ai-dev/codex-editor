@@ -755,6 +755,8 @@ const CellList: React.FC<CellListProps> = ({
                             saveRetryCount={saveRetryCount}
                             footnoteOffset={calculateFootnoteOffset(i) + 1}
                             audioAttachments={audioAttachments}
+                            requiredValidations={requiredValidations}
+                            currentUsername={currentUsername || undefined}
                         />
                     </span>
                 );

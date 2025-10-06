@@ -3,6 +3,8 @@ import { CustomWaveformCanvas } from "./CustomWaveformCanvas.tsx";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { MessageCircle, Copy, Loader2, Trash2, History, Mic } from "lucide-react";
+import AudioValidationStatusIcon from "./AudioValidationStatusIcon.tsx";
+import type { AudioValidationStatusIconProps } from "./AudioValidationStatusIcon.tsx";
 
 interface AudioWaveformWithTranscriptionProps {
     audioUrl: string;
@@ -20,6 +22,7 @@ interface AudioWaveformWithTranscriptionProps {
     onRequestRemove?: () => void;
     onShowHistory?: () => void;
     onShowRecorder?: () => void;
+    validationStatusProps?: AudioValidationStatusIconProps;
 }
 
 const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionProps> = ({
@@ -34,6 +37,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     onRequestRemove,
     onShowHistory,
     onShowRecorder,
+    validationStatusProps,
 }) => {
     const [audioSrc, setAudioSrc] = useState<string>("");
 
@@ -52,9 +56,9 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     }, [audioBlob, audioUrl]);
 
     return (
-        <div className="bg-[var(--vscode-editor-background)] p-3 sm:p-4 rounded-md shadow w-full">
+        <div className="bg-[var(--vscode-editor-background)] flex flex-col gap-y-3 p-3 sm:p-4 rounded-md shadow w-full">
             {/* Transcription Section */}
-            <div className="mb-4">
+            <>
                 {isTranscribing ? (
                     <div className="space-y-3">
                         <div className="flex items-center gap-2">
@@ -75,7 +79,10 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                 ) : transcription ? (
                     <div className="space-y-3">
                         <div className="bg-[var(--vscode-editor-background)] p-4 rounded-lg border border-[var(--vscode-panel-border)]">
-                            <p className="text-sm leading-relaxed mb-2 italic" style={{ color: 'var(--vscode-disabledForeground)' }}>
+                            <p
+                                className="text-sm leading-relaxed mb-2 italic"
+                                style={{ color: "var(--vscode-disabledForeground)" }}
+                            >
                                 {transcription.content}
                             </p>
                             {transcription.language && (
@@ -94,10 +101,10 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                         </Button>
                     </div>
                 ) : null}
-            </div>
+            </>
 
             {/* Waveform */}
-            <div className="bg-[var(--vscode-editor-background)] p-3 rounded-md shadow-sm">
+            <div className="bg-[var(--vscode-editor-background)]">
                 {audioSrc ? (
                     <CustomWaveformCanvas
                         audioUrl={audioSrc}
@@ -113,9 +120,14 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     </div>
                 )}
             </div>
+            {validationStatusProps && (
+                <div className="flex w-full items-center justify-end">
+                    <AudioValidationStatusIcon {...validationStatusProps} />
+                </div>
+            )}
 
             {/* Action buttons at bottom */}
-            <div className="flex flex-wrap items-center justify-center gap-2 mt-3 px-2">
+            <div className="flex flex-wrap items-center justify-center gap-2 px-2">
                 {!transcription && !isTranscribing && (
                     <Button
                         onClick={onTranscribe}

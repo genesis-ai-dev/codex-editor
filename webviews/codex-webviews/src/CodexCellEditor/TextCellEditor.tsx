@@ -27,6 +27,8 @@ import AudioWaveformWithTranscription from "./AudioWaveformWithTranscription";
 import SourceTextDisplay from "./SourceTextDisplay";
 import { AudioHistoryViewer } from "./AudioHistoryViewer";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
+import { getCellValueData } from "@sharedUtils";
+import { getActiveAudioValidations } from "./validationUtils";
 
 // ShadCN UI components
 import { Button } from "../components/ui/button";
@@ -127,6 +129,8 @@ interface CellEditorProps {
     prevEndTime?: number;
     nextStartTime?: number;
     audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" | "missing" };
+    requiredValidations?: number;
+    currentUsername?: string | null;
 }
 
 // Simple ISO-639-1 to ISO-639-3 mapping for common languages; default to 'eng'
@@ -227,6 +231,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     prevEndTime,
     nextStartTime,
     audioAttachments,
+    requiredValidations,
+    currentUsername,
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
@@ -2529,6 +2535,86 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             onShowHistory={() => setShowAudioHistory(true)}
                                             onShowRecorder={() => setShowRecorder(true)}
                                             disabled={!audioBlob}
+                                            validationStatusProps={{
+                                                isValidationInProgress: false,
+                                                isDisabled: !audioBlob,
+                                                currentValidations: (() => {
+                                                    try {
+                                                        const { audioValidatedBy } =
+                                                            getCellValueData(cell as any);
+                                                        const active = getActiveAudioValidations(
+                                                            audioValidatedBy as any
+                                                        );
+                                                        const uniqueLatestByUser = new Map<
+                                                            string,
+                                                            any
+                                                        >();
+                                                        active.forEach((v: any) => {
+                                                            const existing = uniqueLatestByUser.get(
+                                                                v.username
+                                                            );
+                                                            if (
+                                                                !existing ||
+                                                                v.updatedTimestamp >
+                                                                    existing.updatedTimestamp
+                                                            ) {
+                                                                uniqueLatestByUser.set(
+                                                                    v.username,
+                                                                    v
+                                                                );
+                                                            }
+                                                        });
+                                                        return uniqueLatestByUser.size;
+                                                    } catch {
+                                                        return 0;
+                                                    }
+                                                })(),
+                                                requiredValidations: requiredValidations ?? 1,
+                                                isValidatedByCurrentUser: (() => {
+                                                    try {
+                                                        const username =
+                                                            currentUsername || null;
+                                                        if (!username) return false;
+                                                        const { audioValidatedBy } =
+                                                            getCellValueData(cell as any);
+                                                        const active = getActiveAudioValidations(
+                                                            audioValidatedBy as any
+                                                        );
+                                                        const uniqueLatestByUser = new Map<
+                                                            string,
+                                                            any
+                                                        >();
+                                                        active.forEach((v: any) => {
+                                                            const existing = uniqueLatestByUser.get(
+                                                                v.username
+                                                            );
+                                                            if (
+                                                                !existing ||
+                                                                v.updatedTimestamp >
+                                                                    existing.updatedTimestamp
+                                                            ) {
+                                                                uniqueLatestByUser.set(
+                                                                    v.username,
+                                                                    v
+                                                                );
+                                                            }
+                                                        });
+                                                        const lower = (
+                                                            username || ""
+                                                        ).toLowerCase();
+                                                        return Array.from(
+                                                            uniqueLatestByUser.values()
+                                                        ).some(
+                                                            (u: any) =>
+                                                                (u.username || "").toLowerCase() ===
+                                                                lower
+                                                        );
+                                                    } catch {
+                                                        return false;
+                                                    }
+                                                })(),
+                                                displayValidationText: true,
+                                            }}
                                         />
 
                                         {confirmingDiscard && (
