@@ -58,7 +58,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     const [audioSrc, setAudioSrc] = useState<string>("");
     // State for hover popover of audio validators
     const [showValidatorsPopover, setShowValidatorsPopover] = useState(false);
-    const iconContainerRef = React.useRef<HTMLButtonElement>(null);
+    const validationContainerRef = React.useRef<HTMLDivElement>(null);
 
     // Stabilize frequently used popover values for hook dependencies
     const popoverCurrentUsername = audioValidationPopoverProps?.currentUsername;
@@ -161,10 +161,16 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     </div>
                 )}
             </div>
+
             {validationStatusProps && (
-                <div className="flex w-full items-center justify-end">
-                    <button
-                        ref={iconContainerRef}
+                <div 
+                    className="relative flex w-full items-center justify-end"
+                    ref={validationContainerRef}
+                >
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="static"
                         onClick={(e) => {
                             e.stopPropagation();
                             if (
@@ -176,15 +182,14 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                                 audioPopoverTracker.setActivePopover(uniqueId.current);
                             }
                         }}
-                        style={{ position: "relative", display: "inline-block" }}
                     >
                         <AudioValidationStatusIcon {...validationStatusProps} />
-                    </button>
+                    </Button>
                     {showValidatorsPopover &&
                         audioValidationPopoverProps &&
                         uniqueValidationUsers.length > 0 && (
                             <AudioValidatorsPopover
-                                anchorRef={iconContainerRef as any}
+                                anchorRef={validationContainerRef}
                                 show={showValidatorsPopover}
                                 setShow={setShowValidatorsPopover}
                                 validators={uniqueValidationUsers}

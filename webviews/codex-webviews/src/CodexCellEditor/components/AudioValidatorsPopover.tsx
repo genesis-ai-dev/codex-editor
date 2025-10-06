@@ -22,7 +22,6 @@ export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
     currentUsername,
     uniqueId,
     onRemoveSelf,
-    persistent = false,
     onRequestClose,
 }) => {
     const popoverRef = useRef<HTMLDivElement>(null);
@@ -31,22 +30,13 @@ export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
         if (!show || !popoverRef.current || !anchorRef.current) return;
         const buttonRect = anchorRef.current.getBoundingClientRect();
         const popoverRect = popoverRef.current.getBoundingClientRect();
-        const viewportWidth = window.innerWidth;
         const viewportHeight = window.innerHeight;
 
         const spaceAbove = buttonRect.top;
         const spaceBelow = viewportHeight - (buttonRect.top + buttonRect.height);
-        const spaceRight = viewportWidth - (buttonRect.left + buttonRect.width);
-        const spaceLeft = buttonRect.left;
 
-        let left = buttonRect.width + 5;
         let top = 0;
-        if (spaceRight < popoverRect.width + 10) {
-            left = -popoverRect.width - 5;
-        }
-        if (spaceRight < popoverRect.width + 10 && spaceLeft < popoverRect.width + 10) {
-            left = -(popoverRect.width / 2) + buttonRect.width / 2;
-        }
+
         if (spaceBelow >= popoverRect.height + 10) {
             top = buttonRect.height + 5;
         } else if (spaceAbove >= popoverRect.height + 10) {
@@ -55,31 +45,47 @@ export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
             top = -(popoverRect.height / 2) + buttonRect.height / 2;
         }
 
-        const finalLeft = Math.min(
-            Math.max(left, -buttonRect.left + 10),
-            viewportWidth - buttonRect.left - popoverRect.width - 10
-        );
-        const finalTop = Math.min(
-            Math.max(top, -buttonRect.top + 10),
-            viewportHeight - buttonRect.top - popoverRect.height - 10
-        );
-
-        popoverRef.current.style.position = "fixed";
-        popoverRef.current.style.top = `${buttonRect.top + finalTop}px`;
-        popoverRef.current.style.left = `${buttonRect.left + finalLeft}px`;
+        popoverRef.current.style.top = `${top}px`;
+        popoverRef.current.style.position = "absolute";
         popoverRef.current.style.opacity = "1";
         popoverRef.current.style.pointerEvents = "auto";
         popoverRef.current.style.zIndex = "100000";
     }, [show, anchorRef]);
+
+    // Close when clicking outside of both the anchor and the popover
+    useEffect(() => {
+        if (!show) return;
+        const handleOutsideClick = (event: MouseEvent) => {
+            const target = event.target as Node | null;
+            const anchorEl = anchorRef.current;
+            const popoverEl = popoverRef.current;
+
+            const clickInsideAnchor = Boolean(anchorEl && target && anchorEl.contains(target));
+            const clickInsidePopover = Boolean(popoverEl && target && popoverEl.contains(target));
+
+            if (clickInsideAnchor || clickInsidePopover) return;
+
+            setShow(false);
+            onRequestClose && onRequestClose();
+            if (audioPopoverTracker.getActivePopover() === uniqueId) {
+                audioPopoverTracker.setActivePopover(null);
+            }
+        };
+
+        document.addEventListener("mousedown", handleOutsideClick);
+        return () => {
+            document.removeEventListener("mousedown", handleOutsideClick);
+        };
+    }, [show, anchorRef, setShow, uniqueId, onRequestClose]);
 
     if (!show || validators.length === 0) return null;
 
     return (
         <div
             ref={popoverRef}
-            className="audio-validation-popover"
+            className="audio-validation-popover min-w-3xs sm:min-w-2xs"
             style={{
-                position: "fixed",
+                position: "absolute",
                 zIndex: 100000,
                 opacity: show ? "1" : "0",
                 transition: "opacity 0.2s ease-in-out",
@@ -88,35 +94,20 @@ export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
                 boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
                 border: "1px solid var(--vscode-editorWidget-border)",
             }}
-            onMouseEnter={(e) => {
-                e.stopPropagation();
-                setShow(true);
-            }}
-            onMouseLeave={(e) => {
-                e.stopPropagation();
-                if (!persistent) {
+        >
+            <div
+                style={{ position: "absolute", right: "8px", top: "8px", cursor: "pointer" }}
+                onClick={(e) => {
+                    e.stopPropagation();
                     setShow(false);
+                    onRequestClose && onRequestClose();
                     if (audioPopoverTracker.getActivePopover() === uniqueId) {
                         audioPopoverTracker.setActivePopover(null);
                     }
-                }
-            }}
-        >
-            {persistent && (
-                <div
-                    style={{ position: "absolute", right: "8px", top: "8px", cursor: "pointer" }}
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        setShow(false);
-                        onRequestClose && onRequestClose();
-                        if (audioPopoverTracker.getActivePopover() === uniqueId) {
-                            audioPopoverTracker.setActivePopover(null);
-                        }
-                    }}
-                >
-                    <i className="codicon codicon-close" />
-                </div>
-            )}
+                }}
+            >
+                <i className="codicon codicon-close" />
+            </div>
             <div style={{ padding: "0 8px" }}>
                 <div
                     style={{

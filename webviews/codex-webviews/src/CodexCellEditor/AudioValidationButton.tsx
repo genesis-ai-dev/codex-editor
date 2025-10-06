@@ -161,23 +161,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     );
 
     useEffect(() => {
-        const handleOutsideClick = (event: MouseEvent) => {
-            if (buttonRef.current && !buttonRef.current.contains(event.target as Node)) {
-                setShowPopover(false);
-                setIsPersistentPopover(false);
-                if (audioPopoverTracker.getActivePopover() === uniqueId.current) {
-                    audioPopoverTracker.setActivePopover(null);
-                }
-            }
-        };
-
-        document.addEventListener("mousedown", handleOutsideClick);
-        return () => {
-            document.removeEventListener("mousedown", handleOutsideClick);
-        };
-    }, []);
-
-    useEffect(() => {
         if (showPopover && audioPopoverTracker.getActivePopover() !== uniqueId.current) {
             setShowPopover(false);
             setIsPersistentPopover(false);
@@ -266,16 +249,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         justifyContent: "center",
     } as const;
 
-    const renderStatusIcon = () => (
-        <AudioValidationStatusIcon
-            isValidationInProgress={isValidationInProgress}
-            isDisabled={isDisabled}
-            currentValidations={currentValidations}
-            requiredValidations={requiredAudioValidations}
-            isValidatedByCurrentUser={isValidated}
-        />
-    );
-
     const isDisabled = isSourceText || isValidationInProgress || Boolean(externallyDisabled);
 
     if (isSourceText || !username) {
@@ -286,8 +259,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         <div
             ref={buttonRef}
             className="audio-validation-button-container"
-            onMouseEnter={showPopoverHandler}
-            onMouseLeave={hidePopoverHandler}
             onClick={handleButtonClick}
             style={{ position: "relative", display: "inline-block" }}
         >
@@ -308,7 +279,13 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                 disabled={isDisabled}
                 title={isDisabled ? disabledReason || "Audio validation requires audio" : undefined}
             >
-                {renderStatusIcon()}
+                <AudioValidationStatusIcon
+                    isValidationInProgress={isValidationInProgress}
+                    isDisabled={isDisabled}
+                    currentValidations={currentValidations}
+                    requiredValidations={requiredAudioValidations}
+                    isValidatedByCurrentUser={isValidated}
+                />
             </VSCodeButton>
 
             {/* Add style for spinner animation */}
@@ -330,16 +307,11 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                 <AudioValidatorsPopover
                     anchorRef={buttonRef as any}
                     show={showPopover}
-                    setShow={(validation) => {
-                        if (!isPersistentPopover) setShowPopover(validation);
-                    }}
+                    setShow={setShowPopover}
                     validators={uniqueValidationUsers}
                     currentUsername={username}
                     uniqueId={uniqueId.current}
                     persistent={isPersistentPopover}
-                    onRequestClose={() => {
-                        setIsPersistentPopover(false);
-                    }}
                     onRemoveSelf={() => {
                         enqueueValidation(cellId, false, true)
                             .then(() => {})
