@@ -16,9 +16,10 @@ export async function matchCellLabels(
     );
 
     // Create a map of all cells by their start time, and also keep a sorted list for nearest match
-    const cellMap = new Map<number, { cellId: string; currentLabel?: string; }>();
+    // CRITICAL: Now tracking fileUri to ensure labels go to the correct file
+    const cellMap = new Map<number, { cellId: string; currentLabel?: string; fileUri: string; }>();
     // Also create an exact ID lookup for direct ID-based matching
-    const idMap = new Map<string, { cellId: string; currentLabel?: string; }>();
+    const idMap = new Map<string, { cellId: string; currentLabel?: string; fileUri: string; }>();
     const cellTimes: number[] = [];
 
     // Extract all cells from source files and create a time-based lookup
@@ -26,27 +27,34 @@ export async function matchCellLabels(
         file.cells.forEach((cell) => {
             if (cell.metadata?.id) {
                 const cellId = cell.metadata.id;
+                const fileUri = file.uri.fsPath;
 
                 // Populate exact ID map (trim to be safe)
                 idMap.set(String(cellId).trim(), {
                     cellId,
                     currentLabel: (cell.metadata as CellMetadata).cellLabel,
+                    fileUri,
                 });
 
                 // Extract the start time from the cell ID (e.g., "cue-25.192-29.029")
                 const timeMatch = cellId.match(/cue-(\d+(?:\.\d+)?)-/);
                 if (timeMatch && timeMatch[1]) {
                     const startTimeSeconds = parseFloat(timeMatch[1]);
-                    cellMap.set(startTimeSeconds, {
-                        cellId,
-                        currentLabel: (cell.metadata as CellMetadata).cellLabel,
-                    });
-                    cellTimes.push(startTimeSeconds);
+                    // For time-based matching, we store per timestamp (may conflict across files)
+                    // but we'll prefer exact ID matches when available
+                    if (!cellMap.has(startTimeSeconds)) {
+                        cellMap.set(startTimeSeconds, {
+                            cellId,
+                            currentLabel: (cell.metadata as CellMetadata).cellLabel,
+                            fileUri,
+                        });
+                        cellTimes.push(startTimeSeconds);
+                    }
                 }
             }
         });
     });
-    console.log(`[matchCellLabels] Populated cellMap with ${cellMap.size} cells.`);
+    console.log(`[matchCellLabels] Populated cellMap with ${cellMap.size} cells from ${sourceFiles.length} files.`);
     cellTimes.sort((a, b) => a - b);
 
     // Process each imported row
@@ -245,6 +253,7 @@ export async function matchCellLabels(
                 newLabel: labelValue,
                 currentLabel: match?.currentLabel,
                 matched: !!match,
+                sourceFileUri: match?.fileUri, // Track which file this cell belongs to
             });
         }
     });

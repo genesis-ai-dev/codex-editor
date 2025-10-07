@@ -26,6 +26,7 @@ interface CellLabelData {
     newLabel: string;
     currentLabel?: string;
     matched: boolean;
+    sourceFileUri?: string; // Track which file this label belongs to
 }
 
 interface ImportedRow {
@@ -53,7 +54,7 @@ interface AppState {
     useMultiColumns?: boolean;
     importSource: string; // Filename(s) of the imported file(s)
     availableSourceFiles: SourceFileUIData[];
-    excludedFilePathsFromLastRun: string[];
+    selectedTargetFilePath: string | null; // Single file to import into
     isLoading: boolean; // For loading indicators
     errorMessage: string | null; // For displaying errors in column selection
 }
@@ -76,7 +77,7 @@ const App: React.FC = () => {
             useMultiColumns: persistedState?.useMultiColumns || false,
             importSource: persistedState?.importSource || "",
             availableSourceFiles: persistedState?.availableSourceFiles || [],
-            excludedFilePathsFromLastRun: persistedState?.excludedFilePathsFromLastRun || [],
+            selectedTargetFilePath: persistedState?.selectedTargetFilePath || null,
             isLoading: false,
             errorMessage: null,
         };
@@ -276,7 +277,7 @@ const App: React.FC = () => {
             data: state.importData,
             selectedColumn: usingMulti ? undefined : state.selectedColumn,
             selectedColumns: usingMulti ? state.selectedColumns : undefined,
-            excludedFilePaths: state.excludedFilePathsFromLastRun, // Send current selection of excluded files
+            selectedTargetFilePath: state.selectedTargetFilePath, // Send selected file path
         });
         setState((prev) => ({ ...prev, isLoading: true, errorMessage: null }));
     }, [
@@ -284,7 +285,7 @@ const App: React.FC = () => {
         state.selectedColumn,
         state.selectedColumns,
         state.useMultiColumns,
-        state.excludedFilePathsFromLastRun,
+        state.selectedTargetFilePath,
     ]);
 
     const handleSave = useCallback(() => {
@@ -361,17 +362,12 @@ const App: React.FC = () => {
             });
         };
 
-        const handleFileExclusionChange = (filePath: string, isChecked: boolean) => {
-            setState((prev) => {
-                const newExcluded = new Set(prev.excludedFilePathsFromLastRun);
-                if (!isChecked) {
-                    // Checkbox is for including, so if unchecked, it's excluded
-                    newExcluded.add(filePath);
-                } else {
-                    newExcluded.delete(filePath);
-                }
-                return { ...prev, excludedFilePathsFromLastRun: Array.from(newExcluded) };
-            });
+        const handleTargetFileChange = (e: any) => {
+            const filePath = e.target.value;
+            setState((prev) => ({
+                ...prev,
+                selectedTargetFilePath: filePath || null,
+            }));
         };
 
         return (
@@ -473,33 +469,25 @@ const App: React.FC = () => {
                         )}
                     </div>
 
-                    <h4>Exclude Source Files (Optional)</h4>
-                    <p>Uncheck files you don't want to match against:</p>
-                    <div id="fileExclusionList">
-                        {state.availableSourceFiles.length > 0 ? (
-                            state.availableSourceFiles.map((file) => (
-                                <div key={file.id}>
-                                    <VSCodeCheckbox
-                                        checked={
-                                            !state.excludedFilePathsFromLastRun.includes(file.path)
-                                        }
-                                        onChange={(e: any) =>
-                                            handleFileExclusionChange(file.path, e.target.checked)
-                                        }
-                                    >
-                                        {file.name} (
-                                        {file.path.substring(file.path.lastIndexOf("/") + 1)})
-                                    </VSCodeCheckbox>
-                                </div>
-                            ))
-                        ) : (
-                            <p>No source files loaded for exclusion.</p>
-                        )}
-                    </div>
+                    <h4>Select Target File</h4>
+                    <p>Choose which file to import the labels into:</p>
+                    <VSCodeDropdown
+                        value={state.selectedTargetFilePath || ""}
+                        onChange={handleTargetFileChange}
+                        style={{ maxWidth: "500px", marginBottom: "12px" }}
+                    >
+                        <VSCodeOption value="">-- Select a file --</VSCodeOption>
+                        {state.availableSourceFiles.map((file) => (
+                            <VSCodeOption key={file.id} value={file.path}>
+                                {file.name}
+                            </VSCodeOption>
+                        ))}
+                    </VSCodeDropdown>
                     <VSCodeButton
                         onClick={handleProcessLabels}
                         disabled={
                             state.isLoading ||
+                            !state.selectedTargetFilePath ||
                             (!state.useMultiColumns
                                 ? !state.selectedColumn
                                 : !(state.selectedColumns && state.selectedColumns.length > 0))
