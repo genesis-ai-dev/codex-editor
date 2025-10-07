@@ -983,6 +983,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     className={`flex flex-wrap items-baseline gap-[0.25rem] flex-1 min-w-0 ${
                         lineNumbersEnabled ? "flex-col" : "flex-row"
                     }`}
+                    onClick={() => {
+                        hideTooltip();
+                        handleCellClick(cellIds[0]);
+                    }}
                 >
                     {/* Cell label - shown after line number when present */}
                     {label && (
