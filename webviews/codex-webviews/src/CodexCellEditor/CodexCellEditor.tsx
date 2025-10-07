@@ -189,7 +189,9 @@ const CodexCellEditor: React.FC = () => {
     // Validation configuration (required validations) – requested once and derived for children
     const [requiredValidations, setRequiredValidations] = useState<number | null>(null);
 
-    const [requiredAudioValidations, setRequiredAudioValidations] = useState<number | null>(null);
+    const [requiredAudioValidations, setRequiredAudioValidations] = useState<number | null>(
+        (window as any)?.initialData?.validationCountAudio ?? null
+    );
 
     // Track cells currently transcribing audio (to show the same loading effect as translations)
     const [transcribingCells, setTranscribingCells] = useState<Set<string>>(new Set());

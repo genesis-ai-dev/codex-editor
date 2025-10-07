@@ -124,6 +124,7 @@ interface CellEditorProps {
     nextStartTime?: number;
     audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" | "missing" };
     requiredValidations?: number;
+    requiredAudioValidations?: number;
     currentUsername?: string | null;
     vscode?: any;
     isSourceText?: boolean;
@@ -228,6 +229,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     nextStartTime,
     audioAttachments,
     requiredValidations,
+    requiredAudioValidations,
     currentUsername,
     vscode,
     isSourceText,
@@ -338,7 +340,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const { iconProps: audioValidationIconProps } = useAudioValidationStatus({
         cell: cell as any,
         currentUsername: currentUsername || null,
-        requiredAudioValidations: requiredValidations ?? null,
+        requiredAudioValidations:
+            requiredAudioValidations ?? (window as any)?.initialData?.validationCountAudio ?? null,
         isSourceText: isSourceText ?? false,
         disabled: !audioBlob,
         displayValidationText: true,
@@ -349,8 +352,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
         vscode: vscode,
         isSourceText: isSourceText ?? false,
         currentUsername: currentUsername,
-        requiredAudioValidations: requiredValidations,
-    }
+        requiredAudioValidations:
+            requiredAudioValidations ??
+            (window as any)?.initialData?.validationCountAudio ??
+            undefined,
+    };
 
     const centerEditor = useCallback(() => {
         const el = cellEditorRef.current;
@@ -2553,7 +2559,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             onShowRecorder={() => setShowRecorder(true)}
                                             disabled={!audioBlob}
                                             validationStatusProps={audioValidationIconProps}
-                                            audioValidationPopoverProps={audioValidationPopoverProps}
+                                            audioValidationPopoverProps={
+                                                audioValidationPopoverProps
+                                            }
                                         />
 
                                         {confirmingDiscard && (

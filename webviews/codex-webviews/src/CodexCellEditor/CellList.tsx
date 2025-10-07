@@ -756,6 +756,7 @@ const CellList: React.FC<CellListProps> = ({
                             footnoteOffset={calculateFootnoteOffset(i) + 1}
                             audioAttachments={audioAttachments}
                             requiredValidations={requiredValidations}
+                            requiredAudioValidations={requiredAudioValidations}
                             currentUsername={currentUsername || undefined}
                             vscode={vscode}
                             isSourceText={isSourceText}

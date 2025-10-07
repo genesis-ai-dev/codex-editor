@@ -89,7 +89,12 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     const { validators: uniqueValidationUsers } = useAudioValidationStatus({
         cell: (popoverCell as any) || ({} as any),
         currentUsername: popoverCurrentUsername || null,
-        requiredAudioValidations: null,
+        requiredAudioValidations:
+            audioValidationPopoverProps &&
+            audioValidationPopoverProps.requiredAudioValidations !== undefined &&
+            audioValidationPopoverProps.requiredAudioValidations !== null
+                ? audioValidationPopoverProps.requiredAudioValidations
+                : null,
         isSourceText: Boolean(isSourceTextPopover),
         disabled: false,
         displayValidationText: false,
