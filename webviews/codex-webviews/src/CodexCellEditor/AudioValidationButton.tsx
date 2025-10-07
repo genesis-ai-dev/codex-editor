@@ -43,6 +43,17 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     const [isPendingValidation, setIsPendingValidation] = useState(false);
     const [isValidationInProgress, setIsValidationInProgress] = useState(false);
     const buttonRef = useRef<HTMLDivElement>(null);
+    const closeTimerRef = useRef<number | null>(null);
+    const clearCloseTimer = () => {
+        if (closeTimerRef.current != null) {
+            clearTimeout(closeTimerRef.current);
+            closeTimerRef.current = null;
+        }
+    };
+    const scheduleCloseTimer = (callback: () => void, delay = 100) => {
+        clearCloseTimer();
+        closeTimerRef.current = window.setTimeout(callback, delay);
+    };
     const uniqueId = useRef(
         `audio-validation-${cellId}-${Math.random().toString(36).substring(2, 11)}`
     );
@@ -186,12 +197,40 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     const handleButtonClick = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (isDisabled) return;
+
         if (!isValidated) {
             handleValidate(e);
             return;
         }
+    };
+
+    const handleMouseEnter = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (isDisabled) return;
+
+        clearCloseTimer();
         setShowPopover(true);
         audioPopoverTracker.setActivePopover(uniqueId.current);
+    };
+
+    const handleMouseLeave = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (isDisabled) return;
+
+        scheduleCloseTimer(() => {
+            setShowPopover(false);
+            audioPopoverTracker.setActivePopover(null);
+        }, 100);
+    };
+
+    const handleRequestClose = () => {
+        if (setShowSparkleButton) {
+            setShowSparkleButton(false);
+        }
+
+        setShowPopover(false);
+        audioPopoverTracker.setActivePopover(null);
+        clearCloseTimer();
     };
 
     const buttonStyle = {
@@ -213,7 +252,8 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         <div
             ref={buttonRef}
             className="audio-validation-button-container"
-            onClick={handleButtonClick}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
             style={{ position: "relative", display: "inline-block" }}
         >
             <VSCodeButton
@@ -226,10 +266,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                         borderRadius: "50%",
                     }),
                 }}
-                onClick={(e) => {
-                    e.stopPropagation();
-                    handleButtonClick(e);
-                }}
+                onClick={handleButtonClick}
                 disabled={isDisabled}
                 title={isDisabled ? disabledReason || "Audio validation requires audio" : undefined}
             >
@@ -241,6 +278,31 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                     isValidatedByCurrentUser={isValidated}
                 />
             </VSCodeButton>
+
+            {/* Popover for validation users */}
+            {showPopover && uniqueValidationUsers.length > 0 && (
+                <AudioValidatorsPopover
+                    anchorRef={buttonRef as any}
+                    show={showPopover}
+                    setShow={setShowPopover}
+                    validators={uniqueValidationUsers}
+                    currentUsername={username}
+                    uniqueId={uniqueId.current}
+                    onRequestClose={() => handleRequestClose()}
+                    cancelCloseTimer={clearCloseTimer}
+                    scheduleCloseTimer={scheduleCloseTimer}
+                    onRemoveSelf={() => {
+                        enqueueValidation(cellId, false, true)
+                            .then(() => {})
+                            .catch((error) =>
+                                console.error("Audio validation queue error:", error)
+                            );
+                        processValidationQueue(vscode, true).catch((error) =>
+                            console.error("Audio validation queue processing error:", error)
+                        );
+                    }}
+                />
+            )}
 
             {/* Add style for spinner animation */}
             <style>
@@ -255,29 +317,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                 }
                 `}
             </style>
-
-            {/* Popover for validation users */}
-            {showPopover && uniqueValidationUsers.length > 0 && (
-                <AudioValidatorsPopover
-                    anchorRef={buttonRef as any}
-                    show={showPopover}
-                    setShow={setShowPopover}
-                    validators={uniqueValidationUsers}
-                    currentUsername={username}
-                    uniqueId={uniqueId.current}
-                    onRequestClose={() => setShowSparkleButton && setShowSparkleButton(false)}
-                    onRemoveSelf={() => {
-                        enqueueValidation(cellId, false, true)
-                            .then(() => {})
-                            .catch((error) =>
-                                console.error("Audio validation queue error:", error)
-                            );
-                        processValidationQueue(vscode, true).catch((error) =>
-                            console.error("Audio validation queue processing error:", error)
-                        );
-                    }}
-                />
-            )}
         </div>
     );
 };

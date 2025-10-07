@@ -61,6 +61,17 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     // State for hover popover of audio validators
     const [showValidatorsPopover, setShowValidatorsPopover] = useState(false);
     const validationContainerRef = React.useRef<HTMLDivElement>(null);
+    const popoverCloseTimerRef = React.useRef<number | null>(null);
+    const cancelCloseTimer = () => {
+        if (popoverCloseTimerRef.current != null) {
+            clearTimeout(popoverCloseTimerRef.current);
+            popoverCloseTimerRef.current = null;
+        }
+    };
+    const scheduleCloseTimer = (cb: () => void, delay = 100) => {
+        cancelCloseTimer();
+        popoverCloseTimerRef.current = window.setTimeout(cb, delay);
+    };
 
     // Stabilize frequently used popover values for hook dependencies
     const popoverCurrentUsername = audioValidationPopoverProps?.currentUsername;
@@ -111,19 +122,16 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                 console.error("Audio validation queue processing error:", error);
             });
         }
-    }
+    };
 
     const handleAudioValidationStatus = (e: React.MouseEvent<HTMLButtonElement>) => {
         e.stopPropagation();
-        if (
-            hasPopover &&
-            uniqueValidationUsers.length > 0 &&
-            !isSourceTextPopover
-        ) {
+        if (hasPopover && uniqueValidationUsers.length > 0 && !isSourceTextPopover) {
+            cancelCloseTimer();
             setShowValidatorsPopover(true);
             audioPopoverTracker.setActivePopover(uniqueId.current);
         }
-    }
+    };
 
     return (
         <div className="bg-[var(--vscode-editor-background)] flex flex-col gap-y-3 p-3 sm:p-4 rounded-md shadow w-full">
@@ -192,7 +200,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
             </div>
 
             {validationStatusProps && (
-                <div 
+                <div
                     className="relative flex w-full items-center justify-end"
                     ref={validationContainerRef}
                 >
@@ -248,6 +256,8 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                                         )
                                     );
                                 }}
+                                cancelCloseTimer={cancelCloseTimer}
+                                scheduleCloseTimer={scheduleCloseTimer}
                             />
                         )}
                 </div>

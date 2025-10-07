@@ -11,6 +11,8 @@ interface AudioValidatorsPopoverProps {
     uniqueId: string;
     onRemoveSelf?: () => void;
     onRequestClose?: () => void;
+    cancelCloseTimer?: () => void;
+    scheduleCloseTimer?: (cb: () => void, delay?: number) => void;
 }
 
 export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
@@ -22,6 +24,8 @@ export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
     uniqueId,
     onRemoveSelf,
     onRequestClose,
+    cancelCloseTimer,
+    scheduleCloseTimer,
 }) => {
     const popoverRef = useRef<HTMLDivElement>(null);
 
@@ -77,6 +81,22 @@ export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
         };
     }, [show, anchorRef, setShow, uniqueId, onRequestClose]);
 
+    const handleMouseEnter = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        cancelCloseTimer && cancelCloseTimer();
+    };
+    
+    const handleMouseLeave = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        scheduleCloseTimer &&
+            scheduleCloseTimer(() => {
+                setShow(false);
+                if (audioPopoverTracker.getActivePopover() === uniqueId) {
+                    audioPopoverTracker.setActivePopover(null);
+                }
+            }, 100);
+    };
+
     if (!show || validators.length === 0) return null;
 
     return (
@@ -91,11 +111,11 @@ export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
                 backgroundColor: "var(--vscode-editor-background)",
                 border: "1px solid var(--vscode-editorWidget-border)",
             }}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
         >
             <div className="flex items-center justify-between w-full">
-                <div className="font-extralight text-base">
-                    Audio Validators
-                </div>
+                <div className="font-extralight text-base">Audio Validators</div>
                 <div
                     className="flex items-baseline justify-end cursor-pointer font-light text-gray-400"
                     onClick={(e) => {
@@ -121,7 +141,9 @@ export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
                         >
                             <div className="flex flex-1 items-center justify-between">
                                 <div className="flex flex-col">
-                                    <span className={`${isCurrentUser ? "font-bold" : "font-normal"}`}>
+                                    <span
+                                        className={`${isCurrentUser ? "font-bold" : "font-normal"}`}
+                                    >
                                         {user.username}
                                     </span>
                                     <span
