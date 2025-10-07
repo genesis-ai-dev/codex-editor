@@ -1014,7 +1014,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     const saveAudioToCell = (blob: Blob) => {
         // Generate a unique ID for the audio file
-        const uniqueId = `audio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const normalizedCellId = cellMarkers[0].replace(/\s+/g, "-").toLowerCase();
+        const uniqueId = `audio-${normalizedCellId}-${Date.now()}-${Math.random()
+            .toString(36)
+            .substr(2, 9)}`;
         const documentSegment = cellMarkers[0].split(" ")[0]; // Extract "JUD" from "JUD 1:1"
 
         // Determine file extension based on blob type
@@ -1057,7 +1060,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
             } catch {
                 // ignore metadata decode errors
             }
-
             // Send to provider to save file
             const messageContent: EditorPostMessages = {
                 command: "saveAudioAttachment",
