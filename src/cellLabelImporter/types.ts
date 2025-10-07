@@ -10,6 +10,7 @@ export interface CellLabelData {
     newLabel: string;
     currentLabel?: string;
     matched: boolean;
+    sourceFileUri?: string; // Track which file this label belongs to
 }
 
 // Interface for the imported Excel/CSV format
