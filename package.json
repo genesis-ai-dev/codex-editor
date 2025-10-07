@@ -161,6 +161,11 @@
                 "category": "Codex Editor"
             },
             {
+                "command": "codex-project-manager.optimizeRepository",
+                "title": "Optimize Repository (Consolidate Pack Files)",
+                "category": "Codex Project Manager"
+            },
+            {
                 "command": "codex-editor-extension.JOSH_COMMAND",
                 "title": "JOSH_COMMAND"
             },
@@ -950,6 +955,7 @@
         "lint": "eslint src --ext ts",
         "pretest": "npm run compile && npm run lint",
         "test": "node ./out/test/runTest.js",
+        "test:optimization": "npm run pretest && node ./out/test/runTest.js --grep \"Optimization|optimization\"",
         "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
         "build:webviews": "cd webviews/codex-webviews && pnpm run build:all && cd ../..",
         "test:webviews": "cd webviews/codex-webviews && pnpm run test",
