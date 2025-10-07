@@ -24,6 +24,10 @@ import { smartSegmenterPlugin } from "./recursiveTextSplitter/index.tsx";
 import { paratextImporterPlugin } from "./paratext/index.tsx";
 import { spreadsheetImporterPlugin } from "./spreadsheet/index.tsx";
 import { audioImporterPlugin } from "./audio/index.tsx";
+// import { tmsImporterPlugin } from "./tms/index.tsx";
+// import { rtfImporterPlugin } from "./rtf/index.tsx";
+// import { pdfImporterPlugin } from "./pdf/index.tsx";
+import { indesignImporterPlugin } from "./indesign/index.tsx";
 
 // Import placeholder components - these will be created for each importer
 // For now, we'll create a temporary placeholder component
@@ -78,6 +82,31 @@ export const importerPlugins: ImporterPlugin[] = [
         name: "Spreadsheets",
         description: "Excel and Google Sheets",
         tags: [...(spreadsheetImporterPlugin.tags || []), "Essential", "Spreadsheet", "Excel"],
+    },
+    // {
+    //     ...tmsImporterPlugin,
+    //     name: "TMS Files",
+    //     description: "Translation memory and localization files",
+    //     tags: [...(tmsImporterPlugin.tags || []), "Translation", "Localization", "Bible"],
+    // },
+    // {
+    //     ...rtfImporterPlugin,
+    //     name: "RTF Documents",
+    //     description: "Rich Text Format files with Bible verses, chapters, and books",
+    //     tags: [...(rtfImporterPlugin.tags || []), "Essential", "Documents"],
+    // },
+    // {
+    //     ...pdfImporterPlugin,
+    //     name: "PDF Documents",
+    //     description: "Portable Document Format files with Bible text",
+    //     icon: FileText,
+    //     tags: ["Essential", "Documents", "PDF"],
+    // },
+    {
+        ...indesignImporterPlugin,
+        name: "InDesign Files",
+        description: "Adobe InDesign IDML files with round-trip loss-free editing",
+        tags: [...(indesignImporterPlugin.tags || []), "Essential", "Documents", "Adobe", "Professional", "Bible"],
     },
 
     // Specialized Tools - Domain-specific importers for Bible translation

@@ -28,7 +28,7 @@ export interface SpreadsheetCell {
     rowIndex: number;
 }
 
-export type ColumnType = 'id' | 'source' | 'target' | 'unused';
+export type ColumnType = 'id' | 'source' | 'target' | 'attachments' | 'unused';
 
 export interface ColumnTypeSelection {
     [columnIndex: number]: ColumnType;

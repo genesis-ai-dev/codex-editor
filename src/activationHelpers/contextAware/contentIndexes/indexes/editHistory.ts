@@ -4,7 +4,7 @@ import { getTargetFilesContent } from "./fileReaders";
 import { EditType } from "../../../../../types/enums";
 import { EditMapUtils } from "../../../../utils/editMapUtils";
 interface Edit {
-    cellValue: string;
+    value: string;
     timestamp: number;
     type: EditType;
     author?: string;
@@ -89,11 +89,21 @@ function calculateMeteorScore(llmText: string, userText: string): number {
     const cleanLlmText = stripHtmlTags(llmText);
     const cleanUserText = stripHtmlTags(userText);
 
-    // Simple METEOR implementation focusing on exact matches and word order
-    const llmWords = cleanLlmText.toLowerCase().split(/\s+/);
-    const userWords = cleanUserText.toLowerCase().split(/\s+/);
+    // Handle empty strings
+    if (!cleanLlmText.trim() || !cleanUserText.trim()) {
+        return 0;
+    }
 
-    // Calculate exact matches
+    // Simple METEOR implementation focusing on exact matches and word order
+    const llmWords = cleanLlmText.toLowerCase().split(/\s+/).filter(word => word.length > 0);
+    const userWords = cleanUserText.toLowerCase().split(/\s+/).filter(word => word.length > 0);
+
+    // Handle case where filtering results in empty arrays
+    if (llmWords.length === 0 || userWords.length === 0) {
+        return 0;
+    }
+
+    // Calculate exact matches (position-based as in original METEOR)
     const matches = llmWords.filter((word, i) => word === userWords[i]);
 
     // Calculate precision and recall
@@ -186,7 +196,7 @@ export async function analyzeEditHistory(): Promise<{
                 }
 
                 if (edit.type === "llm-generation") {
-                    currentLLM = edit.cellValue;
+                    currentLLM = edit.value;
                     currentLLMTimestamp = edit.timestamp;
                     continue;
                 }
@@ -220,7 +230,7 @@ export async function analyzeEditHistory(): Promise<{
 
         // Strip HTML tags from both LLM generation and user edit
         const strippedLlmGeneration = stripHtmlTags(current.llmGeneration);
-        const strippedUserEdit = stripHtmlTags(current.edit.cellValue);
+        const strippedUserEdit = stripHtmlTags(current.edit.value);
 
         // If the stripped texts are identical, skip this edit pair
         if (strippedLlmGeneration === strippedUserEdit) continue;
@@ -249,7 +259,7 @@ export async function analyzeEditHistory(): Promise<{
         // Update current cell tracking
         currentCellId = current.cellId;
         currentEdits.push({
-            userEdit: current.edit.cellValue,
+            userEdit: current.edit.value,
             llmText: current.llmGeneration,
             llmTimestamp: current.llmTimestamp,
         });

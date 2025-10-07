@@ -103,6 +103,14 @@ function getWebviewContent(
 ) {
     const hasLanguages = sourceLanguage?.refName && targetLanguage?.refName;
 
+    // Middle-truncate longer file names
+    const middleTruncateLongerFileNames = (fileName: string) => {
+        if (fileName.length > 20) {
+            fileName = fileName.slice(0, 10) + "..." + fileName.slice(-10);
+        }
+        return fileName;
+    };
+
     return `<!DOCTYPE html>
     <html>
         <head>
@@ -314,6 +322,14 @@ function getWebviewContent(
                                     <span class="format-tag">Translation Ready</span>
                                 </div>
                             </div>
+                            <div class="format-option" data-format="idml-roundtrip" style="flex: 1;">
+                                <i class="codicon codicon-package"></i>
+                                <div>
+                                    <strong>IDML Round-trip</strong>
+                                    <p>Export translated content back into the original IDML structure</p>
+                                    <span class="format-tag">InDesign</span>
+                                </div>
+                            </div>
                             <div class="format-option" data-format="audio" style="flex: 1;">
                                 <i class="codicon codicon-mic"></i>
                                 <div>
@@ -398,14 +414,19 @@ function getWebviewContent(
                 .map(
                     (file, index) => `
                                 <div class="file-item">
-                                    <input type="checkbox" 
-                                           id="file-${index}" 
-                                           value="${file.path}"
-                                           ${file.selected ? "checked" : ""}
-                                           onchange="updateFileSelection()">
-                                    <label for="file-${index}">
+                                    <input 
+                                        type="checkbox" 
+                                        id="file-${index}" 
+                                        value="${file.path}"
+                                        ${file.selected ? "checked" : ""}
+                                        onchange="updateFileSelection()"
+                                    >
+                                    <label 
+                                        for="file-${index}"
+                                        title="${file.name}"
+                                    >
                                         <i class="codicon codicon-file"></i>
-                                        ${file.name}
+                                        ${middleTruncateLongerFileNames(file.name)}
                                     </label>
                                 </div>
                             `

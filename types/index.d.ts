@@ -1143,6 +1143,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "selectCategory"; }
     | { command: "setValidationCount"; }
     | { command: "openSourceUpload"; }
+    | { command: "openExportView"; }
     | { command: "openAISettings"; }
     | { command: "openLicenseSettings"; }
     | { command: "openExportView"; }

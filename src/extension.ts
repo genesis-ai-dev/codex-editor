@@ -37,6 +37,7 @@ import {
     showWelcomeViewIfNeeded,
 } from "./providers/WelcomeView/register";
 import { SyncManager } from "./projectManager/syncManager";
+import { MetadataManager } from "./utils/metadataManager";
 import {
     registerSplashScreenProvider,
     showSplashScreen,
@@ -53,6 +54,7 @@ import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 import { migrateAudioAttachments } from "./utils/audioAttachmentsMigrationUtils";
 import { registerTestingCommands } from "./evaluation/testingCommands";
 import { initializeABTesting } from "./utils/abTestingSetup";
+import { migration_addValidationsForUserEdits } from "./projectManager/utils/migrationUtils";
 
 const DEBUG_MODE = false;
 function debug(...args: any[]): void {
@@ -389,6 +391,19 @@ export async function activate(context: vscode.ExtensionContext) {
                 // DEBUGGING: Here is where the splash screen disappears - it was visible up till now
                 await vscode.workspace.fs.stat(metadataUri);
                 metadataExists = true;
+
+                // Update extension version requirements for conflict-free metadata management
+                try {
+                    const currentVersion = MetadataManager.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");
+                    const updateResult = await MetadataManager.updateExtensionVersions(workspaceFolders[0].uri, {
+                        codexEditor: currentVersion
+                    });
+                    if (!updateResult.success) {
+                        console.warn("[Extension] Failed to update extension version in metadata:", updateResult.error);
+                    }
+                } catch (error) {
+                    console.warn("[Extension] Error updating extension version requirements:", error);
+                }
             } catch {
                 metadataExists = false;
             }
@@ -455,7 +470,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Execute post-activation tasks
         const postActivationStart = globalThis.performance.now();
         await executeCommandsAfter(context);
-        await migration_chatSystemMessageSetting();
+        // NOTE: migration_chatSystemMessageSetting() now runs BEFORE sync (see line ~768)
         await temporaryMigrationScript_checkMatthewNotebook();
         await migration_changeDraftFolderToFilesFolder();
         await migrateSourceFiles();
@@ -485,12 +500,38 @@ export async function activate(context: vscode.ExtensionContext) {
         )
     );
 
+    // Command: Migrate validations for user edits across project
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.migrateValidationsForUserEdits",
+            async () => {
+                await migration_addValidationsForUserEdits();
+            }
+        )
+    );
+
     // Comments-related commands
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor-extension.focusCommentsView", () => {
             vscode.commands.executeCommand("comments-sidebar.focus");
         })
     );
+
+    // Ensure sync commands exist in all environments (including tests)
+    try {
+        const cmds = await vscode.commands.getCommands(true);
+        if (!cmds.includes("extension.scheduleSync")) {
+            const { SyncManager } = await import("./projectManager/syncManager");
+            context.subscriptions.push(
+                vscode.commands.registerCommand("extension.scheduleSync", (message: string) => {
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.scheduleSyncOperation(message);
+                })
+            );
+        }
+    } catch (err) {
+        console.warn("Failed to ensure scheduleSync registration", err);
+    }
 
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor-extension.navigateToCellInComments", (cellId: string) => {
@@ -721,6 +762,18 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
 
         // First check if there's actually a Codex project open
         const hasCodexProject = await checkIfMetadataAndGitIsInitialized();
+
+        // CRITICAL: Run migrations and disable VS Code's Git BEFORE first sync
+        // This must happen after checking project exists but BEFORE any Git operations
+        if (hasCodexProject) {
+            // Run chatSystemMessage migration FIRST to ensure correct key is synced
+            await migration_chatSystemMessageSetting();
+            debug("✅ [PRE-SYNC] Completed chatSystemMessage migration");
+
+            const { ensureGitDisabledInSettings } = await import("./projectManager/utils/projectUtils");
+            await ensureGitDisabledInSettings();
+            debug("✅ [PRE-SYNC] Disabled VS Code Git before sync operations");
+        }
         if (!hasCodexProject) {
             debug("⏭️ [POST-WORKSPACE] No Codex project open, skipping post-workspace sync");
         } else if (authApi) {
