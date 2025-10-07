@@ -32,6 +32,9 @@ export const filePatternsToResolve: Record<ConflictResolutionStrategy, string[]>
 
     // Files to ignore
     [ConflictResolutionStrategy.IGNORE]: ["complete_drafts.txt"],
+
+    // JSON settings files - 3-way merge with intelligent conflict resolution
+    [ConflictResolutionStrategy.JSON_MERGE_3WAY]: [".vscode/settings.json"],
 };
 
 export function determineStrategy(filePath: string): ConflictResolutionStrategy {

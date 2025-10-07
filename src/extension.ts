@@ -470,7 +470,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Execute post-activation tasks
         const postActivationStart = globalThis.performance.now();
         await executeCommandsAfter(context);
-        await migration_chatSystemMessageSetting();
+        // NOTE: migration_chatSystemMessageSetting() now runs BEFORE sync (see line ~768)
         await temporaryMigrationScript_checkMatthewNotebook();
         await migration_changeDraftFolderToFilesFolder();
         await migrateSourceFiles();
@@ -762,6 +762,18 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
 
         // First check if there's actually a Codex project open
         const hasCodexProject = await checkIfMetadataAndGitIsInitialized();
+
+        // CRITICAL: Run migrations and disable VS Code's Git BEFORE first sync
+        // This must happen after checking project exists but BEFORE any Git operations
+        if (hasCodexProject) {
+            // Run chatSystemMessage migration FIRST to ensure correct key is synced
+            await migration_chatSystemMessageSetting();
+            debug("✅ [PRE-SYNC] Completed chatSystemMessage migration");
+
+            const { ensureGitDisabledInSettings } = await import("./projectManager/utils/projectUtils");
+            await ensureGitDisabledInSettings();
+            debug("✅ [PRE-SYNC] Disabled VS Code Git before sync operations");
+        }
         if (!hasCodexProject) {
             debug("⏭️ [POST-WORKSPACE] No Codex project open, skipping post-workspace sync");
         } else if (authApi) {

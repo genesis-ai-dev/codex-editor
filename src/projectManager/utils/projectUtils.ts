@@ -426,6 +426,9 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                 // Ensure git configuration files are present and up-to-date
                 await ensureGitConfigsAreUpToDate();
 
+                // Disable VS Code's built-in Git integration
+                await ensureGitDisabledInSettings();
+
                 // Add files to git
                 await git.add({
                     fs,
@@ -845,6 +848,8 @@ export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
         // If both metadata and git exist, ensure git configuration files are up-to-date
         if (metadataExists) {
             await ensureGitConfigsAreUpToDate();
+            // NOTE: ensureGitDisabledInSettings() is now called AFTER sync in extension.ts
+            // to avoid creating a dirty working directory before sync operations
         }
     } catch {
         debug("Git repository not initialized yet"); // Changed to log since this is expected for new projects
@@ -1342,4 +1347,34 @@ export async function ensureGitConfigsAreUpToDate(): Promise<void> {
     // Git config files are part of codebase - always allow updates
     await updateGitignoreFile();
     await updateGitattributesFile();
+}
+
+/**
+ * Ensures git.enabled is set to false in workspace settings
+ * This disables VS Code's built-in Git integration for the project
+ */
+export async function ensureGitDisabledInSettings(): Promise<void> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+        console.error("No workspace folder found.");
+        return;
+    }
+
+    try {
+        const gitConfig = vscode.workspace.getConfiguration("git");
+        const currentValue = gitConfig.inspect<boolean>("enabled");
+
+        // Check if git.enabled is already set to false at workspace level
+        if (currentValue?.workspaceValue === false) {
+            debug("git.enabled is already set to false in workspace settings");
+            return;
+        }
+
+        // Set git.enabled to false at workspace level
+        await gitConfig.update("enabled", false, vscode.ConfigurationTarget.Workspace);
+        debug("Set git.enabled to false in workspace settings");
+        console.log("Disabled VS Code's built-in Git integration for this project");
+    } catch (error) {
+        console.error("Failed to update git.enabled setting:", error);
+    }
 }
