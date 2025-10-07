@@ -10,7 +10,6 @@ interface AudioValidatorsPopoverProps {
     currentUsername: string | null;
     uniqueId: string;
     onRemoveSelf?: () => void;
-    persistent?: boolean;
     onRequestClose?: () => void;
 }
 
@@ -94,7 +93,7 @@ export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
             }}
         >
             <div className="flex items-center justify-between w-full">
-                <div className="font-extralight text-lg">
+                <div className="font-extralight text-base">
                     Audio Validators
                 </div>
                 <div

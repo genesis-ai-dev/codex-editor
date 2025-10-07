@@ -11,6 +11,17 @@ import AudioValidatorsPopover from "./components/AudioValidatorsPopover";
 import { audioPopoverTracker } from "./validationUtils";
 import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
 
+interface AudioValidationPopoverProps {
+    cellId: string;
+    cell: QuillCellContent;
+    vscode: any;
+    isSourceText: boolean;
+    currentUsername?: string | null;
+    requiredAudioValidations?: number;
+    disabled?: boolean;
+    disabledReason?: string;
+}
+
 interface AudioWaveformWithTranscriptionProps {
     audioUrl: string;
     audioBlob?: Blob | null;
@@ -27,17 +38,8 @@ interface AudioWaveformWithTranscriptionProps {
     onRequestRemove?: () => void;
     onShowHistory?: () => void;
     onShowRecorder?: () => void;
-    validationStatusProps?: AudioValidationStatusIconProps;
-    audioValidationPopoverProps?: {
-        cellId: string;
-        cell: QuillCellContent;
-        vscode: any;
-        isSourceText: boolean;
-        currentUsername?: string | null;
-        requiredAudioValidations?: number;
-        disabled?: boolean;
-        disabledReason?: string;
-    };
+    audioValidationPopoverProps: AudioValidationPopoverProps;
+    validationStatusProps: AudioValidationStatusIconProps;
 }
 
 const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionProps> = ({
@@ -95,6 +97,33 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
         }
         setAudioSrc("");
     }, [audioBlob, audioUrl]);
+
+    const handleValidation = (e: React.MouseEvent<HTMLButtonElement>) => {
+        e.stopPropagation();
+        if (validationStatusProps.currentValidations === 0) {
+            // Add to audio validation queue for sequential processing
+            enqueueValidation(audioValidationPopoverProps.cellId, true, true)
+                .then(() => {})
+                .catch((error) => {
+                    console.error("Audio validation queue error:", error);
+                });
+            processValidationQueue(audioValidationPopoverProps.vscode, true).catch((error) => {
+                console.error("Audio validation queue processing error:", error);
+            });
+        }
+    }
+
+    const handleAudioValidationStatus = (e: React.MouseEvent<HTMLButtonElement>) => {
+        e.stopPropagation();
+        if (
+            hasPopover &&
+            uniqueValidationUsers.length > 0 &&
+            !isSourceTextPopover
+        ) {
+            setShowValidatorsPopover(true);
+            audioPopoverTracker.setActivePopover(uniqueId.current);
+        }
+    }
 
     return (
         <div className="bg-[var(--vscode-editor-background)] flex flex-col gap-y-3 p-3 sm:p-4 rounded-md shadow w-full">
@@ -167,24 +196,32 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     className="relative flex w-full items-center justify-end"
                     ref={validationContainerRef}
                 >
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        className="static"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            if (
-                                hasPopover &&
-                                uniqueValidationUsers.length > 0 &&
-                                !isSourceTextPopover
-                            ) {
-                                setShowValidatorsPopover(true);
-                                audioPopoverTracker.setActivePopover(uniqueId.current);
-                            }
-                        }}
-                    >
-                        <AudioValidationStatusIcon {...validationStatusProps} />
-                    </Button>
+                    {validationStatusProps.currentValidations === 0 ? (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="static"
+                            onClick={handleValidation}
+                        >
+                            <i
+                                className="codicon codicon-circle-outline"
+                                style={{
+                                    fontSize: "12px",
+                                    color: "var(--vscode-descriptionForeground)",
+                                }}
+                            ></i>
+                            <span className="ml-1 text-sm font-light">Validate</span>
+                        </Button>
+                    ) : (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="static"
+                            onClick={handleAudioValidationStatus}
+                        >
+                            <AudioValidationStatusIcon {...validationStatusProps} />
+                        </Button>
+                    )}
                     {showValidatorsPopover &&
                         audioValidationPopoverProps &&
                         uniqueValidationUsers.length > 0 && (

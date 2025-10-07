@@ -40,7 +40,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     );
     const [userCreatedLatestEdit, setUserCreatedLatestEdit] = useState(false);
     const [showPopover, setShowPopover] = useState(false);
-    const [isPersistentPopover, setIsPersistentPopover] = useState(false);
     const [isPendingValidation, setIsPendingValidation] = useState(false);
     const [isValidationInProgress, setIsValidationInProgress] = useState(false);
     const buttonRef = useRef<HTMLDivElement>(null);
@@ -165,7 +164,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     useEffect(() => {
         if (showPopover && audioPopoverTracker.getActivePopover() !== uniqueId.current) {
             setShowPopover(false);
-            setIsPersistentPopover(false);
         }
     }, [showPopover]);
 
@@ -183,13 +181,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
             console.error("Audio validation queue processing error:", error);
             setIsPendingValidation(false);
         });
-        // Don't close popover immediately to allow user to see the change
-        setTimeout(() => {
-            if (!isPersistentPopover) {
-                setShowPopover(false);
-                audioPopoverTracker.setActivePopover(null);
-            }
-        }, 500);
     };
 
     const handleButtonClick = (e: React.MouseEvent) => {
@@ -200,7 +191,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
             return;
         }
         setShowPopover(true);
-        setIsPersistentPopover(true);
         audioPopoverTracker.setActivePopover(uniqueId.current);
     };
 
@@ -275,7 +265,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                     validators={uniqueValidationUsers}
                     currentUsername={username}
                     uniqueId={uniqueId.current}
-                    persistent={isPersistentPopover}
                     onRequestClose={() => setShowSparkleButton && setShowSparkleButton(false)}
                     onRemoveSelf={() => {
                         enqueueValidation(cellId, false, true)

@@ -44,7 +44,7 @@ const AudioValidationStatusIcon: React.FC<AudioValidationStatusIconProps> = ({
                         : "var(--vscode-descriptionForeground)",
                     }}
                 ></i>
-                {displayValidationText && <span>No validators</span>}
+                {displayValidationText && <span className="ml-1">No validators</span>}
             </div>
         );
     }

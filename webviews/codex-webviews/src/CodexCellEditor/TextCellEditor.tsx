@@ -308,15 +308,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
     });
     const [isAudioLoading, setIsAudioLoading] = useState(false);
-    // Compute audio validation icon props once for this render (after audio state is declared)
-    const { iconProps: audioValidationIconProps } = useAudioValidationStatus({
-        cell: cell as any,
-        currentUsername: currentUsername || null,
-        requiredAudioValidations: requiredValidations ?? null,
-        isSourceText: isSourceText ?? false,
-        disabled: !audioBlob,
-        displayValidationText: true,
-    });
     const [hasAudioHistory, setHasAudioHistory] = useState<boolean>(false);
     const [audioHistoryCount, setAudioHistoryCount] = useState<number>(0);
 
@@ -342,6 +333,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // performs a single smooth scroll after layout settles.
     const scrollTimeoutRef = useRef<number | null>(null);
     const scrollRafRef = useRef<number | null>(null);
+
+    // Compute audio validation icon props once for this render (after audio state is declared)
+    const { iconProps: audioValidationIconProps } = useAudioValidationStatus({
+        cell: cell as any,
+        currentUsername: currentUsername || null,
+        requiredAudioValidations: requiredValidations ?? null,
+        isSourceText: isSourceText ?? false,
+        disabled: !audioBlob,
+        displayValidationText: true,
+    });
+    const audioValidationPopoverProps = {
+        cellId: cell.cellMarkers[0],
+        cell: cell,
+        vscode: vscode,
+        isSourceText: isSourceText ?? false,
+        currentUsername: currentUsername,
+        requiredAudioValidations: requiredValidations,
+    }
+
     const centerEditor = useCallback(() => {
         const el = cellEditorRef.current;
         if (!el) return;
@@ -2543,14 +2553,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             onShowRecorder={() => setShowRecorder(true)}
                                             disabled={!audioBlob}
                                             validationStatusProps={audioValidationIconProps}
-                                            audioValidationPopoverProps={{
-                                                cellId: cell.cellMarkers[0],
-                                                cell: cell,
-                                                vscode: vscode,
-                                                isSourceText: isSourceText ?? false,
-                                                currentUsername: currentUsername,
-                                                requiredAudioValidations: requiredValidations,
-                                            }}
+                                            audioValidationPopoverProps={audioValidationPopoverProps}
                                         />
 
                                         {confirmingDiscard && (
