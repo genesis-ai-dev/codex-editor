@@ -319,6 +319,14 @@ export async function activate(context: vscode.ExtensionContext) {
                 console.error("[Extension] Error updating git config files on startup:", error);
                 // Don't fail startup due to git config update errors
             }
+
+            // Auto-migrate legacy .x-m4a audio files silently (non-blocking)
+            // Similar to database corruption repair - runs automatically without user notification
+            import("./utils/audioFileValidation")
+                .then(({ autoMigrateLegacyAudioFiles }) => autoMigrateLegacyAudioFiles())
+                .catch(error => {
+                    console.error("[Extension] Error auto-migrating legacy audio files:", error);
+                });
         }
         stepStart = trackTiming("Updating Git Configuration", gitConfigStart);
 

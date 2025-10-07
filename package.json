@@ -156,6 +156,11 @@
                 "category": "Codex Debug"
             },
             {
+                "command": "codex-editor.migrateAudioFiles",
+                "title": "Migrate Audio Files (.x-m4a to .m4a)",
+                "category": "Codex Editor"
+            },
+            {
                 "command": "codex-editor-extension.JOSH_COMMAND",
                 "title": "JOSH_COMMAND"
             },

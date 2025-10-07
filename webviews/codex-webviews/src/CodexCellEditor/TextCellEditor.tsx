@@ -1017,8 +1017,31 @@ const CellEditor: React.FC<CellEditorProps> = ({
         const uniqueId = `audio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const documentSegment = cellMarkers[0].split(" ")[0]; // Extract "JUD" from "JUD 1:1"
 
-        // Determine file extension based on blob type
-        const fileExtension = blob.type.split("/")[1] || "webm"; // Default to webm
+        // Normalize file extension from MIME type
+        const normalizeExtension = (mimeType: string): string => {
+            if (!mimeType || !mimeType.includes('/')) return "webm";
+            
+            let ext = mimeType.split("/")[1] || "webm";
+            
+            // Remove codec parameters (e.g., "webm;codecs=opus" -> "webm")
+            ext = ext.split(";")[0];
+            
+            // Normalize non-standard MIME types (e.g., "x-m4a" -> "m4a")
+            if (ext.startsWith("x-")) {
+                ext = ext.substring(2);
+            }
+            
+            // Handle common MIME type aliases
+            if (ext === "mp4" || ext === "mpeg") {
+                return "m4a";
+            }
+            
+            // Validate against supported formats
+            const allowedExtensions = new Set(["webm", "wav", "mp3", "m4a", "ogg", "aac", "flac"]);
+            return allowedExtensions.has(ext) ? ext : "webm";
+        };
+        
+        const fileExtension = normalizeExtension(blob.type);
 
         // Convert blob to base64 for transfer to provider
         const reader = new FileReader();
