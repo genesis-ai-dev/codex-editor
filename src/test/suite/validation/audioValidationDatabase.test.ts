@@ -46,6 +46,98 @@ suite("Audio Validation Database Integration Test Suite", () => {
     });
 
     suite("Database Field Updates for Audio Validation", () => {
+        test("should preserve validatedBy entries from both users when merging attachments during sync", async () => {
+            // Arrange: Open document and get a cell, then add an audio attachment
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const cellId = (document as any)._documentData.cells[0].metadata?.id;
+            assert.ok(cellId, "Cell should have an ID");
+
+            // Add an audio attachment to the cell
+            const audioId = "test-audio-merge-validatedBy";
+            document.updateCellAttachment(cellId, audioId, {
+                url: "test-audio.webm",
+                type: "audio",
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                isDeleted: false,
+            });
+
+            // Stub database sync to capture what would be saved
+            let capturedAfterMerge: any = null;
+            const syncStub = sinon.stub((CodexCellDocument as any).prototype, "syncAllCellsToDatabase").callsFake(async function (this: any) {
+                capturedAfterMerge = this._documentData.cells.find((c: any) => c.metadata?.id === cellId);
+                return Promise.resolve();
+            });
+
+            // Simulate two different users validating on separate sides of a merge
+            const extensionModule = await import("../../../extension");
+            const originalGetAuthApi = extensionModule.getAuthApi;
+
+            const user1Stub = sinon.stub().resolves({ username: "userA" });
+            const user2Stub = sinon.stub().resolves({ username: "userB" });
+
+            // First user validates (local)
+            (extensionModule as any).getAuthApi = () => ({ getUserInfo: user1Stub });
+            await document.validateCellAudio(cellId, true);
+
+            // Capture a deep clone representing "our" side
+            const ourSnapshot = JSON.parse(JSON.stringify((document as any)._documentData));
+
+            // Second user validates (simulate "their" side) by applying directly to attachments validatedBy
+            (extensionModule as any).getAuthApi = () => ({ getUserInfo: user2Stub });
+            await document.validateCellAudio(cellId, true);
+
+            const theirSnapshot = JSON.parse(JSON.stringify((document as any)._documentData));
+
+            // Now simulate a merge of attachments where both sides changed validatedBy for the same attachment
+            // Use the mergeAttachments used by the project merge logic
+            const resolvers = await import("../../../projectManager/utils/merge/resolvers");
+
+            const ourCell = ourSnapshot.cells.find((c: any) => c.metadata?.id === cellId);
+            const theirCell = theirSnapshot.cells.find((c: any) => c.metadata?.id === cellId);
+            assert.ok(ourCell && theirCell, "Both cells should exist for merge test");
+
+            // Perform merge similar to resolveCodexCustomMerge core for attachments
+            const mergedAttachments = (resolvers as any).mergeAttachments(
+                ourCell.metadata?.attachments,
+                theirCell.metadata?.attachments
+            );
+
+            // Apply merged attachments back and save
+            const cellRef = (document as any)._documentData.cells.find((c: any) => c.metadata?.id === cellId);
+            cellRef.metadata.attachments = mergedAttachments;
+
+            await document.save(new vscode.CancellationTokenSource().token);
+
+            // Assert: both users' validatedBy entries should be preserved on the latest attachment version
+            assert.ok(capturedAfterMerge, "Cell data should be captured for database sync");
+
+            const audioAttachments = capturedAfterMerge?.metadata?.attachments ?
+                Object.values(capturedAfterMerge.metadata.attachments).filter((attachment: any) =>
+                    attachment && attachment.type === "audio" && !attachment.isDeleted
+                ) : [];
+
+            assert.ok(audioAttachments.length > 0, "Should have audio attachments");
+            const currentAudioAttachment = audioAttachments.sort((a: any, b: any) => (b.updatedAt || 0) - (a.updatedAt || 0))[0] as any;
+
+            const activeValidations = Array.isArray(currentAudioAttachment.validatedBy)
+                ? currentAudioAttachment.validatedBy.filter((entry: any) => entry && !entry.isDeleted)
+                : [];
+
+            const usernames = activeValidations.map((e: any) => e.username).sort();
+            assert.strictEqual(activeValidations.length, 2, "Expected two active validations after merge");
+            assert.deepStrictEqual(usernames, ["userA", "userB"].sort(), "Both userA and userB should be present");
+
+            // Cleanup
+            (extensionModule as any).getAuthApi = originalGetAuthApi;
+            syncStub.restore();
+            document.dispose();
+        });
         test("should update t_audio_validated_by and t_audio_validation_count when audio validation button is pressed", async () => {
             // Arrange: Open document and get a cell, then add an audio attachment
             const document = await provider.openCustomDocument(
@@ -223,7 +315,7 @@ suite("Audio Validation Database Integration Test Suite", () => {
                 const cellData = this._documentData.cells.find((c: any) => c.metadata?.id === cellId);
                 if (!capturedCellDataAfterValidate) {
                     capturedCellDataAfterValidate = cellData;
-                } else {
+                } else if (!capturedCellDataAfterUnvalidate) {
                     capturedCellDataAfterUnvalidate = cellData;
                 }
                 return Promise.resolve();
@@ -259,6 +351,7 @@ suite("Audio Validation Database Integration Test Suite", () => {
                     attachment && attachment.type === "audio" && !attachment.isDeleted
                 ) : [];
 
+            assert.ok(audioAttachmentsAfterUnvalidate.length > 0, "Should have audio attachments after unvalidation");
             const currentAudioAttachmentAfterUnvalidate = audioAttachmentsAfterUnvalidate.sort((a: any, b: any) =>
                 (b.updatedAt || 0) - (a.updatedAt || 0)
             )[0] as any;
