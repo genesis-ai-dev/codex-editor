@@ -189,6 +189,10 @@ const CodexCellEditor: React.FC = () => {
     // Validation configuration (required validations) – requested once and derived for children
     const [requiredValidations, setRequiredValidations] = useState<number | null>(null);
 
+    const [requiredAudioValidations, setRequiredAudioValidations] = useState<number | null>(
+        (window as any)?.initialData?.validationCountAudio ?? null
+    );
+
     // Track cells currently transcribing audio (to show the same loading effect as translations)
     const [transcribingCells, setTranscribingCells] = useState<Set<string>>(new Set());
 
@@ -643,6 +647,9 @@ const CodexCellEditor: React.FC = () => {
             const message = event.data;
             if (message?.type === "validationCount") {
                 setRequiredValidations(message.content);
+            }
+            if (message?.type === "validationCountAudio") {
+                setRequiredAudioValidations(message.content);
             }
             if (message?.type === "configurationChanged") {
                 // Configuration changes now send validationCount directly, no need to re-request
@@ -1407,6 +1414,9 @@ const CodexCellEditor: React.FC = () => {
                 }
                 if (event.data.validationCount !== undefined) {
                     setRequiredValidations(event.data.validationCount);
+                }
+                if (event.data.validationCountAudio !== undefined) {
+                    setRequiredAudioValidations(event.data.validationCountAudio);
                 }
             }
         },
@@ -2333,6 +2343,7 @@ const CodexCellEditor: React.FC = () => {
                             lineNumbersEnabled={metadata?.lineNumbersEnabled ?? true}
                             currentUsername={username}
                             requiredValidations={requiredValidations ?? undefined}
+                            requiredAudioValidations={requiredAudioValidations ?? undefined}
                             transcribingCells={transcribingCells}
                         />
                     </div>

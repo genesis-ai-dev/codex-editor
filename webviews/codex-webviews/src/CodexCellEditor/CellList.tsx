@@ -13,7 +13,6 @@ import { WebviewApi } from "vscode-webview";
 import { Button } from "../components/ui/button";
 import { CodexCellTypes } from "../../../../types/enums";
 import { getEmptyCellTranslationStyle, CellTranslationState } from "./CellTranslationStyles";
-import AnimatedReveal from "../components/AnimatedReveal";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import CommentsBadge from "./CommentsBadge";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
@@ -49,6 +48,7 @@ export interface CellListProps {
     // Derived, shared state to avoid per-cell auth/validation lookups
     currentUsername?: string | null;
     requiredValidations?: number;
+    requiredAudioValidations?: number;
     // Cells currently undergoing audio transcription
     transcribingCells?: Set<string>;
     isAudioOnly?: boolean;
@@ -91,6 +91,7 @@ const CellList: React.FC<CellListProps> = ({
     lineNumbersEnabled = true,
     currentUsername,
     requiredValidations,
+    requiredAudioValidations,
     transcribingCells,
     isAudioOnly = false,
 }) => {
@@ -647,6 +648,7 @@ const CellList: React.FC<CellListProps> = ({
                                 unresolvedCommentsCount={cellCommentsCount.get(cellMarkers[0]) || 0}
                                 currentUsername={currentUsername || undefined}
                                 requiredValidations={requiredValidations}
+                                requiredAudioValidations={requiredAudioValidations}
                                 isAudioOnly={isAudioOnly}
                             />
                         </span>
@@ -676,6 +678,8 @@ const CellList: React.FC<CellListProps> = ({
             openCellById,
             currentUsername,
             requiredValidations,
+            requiredAudioValidations,
+            isAudioOnly,
             lineNumbersEnabled,
         ]
     );
@@ -751,6 +755,11 @@ const CellList: React.FC<CellListProps> = ({
                             saveRetryCount={saveRetryCount}
                             footnoteOffset={calculateFootnoteOffset(i) + 1}
                             audioAttachments={audioAttachments}
+                            requiredValidations={requiredValidations}
+                            requiredAudioValidations={requiredAudioValidations}
+                            currentUsername={currentUsername || undefined}
+                            vscode={vscode}
+                            isSourceText={isSourceText}
                         />
                     </span>
                 );
@@ -813,6 +822,7 @@ const CellList: React.FC<CellListProps> = ({
                                 unresolvedCommentsCount={cellCommentsCount.get(cellMarkers[0]) || 0}
                                 currentUsername={currentUsername || undefined}
                                 requiredValidations={requiredValidations}
+                                requiredAudioValidations={requiredAudioValidations}
                                 isAudioOnly={isAudioOnly}
                             />
                         </span>
@@ -861,6 +871,8 @@ const CellList: React.FC<CellListProps> = ({
         cellCommentsCount,
         currentUsername,
         requiredValidations,
+        requiredAudioValidations,
+        isAudioOnly,
     ]);
 
     // Fetch comments count for all visible cells (batched)

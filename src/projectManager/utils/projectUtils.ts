@@ -636,6 +636,7 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
             projectStatus: metadata.projectStatus || "Unknown Status",
             category: metadata.meta?.category || "Uncategorized",
             validationCount: metadata.meta?.validationCount || 1,
+            validationCountAudio: metadata.meta?.validationCountAudio || 1,
             userName: userInfo?.username || "Anonymous",
             userEmail: userInfo?.email || "",
             meta: {
@@ -643,6 +644,7 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
                 // FIXME: the codex-types library is out of date. Thus we have mismatched and/or duplicate values being defined
                 category: metadata.meta?.category || "Uncategorized",
                 validationCount: metadata.meta?.validationCount || 1,
+                validationCountAudio: metadata.meta?.validationCountAudio || 1,
                 generator: {
                     softwareName: metadata.meta?.generator?.softwareName || "Unknown Software",
                     softwareVersion: metadata.meta?.generator?.softwareVersion || "0.0.1",
@@ -758,6 +760,51 @@ export async function syncMetadataToConfiguration() {
             }
         } else {
             debug("No valid validationCount found in metadata");
+        }
+
+        // Sync validationCount from metadata to config
+        if (
+            metadata.meta &&
+            "validationCountAudio" in metadata.meta &&
+            typeof metadata.meta.validationCountAudio === "number"
+        ) {
+            debug(
+                `Syncing validationCountAudio from metadata (${metadata.meta.validationCountAudio}) to configuration`
+            );
+
+            const currentConfigValue = config.get("validationCountAudio", 1);
+            if (currentConfigValue !== metadata.meta.validationCountAudio) {
+                debug(
+                    `Current config value (${currentConfigValue}) differs from metadata (${metadata.meta.validationCountAudio}), updating...`
+                );
+
+                await config.update(
+                    "validationCountAudio",
+                    metadata.meta.validationCountAudio,
+                    vscode.ConfigurationTarget.Workspace
+                );
+
+                debug(
+                    `Configuration updated to match metadata validationCountAudio: ${metadata.meta.validationCountAudio}`
+                );
+
+                // Schedule a sync operation to ensure the changes are committed (only if auto-sync is enabled)
+                const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
+
+                if (autoSyncEnabled) {
+                    SyncManager.getInstance().scheduleSyncOperation(
+                        "Update project configuration from metadata"
+                    );
+                } else {
+                    debug("Auto-sync is disabled, skipping scheduled sync for metadata configuration update");
+                }
+            } else {
+                debug(
+                    `Configuration already matches metadata validationCountAudio: ${metadata.meta.validationCountAudio}`
+                );
+            }
+        } else {
+            debug("No valid validationCountAudio found in metadata");
         }
 
         // Add other metadata properties sync here as needed

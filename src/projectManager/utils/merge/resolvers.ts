@@ -60,6 +60,63 @@ function isValidValidationEntry(value: any): value is ValidationEntry {
 }
 
 /**
+ * Merges two validatedBy arrays into a single list, deduplicated by username and
+ * selecting the most recent entry per user. If one side has a string username,
+ * it is converted to a ValidationEntry with current timestamps.
+ */
+function mergeValidatedByLists(
+    existing?: any[] | undefined,
+    incoming?: any[] | undefined
+): ValidationEntry[] | undefined {
+    const toEntry = (v: any): ValidationEntry | undefined => {
+        if (isValidValidationEntry(v)) return v;
+        if (typeof v === "string") {
+            const now = Date.now();
+            return {
+                username: v,
+                creationTimestamp: now,
+                updatedTimestamp: now,
+                isDeleted: false,
+            };
+        }
+        return undefined;
+    };
+
+    const existingEntries = (existing || [])
+        .map(toEntry)
+        .filter((e): e is ValidationEntry => !!e);
+    const incomingEntries = (incoming || [])
+        .map(toEntry)
+        .filter((e): e is ValidationEntry => !!e);
+
+    if (existingEntries.length === 0 && incomingEntries.length === 0) {
+        return undefined;
+    }
+
+    const byUser = new Map<string, ValidationEntry>();
+    const consider = (e: ValidationEntry) => {
+        const prev = byUser.get(e.username);
+        if (!prev) {
+            byUser.set(e.username, e);
+            return;
+        }
+        // Prefer the entry with the latest updatedTimestamp; preserve original creationTimestamp
+        if (e.updatedTimestamp > prev.updatedTimestamp) {
+            byUser.set(e.username, {
+                ...e,
+                creationTimestamp: prev.creationTimestamp,
+            });
+        }
+    };
+
+    existingEntries.forEach(consider);
+    incomingEntries.forEach(consider);
+
+    // Return stable order by username to minimize diffs
+    return Array.from(byUser.values()).sort((a, b) => a.username.localeCompare(b.username));
+}
+
+/**
  * Type guard to check if a conflict object is valid
  */
 function isValidConflict(conflict: any): conflict is ConflictFile {
@@ -1079,7 +1136,7 @@ export async function resolveCommentThreadsConflict(
  * @param theirAttachments Their version of attachments  
  * @returns Merged attachments object
  */
-function mergeAttachments(
+export function mergeAttachments(
     ourAttachments?: { [key: string]: any; },
     theirAttachments?: { [key: string]: any; }
 ): { [key: string]: any; } | undefined {
@@ -1114,17 +1171,26 @@ function mergeAttachments(
                 // Conflict: same attachment ID exists in both versions
                 const ourAttachment = merged[id];
 
-                // Use the version with the later updatedAt timestamp
-                if (theirAttachment.updatedAt > ourAttachment.updatedAt) {
-                    const normalized = { ...theirAttachment };
-                    if (typeof normalized.url === "string") {
-                        normalized.url = normalizeAttachmentUrl(normalized.url);
-                    }
-                    merged[id] = normalized;
-                    debugLog(`Using their version of attachment ${id} (newer timestamp)`);
-                } else {
-                    debugLog(`Keeping our version of attachment ${id} (newer timestamp)`);
+                // Decide base attachment by updatedAt, but merge validatedBy arrays from both sides
+                const baseIsTheirs = (theirAttachment?.updatedAt || 0) > (ourAttachment?.updatedAt || 0);
+                const base = baseIsTheirs ? { ...theirAttachment } : { ...ourAttachment };
+                if (typeof base.url === "string") {
+                    base.url = normalizeAttachmentUrl(base.url);
                 }
+
+                // Merge validatedBy arrays for audio attachments
+                const mergedValidatedBy = mergeValidatedByLists(
+                    Array.isArray(ourAttachment?.validatedBy) ? ourAttachment.validatedBy : undefined,
+                    Array.isArray(theirAttachment?.validatedBy) ? theirAttachment.validatedBy : undefined
+                );
+                if (mergedValidatedBy) {
+                    base.validatedBy = mergedValidatedBy;
+                } else {
+                    delete base.validatedBy; // normalize empty
+                }
+
+                merged[id] = base;
+                debugLog(`Merged attachment ${id} (preserved validatedBy from both sides)`);
             }
         });
     }

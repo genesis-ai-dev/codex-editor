@@ -497,8 +497,9 @@ function MainMenu() {
                                                                 .sourceLanguage
                                                         )
                                                     }
+                                                    className="w-9"
                                                 >
-                                                    <i className="codicon codicon-edit h-3 w-3" />
+                                                    <i className="codicon codicon-edit" />
                                                 </Button>
                                             </div>
                                         </div>
@@ -523,8 +524,9 @@ function MainMenu() {
                                                                 .targetLanguage
                                                         )
                                                     }
+                                                    className="w-9"
                                                 >
-                                                    <i className="codicon codicon-edit h-3 w-3" />
+                                                    <i className="codicon codicon-edit" />
                                                 </Button>
                                             </div>
                                         </div>
@@ -535,6 +537,7 @@ function MainMenu() {
                                             </label>
                                             <div className="flex items-center justify-between">
                                                 <span className="text-sm">
+                                                    Text: {" "}
                                                     {String(
                                                         projectState.projectOverview
                                                             .validationCount || 1
@@ -546,8 +549,28 @@ function MainMenu() {
                                                     onClick={() =>
                                                         handleProjectAction("setValidationCount")
                                                     }
+                                                    className="w-9"
                                                 >
-                                                    <i className="codicon codicon-edit h-3 w-3" />
+                                                    <i className="codicon codicon-edit" />
+                                                </Button>
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-sm">
+                                                    Audio: {" "}
+                                                    {String(
+                                                        projectState.projectOverview
+                                                            .validationCountAudio || 1
+                                                    )}
+                                                </span>
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() =>
+                                                        handleProjectAction("setValidationCountAudio")
+                                                    }
+                                                    className="w-9"
+                                                >
+                                                    <i className="codicon codicon-edit" />
                                                 </Button>
                                             </div>
                                         </div>
@@ -568,8 +591,9 @@ function MainMenu() {
                                                     onClick={() =>
                                                         handleProjectAction("openSourceUpload")
                                                     }
+                                                    className="w-9"
                                                 >
-                                                    <i className="codicon codicon-add h-3 w-3" />
+                                                    <i className="codicon codicon-add" />
                                                 </Button>
                                             </div>
                                         </div>

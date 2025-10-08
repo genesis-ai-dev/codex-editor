@@ -4,7 +4,7 @@ import { QuillCellContent, ValidationEntry } from "../../../../types";
 import { getCellValueData } from "@sharedUtils";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { processValidationQueue, enqueueValidation } from "./validationQueue";
-import { isValidValidationEntry } from "./validationUtils";
+import { formatTimestamp, isValidValidationEntry } from "./validationUtils";
 
 // Static tracking for active popover to ensure only one is shown at a time
 const popoverTracker = {
@@ -131,6 +131,13 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         }
         // No need to request username separately - it comes bundled with initial content
     }, [currentUsername]);
+
+    // Update requiredValidations when prop changes
+    useEffect(() => {
+        if (requiredValidationsProp !== undefined && requiredValidationsProp !== null) {
+            setRequiredValidations(requiredValidationsProp);
+        }
+    }, [requiredValidationsProp]);
 
     useMessageHandler(
         "validationButton",
@@ -372,6 +379,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         }
     };
 
+    // TODO: This is not used anywhere. Maybe it was abandoned for doing it inline?
     const closePopover = (e: React.MouseEvent) => {
         e.stopPropagation();
         setShowPopover(false);
@@ -398,39 +406,12 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         justifyContent: "center",
     };
 
-    // Helper function to format timestamps
-    const formatTimestamp = (timestamp: number): string => {
-        if (!timestamp) return "";
-
-        const date = new Date(timestamp);
-        const now = new Date();
-        const diffMs = now.getTime() - date.getTime();
-        const diffSecs = Math.floor(diffMs / 1000);
-        const diffMins = Math.floor(diffSecs / 60);
-        const diffHours = Math.floor(diffMins / 60);
-        const diffDays = Math.floor(diffHours / 24);
-
-        // For recent validations (less than a day)
-        if (diffDays < 1) {
-            if (diffHours < 1) {
-                if (diffMins < 1) {
-                    return "just now";
-                }
-                return `${diffMins}m ago`;
-            }
-            return `${diffHours}h ago`;
-        }
-
-        // For older validations
-        if (diffDays < 7) {
-            return `${diffDays}d ago`;
-        }
-
-        // Format date if more than a week ago
-        return date.toLocaleDateString();
-    };
-
     const isDisabled = isSourceText || isValidationInProgress || Boolean(externallyDisabled);
+
+    // Don't show validation button for source text or if no username is available
+    if (isSourceText || !username) {
+        return null;
+    }
 
     return (
         <div
@@ -439,7 +420,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             onMouseEnter={showPopoverHandler}
             onMouseLeave={hidePopoverHandler}
             onClick={handleButtonClick}
-            style={{ position: "relative", display: "inline-block", zIndex: 999 }}
+            style={{ position: "relative", display: "inline-block" }}
         >
             <VSCodeButton
                 appearance="icon"
@@ -476,7 +457,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 ) : currentValidations === 0 ? (
                     // Empty circle - No validations
                     <i
-                        className="codicon codicon-circle-outline"
+                        className="codicon codicon-circle-outline rounded-lg"
                         style={{
                             fontSize: "12px",
                             // Keep original color, don't change for pending validation
@@ -489,7 +470,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                     isValidated ? (
                         // Double green checkmarks - Fully validated and current user has validated
                         <i
-                            className="codicon codicon-check-all"
+                            className="codicon codicon-check-all rounded-lg"
                             style={{
                                 fontSize: "12px",
                                 // Keep original color, don't change for pending validation
@@ -501,7 +482,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                     ) : (
                         // Double grey checkmarks - Fully validated but current user hasn't validated
                         <i
-                            className="codicon codicon-check-all"
+                            className="codicon codicon-check-all rounded-lg"
                             style={{
                                 fontSize: "12px",
                                 // Keep original color, don't change for pending validation
@@ -514,7 +495,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 ) : isValidated ? (
                     // Green checkmark - Current user validated but not fully validated
                     <i
-                        className="codicon codicon-check"
+                        className="codicon codicon-check rounded-lg"
                         style={{
                             fontSize: "12px",
                             // Keep original color, don't change for pending validation
@@ -526,7 +507,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 ) : (
                     // Grey filled circle - Has validations but not from current user
                     <i
-                        className="codicon codicon-circle-filled"
+                        className="codicon codicon-circle-filled rounded-lg"
                         style={{
                             fontSize: "12px",
                             // Keep original color, don't change for pending validation
@@ -623,9 +604,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                             </div>
                             {uniqueValidationUsers.map((user) => {
                                 const isCurrentUser = user.username === username;
-                                const canDelete = isCurrentUser && isValidated;
-                                const formattedTime = formatTimestamp(user.updatedTimestamp);
-
+                                
                                 return (
                                     <div
                                         key={user.username}

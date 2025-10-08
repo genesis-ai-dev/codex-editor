@@ -7,23 +7,19 @@ import {
     SpellCheckResponse,
     Timestamps,
 } from "../../../../types";
-import Editor, { EditorContentChanged, EditorHandles } from "./Editor";
+import Editor, { EditorHandles } from "./Editor";
 import { getCleanedHtml } from "./react-quill-spellcheck";
-import createQuillDeltaOpsFromHtml from "./react-quill-spellcheck";
-import createQuillDeltaFromDeltaOps from "./react-quill-spellcheck";
 import { CodexCellTypes } from "../../../../types/enums";
 import { AddParatextButton } from "./AddParatextButton";
 import ReactMarkdown from "react-markdown";
-// import "./TextCellEditorStyles.css";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
-// import "./TextEditor.css";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import ConfirmationButton from "./ConfirmationButton";
 import { generateChildCellId } from "../../../../src/providers/codexCellEditorProvider/utils/cellUtils";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
-import Quill from "quill";
 import { WhisperTranscriptionClient, type AsrMeta } from "./WhisperTranscriptionClient";
 import AudioWaveformWithTranscription from "./AudioWaveformWithTranscription";
+import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
 import SourceTextDisplay from "./SourceTextDisplay";
 import { AudioHistoryViewer } from "./AudioHistoryViewer";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
@@ -127,6 +123,11 @@ interface CellEditorProps {
     prevEndTime?: number;
     nextStartTime?: number;
     audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" | "missing" };
+    requiredValidations?: number;
+    requiredAudioValidations?: number;
+    currentUsername?: string | null;
+    vscode?: any;
+    isSourceText?: boolean;
 }
 
 // Simple ISO-639-1 to ISO-639-3 mapping for common languages; default to 'eng'
@@ -227,6 +228,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
     prevEndTime,
     nextStartTime,
     audioAttachments,
+    requiredValidations,
+    requiredAudioValidations,
+    currentUsername,
+    vscode,
+    isSourceText,
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
@@ -329,6 +335,29 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // performs a single smooth scroll after layout settles.
     const scrollTimeoutRef = useRef<number | null>(null);
     const scrollRafRef = useRef<number | null>(null);
+
+    // Compute audio validation icon props once for this render (after audio state is declared)
+    const { iconProps: audioValidationIconProps } = useAudioValidationStatus({
+        cell: cell as any,
+        currentUsername: currentUsername || null,
+        requiredAudioValidations:
+            requiredAudioValidations ?? (window as any)?.initialData?.validationCountAudio ?? null,
+        isSourceText: isSourceText ?? false,
+        disabled: !audioBlob,
+        displayValidationText: true,
+    });
+    const audioValidationPopoverProps = {
+        cellId: cell.cellMarkers[0],
+        cell: cell,
+        vscode: vscode,
+        isSourceText: isSourceText ?? false,
+        currentUsername: currentUsername,
+        requiredAudioValidations:
+            requiredAudioValidations ??
+            (window as any)?.initialData?.validationCountAudio ??
+            undefined,
+    };
+
     const centerEditor = useCallback(() => {
         const el = cellEditorRef.current;
         if (!el) return;
@@ -2554,6 +2583,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             onShowHistory={() => setShowAudioHistory(true)}
                                             onShowRecorder={() => setShowRecorder(true)}
                                             disabled={!audioBlob}
+                                            validationStatusProps={audioValidationIconProps}
+                                            audioValidationPopoverProps={
+                                                audioValidationPopoverProps
+                                            }
                                         />
 
                                         {confirmingDiscard && (
@@ -2618,6 +2651,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 <AudioHistoryViewer
                     cellId={cellMarkers[0]}
                     vscode={window.vscodeApi}
+                    currentUsername={(window as any)?.initialData?.username || null}
+                    requiredAudioValidations={
+                        (window as any)?.initialData?.validationCountAudio ?? undefined
+                    }
                     onClose={() => setShowAudioHistory(false)}
                 />
             )}

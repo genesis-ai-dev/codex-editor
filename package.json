@@ -326,6 +326,11 @@
                 "category": "Codex Project Management"
             },
             {
+                "command": "codex-project-manager.setValidationCountAudio",
+                "title": "Set Audio Validation Count",
+                "category": "Codex Project Management"
+            },
+            {
                 "command": "codex-project-manager.reinstallExtensions",
                 "title": "Reinstall Extensions",
                 "category": "Codex Project Management"
@@ -464,6 +469,13 @@
                         "type": "integer",
                         "default": 1,
                         "description": "Number of required validations for each translation",
+                        "minimum": 1,
+                        "maximum": 15
+                    },
+                    "codex-project-manager.validationCountAudio": {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "Number of required validations for each audio translation",
                         "minimum": 1,
                         "maximum": 15
                     },
