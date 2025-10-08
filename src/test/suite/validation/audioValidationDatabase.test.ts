@@ -355,8 +355,12 @@ suite("Audio Validation Database Integration Test Suite", () => {
             const currentAudioAttachmentAfterUnvalidate = audioAttachmentsAfterUnvalidate.sort((a: any, b: any) =>
                 (b.updatedAt || 0) - (a.updatedAt || 0)
             )[0] as any;
+            assert.ok(currentAudioAttachmentAfterUnvalidate, "No audio attachment found after unvalidation");
 
-            const activeValidationsAfterUnvalidate = currentAudioAttachmentAfterUnvalidate.validatedBy.filter((entry: ValidationEntry) => !entry.isDeleted);
+            const validatedByAfterUnvalidate = Array.isArray(currentAudioAttachmentAfterUnvalidate.validatedBy)
+                ? currentAudioAttachmentAfterUnvalidate.validatedBy
+                : [];
+            const activeValidationsAfterUnvalidate = validatedByAfterUnvalidate.filter((entry: ValidationEntry) => !entry.isDeleted);
             const expectedValidationCountAfterUnvalidate = activeValidationsAfterUnvalidate.length;
             const expectedValidatedByAfterUnvalidate = activeValidationsAfterUnvalidate.map((entry: ValidationEntry) => entry.username).join(',');
 
