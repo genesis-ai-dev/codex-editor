@@ -827,7 +827,7 @@ async function exportCodexContentAsPlaintext(
 
                     for (const cell of activeCells) {
                         totalCells++;
-                        if (cell.kind === 2) {
+                        if (cell.kind === 2 || cell.kind === 1) { //haven't tested this additional cell.kind === 1 but in theory it should make life easier if we have any more files that want to use markdown and not code.
                             // vscode.NotebookCellKind.Code
                             const cellMetadata = cell.metadata;
 
@@ -1050,7 +1050,7 @@ async function exportCodexContentAsUsfm(
                         // Quick check - only look for text cells with content
                         const textCells = codexNotebook.cells.filter(
                             (cell) =>
-                                cell.kind === 2 && // vscode.NotebookCellKind.Code
+                                (cell.kind === 2 || cell.kind === 1) && //haven't tested this additional cell.kind === 1 but in theory it should make life easier if we have any more files that want to use markdown and not code.
                                 cell.metadata?.type === CodexCellTypes.TEXT
                         );
 
@@ -1101,7 +1101,7 @@ async function exportCodexContentAsUsfm(
                         const relevantCells = codexNotebook.cells.filter(
                             (cell) => {
                                 const metadata = cell.metadata as any;
-                                return cell.kind === 2 && // vscode.NotebookCellKind.Code
+                                return (cell.kind === 2 || cell.kind === 1) && //haven't tested this additional cell.kind === 1 but in theory it should make life easier if we have any more files that want to use markdown and not code.
                                     cell.metadata?.type &&
                                     cell.value.trim().length > 0 &&
                                     !metadata?.merged; // Exclude merged cells
@@ -1492,7 +1492,7 @@ async function exportCodexContentAsHtml(
                     // First pass: Organize content by chapters
                     for (const cell of activeCells) {
                         totalCells++;
-                        if (cell.kind === 2) {
+                        if (cell.kind === 2 || cell.kind === 1) { //haven't tested this additional cell.kind === 1 but in theory it should make life easier if we have any more files that want to use markdown and not code.
                             // vscode.NotebookCellKind.Code
                             const cellMetadata = cell.metadata;
                             const cellContent = cell.value.trim();
@@ -1750,7 +1750,7 @@ async function exportCodexContentAsXliff(
                     // First pass: Organize content by chapters and verses
                     for (const [cellId, codexCell] of codexCellsMap) {
                         totalCells++;
-                        if (codexCell.kind === 2) {
+                        if (codexCell.kind === 2 || codexCell.kind === 1) { //haven't tested this additional cell.kind === 1 but in theory it should make life easier if we have any more files that want to use markdown and not code.
                             // vscode.NotebookCellKind.Code
                             const cellMetadata = codexCell.metadata;
                             const cellContent = codexCell.value.trim();
@@ -2034,7 +2034,8 @@ async function exportCodexContentAsDelimited(
                             sourceNotebook.cells
                                 .filter((cell) => {
                                     const metadata = cell.metadata;
-                                    return cell.metadata?.id &&
+                                    return (cell.kind === 2 || cell.kind === 1) &&
+                                        cell.metadata?.id &&
                                         cell.metadata?.type === CodexCellTypes.TEXT &&
                                         !metadata?.data?.merged;
                                 })
@@ -2045,7 +2046,8 @@ async function exportCodexContentAsDelimited(
                             codexNotebook.cells
                                 .filter((cell) => {
                                     const metadata = cell.metadata;
-                                    return cell.metadata?.id &&
+                                    return (cell.kind === 2 || cell.kind === 1) &&
+                                        cell.metadata?.id &&
                                         cell.metadata?.type === CodexCellTypes.TEXT &&
                                         !metadata?.data?.merged;
                                 })
@@ -2078,7 +2080,7 @@ async function exportCodexContentAsDelimited(
 
                         // Process cells in their original order from the notebook
                         for (const codexCell of codexNotebook.cells) {
-                            if (codexCell.kind === 2) { // vscode.NotebookCellKind.Code
+                            if (codexCell.kind === 2 || codexCell.kind === 1) { // vscode.NotebookCellKind.Code
                                 const cellMetadata = codexCell.metadata as { type: string; id: string; data?: any; };
 
                                 if (cellMetadata.type === CodexCellTypes.TEXT &&

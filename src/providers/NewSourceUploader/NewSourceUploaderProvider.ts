@@ -500,6 +500,37 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     return await fetchWithRedirects(url, maxRedirects);
                 };
 
+                // Helper to normalize audio file extensions (remove x- prefix, handle aliases)
+                const normalizeExtension = (ext: string): string => {
+                    if (!ext) return 'webm';
+                    ext = ext.toLowerCase().trim();
+
+                    // Remove codec parameters (e.g., "webm;codecs=opus" -> "webm")
+                    ext = ext.split(';')[0];
+
+                    // Normalize non-standard MIME types (e.g., "x-m4a" -> "m4a")
+                    if (ext.startsWith('x-')) {
+                        ext = ext.substring(2);
+                    }
+
+                    // Handle MIME type aliases
+                    if (ext === 'mp4' || ext === 'mpeg') {
+                        return 'm4a';
+                    }
+
+                    // Validate against allowed extensions
+                    const allowedExtensions = new Set(['webm', 'wav', 'mp3', 'm4a', 'ogg', 'aac', 'flac']);
+                    return allowedExtensions.has(ext) ? ext : 'webm';
+                };
+
+                // Helper to normalize filename extension
+                const normalizeFileName = (fileName: string): string => {
+                    const match = fileName.match(/^(.+)\.([^.]+)$/);
+                    if (!match) return fileName;
+                    const [, baseName, ext] = match;
+                    return `${baseName}.${normalizeExtension(ext)}`;
+                };
+
                 // Process attachments in smaller batches to avoid blocking
                 const batchSize = 3;
                 for (let i = 0; i < message.attachments.length; i += batchSize) {
@@ -515,7 +546,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         await vscode.workspace.fs.createDirectory(pointersDir);
 
                         let audioBuffer: Buffer;
-                        let effectiveFileName = fileName as string;
+                        let effectiveFileName = normalizeFileName(fileName as string);
 
                         // Handle segments with actual data
                         if (dataBase64) {
@@ -545,8 +576,12 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             audioBuffer = buffer;
                             // If no extension on provided fileName, infer from mime or hint
                             if (!/\.[a-z0-9]+$/i.test(effectiveFileName)) {
-                                const extFromMime = (mime && mime.includes('/')) ? mime.split('/').pop() || 'mp3' : 'mp3';
-                                effectiveFileName = fileNameHint || `${attachmentId}.${extFromMime}`;
+                                const extFromMime = mime && mime.includes('/')
+                                    ? normalizeExtension(mime.split('/').pop() || 'mp3')
+                                    : 'mp3';
+                                effectiveFileName = fileNameHint
+                                    ? normalizeFileName(fileNameHint)
+                                    : `${attachmentId}.${extFromMime}`;
                             }
                             const filesPath = vscode.Uri.joinPath(filesDir, effectiveFileName);
                             const pointersPath = vscode.Uri.joinPath(pointersDir, effectiveFileName);

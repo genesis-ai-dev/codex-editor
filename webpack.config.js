@@ -188,6 +188,8 @@ const testConfig = {
     },
     externals: {
         vscode: "commonjs vscode",
+        child_process: "commonjs child_process", // Required for audioMigration utility
+        util: "commonjs util", // Required for promisify
     },
     resolve: {
         extensions: [".ts", ".js"],
