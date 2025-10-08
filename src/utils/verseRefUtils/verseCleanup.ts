@@ -16,14 +16,3 @@ export function getCleanedCell(cellContent: string): string {
 export function cleanCodexCell(cellContent: string): string {
     return getCleanedCell(cellContent);
 }
-
-
-// Start VS Code //V
-// Go in and build the extensions //V
-// Go and start the debug thing //V
-// check to see if it has the sirens 
-// If it has sirens, figure out why something is not being updated.
-// Then make sure everything is still exporting correctly. 
-// Go and figure out how to submit this as a push and then document it up a bit
-// next get started working on the export to html
-
