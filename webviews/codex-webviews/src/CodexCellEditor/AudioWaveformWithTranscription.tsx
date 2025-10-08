@@ -116,26 +116,96 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
 
     const handleValidation = (e: React.MouseEvent<HTMLButtonElement>) => {
         e.stopPropagation();
-        if (validationStatusProps.currentValidations === 0) {
-            // Add to audio validation queue for sequential processing
-            enqueueValidation(audioValidationPopoverProps.cellId, true, true)
-                .then(() => {})
-                .catch((error) => {
-                    console.error("Audio validation queue error:", error);
-                });
-            processValidationQueue(audioValidationPopoverProps.vscode, true).catch((error) => {
-                console.error("Audio validation queue processing error:", error);
+        // Add to audio validation queue for sequential processing
+        enqueueValidation(audioValidationPopoverProps.cellId, true, true)
+            .then(() => {})
+            .catch((error) => {
+                console.error("Audio validation queue error:", error);
             });
-        }
+        processValidationQueue(audioValidationPopoverProps.vscode, true).catch((error) => {
+            console.error("Audio validation queue processing error:", error);
+        });
     };
 
-    const handleAudioValidationStatus = (e: React.MouseEvent<HTMLButtonElement>) => {
+
+    const handleAudioValidationMouseEnter = (e: React.MouseEvent<HTMLButtonElement>) => {
         e.stopPropagation();
-        if (hasPopover && uniqueValidationUsers.length > 0 && !isSourceTextPopover) {
-            cancelCloseTimer();
-            setShowValidatorsPopover(true);
-            audioPopoverTracker.setActivePopover(uniqueId.current);
+        e.preventDefault();
+        cancelCloseTimer();
+        setShowValidatorsPopover(true);
+        audioPopoverTracker.setActivePopover(uniqueId.current);
+    };
+    
+    const handleAudioValidationMouseLeave = (e: React.MouseEvent<HTMLButtonElement>) => {
+        e.stopPropagation();
+        e.preventDefault();
+        scheduleCloseTimer(() => {
+            setShowValidatorsPopover(false);
+            if (audioPopoverTracker.getActivePopover() === uniqueId.current) {
+                audioPopoverTracker.setActivePopover(null);
+            }
+        }, 100);
+    };
+
+    const renderValidationButton = () => {
+        const { currentValidations, requiredValidations, isValidatedByCurrentUser } = validationStatusProps;
+        const isFullyValidated = currentValidations >= requiredValidations;
+        
+        if (currentValidations === 0) {
+            return (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="static"
+                    onClick={handleValidation}
+                    onMouseEnter={handleAudioValidationMouseEnter}
+                    onMouseLeave={handleAudioValidationMouseLeave}
+                >
+                    <i
+                        className="codicon codicon-circle-outline"
+                        style={{
+                            fontSize: "12px",
+                            color: "var(--vscode-descriptionForeground)",
+                        }}
+                    ></i>
+                    <span className="ml-1 text-sm font-light">Validate</span>
+                </Button>
+            )
         }
+
+        if (currentValidations > 0 && !isFullyValidated && !isValidatedByCurrentUser) {
+            return (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="static"
+                    onClick={handleValidation}
+                    onMouseEnter={handleAudioValidationMouseEnter}
+                    onMouseLeave={handleAudioValidationMouseLeave}
+                >
+                    <i
+                        className="codicon codicon-circle-filled"
+                        style={{
+                            fontSize: "12px",
+                            color: "var(--vscode-descriptionForeground)",
+                        }}
+                    ></i>
+                    {<span className="ml-1 text-sm font-light">Validated by other user(s)</span>}
+                </Button>
+            );
+        }
+
+        return (
+            <Button
+                variant="outline"
+                size="sm"
+                className="static hover:bg-transparent"
+                onMouseEnter={handleAudioValidationMouseEnter}
+                onMouseLeave={handleAudioValidationMouseLeave}
+            >
+                <AudioValidationStatusIcon {...validationStatusProps} />
+            </Button>
+        )
     };
 
     return (
@@ -209,32 +279,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     className="relative flex w-full items-center justify-end"
                     ref={validationContainerRef}
                 >
-                    {validationStatusProps.currentValidations === 0 ? (
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            className="static"
-                            onClick={handleValidation}
-                        >
-                            <i
-                                className="codicon codicon-circle-outline"
-                                style={{
-                                    fontSize: "12px",
-                                    color: "var(--vscode-descriptionForeground)",
-                                }}
-                            ></i>
-                            <span className="ml-1 text-sm font-light">Validate</span>
-                        </Button>
-                    ) : (
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            className="static"
-                            onClick={handleAudioValidationStatus}
-                        >
-                            <AudioValidationStatusIcon {...validationStatusProps} />
-                        </Button>
-                    )}
+                    {renderValidationButton()}
                     {showValidatorsPopover &&
                         audioValidationPopoverProps &&
                         uniqueValidationUsers.length > 0 && (
