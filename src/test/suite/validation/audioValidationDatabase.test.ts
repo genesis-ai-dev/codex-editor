@@ -313,10 +313,11 @@ suite("Audio Validation Database Integration Test Suite", () => {
             let capturedCellDataAfterUnvalidate: any = null;
             const syncStub = sinon.stub((CodexCellDocument as any).prototype, "syncAllCellsToDatabase").callsFake(async function (this: any) {
                 const cellData = this._documentData.cells.find((c: any) => c.metadata?.id === cellId);
+                const cloned = cellData ? JSON.parse(JSON.stringify(cellData)) : null;
                 if (!capturedCellDataAfterValidate) {
-                    capturedCellDataAfterValidate = cellData;
+                    capturedCellDataAfterValidate = cloned;
                 } else if (!capturedCellDataAfterUnvalidate) {
-                    capturedCellDataAfterUnvalidate = cellData;
+                    capturedCellDataAfterUnvalidate = cloned;
                 }
                 return Promise.resolve();
             });
