@@ -642,10 +642,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     <div
                         ref={contentRef}
                         className="cell-content empty-cell-content"
-                        onClick={() => {
-                            hideTooltip();
-                            handleCellClick(cellIds[0]);
-                        }}
                         style={{
                             color: "var(--vscode-descriptionForeground)",
                             fontStyle: "italic",
@@ -1007,11 +1003,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         </div>
                     )}
                     <div
-                        style={{
-                            flex: 1,
-                            padding: lineNumbersEnabled ? "0 0.25rem 0 0" : "0 0.25rem",
-                            minWidth: 0,
-                        }}
+                        className={`flex-1 min-w-0 min-h-[1rem] ${lineNumbersEnabled ? "pr-[0.25rem]" : "px-[0.25rem]"}`}
                     >
                         {renderContent()}
                     </div>
