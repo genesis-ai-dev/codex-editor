@@ -3,8 +3,8 @@ import { CustomWaveformCanvas } from "./CustomWaveformCanvas.tsx";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { MessageCircle, Copy, Loader2, Trash2, History, Mic } from "lucide-react";
-import AudioValidationStatusIcon from "./AudioValidationStatusIcon.tsx";
-import type { AudioValidationStatusIconProps } from "./AudioValidationStatusIcon.tsx";
+import ValidationStatusIcon from "./AudioValidationStatusIcon.tsx";
+import type { ValidationStatusIconProps } from "./AudioValidationStatusIcon.tsx";
 import type { QuillCellContent } from "../../../../types";
 import { processValidationQueue, enqueueValidation } from "./validationQueue";
 import AudioValidatorsPopover from "./components/AudioValidatorsPopover";
@@ -39,7 +39,7 @@ interface AudioWaveformWithTranscriptionProps {
     onShowHistory?: () => void;
     onShowRecorder?: () => void;
     audioValidationPopoverProps: AudioValidationPopoverProps;
-    validationStatusProps: AudioValidationStatusIconProps;
+    validationStatusProps: ValidationStatusIconProps;
 }
 
 const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionProps> = ({
@@ -127,7 +127,6 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
         });
     };
 
-
     const handleAudioValidationMouseEnter = (e: React.MouseEvent<HTMLButtonElement>) => {
         e.stopPropagation();
         e.preventDefault();
@@ -135,7 +134,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
         setShowValidatorsPopover(true);
         audioPopoverTracker.setActivePopover(uniqueId.current);
     };
-    
+
     const handleAudioValidationMouseLeave = (e: React.MouseEvent<HTMLButtonElement>) => {
         e.stopPropagation();
         e.preventDefault();
@@ -148,9 +147,10 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     };
 
     const renderValidationButton = () => {
-        const { currentValidations, requiredValidations, isValidatedByCurrentUser } = validationStatusProps;
+        const { currentValidations, requiredValidations, isValidatedByCurrentUser } =
+            validationStatusProps;
         const isFullyValidated = currentValidations >= requiredValidations;
-        
+
         if (currentValidations === 0) {
             return (
                 <Button
@@ -170,7 +170,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     ></i>
                     <span className="ml-1 text-sm font-light">Validate</span>
                 </Button>
-            )
+            );
         }
 
         if (currentValidations > 0 && !isFullyValidated && !isValidatedByCurrentUser) {
@@ -203,9 +203,9 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                 onMouseEnter={handleAudioValidationMouseEnter}
                 onMouseLeave={handleAudioValidationMouseLeave}
             >
-                <AudioValidationStatusIcon {...validationStatusProps} />
+                <ValidationStatusIcon {...validationStatusProps} />
             </Button>
-        )
+        );
     };
 
     return (

@@ -22,6 +22,16 @@ export function getActiveAudioValidations(
     );
 }
 
+// Returns only active (non-deleted, valid) text validation entries
+export function getActiveTextValidations(
+    validatedBy: ValidationEntry[] | undefined
+): ValidationEntry[] {
+    const list = validatedBy || [];
+    return list.filter(
+        (entry: ValidationEntry) => isValidValidationEntry(entry) && !entry.isDeleted
+    );
+}
+
 // Returns whether the given username has an active validation
 export function isAudioValidatedByUser(
     validatedBy: ValidationEntry[] | undefined,
@@ -32,12 +42,32 @@ export function isAudioValidatedByUser(
     return active.some((entry) => entry.username === username);
 }
 
+// Returns whether the given username has an active text validation
+export function isTextValidatedByUser(
+    validatedBy: ValidationEntry[] | undefined,
+    username: string | null | undefined
+): boolean {
+    if (!username) return false;
+    const active = getActiveTextValidations(validatedBy);
+    return active.some((entry) => entry.username === username);
+}
+
 // Computes both the active validations list and whether the user is validated
 export function computeAudioValidationUpdate(
     validatedBy: ValidationEntry[] | undefined,
     username: string | null | undefined
 ): { isValidated: boolean; activeValidations: ValidationEntry[]; } {
     const activeValidations = getActiveAudioValidations(validatedBy);
+    const isValidated = Boolean(username) && activeValidations.some((e) => e.username === username);
+    return { isValidated, activeValidations };
+}
+
+// Computes both the active text validations list and whether the user is validated
+export function computeTextValidationUpdate(
+    validatedBy: ValidationEntry[] | undefined,
+    username: string | null | undefined
+): { isValidated: boolean; activeValidations: ValidationEntry[]; } {
+    const activeValidations = getActiveTextValidations(validatedBy);
     const isValidated = Boolean(username) && activeValidations.some((e) => e.username === username);
     return { isValidated, activeValidations };
 }
@@ -76,6 +106,17 @@ export const formatTimestamp = (timestamp: number): string => {
 
 // Shared tracker to ensure only one audio validators popover is active
 export const audioPopoverTracker = {
+    activePopoverId: null as string | null,
+    setActivePopover(id: string | null) {
+        this.activePopoverId = id;
+    },
+    getActivePopover() {
+        return this.activePopoverId;
+    },
+};
+
+// Shared tracker to ensure only one text validators popover is active
+export const textPopoverTracker = {
     activePopoverId: null as string | null,
     setActivePopover(id: string | null) {
         this.activePopoverId = id;

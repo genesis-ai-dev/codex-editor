@@ -1,24 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import type { QuillCellContent, ValidationEntry } from "../../../../../types";
 import { getCellValueData } from "@sharedUtils";
-import { getActiveAudioValidations } from "../validationUtils";
-import type { ValidationStatusIconProps } from "../AudioValidationStatusIcon";
+import { getActiveTextValidations } from "../validationUtils";
 
-interface UseAudioValidationStatusParams {
+interface UseTextValidationStatusParams {
     cell: QuillCellContent;
     currentUsername?: string | null;
-    requiredAudioValidations?: number | null;
+    requiredTextValidations?: number | null;
     isSourceText?: boolean;
     disabled?: boolean;
-    displayValidationText?: boolean;
 }
 
-export interface UseAudioValidationStatusResult {
-    iconProps: ValidationStatusIconProps;
+export interface UseTextValidationStatusResult {
     validators: ValidationEntry[]; // deduped, latest per user
+    currentValidations: number;
+    isValidatedByCurrentUser: boolean;
 }
 
-// Deduplicate validations to the latest per user
 function dedupeByLatestPerUser(entries: ValidationEntry[]): ValidationEntry[] {
     const userToLatest = new Map<string, ValidationEntry>();
     for (const entry of entries) {
@@ -30,37 +28,21 @@ function dedupeByLatestPerUser(entries: ValidationEntry[]): ValidationEntry[] {
     return Array.from(userToLatest.values());
 }
 
-export function useAudioValidationStatus(
-    params: UseAudioValidationStatusParams
-): UseAudioValidationStatusResult {
-    const {
-        cell,
-        currentUsername,
-        requiredAudioValidations,
-        isSourceText = false,
-        disabled,
-        displayValidationText,
-    } = params;
+export function useTextValidationStatus(
+    params: UseTextValidationStatusParams
+): UseTextValidationStatusResult {
+    const { cell, currentUsername } = params;
 
     const [username, setUsername] = useState<string | null>(currentUsername ?? null);
 
-    // keep username in sync with prop
     useEffect(() => {
         setUsername(currentUsername ?? null);
     }, [currentUsername]);
 
     const { validators, currentValidations, isValidatedByCurrentUser } = useMemo(() => {
         try {
-            const effectiveSelectedAudioId = cell.metadata?.selectedAudioId ?? "";
-            const cellValueData = getCellValueData({
-                ...cell,
-                metadata: {
-                    ...(cell.metadata || {}),
-                    selectedAudioId: effectiveSelectedAudioId,
-                },
-            } as any);
-
-            const active = getActiveAudioValidations(cellValueData.audioValidatedBy as any);
+            const cellValueData = getCellValueData(cell);
+            const active = getActiveTextValidations((cellValueData as any).validatedBy);
             const deduped = dedupeByLatestPerUser(active);
             const isValidated = username
                 ? deduped.some(
@@ -77,21 +59,13 @@ export function useAudioValidationStatus(
         }
     }, [cell, username]);
 
-    const iconProps: ValidationStatusIconProps = {
-        isValidationInProgress: false, // status icon itself does not track queue here
-        isDisabled: Boolean(isSourceText || disabled),
-        currentValidations,
-        requiredValidations: requiredAudioValidations ?? 1,
-        isValidatedByCurrentUser,
-        displayValidationText,
-    };
-
     return {
-        iconProps,
         validators,
+        currentValidations,
+        isValidatedByCurrentUser,
     };
 }
 
-export default useAudioValidationStatus;
+export default useTextValidationStatus;
 
 
