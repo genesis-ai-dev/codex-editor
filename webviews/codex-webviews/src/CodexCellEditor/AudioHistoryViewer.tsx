@@ -17,7 +17,7 @@ import { WebviewApi } from "vscode-webview";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { ValidationEntry } from "../../../../types";
 import { getActiveAudioValidations } from "./validationUtils";
-import AudioValidationStatusIcon from "./AudioValidationStatusIcon";
+import ValidationStatusIcon from "./AudioValidationStatusIcon";
 
 interface AudioHistoryEntry {
     attachmentId: string;
@@ -783,7 +783,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                                     marginLeft: "auto",
                                                 }}
                                             >
-                                                <AudioValidationStatusIcon
+                                                <ValidationStatusIcon
                                                     isValidationInProgress={false}
                                                     isDisabled={
                                                         entry.attachment.isDeleted || hasError

@@ -5,7 +5,7 @@ import { getCellValueData } from "@sharedUtils";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { processValidationQueue, enqueueValidation } from "./validationQueue";
 import { computeAudioValidationUpdate } from "./validationUtils";
-import AudioValidationStatusIcon from "./AudioValidationStatusIcon";
+import ValidationStatusIcon from "./AudioValidationStatusIcon";
 import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
 import { audioPopoverTracker } from "./validationUtils";
 import AudioValidatorsPopover from "./components/AudioValidatorsPopover";
@@ -270,7 +270,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                 disabled={isDisabled}
                 title={isDisabled ? disabledReason || "Audio validation requires audio" : undefined}
             >
-                <AudioValidationStatusIcon
+                <ValidationStatusIcon
                     isValidationInProgress={isValidationInProgress}
                     isDisabled={isDisabled}
                     currentValidations={currentValidations}

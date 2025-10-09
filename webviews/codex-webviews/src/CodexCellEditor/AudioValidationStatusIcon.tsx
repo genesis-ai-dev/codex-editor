@@ -1,6 +1,6 @@
 import React from "react";
 
-export interface AudioValidationStatusIconProps {
+export interface ValidationStatusIconProps {
     isValidationInProgress: boolean;
     isDisabled: boolean;
     currentValidations: number;
@@ -9,7 +9,7 @@ export interface AudioValidationStatusIconProps {
     displayValidationText?: boolean;
 }
 
-const AudioValidationStatusIcon: React.FC<AudioValidationStatusIconProps> = ({
+const ValidationStatusIcon: React.FC<ValidationStatusIconProps> = ({
     isValidationInProgress,
     isDisabled,
     currentValidations,
@@ -40,8 +40,8 @@ const AudioValidationStatusIcon: React.FC<AudioValidationStatusIconProps> = ({
                     style={{
                         fontSize: "12px",
                         color: isDisabled
-                        ? "var(--vscode-disabledForeground)"
-                        : "var(--vscode-descriptionForeground)",
+                            ? "var(--vscode-disabledForeground)"
+                            : "var(--vscode-descriptionForeground)",
                     }}
                 ></i>
                 {displayValidationText && <span className="ml-1">No validators</span>}
@@ -60,8 +60,8 @@ const AudioValidationStatusIcon: React.FC<AudioValidationStatusIconProps> = ({
                         style={{
                             fontSize: "12px",
                             color: isDisabled
-                            ? "var(--vscode-disabledForeground)"
-                            : "var(--vscode-testing-iconPassed)",
+                                ? "var(--vscode-disabledForeground)"
+                                : "var(--vscode-testing-iconPassed)",
                         }}
                     ></i>
                     {displayValidationText && <span className="ml-1">Fully validated</span>}
@@ -77,9 +77,11 @@ const AudioValidationStatusIcon: React.FC<AudioValidationStatusIconProps> = ({
                         color: isDisabled
                             ? "var(--vscode-disabledForeground)"
                             : "var(--vscode-descriptionForeground)",
-                        }}
+                    }}
                 ></i>
-                {displayValidationText && <span className="ml-1">Fully validated by other user(s)</span>}
+                {displayValidationText && (
+                    <span className="ml-1">Fully validated by other user(s)</span>
+                )}
             </div>
         );
     }
@@ -87,14 +89,14 @@ const AudioValidationStatusIcon: React.FC<AudioValidationStatusIconProps> = ({
     if (isValidatedByCurrentUser) {
         return (
             <div className="flex items-center justify-center text-sm font-light">
-            <i
-                className="codicon codicon-check"
-                style={{
-                    fontSize: "12px",
-                    color: isDisabled
-                        ? "var(--vscode-disabledForeground)"
-                        : "var(--vscode-testing-iconPassed)",
-                }}
+                <i
+                    className="codicon codicon-check"
+                    style={{
+                        fontSize: "12px",
+                        color: isDisabled
+                            ? "var(--vscode-disabledForeground)"
+                            : "var(--vscode-testing-iconPassed)",
+                    }}
                 ></i>
                 {displayValidationText && <span className="ml-1">Validated by you</span>}
             </div>
@@ -117,4 +119,4 @@ const AudioValidationStatusIcon: React.FC<AudioValidationStatusIconProps> = ({
     );
 };
 
-export default AudioValidationStatusIcon;
+export default ValidationStatusIcon;

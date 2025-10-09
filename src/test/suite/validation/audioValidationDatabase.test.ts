@@ -308,25 +308,26 @@ suite("Audio Validation Database Integration Test Suite", () => {
                 isDeleted: false,
             });
 
-            // Mock database sync to capture data
+            // We'll capture state directly after each explicit save to avoid interference from other async saves
             let capturedCellDataAfterValidate: any = null;
             let capturedCellDataAfterUnvalidate: any = null;
-            const syncStub = sinon.stub((CodexCellDocument as any).prototype, "syncAllCellsToDatabase").callsFake(async function (this: any) {
-                const cellData = this._documentData.cells.find((c: any) => c.metadata?.id === cellId);
-                if (!capturedCellDataAfterValidate) {
-                    capturedCellDataAfterValidate = cellData;
-                } else if (!capturedCellDataAfterUnvalidate) {
-                    capturedCellDataAfterUnvalidate = cellData;
-                }
-                return Promise.resolve();
-            });
 
             // Act: First validate, then unvalidate
             await document.validateCellAudio(cellId, true);
             await document.save(new vscode.CancellationTokenSource().token); // First sync
+            // Capture immediately after explicit save
+            {
+                const cellData = (document as any)._documentData.cells.find((c: any) => c.metadata?.id === cellId);
+                capturedCellDataAfterValidate = cellData ? JSON.parse(JSON.stringify(cellData)) : null;
+            }
 
             await document.validateCellAudio(cellId, false);
             await document.save(new vscode.CancellationTokenSource().token); // Second sync
+            // Capture immediately after explicit save
+            {
+                const cellData = (document as any)._documentData.cells.find((c: any) => c.metadata?.id === cellId);
+                capturedCellDataAfterUnvalidate = cellData ? JSON.parse(JSON.stringify(cellData)) : null;
+            }
 
             // Assert: Check that database fields are updated correctly after unvalidation
             assert.ok(capturedCellDataAfterValidate, "Should have data after validation");

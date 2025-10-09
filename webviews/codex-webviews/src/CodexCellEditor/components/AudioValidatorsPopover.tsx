@@ -13,6 +13,11 @@ interface AudioValidatorsPopoverProps {
     onRequestClose?: () => void;
     cancelCloseTimer?: () => void;
     scheduleCloseTimer?: (cb: () => void, delay?: number) => void;
+    title?: string;
+    popoverTracker?: {
+        getActivePopover: () => string | null;
+        setActivePopover: (id: string | null) => void;
+    };
 }
 
 export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
@@ -26,6 +31,8 @@ export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
     onRequestClose,
     cancelCloseTimer,
     scheduleCloseTimer,
+    title = "Audio Validators",
+    popoverTracker = audioPopoverTracker,
 }) => {
     const popoverRef = useRef<HTMLDivElement>(null);
 
@@ -70,8 +77,8 @@ export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
 
             setShow(false);
             onRequestClose && onRequestClose();
-            if (audioPopoverTracker.getActivePopover() === uniqueId) {
-                audioPopoverTracker.setActivePopover(null);
+            if (popoverTracker.getActivePopover() === uniqueId) {
+                popoverTracker.setActivePopover(null);
             }
         };
 
@@ -85,14 +92,14 @@ export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
         e.stopPropagation();
         cancelCloseTimer && cancelCloseTimer();
     };
-    
+
     const handleMouseLeave = (e: React.MouseEvent) => {
         e.stopPropagation();
         scheduleCloseTimer &&
             scheduleCloseTimer(() => {
                 setShow(false);
-                if (audioPopoverTracker.getActivePopover() === uniqueId) {
-                    audioPopoverTracker.setActivePopover(null);
+                if (popoverTracker.getActivePopover() === uniqueId) {
+                    popoverTracker.setActivePopover(null);
                 }
             }, 100);
     };
@@ -115,15 +122,15 @@ export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
             onMouseLeave={handleMouseLeave}
         >
             <div className="flex items-center justify-between w-full">
-                <div className="font-extralight text-base">Audio Validators</div>
+                <div className="font-extralight text-base">{title}</div>
                 <div
                     className="flex items-baseline justify-end cursor-pointer font-light text-gray-400"
                     onClick={(e) => {
                         e.stopPropagation();
                         setShow(false);
                         onRequestClose && onRequestClose();
-                        if (audioPopoverTracker.getActivePopover() === uniqueId) {
-                            audioPopoverTracker.setActivePopover(null);
+                        if (popoverTracker.getActivePopover() === uniqueId) {
+                            popoverTracker.setActivePopover(null);
                         }
                     }}
                 >
@@ -162,10 +169,8 @@ export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
                                             e.stopPropagation();
                                             onRemoveSelf();
                                             setShow(false);
-                                            if (
-                                                audioPopoverTracker.getActivePopover() === uniqueId
-                                            ) {
-                                                audioPopoverTracker.setActivePopover(null);
+                                            if (popoverTracker.getActivePopover() === uniqueId) {
+                                                popoverTracker.setActivePopover(null);
                                             }
                                         }}
                                         title="Remove your audio validation"
