@@ -72,7 +72,6 @@ import {
     Square,
     FolderOpen,
     NotebookPen,
-    Save,
     RotateCcw,
     Clock,
     ArrowLeft,
@@ -432,19 +431,23 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [showDiscardModal, setShowDiscardModal] = useState(false);
 
     const handleSaveCell = () => {
-        handleSaveHtml();
-        const ts = contentBeingUpdated.cellTimestamps;
-        if (ts && (typeof ts.startTime === "number" || typeof ts.endTime === "number")) {
-            const messageContent: EditorPostMessages = {
-                command: "updateCellTimestamps",
-                content: {
-                    cellId: cellMarkers[0],
-                    timestamps: ts,
-                },
-            };
-            window.vscodeApi.postMessage(messageContent);
-        }
+        // Defer the actual save to ensure state updates are applied
+        setTimeout(() => {
+            handleSaveHtml();
+            const ts = contentBeingUpdated.cellTimestamps;
+            if (ts && (typeof ts.startTime === "number" || typeof ts.endTime === "number")) {
+                const messageContent: EditorPostMessages = {
+                    command: "updateCellTimestamps",
+                    content: {
+                        cellId: cellMarkers[0],
+                        timestamps: ts,
+                    },
+                };
+                window.vscodeApi.postMessage(messageContent);
+            }
+        }, 0);
     };
+
 
     // Timestamp editing bounds and effective state
     const previousEndBound = typeof prevEndTime === "number" ? prevEndTime : 0;
@@ -479,30 +482,19 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     const handleLabelChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setEditableLabel(e.target.value);
+        setUnsavedChanges(true);
     };
 
     const handleLabelBlur = () => {
-        // Update the cell label in the notebook data
-        const messageContent: EditorPostMessages = {
-            command: "updateCellLabel",
-            content: {
-                cellId: cellMarkers[0],
-                cellLabel: editableLabel,
-            },
-        };
-        window.vscodeApi.postMessage(messageContent);
+        setIsEditorControlsExpanded(false);
+        // setEditableLabel(editableLabel);
 
-        // Update local state
+        // Merge the latest label into the content payload before saving
         setContentBeingUpdated({
+            ...contentBeingUpdated,
             cellMarkers,
-            cellContent: contentBeingUpdated.cellContent,
-            cellChanged: contentBeingUpdated.cellChanged,
             cellLabel: editableLabel,
         });
-    };
-
-    const handleLabelSave = () => {
-        handleLabelBlur();
     };
 
     useMessageHandler(
@@ -1051,28 +1043,28 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
         // Normalize file extension from MIME type
         const normalizeExtension = (mimeType: string): string => {
-            if (!mimeType || !mimeType.includes('/')) return "webm";
-            
+            if (!mimeType || !mimeType.includes("/")) return "webm";
+
             let ext = mimeType.split("/")[1] || "webm";
-            
+
             // Remove codec parameters (e.g., "webm;codecs=opus" -> "webm")
             ext = ext.split(";")[0];
-            
+
             // Normalize non-standard MIME types (e.g., "x-m4a" -> "m4a")
             if (ext.startsWith("x-")) {
                 ext = ext.substring(2);
             }
-            
+
             // Handle common MIME type aliases
             if (ext === "mp4" || ext === "mpeg") {
                 return "m4a";
             }
-            
+
             // Validate against supported formats
             const allowedExtensions = new Set(["webm", "wav", "mp3", "m4a", "ogg", "aac", "flac"]);
             return allowedExtensions.has(ext) ? ext : "webm";
         };
-        
+
         const fileExtension = normalizeExtension(blob.type);
 
         // Convert blob to base64 for transfer to provider
@@ -1607,34 +1599,56 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     return (
         <Card className="w-full max-w-4xl shadow-xl" style={{ direction: textDirection }}>
-            <CardHeader className="border-b p-4 flex flex-row flex-nowrap items-center justify-between gap-3">
+            <CardHeader className="border-b p-4 flex flex-row flex-nowrap items-center justify-between gap-3 space-y-0">
                 <div className="flex flex-row flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 pr-3">
+                    <div className="flex flex-col justify-center gap-2 pr-3">
+                        <span className="text-sm font-light text-gray-500">{cellMarkers[0]}</span>
                         {isEditorControlsExpanded ? (
-                            <X
-                                className="h-4 w-4 cursor-pointer"
-                                onClick={() =>
-                                    setIsEditorControlsExpanded(!isEditorControlsExpanded)
-                                }
-                            />
+                            <>
+                                <div className="flex items-center gap-2">
+                                    <Input
+                                        type="text"
+                                        value={editableLabel}
+                                        defaultValue={cellLabel}
+                                        onChange={handleLabelChange}
+                                        onBlur={handleLabelBlur}
+                                        placeholder="Enter label..."
+                                        className="flex-1"
+                                    />
+                                    <X
+                                        className="h-4 w-4 cursor-pointer"
+                                        onClick={() => {
+                                            setIsEditorControlsExpanded(!isEditorControlsExpanded);
+                                            setEditableLabel(cellLabel ?? "");
+                                        }}
+                                    />
+                                </div>
+                            </>
                         ) : (
                             <div
-                                className="flex items-center gap-2 cursor-pointer"
-                                onClick={() =>
-                                    setIsEditorControlsExpanded(!isEditorControlsExpanded)
-                                }
-                                title="Edit cell label"
+                                className="flex items-center gap-2"
                                 role="button"
-                                aria-label="Edit cell label"
+                                aria-label="Cell id and label"
                             >
-                                <div className="flex items-center gap-1">
-                                    <span className="text-lg font-semibold">{cellMarkers[0]}</span>
-                                    {editableLabel && (
-                                        <span className="text-sm text-muted-foreground">
+                                {cellLabel && (
+                                    <button
+                                        className="flex items-center gap-x-1 cursor-pointer"
+                                        title="Edit cell label"
+                                        onClick={() => {
+                                            setIsEditorControlsExpanded(!isEditorControlsExpanded);
+                                        }}
+                                    >
+                                        <span className="text-lg font-semibold muted-foreground">
                                             {editableLabel}
                                         </span>
-                                    )}
-                                </div>
+                                        <i
+                                            className="codicon codicon-edit"
+                                            style={{
+                                                fontSize: "0.9em",
+                                            }}
+                                        ></i>
+                                    </button>
+                                )}
                                 <CommentsBadge
                                     cellId={cellMarkers[0]}
                                     unresolvedCount={unresolvedCommentsCount}
@@ -1810,29 +1824,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
             </Dialog>
 
             <CardContent className="p-4 space-y-4">
-                {isEditorControlsExpanded && (
-                    <div className="space-y-4 pb-4 border-b">
-                        <div className="flex items-center gap-2">
-                            <Input
-                                type="text"
-                                value={editableLabel}
-                                onChange={handleLabelChange}
-                                onBlur={handleLabelBlur}
-                                placeholder="Enter label..."
-                                className="flex-1"
-                            />
-                            <Button
-                                onClick={handleLabelSave}
-                                variant="ghost"
-                                size="icon"
-                                title="Save Label"
-                            >
-                                <Save className="h-4 w-4" />
-                            </Button>
-                        </div>
-                    </div>
-                )}
-
                 <div
                     className={`flex items-start gap-2 ${
                         showFlashingBorder
