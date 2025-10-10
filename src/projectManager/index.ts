@@ -651,14 +651,6 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         })
     );
 
-    const optimizeRepositoryCommand = vscode.commands.registerCommand(
-        "codex-project-manager.optimizeRepository",
-        executeWithRedirecting(async () => {
-            const { optimizeRepository } = await import("../utils/repositoryOptimization");
-            await optimizeRepository();
-        })
-    );
-
     // Register event listener for configuration changes
     const onDidChangeConfigurationListener = vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration("codex-project-manager")) {
@@ -704,7 +696,6 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         openBookNameEditorCommand,
         importLocalUsfmSourceBibleCommand,
         updateGitignoreCommand,
-        optimizeRepositoryCommand,
         changeUserEmailCommand,
         onDidChangeConfigurationListener,
         onDidChangeExtensionsListener,
