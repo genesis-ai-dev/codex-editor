@@ -345,8 +345,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
             validatedBy,
         });
 
-        console.log("trace 124 cellToUpdate.metadata.edits", cellToUpdate.metadata.edits);
-
         // Record the edit 
         // not being used ???
         this._edits.push({

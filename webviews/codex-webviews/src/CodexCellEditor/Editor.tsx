@@ -1267,14 +1267,8 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     />
                 </div>
             )}
-            <div
-                className={`relative transition-all duration-300 ease-in-out ${
-                    isToolbarVisible || isEditingFootnoteInline
-                        ? "toolbar-visible"
-                        : "toolbar-hidden"
-                }`}
-            >
-                {!isEditingFootnoteInline && (
+            {!isEditingFootnoteInline && (
+                <div className="flex justify-end">
                     <VSCodeButton
                         appearance="icon"
                         onClick={() => setIsToolbarVisible(!isToolbarVisible)}
@@ -1289,8 +1283,15 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                             }`}
                         ></i>
                     </VSCodeButton>
-                )}
-
+                </div>
+            )}
+            <div
+                className={`relative transition-all duration-300 ease-in-out ${
+                    isToolbarVisible || isEditingFootnoteInline
+                        ? "toolbar-visible"
+                        : "toolbar-hidden"
+                }`}
+            >
                 <div
                     ref={editorRef}
                     className="quill-editor-container"
@@ -1315,7 +1316,6 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                         padding: "2px 4px",
                         fontSize: "0.8em",
                         color: "var(--vscode-descriptionForeground)",
-                        borderTop: "1px solid var(--vscode-widget-border)",
                         backgroundColor: "transparent",
                     }}
                 >

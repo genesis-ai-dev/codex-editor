@@ -53,6 +53,10 @@ sup.footnote-marker {
     border-color: var(--vscode-widget-border);
 }
 
+.ql-container.ql-snow {
+    border: 1px solid var(--vscode-widget-border);
+}
+
 /* Toolbar content layout */
 .quill-editor-container .ql-toolbar .ql-formats,
 .quill-editor .ql-toolbar .ql-formats {
@@ -163,4 +167,8 @@ sup.footnote-marker {
     color: var(--vscode-input-foreground);
     border: 1px solid var(--vscode-input-border);
     border-radius: 4px;
+}
+
+.ql-toolbar.ql-snow + .ql-container.ql-snow {
+    border-top: 1px solid var(--vscode-widget-border);
 }

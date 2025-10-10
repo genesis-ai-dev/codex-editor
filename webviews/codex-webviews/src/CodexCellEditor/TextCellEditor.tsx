@@ -486,18 +486,39 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // Comments count now handled by CellList.tsx batched requests
 
     // Handle comments count response
+    // Ensure editor reacts to both single and batched responses
     useMessageHandler(
         "textCellEditor-commentsResponse",
         (event: MessageEvent) => {
-            if (
-                event.data.type === "commentsForCell" &&
-                event.data.content.cellId === cellMarkers[0]
-            ) {
-                setUnresolvedCommentsCount(event.data.content.unresolvedCount);
+            const message = event.data;
+            // Single-cell response shape
+            if (message.type === "commentsForCell" && message.content?.cellId === cellMarkers[0]) {
+                setUnresolvedCommentsCount(message.content.unresolvedCount || 0);
+                return;
+            }
+            // Batched response shape: { [cellId]: count }
+            if (message.type === "commentsForCells" && message.content) {
+                const count = message.content[cellMarkers[0]];
+                if (typeof count === "number") {
+                    setUnresolvedCommentsCount(count);
+                }
             }
         },
         [cellMarkers]
     );
+
+    // Proactively request the comment count for this cell on mount/change
+    useEffect(() => {
+        try {
+            const messageContent: EditorPostMessages = {
+                command: "getCommentsForCells",
+                content: { cellIds: [cellMarkers[0]] },
+            } as EditorPostMessages;
+            window.vscodeApi.postMessage(messageContent);
+        } catch {
+            // no-op
+        }
+    }, [cellMarkers]);
 
     const handleLabelChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setEditableLabel(e.target.value);
@@ -517,7 +538,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
             });
         }
 
-        setUnsavedChanges(false);
+        // Preserve Save visibility if editor text or timestamps are still dirty
+        const a = contentBeingUpdated.cellTimestamps;
+        const b = cellTimestamps;
+        const timestampsDirty =
+            !!a &&
+            ((a.startTime ?? undefined) !== (b?.startTime ?? undefined) ||
+                (a.endTime ?? undefined) !== (b?.endTime ?? undefined));
+
+        setUnsavedChanges(Boolean(isTextDirty || timestampsDirty));
     };
 
     useMessageHandler(
@@ -1649,7 +1678,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
             <CardHeader className="border-b p-4 flex flex-row flex-nowrap items-center justify-between gap-3 space-y-0">
                 <div className="flex flex-row flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-col justify-center gap-2 pr-3">
-                        <span className="text-sm font-light text-gray-500">{cellMarkers[0]}</span>
                         <div
                             className="flex items-center gap-2"
                             role="button"
@@ -1658,7 +1686,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             {cellLabel && (
                                 <div className="flex items-center gap-x-1" title="Edit cell label">
                                     <span className="text-lg font-semibold muted-foreground">
-                                        {editableLabel}
+                                        {editableLabel ?? "Enter label..."}
                                     </span>
                                     <Button
                                         variant="ghost"
@@ -1930,9 +1958,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         className="flex w-full"
                         style={{ justifyContent: "stretch", display: "flex" }}
                     >
-                        <TabsTrigger value="editLabel">
-                            <Tag className="mr-2 h-4 w-4" />
-                        </TabsTrigger>
+                        {cellLabel && (
+                            <TabsTrigger value="editLabel">
+                                <Tag className="mr-2 h-4 w-4" />
+                            </TabsTrigger>
+                        )}
                         <TabsTrigger value="source">
                             <FileCode className="mr-2 h-4 w-4" />
                             {!sourceText && (
@@ -2694,6 +2724,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         </TabsContent>
                     )}
                 </Tabs>
+                <div className="text-sm font-light text-gray-500 w-full text-right">{cellMarkers[0]}</div>
             </CardContent>
 
             {/* Audio History Viewer Modal */}
