@@ -241,6 +241,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const cellEditorRef = useRef<HTMLDivElement>(null);
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
     const [editorContent, setEditorContent] = useState(cellContent);
+    const [isTextDirty, setIsTextDirty] = useState(false);
 
     // Sync editor content when cell content changes (e.g., from translation)
     useEffect(() => {
@@ -639,6 +640,30 @@ const CellEditor: React.FC<CellEditorProps> = ({
         });
         setEditorContent(cleanedContent);
     };
+
+    // Combine dirty flags to drive Save visibility
+    useEffect(() => {
+        const labelDirty = (editableLabel ?? "") !== (cellLabel ?? "");
+        const timestampsDirty = (() => {
+            const a = contentBeingUpdated.cellTimestamps;
+            const b = cellTimestamps;
+            // Only treat timestamps as dirty if user has staged any timestamps in contentBeingUpdated
+            if (!a) return false;
+            return (
+                (a.startTime ?? undefined) !== (b?.startTime ?? undefined) ||
+                (a.endTime ?? undefined) !== (b?.endTime ?? undefined)
+            );
+        })();
+
+        setUnsavedChanges(Boolean(isTextDirty || labelDirty || timestampsDirty));
+    }, [
+        isTextDirty,
+        editableLabel,
+        cellLabel,
+        contentBeingUpdated.cellTimestamps,
+        cellTimestamps,
+        setUnsavedChanges,
+    ]);
 
     // Add effect to fetch source text
     useEffect(() => {
@@ -1855,6 +1880,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     cellLabel: editableLabel,
                                 });
                             }}
+                            onDirtyChange={(dirty) => {
+                                setIsTextDirty(dirty);
+                            }}
                             textDirection={textDirection}
                             ref={editorHandlesRef}
                             setIsEditingFootnoteInline={setIsEditingFootnoteInline}
@@ -1970,7 +1998,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     placeholder="Enter label..."
                                     className="flex-1"
                                 />
-                                <X
+                                <RotateCcw
                                     className="h-4 w-4 cursor-pointer"
                                     onClick={() => {
                                         setIsEditorControlsExpanded(!isEditorControlsExpanded);
