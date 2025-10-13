@@ -337,7 +337,7 @@ function getWebviewContent(
                                     <p>Export per-cell audio attachments to a folder</p>
                                     <div style="margin-top: 6px; display: flex; align-items: center; gap: 6px;">
                                         <input type="checkbox" id="audioIncludeTimestamps" />
-                                        <label for="audioIncludeTimestamps">Include timestamps in filenames (when available)</label>
+                                        <label for="audioIncludeTimestamps">Embed timestamps in audio metadata (WAV, WebM, M4A)</label>
                                     </div>
                                 </div>
                             </div>

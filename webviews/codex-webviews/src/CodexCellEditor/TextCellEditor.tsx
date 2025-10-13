@@ -955,6 +955,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // (backtranslation tab was removed; no automatic switching needed)
 
     // Audio recording functions
+
+    // Audio recording functions
     const startRecording = async () => {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             setRecordingStatus("Microphone not supported in this browser");
@@ -964,7 +966,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
-                    // Request high-quality capture suitable for later WAV conversion
+                    // Request high-quality capture suitable for later WAV conversion during export
                     sampleRate: 48000,
                     sampleSize: 24, // May be ignored by some browsers; best-effort
                     channelCount: 1,
@@ -1051,28 +1053,28 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
         // Normalize file extension from MIME type
         const normalizeExtension = (mimeType: string): string => {
-            if (!mimeType || !mimeType.includes('/')) return "webm";
-            
+            if (!mimeType || !mimeType.includes("/")) return "webm";
+
             let ext = mimeType.split("/")[1] || "webm";
-            
+
             // Remove codec parameters (e.g., "webm;codecs=opus" -> "webm")
             ext = ext.split(";")[0];
-            
+
             // Normalize non-standard MIME types (e.g., "x-m4a" -> "m4a")
             if (ext.startsWith("x-")) {
                 ext = ext.substring(2);
             }
-            
+
             // Handle common MIME type aliases
             if (ext === "mp4" || ext === "mpeg") {
                 return "m4a";
             }
-            
+
             // Validate against supported formats
             const allowedExtensions = new Set(["webm", "wav", "mp3", "m4a", "ogg", "aac", "flac"]);
             return allowedExtensions.has(ext) ? ext : "webm";
         };
-        
+
         const fileExtension = normalizeExtension(blob.type);
 
         // Convert blob to base64 for transfer to provider
