@@ -2485,35 +2485,37 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             >
                                                 {isRecording ? (
                                                     <>
-                                                        <Square className="h-3 w-3 mr-2" />
+                                                        <Square className="h-3 w-3 mr-1" />
                                                         Stop Recording
                                                     </>
                                                 ) : (
                                                     <>
-                                                        <CircleDotDashed className="h-3 w-3 mr-2" />
+                                                        <CircleDotDashed className="h-3 w-3 mr-1" />
                                                         Start Recording
                                                     </>
                                                 )}
                                             </Button>
 
-                                            <label className="cursor-pointer">
-                                                <input
-                                                    type="file"
-                                                    accept="audio/*,video/*"
-                                                    onChange={handleFileUpload}
-                                                    className="sr-only"
-                                                />
-                                                <Button
-                                                    variant="outline"
-                                                    className="h-8 px-2 text-xs"
-                                                    asChild
-                                                >
-                                                    <span>
-                                                        <FolderOpen className="h-3 w-3 mr-2" />
-                                                        <Upload className="h-3 w-3" />
-                                                    </span>
-                                                </Button>
-                                            </label>
+                                            <Button
+                                                variant="outline"
+                                                className="flex items-center justify-center h-8 px-2 text-xs"
+                                                onClick={() => {
+                                                    document
+                                                        .getElementById("audio-file-input")
+                                                        ?.click();
+                                                }}
+                                            >
+                                                <Upload className="h-3 w-3 mr-1" />
+                                                Upload
+                                            </Button>
+                                            <input
+                                                id="audio-file-input"
+                                                type="file"
+                                                accept="audio/*,video/*"
+                                                onChange={handleFileUpload}
+                                                placeholder=""
+                                                className="hidden"
+                                            />
 
                                             {hasAudioHistory && (
                                                 <Button
@@ -2575,35 +2577,37 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             >
                                                 {isRecording ? (
                                                     <>
-                                                        <Square className="h-3 w-3 mr-2" />
+                                                        <Square className="h-3 w-3 mr-1" />
                                                         Stop Recording
                                                     </>
                                                 ) : (
                                                     <>
-                                                        <CircleDotDashed className="h-3 w-3 mr-2" />
+                                                        <CircleDotDashed className="h-3 w-3 mr-1" />
                                                         Start Recording
                                                     </>
                                                 )}
                                             </Button>
 
-                                            <label className="cursor-pointer">
-                                                <input
-                                                    type="file"
-                                                    accept="audio/*,video/*"
-                                                    onChange={handleFileUpload}
-                                                    className="sr-only"
-                                                />
-                                                <Button
-                                                    variant="outline"
-                                                    className="h-8 px-2 text-xs"
-                                                    asChild
-                                                >
-                                                    <span>
-                                                        <FolderOpen className="h-3 w-3 mr-2" />
-                                                        <Upload className="h-3 w-3" />
-                                                    </span>
-                                                </Button>
-                                            </label>
+                                            <Button
+                                                variant="outline"
+                                                className="flex items-center justify-center h-8 px-2 text-xs"
+                                                onClick={() => {
+                                                    document
+                                                        .getElementById("audio-file-input")
+                                                        ?.click();
+                                                }}
+                                            >
+                                                <Upload className="h-3 w-3 mr-1" />
+                                                Upload
+                                            </Button>
+                                            <input
+                                                id="audio-file-input"
+                                                type="file"
+                                                accept="audio/*,video/*"
+                                                onChange={handleFileUpload}
+                                                placeholder=""
+                                                className="hidden"
+                                            />
 
                                             {hasAudioHistory && (
                                                 <Button
@@ -2724,7 +2728,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         </TabsContent>
                     )}
                 </Tabs>
-                <div className="text-sm font-light text-gray-500 w-full text-right">{cellMarkers[0]}</div>
+                <div className="text-sm font-light text-gray-500 w-full text-right">
+                    {cellMarkers[0]}
+                </div>
             </CardContent>
 
             {/* Audio History Viewer Modal */}
