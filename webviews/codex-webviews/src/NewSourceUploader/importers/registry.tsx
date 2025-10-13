@@ -24,6 +24,7 @@ import { smartSegmenterPlugin } from "./recursiveTextSplitter/index.tsx";
 import { paratextImporterPlugin } from "./paratext/index.tsx";
 import { spreadsheetImporterPlugin } from "./spreadsheet/index.tsx";
 import { audioImporterPlugin } from "./audio/index.tsx";
+import { biblicaImporterPlugin } from "./biblica/index.tsx";
 // import { tmsImporterPlugin } from "./tms/index.tsx";
 // import { rtfImporterPlugin } from "./rtf/index.tsx";
 // import { pdfImporterPlugin } from "./pdf/index.tsx";
@@ -138,6 +139,12 @@ export const importerPlugins: ImporterPlugin[] = [
             "Bible",
             "Original Languages",
         ],
+    },
+    {
+        ...biblicaImporterPlugin,
+        name: "Biblica Files",
+        description: "Biblica IDML files",
+        tags: [...(biblicaImporterPlugin.tags || []), "Specialized", "Bible", "Biblica"],
     },
     {
         ...obsImporterPlugin,

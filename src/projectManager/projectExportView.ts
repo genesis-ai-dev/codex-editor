@@ -326,7 +326,7 @@ function getWebviewContent(
                                 <i class="codicon codicon-package"></i>
                                 <div>
                                     <strong>IDML Round-trip</strong>
-                                    <p>Export translated content back into the original IDML structure</p>
+                                    <p>Export translated content back into the original IDML structure (auto-detects Biblica files)</p>
                                     <span class="format-tag">InDesign</span>
                                 </div>
                             </div>

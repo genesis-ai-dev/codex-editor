@@ -1,9 +1,11 @@
 /**
- * IDML Exporter for round-trip functionality
+ * IDML Exporter for round-trip functionality with Biblica verse support
  * Converts structured IDML document back to XML format
  * This file contains two types of exporters:
  * 1. IDMLExporter class: Browser-based exporter using parsed IDMLDocument (for webviews)
- * 2. exportIdmlRoundtrip function: Node.js-compatible exporter using JSZip (for VS Code extension)
+ * 2. exportIdmlRoundtrip function: Node.js-compatible exporter supporting both:
+ *    - Biblica verse-based replacement (using cv:v and meta:v structure tags)
+ *    - Generic paragraph-based replacement (fallback for non-Biblica content)
  */
 
 import {
@@ -250,6 +252,9 @@ export class IDMLExporter {
         }
         if (properties.subscript !== undefined) {
             attrs.push(`subscript="${properties.subscript}"`);
+        }
+        if (properties.tracking !== undefined) {
+            attrs.push(`Tracking="${properties.tracking}"`);
         }
 
         return attrs.length > 0 ? ' ' + attrs.join(' ') : '';
@@ -527,6 +532,7 @@ export interface ParagraphUpdate {
 /**
  * Export IDML with updated content from Codex cells (Node.js compatible)
  * This function works directly with ZIP files and XML strings without browser APIs
+ * Supports both paragraph-based updates and Biblica verse-based updates
  * 
  * @param originalIdmlData - The original IDML file as Uint8Array
  * @param codexCells - Array of Codex cell data
@@ -546,6 +552,10 @@ export async function exportIdmlRoundtrip(
     // Build mapping from IDML structure metadata to translated content
     const storyIdToUpdates = new Map<string, ParagraphUpdate[]>();
     const storyIndexToUpdates = new Map<number, ParagraphUpdate[]>();
+
+    // Build mapping for verse-based updates (Biblica format)
+    const verseUpdates: Record<string, { content: string; beforeVerse?: string; afterVerse?: string; }> = {};
+    let hasVerseBasedCells = false;
 
     // XML escape helper
     const xmlEscape = (s: string) =>
@@ -580,15 +590,19 @@ export async function exportIdmlRoundtrip(
         return "";
     };
 
-    // Helper to remove HTML tags
+    // Helper to remove HTML tags while preserving line breaks
     const removeHtmlTags = (html: string): string => {
-        return html.replace(/<[^>]*>/g, '').trim();
+        // First convert <br>, <br/>, <br /> tags to newlines
+        let text = html.replace(/<br\s*\/?>/gi, '\n');
+        // Then remove all other HTML tags
+        text = text.replace(/<[^>]*>/g, '');
+        return text.trim();
     };
 
     // Track story order counters for fallback
     const storyOrderCounters = new Map<string, number>();
 
-    // Collect paragraph-level updates from codex cells
+    // Collect updates from codex cells - check for verse metadata first
     for (const cell of codexCells) {
         const meta: any = cell.metadata;
         const isText = cell.kind === 2 && meta?.type === "text";
@@ -597,6 +611,28 @@ export async function exportIdmlRoundtrip(
         const translated = removeHtmlTags(getTranslatedHtml(cell)).trim();
         if (!translated) continue;
 
+        // Check if this is a Biblica verse-based cell
+        const isBibleVerse = meta?.isBibleVerse;
+        const verseId = meta?.verseId;
+        const bookAbbrev = meta?.bookAbbreviation;
+        const chapterNum = meta?.chapterNumber;
+        const verseNum = meta?.verseNumber;
+        const beforeVerse = meta?.beforeVerse;
+        const afterVerse = meta?.afterVerse;
+
+        // If we have verse metadata, use verse-based replacement
+        if (isBibleVerse && verseId) {
+            hasVerseBasedCells = true;
+            verseUpdates[verseId] = {
+                content: translated,
+                beforeVerse,
+                afterVerse
+            };
+            console.log(`[Export] Collected verse update: ${verseId}`);
+            continue;
+        }
+
+        // Otherwise use paragraph-based replacement (fallback)
         const structure = meta?.data?.idmlStructure;
         const relationships = meta?.data?.relationships;
 
@@ -639,12 +675,166 @@ export async function exportIdmlRoundtrip(
         }
     }
 
-    // Helper to build replacement content
+    console.log(`[Export] Collected ${Object.keys(verseUpdates).length} verse-based updates, ${storyIdToUpdates.size} story-based updates`);
+
+    /**
+     * Replace verse content in XML while preserving Biblica meta structure
+     * 
+     * Biblica IDML format uses URL-encoded character styles (e.g., meta%3av where %3a = colon)
+     * 
+     * Pattern to find:
+     * 1. <CharacterStyleRange ... cv%3av>...<Content>VERSE_NUM</Content>...</CharacterStyleRange>
+     * 2. (optional spacing)
+     * 3. <CharacterStyleRange ... meta%3av>...<Content>VERSE_NUM</Content>...</CharacterStyleRange>
+     * 4. VERSE CONTENT (one or more CharacterStyleRange blocks)
+     * 5. <CharacterStyleRange ... meta%3av>...<Content>VERSE_NUM</Content>...</CharacterStyleRange>
+     * 
+     * We replace everything between steps 3 and 5 with updated content.
+     */
+    const replaceVerseContent = (xmlContent: string, currentBook: string, currentChapter: string): string => {
+        let result = xmlContent;
+        const processedVerses = new Set<string>();
+
+        // Process each verse that has an update
+        for (const verseIdKey in verseUpdates) {
+            const update = verseUpdates[verseIdKey];
+            const parts = verseIdKey.split(/[:\s]+/);
+            if (parts.length < 3) continue;
+
+            const book = parts[0];
+            const chapter = parts[1];
+            const verseNumber = parts[2];
+
+            // Only process verses for the current book and chapter
+            if (book !== currentBook || chapter !== currentChapter) continue;
+            if (processedVerses.has(verseNumber)) continue;
+
+            const updatedContent = update.content;
+
+            // Build regex to find the full verse pattern
+            // Pattern: cv%3av → (optional spacing) → meta%3av → content (may span paragraphs) → meta%3av
+            // Note: Content may include </ParagraphStyleRange> and <ParagraphStyleRange> tags for cross-paragraph verses
+            const versePattern = new RegExp(
+                // 1. cv%3av marker with verse number (Biblica format uses URL-encoded %3a)
+                `(<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*cv%3av[^"]*"[^>]*>\\s*<Content>${escapeRegExp(verseNumber)}</Content>\\s*</CharacterStyleRange>)` +
+                // 2. Optional spacing/content ranges (non-greedy)
+                `([\\s\\S]*?)` +
+                // 3. First meta%3av marker (before verse content)
+                `(<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*meta%3av[^"]*"[^>]*>\\s*<Content>${escapeRegExp(verseNumber)}</Content>\\s*</CharacterStyleRange>)` +
+                // 4. Verse content (everything until the closing meta%3av) - non-greedy
+                //    This may include </ParagraphStyleRange> and <ParagraphStyleRange> tags
+                `([\\s\\S]*?)` +
+                // 5. Closing meta%3av marker (after verse content)
+                `(<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*meta%3av[^"]*"[^>]*>\\s*<Content>${escapeRegExp(verseNumber)}</Content>\\s*</CharacterStyleRange>)`,
+                'i'
+            );
+
+            const match = result.match(versePattern);
+
+            if (match) {
+                const [fullMatch, cvMarker, spacing, openingMeta, _oldContent, closingMeta] = match;
+
+                // Check if verse spans multiple paragraphs
+                const spansParagraphs = _oldContent.includes('</ParagraphStyleRange>');
+                if (spansParagraphs) {
+                    console.log(`[Export] Verse ${book} ${chapter}:${verseNumber} spans multiple paragraphs - consolidating`);
+                } else {
+                    console.log(`[Export] Replacing verse ${book} ${chapter}:${verseNumber}`);
+                }
+
+                // Extract attributes from the original verse content CharacterStyleRange
+                // Look for the main content CharacterStyleRange (the one with the actual verse text)
+                const originalAttrsMatch = _oldContent.match(
+                    /<CharacterStyleRange([^>]*AppliedCharacterStyle="CharacterStyle\/\$ID\/\[No character style\]"[^>]*)>/
+                );
+
+                let preservedAttrs = '';
+                if (originalAttrsMatch && originalAttrsMatch[1]) {
+                    // Extract all attributes from the original tag
+                    const attrs = originalAttrsMatch[1];
+                    // Keep everything except the AppliedCharacterStyle (we'll add that back)
+                    const trackingMatch = attrs.match(/Tracking="[^"]*"/);
+                    if (trackingMatch) {
+                        preservedAttrs = ' ' + trackingMatch[0];
+                    }
+                }
+
+                // Count <Br/> tags in original content to preserve line break structure
+                const originalBrCount = (_oldContent.match(/<Br\s*\/?>/gi) || []).length;
+
+                // Build replacement content with proper structure
+                // Split by newlines to handle <Br/> tags
+                let contentParts = updatedContent.split('\n');
+
+                // If the updated content doesn't have newlines but the original had Br tags,
+                // try to intelligently split the text to match the original structure
+                if (contentParts.length === 1 && originalBrCount > 0) {
+                    // Try to split by sentence boundaries (. followed by space or capital letter)
+                    const sentences = updatedContent.split(/(?<=\.)\s+(?=[A-ZŠČŤŽÝÁÍÉÚÔÄŇ])/);
+                    if (sentences.length > 1 && sentences.length <= originalBrCount + 1) {
+                        contentParts = sentences;
+                        console.log(`[Export] Split verse ${book} ${chapter}:${verseNumber} into ${sentences.length} parts based on sentences (original had ${originalBrCount} breaks)`);
+                    }
+                }
+
+                const contentXML: string[] = [];
+
+                for (let i = 0; i < contentParts.length; i++) {
+                    const part = contentParts[i];
+
+                    // Always add content tags (preserving spaces and empty strings)
+                    contentXML.push(`<Content>${xmlEscape(part)}</Content>`);
+
+                    // Add line break between parts (but not after the last one)
+                    if (i < contentParts.length - 1) {
+                        contentXML.push(`<Br/>`);
+                    }
+                }
+
+                // Wrap content in CharacterStyleRange with preserved attributes
+                const newVerseContent = `<CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]"${preservedAttrs}>
+${contentXML.map(line => `                    ${line}`).join('\n')}
+                </CharacterStyleRange>`;
+
+                // Replace the matched section, preserving the meta tags
+                const replacement = `${cvMarker}${spacing}${openingMeta}
+                ${newVerseContent}
+                ${closingMeta}`;
+
+                result = result.replace(fullMatch, replacement);
+                processedVerses.add(verseNumber);
+            } else {
+                console.warn(`[Export] Could not find verse pattern for ${book} ${chapter}:${verseNumber}`);
+            }
+        }
+
+        return result;
+    };
+
+    // Helper to build replacement content (for paragraph-based updates)
     const buildReplacementInner = (newText: string, dataAfter?: string[]): string => {
+        // Handle multi-line content by splitting and adding <Br/> tags
+        const contentParts = newText.split('\n');
+        const contentXML: string[] = [];
+
+        for (let i = 0; i < contentParts.length; i++) {
+            const part = contentParts[i];
+
+            // Always add content tags (preserving spaces and empty strings)
+            contentXML.push(`<Content>${xmlEscape(part)}</Content>`);
+
+            // Add line break between parts (but not after the last one)
+            if (i < contentParts.length - 1) {
+                contentXML.push(`<Br/>`);
+            }
+        }
+
+        // Add trailing <Br/> if not present in dataAfter
         const hasBreakInDataAfter = Array.isArray(dataAfter) && dataAfter.some(s => /<Br\b/i.test(s));
-        const br = hasBreakInDataAfter ? '' : '<Br/>';
+        const trailingBr = hasBreakInDataAfter ? '' : '<Br/>';
         const after = Array.isArray(dataAfter) ? dataAfter.join('') : '';
-        return `<CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]"><Content>${xmlEscape(newText)}</Content>${br}</CharacterStyleRange>${after}`;
+
+        return `<CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]">${contentXML.join('')}${trailingBr}</CharacterStyleRange>${after}`;
     };
 
     // Helper to replace paragraph by ID
@@ -678,7 +868,83 @@ export async function exportIdmlRoundtrip(
         return before + updatedBlock + after;
     };
 
-    // Apply updates per story
+    // Process verse-based updates first (Biblica format)
+    if (hasVerseBasedCells && Object.keys(verseUpdates).length > 0) {
+        console.log('[Export] Processing verse-based updates...');
+
+        // Get all story files
+        const storyFiles = Object.keys(zip.files).filter(name =>
+            name.startsWith('Stories/Story_') && name.endsWith('.xml')
+        );
+
+        for (const storyPath of storyFiles) {
+            const file = zip.file(storyPath);
+            if (!file) continue;
+
+            let xmlContent = await file.async('text');
+            const originalXml = xmlContent;
+
+            // Extract book abbreviation from the XML content
+            // Look for book abbreviation in paragraph styles or metadata (meta%3abk - Biblica format)
+            const bookMatch = xmlContent.match(/AppliedParagraphStyle="[^"]*meta%3abk[^"]*"[^>]*>[\s\S]*?<Content>([A-Z]{2,4})<\/Content>/i);
+            const currentBook = bookMatch ? bookMatch[1] : '';
+
+            if (!currentBook) {
+                console.log(`[Export] No book abbreviation found in ${storyPath}, skipping verse-based replacement`);
+                continue;
+            }
+
+            // Look for chapter numbers in cv%3adc markers (Biblica format)
+            const chapterMatches = [...xmlContent.matchAll(/<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*cv%3adc[^"]*"[^>]*>\s*<Content>(\d+)<\/Content>/gi)];
+
+            if (chapterMatches.length > 0) {
+                // Process each chapter section separately
+                let modifiedXml = xmlContent;
+                let cumulativeOffset = 0;
+
+                for (let i = 0; i < chapterMatches.length; i++) {
+                    const chapterMatch = chapterMatches[i];
+                    const chapterNumber = chapterMatch[1];
+
+                    // Find the section for this chapter
+                    const startIndex = (chapterMatch.index || 0) + cumulativeOffset;
+                    const nextChapterMatch = chapterMatches[i + 1];
+                    const endIndex = nextChapterMatch && nextChapterMatch.index !== undefined
+                        ? nextChapterMatch.index + cumulativeOffset
+                        : modifiedXml.length;
+
+                    if (startIndex >= 0 && startIndex < modifiedXml.length) {
+                        const before = modifiedXml.substring(0, startIndex);
+                        const chapterSection = modifiedXml.substring(startIndex, endIndex);
+                        const after = modifiedXml.substring(endIndex);
+
+                        // Replace verses in this chapter section
+                        const updatedSection = replaceVerseContent(chapterSection, currentBook, chapterNumber);
+
+                        // Calculate offset change for next iteration
+                        const lengthDiff = updatedSection.length - chapterSection.length;
+                        cumulativeOffset += lengthDiff;
+
+                        modifiedXml = before + updatedSection + after;
+                    }
+                }
+
+                xmlContent = modifiedXml;
+            } else {
+                // No chapter markers found, try to process the whole file with chapter "1"
+                console.log(`[Export] No chapter markers in ${storyPath}, trying chapter 1`);
+                xmlContent = replaceVerseContent(xmlContent, currentBook, '1');
+            }
+
+            // Update the file if changed
+            if (xmlContent !== originalXml) {
+                console.log(`[Export] Updated ${storyPath} with verse replacements`);
+                zip.file(storyPath, xmlContent);
+            }
+        }
+    }
+
+    // Apply paragraph-based updates per story (fallback or alternative)
     for (const [storyId, updates] of storyIdToUpdates.entries()) {
         // Find corresponding story file in the zip
         const storyKey = Object.keys(zip.files).find(k =>

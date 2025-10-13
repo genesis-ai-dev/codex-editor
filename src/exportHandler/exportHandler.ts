@@ -308,7 +308,7 @@ export interface ExportOptions {
     skipValidation?: boolean;
 }
 
-// Minimal round-trip export: duplicate original IDML from .project/attachments/originals and inject translated cells
+// IDML Round-trip export: Uses idmlExporter or biblicaExporter based on filename
 async function exportCodexContentAsIdmlRoundtrip(
     userSelectedPath: string,
     filesToExport: string[],
@@ -332,12 +332,23 @@ async function exportCodexContentAsIdmlRoundtrip(
         async (progress) => {
             const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
 
+            // Import both exporters
+            const { exportIdmlRoundtrip } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/indesign/idmlExporter");
+            const { exportIdmlRoundtrip: exportBiblicaIdml } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/biblica/biblicaExporter");
+
             // For each selected codex file, find its original attachment and create a translated copy in export folder
             for (const [index, filePath] of filesToExport.entries()) {
                 progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
                 try {
                     const file = vscode.Uri.file(filePath);
-                    const bookCode = basename(file.fsPath).split(".")[0] || "";
+                    const fileName = basename(file.fsPath);
+                    const bookCode = fileName.split(".")[0] || "";
+
+                    // Detect if this is a Biblica file based on filename pattern
+                    const isBiblicaFile = fileName.toLowerCase().endsWith('-biblica.codex');
+                    const exporterType = isBiblicaFile ? 'Biblica' : 'Standard';
+
+                    console.log(`[IDML Export] Processing ${fileName} using ${exporterType} exporter`);
 
                     // Read codex notebook
                     const codexNotebook = await readCodexNotebookFromUri(file);
@@ -352,214 +363,25 @@ async function exportCodexContentAsIdmlRoundtrip(
                     );
                     const originalFileUri = vscode.Uri.joinPath(originalsDir, originalFileName);
 
-                    // Load original IDML (zip)
+                    // Load original IDML
                     const idmlData = await vscode.workspace.fs.readFile(originalFileUri);
-                    const zip = await JSZip.loadAsync(idmlData);
 
-                    // Build mapping from IDML structure metadata to translated content
-                    type ParagraphUpdate = {
-                        paragraphId?: string;
-                        paragraphOrder?: number;
-                        translated: string;
-                        dataAfter?: string[];
-                    };
-                    const storyIdToUpdates = new Map<string, ParagraphUpdate[]>();
-                    const storyIndexToUpdates = new Map<number, ParagraphUpdate[]>();
-
-                    const xmlEscape = (s: string) =>
-                        s
-                            .replace(/&/g, "&amp;")
-                            .replace(/</g, "&lt;")
-                            .replace(/>/g, "&gt;")
-                            .replace(/"/g, "&quot;")
-                            .replace(/'/g, "&apos;");
-
-                    const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-                    // Collect paragraph-level updates from codex cells
-                    const storyOrderCounters = new Map<string, number>();
-                    const extractStoryIdFromHtml = (html: string): string | undefined => {
-                        const m = html.match(/data-story-id="([^"]+)"/i);
-                        return m ? m[1] : undefined;
-                    };
-
-                    // Helper: get translated HTML from cell value or latest edit entry
-                    const getTranslatedHtml = (cell: any): string => {
-                        const direct = (cell.value || "").trim();
-                        if (direct) return direct;
-                        const edits = (cell.metadata as any)?.edits;
-                        if (Array.isArray(edits) && edits.length > 0) {
-                            for (let i = edits.length - 1; i >= 0; i--) {
-                                const v = edits[i]?.value;
-                                if (typeof v === 'string' && v.trim()) {
-                                    return v;
-                                }
-                            }
-                        }
-                        return "";
-                    };
-
-                    for (const cell of codexNotebook.cells) {
-                        const meta: any = cell.metadata;
-                        const isText = cell.kind === 2 && meta?.type === "text";
-                        if (!isText) continue;
-                        const translated = removeHtmlTags(getTranslatedHtml(cell)).trim();
-                        if (!translated) continue;
-
-                        const structure = meta?.data?.idmlStructure;
-                        const relationships = meta?.data?.relationships;
-                        // storyId can be in data.idmlStructure, top-level metadata, or derivable from HTML
-                        const storyId: string | undefined =
-                            structure?.storyId ||
-                            meta?.storyId ||
-                            relationships?.parentStory ||
-                            extractStoryIdFromHtml(cell.value || "");
-                        const storyOrder: number | undefined = typeof relationships?.storyOrder === 'number'
-                            ? relationships.storyOrder
-                            : undefined;
-                        if (!storyId) continue;
-
-                        const paragraphId: string | undefined = structure?.paragraphId || meta?.paragraphId;
-                        const dataAfterRuns: string[] | undefined = (structure?.paragraphStyleRange as any)?.dataAfter;
-                        let paragraphOrder: number | undefined = typeof relationships?.paragraphOrder === 'number'
-                            ? relationships.paragraphOrder
-                            : undefined;
-                        // If paragraphOrder is not provided, assign sequential order per story as a fallback
-                        if (paragraphOrder === undefined) {
-                            const current = storyOrderCounters.get(storyId) || 0;
-                            paragraphOrder = current;
-                            storyOrderCounters.set(storyId, current + 1);
-                        }
-
-                        if (storyId) {
-                            const updates = storyIdToUpdates.get(storyId) || [];
-                            updates.push({ paragraphId, paragraphOrder, translated, dataAfter: dataAfterRuns });
-                            storyIdToUpdates.set(storyId, updates);
-                        } else if (storyOrder !== undefined) {
-                            const updates = storyIndexToUpdates.get(storyOrder) || [];
-                            updates.push({ paragraphOrder, translated, dataAfter: dataAfterRuns });
-                            storyIndexToUpdates.set(storyOrder, updates);
-                        }
-                    }
-
-                    if (storyIdToUpdates.size === 0 && storyIndexToUpdates.size === 0) {
-                        vscode.window.showWarningMessage(`No IDML mapping metadata found in ${bookCode}; skipping round-trip injection.`);
-                        continue;
-                    }
-
-                    const buildReplacementInner = (newText: string, dataAfter?: string[]): string => {
-                        const hasBreakInDataAfter = Array.isArray(dataAfter) && dataAfter.some(s => /<Br\b/i.test(s));
-                        const br = hasBreakInDataAfter ? '' : '<Br/>';
-                        const after = Array.isArray(dataAfter) ? dataAfter.join('') : '';
-                        return `<CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]"><Content>${xmlEscape(newText)}</Content>${br}</CharacterStyleRange>${after}`;
-                    };
-
-                    // Helper to replace entire paragraph block (all <Content> nodes) by id with single content block
-                    const replaceParagraphById = (xml: string, pid: string, newText: string, dataAfter?: string[]): string => {
-                        const escapedPid = escapeRegExp(pid);
-                        const blockRe = new RegExp(`(<ParagraphStyleRange[^>]*\\bid=["']${escapedPid}["'][^>]*>)([\\s\\S]*?)(<\\/ParagraphStyleRange>)`, 'i');
-                        const replacementInner = buildReplacementInner(newText, dataAfter);
-                        return xml.replace(blockRe, (_m, openTag, _inner, closeTag) => `${openTag}${replacementInner}${closeTag}`);
-                    };
-
-                    // Helper to replace entire paragraph block by order index with single content block
-                    const replaceNthParagraph = (xml: string, index: number, newText: string, dataAfter?: string[]): string => {
-                        const reBlock = /<ParagraphStyleRange\b[^>]*>[\s\S]*?<\/ParagraphStyleRange>/gi;
-                        const blocks: { start: number; end: number; }[] = [];
-                        let match: RegExpExecArray | null;
-                        while ((match = reBlock.exec(xml)) !== null) {
-                            blocks.push({ start: match.index, end: reBlock.lastIndex });
-                        }
-                        if (index < 0 || index >= blocks.length) return xml;
-                        const target = blocks[index];
-                        const before = xml.slice(0, target.start);
-                        const block = xml.slice(target.start, target.end);
-                        const after = xml.slice(target.end);
-                        const updatedBlock = block.replace(/^(<ParagraphStyleRange\b[^>]*>)[\s\S]*?(<\/ParagraphStyleRange>)$/i, (_m, openTag, closeTag) => {
-                            const replacementInner = buildReplacementInner(newText, dataAfter);
-                            return `${openTag}${replacementInner}${closeTag}`;
-                        });
-                        return before + updatedBlock + after;
-                    };
-
-                    // Apply updates per story
-                    for (const [storyId, updates] of storyIdToUpdates.entries()) {
-                        // Find corresponding story file in the zip
-                        const storyKey = Object.keys(zip.files).find(k =>
-                            /stories\//i.test(k) &&
-                            (new RegExp(`Stories/Story_${escapeRegExp(storyId)}\\.xml$`, 'i').test(k) ||
-                                new RegExp(`Stories/Story_u${escapeRegExp(storyId)}\\.xml$`, 'i').test(k))
-                        );
-
-                        if (!storyKey) {
-                            console.warn(`IDML roundtrip: Story file not found for storyId=${storyId}`);
-                            continue;
-                        }
-
-                        const xmlText = await zip.file(storyKey)!.async("string");
-                        let updated = xmlText;
-
-                        // Prefer id-based replacement, otherwise fallback to order
-                        for (const u of updates) {
-                            if (u.paragraphId) {
-                                const next = replaceParagraphById(updated, u.paragraphId, u.translated, u.dataAfter);
-                                updated = next;
-                            } else if (typeof u.paragraphOrder === 'number') {
-                                const next = replaceNthParagraph(updated, u.paragraphOrder, u.translated, u.dataAfter);
-                                updated = next;
-                            }
-                        }
-
-                        if (updated !== xmlText) {
-                            zip.file(storyKey, updated);
-                        }
-                    }
-
-                    // Fallback: apply updates by story order index if storyId was missing
-                    if (storyIndexToUpdates.size > 0) {
-                        try {
-                            const designMap = zip.file("designmap.xml");
-                            if (designMap) {
-                                const dm = await designMap.async("string");
-                                // Extract story srcs in order from designmap
-                                const storySrcs: string[] = [];
-                                const regex = /<idPkg:Story[^>]*\bsrc="([^"]+)"/gi;
-                                let m: RegExpExecArray | null;
-                                while ((m = regex.exec(dm)) !== null) {
-                                    if (m[1]) storySrcs.push(m[1]);
-                                }
-
-                                for (const [index, updates] of storyIndexToUpdates.entries()) {
-                                    const src = storySrcs[index];
-                                    if (!src) continue;
-                                    const normalizedSrc = src.replace(/^\.\//, "");
-                                    const storyFile = zip.file(normalizedSrc);
-                                    if (!storyFile) continue;
-                                    const xmlText = await storyFile.async("string");
-                                    let updated = xmlText;
-
-                                    for (const u of updates) {
-                                        if (typeof u.paragraphOrder === 'number') {
-                                            updated = replaceNthParagraph(updated, u.paragraphOrder, u.translated, u.dataAfter);
-                                        }
-                                    }
-
-                                    if (updated !== xmlText) {
-                                        zip.file(normalizedSrc, updated);
-                                    }
-                                }
-                            }
-                        } catch (e) {
-                            console.warn("IDML roundtrip: failed fallback mapping via designmap.xml", e);
-                        }
+                    // Use the appropriate exporter based on file type
+                    let updatedIdmlData: Uint8Array;
+                    if (isBiblicaFile) {
+                        updatedIdmlData = await exportBiblicaIdml(idmlData, codexNotebook.cells);
+                    } else {
+                        updatedIdmlData = await exportIdmlRoundtrip(idmlData, codexNotebook.cells);
                     }
 
                     // Save duplicated, injected IDML into the chosen export folder
                     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                    const injectedName = originalFileName.replace(/\.idml$/i, `_${timestamp}_translated.idml`);
+                    const suffix = isBiblicaFile ? '_biblica_translated' : '_translated';
+                    const injectedName = originalFileName.replace(/\.idml$/i, `_${timestamp}${suffix}.idml`);
                     const injectedUri = vscode.Uri.joinPath(exportFolder, injectedName);
-                    const outData = await zip.generateAsync({ type: "uint8array" });
-                    await vscode.workspace.fs.writeFile(injectedUri, outData);
+                    await vscode.workspace.fs.writeFile(injectedUri, updatedIdmlData);
+
+                    console.log(`[IDML Export] ${exporterType} export completed: ${injectedName}`);
                 } catch (err) {
                     console.error("IDML round-trip export failed:", err);
                     vscode.window.showErrorMessage(`IDML round-trip export failed: ${err instanceof Error ? err.message : String(err)}`);
