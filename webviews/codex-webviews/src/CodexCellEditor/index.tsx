@@ -18,7 +18,6 @@ const Index: React.FC = () => {
     }>({});
 
     const toggleFlashingBorder = () => {
-        console.log("toggleFlashingBorder");
         setShowFlashingBorder((prevState) => !prevState);
     };
 

@@ -187,7 +187,9 @@ const CodexCellEditor: React.FC = () => {
     // Add a state for tracking validation application in progress
     const [isApplyingValidations, setIsApplyingValidations] = useState(false);
     // Validation configuration (required validations) – requested once and derived for children
-    const [requiredValidations, setRequiredValidations] = useState<number | null>(null);
+    const [requiredValidations, setRequiredValidations] = useState<number | null>(
+        (window as any)?.initialData?.validationCount ?? null
+    );
 
     const [requiredAudioValidations, setRequiredAudioValidations] = useState<number | null>(
         (window as any)?.initialData?.validationCountAudio ?? null
@@ -1231,8 +1233,7 @@ const CodexCellEditor: React.FC = () => {
                 });
             });
 
-            // Get minimum validations required from config (default 1)
-            const minimumValidationsRequired = 1; // Can be made configurable later
+            const minimumValidationsRequired = requiredValidations ?? 1;
             const fullyValidatedCells = cellWithValidatedData.filter(
                 (cell) =>
                     cell.validatedBy?.filter((v) => !v.isDeleted).length >=
@@ -1244,7 +1245,7 @@ const CodexCellEditor: React.FC = () => {
 
             return { percentTranslationsCompleted, percentFullyValidatedTranslations };
         },
-        [translationUnits]
+        [translationUnits, requiredValidations]
     );
 
     // Calculate progress for all chapters
@@ -1317,7 +1318,11 @@ const CodexCellEditor: React.FC = () => {
     };
 
     const handleSaveHtml = () => {
-        const content = contentBeingUpdated;
+        // Avoid sending a stale/mismatched uri from contentBeingUpdated.
+        // Not doing this causes a warning in the console when saving timestamps
+        // or cell labels.
+        const { uri, ...rest } = contentBeingUpdated;
+        const content = rest as EditorCellContent;
         const cellId = content.cellMarkers?.[0];
         const isRetry = saveError;
         const currentRetryCount = isRetry ? saveRetryCount : 0;
