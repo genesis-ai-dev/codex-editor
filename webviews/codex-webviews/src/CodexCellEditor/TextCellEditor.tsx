@@ -72,11 +72,11 @@ import {
     Square,
     FolderOpen,
     NotebookPen,
-    Save,
     RotateCcw,
     Clock,
     ArrowLeft,
     Upload,
+    Tag,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import CommentsBadge from "./CommentsBadge";
@@ -241,6 +241,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const cellEditorRef = useRef<HTMLDivElement>(null);
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
     const [editorContent, setEditorContent] = useState(cellContent);
+    const [isTextDirty, setIsTextDirty] = useState(false);
 
     // Sync editor content when cell content changes (e.g., from translation)
     useEffect(() => {
@@ -252,28 +253,28 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [editedBacktranslation, setEditedBacktranslation] = useState<string | null>(null);
     const [isGeneratingBacktranslation, setIsGeneratingBacktranslation] = useState(false);
     const [backtranslationProgress, setBacktranslationProgress] = useState(0);
-    const [activeTab, setActiveTab] = useState<"source" | "footnotes" | "audio" | "timestamps">(
-        () => {
-            try {
-                const id = cellMarkers[0];
-                if (sessionStorage.getItem(`start-audio-recording-${id}`)) {
-                    return "audio";
-                }
-                const stored = sessionStorage.getItem("preferred-editor-tab");
-                if (
-                    stored === "source" ||
-                    stored === "footnotes" ||
-                    stored === "audio" ||
-                    stored === "timestamps"
-                ) {
-                    return stored as "source" | "footnotes" | "audio" | "timestamps";
-                }
-            } catch {
-                // no-op
+    const [activeTab, setActiveTab] = useState<
+        "editLabel" | "source" | "footnotes" | "audio" | "timestamps"
+    >(() => {
+        try {
+            const id = cellMarkers[0];
+            if (sessionStorage.getItem(`start-audio-recording-${id}`)) {
+                return "audio";
             }
-            return "source";
+            const stored = sessionStorage.getItem("preferred-editor-tab");
+            if (
+                stored === "source" ||
+                stored === "footnotes" ||
+                stored === "audio" ||
+                stored === "timestamps"
+            ) {
+                return stored as "source" | "footnotes" | "audio" | "timestamps";
+            }
+        } catch {
+            // no-op
         }
-    );
+        return "source";
+    });
 
     // Load preferred tab from provider on mount
     useEffect(() => {
@@ -432,18 +433,39 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [showDiscardModal, setShowDiscardModal] = useState(false);
 
     const handleSaveCell = () => {
-        handleSaveHtml();
-        const ts = contentBeingUpdated.cellTimestamps;
-        if (ts && (typeof ts.startTime === "number" || typeof ts.endTime === "number")) {
-            const messageContent: EditorPostMessages = {
-                command: "updateCellTimestamps",
+        // Merge the latest label into the content payload used by saveHtml
+        setContentBeingUpdated({
+            ...contentBeingUpdated,
+            cellMarkers,
+            cellLabel: editableLabel,
+        });
+
+        // Persist label changes via provider even if text content did not change
+        if ((editableLabel ?? "") !== (cellLabel ?? "")) {
+            window.vscodeApi.postMessage({
+                command: "updateCellLabel",
                 content: {
                     cellId: cellMarkers[0],
-                    timestamps: ts,
+                    cellLabel: editableLabel,
                 },
-            };
-            window.vscodeApi.postMessage(messageContent);
+            } as EditorPostMessages);
         }
+
+        // Defer the actual save to ensure state updates are applied
+        setTimeout(() => {
+            handleSaveHtml();
+            const ts = contentBeingUpdated.cellTimestamps;
+            if (ts && (typeof ts.startTime === "number" || typeof ts.endTime === "number")) {
+                const messageContent: EditorPostMessages = {
+                    command: "updateCellTimestamps",
+                    content: {
+                        cellId: cellMarkers[0],
+                        timestamps: ts,
+                    },
+                };
+                window.vscodeApi.postMessage(messageContent);
+            }
+        }, 0);
     };
 
     // Timestamp editing bounds and effective state
@@ -464,45 +486,67 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // Comments count now handled by CellList.tsx batched requests
 
     // Handle comments count response
+    // Ensure editor reacts to both single and batched responses
     useMessageHandler(
         "textCellEditor-commentsResponse",
         (event: MessageEvent) => {
-            if (
-                event.data.type === "commentsForCell" &&
-                event.data.content.cellId === cellMarkers[0]
-            ) {
-                setUnresolvedCommentsCount(event.data.content.unresolvedCount);
+            const message = event.data;
+            // Single-cell response shape
+            if (message.type === "commentsForCell" && message.content?.cellId === cellMarkers[0]) {
+                setUnresolvedCommentsCount(message.content.unresolvedCount || 0);
+                return;
+            }
+            // Batched response shape: { [cellId]: count }
+            if (message.type === "commentsForCells" && message.content) {
+                const count = message.content[cellMarkers[0]];
+                if (typeof count === "number") {
+                    setUnresolvedCommentsCount(count);
+                }
             }
         },
         [cellMarkers]
     );
 
+    // Proactively request the comment count for this cell on mount/change
+    useEffect(() => {
+        try {
+            const messageContent: EditorPostMessages = {
+                command: "getCommentsForCells",
+                content: { cellIds: [cellMarkers[0]] },
+            } as EditorPostMessages;
+            window.vscodeApi.postMessage(messageContent);
+        } catch {
+            // no-op
+        }
+    }, [cellMarkers]);
+
     const handleLabelChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setEditableLabel(e.target.value);
+        setUnsavedChanges(true);
     };
 
-    const handleLabelBlur = () => {
-        // Update the cell label in the notebook data
-        const messageContent: EditorPostMessages = {
-            command: "updateCellLabel",
-            content: {
-                cellId: cellMarkers[0],
-                cellLabel: editableLabel,
-            },
-        };
-        window.vscodeApi.postMessage(messageContent);
+    const discardLabelChanges = () => {
+        const originalLabel = cellLabel ?? "";
+        setEditableLabel(originalLabel);
 
-        // Update local state
-        setContentBeingUpdated({
-            cellMarkers,
-            cellContent: contentBeingUpdated.cellContent,
-            cellChanged: contentBeingUpdated.cellChanged,
-            cellLabel: editableLabel,
-        });
-    };
+        // If label was staged in contentBeingUpdated, revert it as well
+        if ((contentBeingUpdated.cellLabel ?? "") !== originalLabel) {
+            setContentBeingUpdated({
+                ...contentBeingUpdated,
+                cellMarkers,
+                cellLabel: originalLabel,
+            });
+        }
 
-    const handleLabelSave = () => {
-        handleLabelBlur();
+        // Preserve Save visibility if editor text or timestamps are still dirty
+        const a = contentBeingUpdated.cellTimestamps;
+        const b = cellTimestamps;
+        const timestampsDirty =
+            !!a &&
+            ((a.startTime ?? undefined) !== (b?.startTime ?? undefined) ||
+                (a.endTime ?? undefined) !== (b?.endTime ?? undefined));
+
+        setUnsavedChanges(Boolean(isTextDirty || timestampsDirty));
     };
 
     useMessageHandler(
@@ -625,6 +669,30 @@ const CellEditor: React.FC<CellEditorProps> = ({
         });
         setEditorContent(cleanedContent);
     };
+
+    // Combine dirty flags to drive Save visibility
+    useEffect(() => {
+        const labelDirty = (editableLabel ?? "") !== (cellLabel ?? "");
+        const timestampsDirty = (() => {
+            const a = contentBeingUpdated.cellTimestamps;
+            const b = cellTimestamps;
+            // Only treat timestamps as dirty if user has staged any timestamps in contentBeingUpdated
+            if (!a) return false;
+            return (
+                (a.startTime ?? undefined) !== (b?.startTime ?? undefined) ||
+                (a.endTime ?? undefined) !== (b?.endTime ?? undefined)
+            );
+        })();
+
+        setUnsavedChanges(Boolean(isTextDirty || labelDirty || timestampsDirty));
+    }, [
+        isTextDirty,
+        editableLabel,
+        cellLabel,
+        contentBeingUpdated.cellTimestamps,
+        cellTimestamps,
+        setUnsavedChanges,
+    ]);
 
     // Add effect to fetch source text
     useEffect(() => {
@@ -905,13 +973,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 } catch {
                     // no-op
                 }
+
                 const preferred = event.data.tab as typeof activeTab;
-                setActiveTab(preferred);
+
+                if (event.data.tab === "editLabel" && cellType === CodexCellTypes.PARATEXT) {
+                    setActiveTab("source");
+                } else {
+                    setActiveTab(preferred);
+                }
+
                 try {
                     sessionStorage.setItem("preferred-editor-tab", preferred);
                 } catch {
                     // no-op
                 }
+
                 if (preferred === "audio") {
                     setTimeout(centerEditor, 50);
                     setTimeout(centerEditor, 250);
@@ -1051,28 +1127,28 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
         // Normalize file extension from MIME type
         const normalizeExtension = (mimeType: string): string => {
-            if (!mimeType || !mimeType.includes('/')) return "webm";
-            
+            if (!mimeType || !mimeType.includes("/")) return "webm";
+
             let ext = mimeType.split("/")[1] || "webm";
-            
+
             // Remove codec parameters (e.g., "webm;codecs=opus" -> "webm")
             ext = ext.split(";")[0];
-            
+
             // Normalize non-standard MIME types (e.g., "x-m4a" -> "m4a")
             if (ext.startsWith("x-")) {
                 ext = ext.substring(2);
             }
-            
+
             // Handle common MIME type aliases
             if (ext === "mp4" || ext === "mpeg") {
                 return "m4a";
             }
-            
+
             // Validate against supported formats
             const allowedExtensions = new Set(["webm", "wav", "mp3", "m4a", "ogg", "aac", "flac"]);
             return allowedExtensions.has(ext) ? ext : "webm";
         };
-        
+
         const fileExtension = normalizeExtension(blob.type);
 
         // Convert blob to base64 for transfer to provider
@@ -1607,40 +1683,41 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     return (
         <Card className="w-full max-w-4xl shadow-xl" style={{ direction: textDirection }}>
-            <CardHeader className="border-b p-4 flex flex-row flex-nowrap items-center justify-between gap-3">
+            <CardHeader className="border-b p-4 flex flex-row flex-nowrap items-center justify-between gap-3 space-y-0">
                 <div className="flex flex-row flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 pr-3">
-                        {isEditorControlsExpanded ? (
-                            <X
-                                className="h-4 w-4 cursor-pointer"
-                                onClick={() =>
-                                    setIsEditorControlsExpanded(!isEditorControlsExpanded)
-                                }
-                            />
-                        ) : (
-                            <div
-                                className="flex items-center gap-2 cursor-pointer"
-                                onClick={() =>
-                                    setIsEditorControlsExpanded(!isEditorControlsExpanded)
-                                }
-                                title="Edit cell label"
-                                role="button"
-                                aria-label="Edit cell label"
-                            >
-                                <div className="flex items-center gap-1">
-                                    <span className="text-lg font-semibold">{cellMarkers[0]}</span>
-                                    {editableLabel && (
-                                        <span className="text-sm text-muted-foreground">
-                                            {editableLabel}
-                                        </span>
-                                    )}
+                    <div className="flex flex-col justify-center gap-2 pr-3">
+                        <div
+                            className="flex items-center gap-2"
+                            role="button"
+                            aria-label="Cell id and label"
+                        >
+                            {cellType !== CodexCellTypes.PARATEXT && (
+                                <div className="flex items-center gap-x-1" title="Edit cell label">
+                                    <span className="text-lg font-semibold muted-foreground">
+                                        {(editableLabel || cellLabel) ?? "Enter label..."}
+                                    </span>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        title="Edit label"
+                                        onClick={() => {
+                                            setActiveTab("editLabel");
+                                        }}
+                                    >
+                                        <i
+                                            className="codicon codicon-edit"
+                                            style={{
+                                                fontSize: "0.9em",
+                                            }}
+                                        ></i>
+                                    </Button>
                                 </div>
-                                <CommentsBadge
-                                    cellId={cellMarkers[0]}
-                                    unresolvedCount={unresolvedCommentsCount}
-                                />
-                            </div>
-                        )}
+                            )}
+                            <CommentsBadge
+                                cellId={cellMarkers[0]}
+                                unresolvedCount={unresolvedCommentsCount}
+                            />
+                        </div>
                     </div>
                     <div className="flex items-center gap-3 ml-auto pl-3 md:pl-4 flex-shrink-0" />
                 </div>
@@ -1810,29 +1887,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
             </Dialog>
 
             <CardContent className="p-4 space-y-4">
-                {isEditorControlsExpanded && (
-                    <div className="space-y-4 pb-4 border-b">
-                        <div className="flex items-center gap-2">
-                            <Input
-                                type="text"
-                                value={editableLabel}
-                                onChange={handleLabelChange}
-                                onBlur={handleLabelBlur}
-                                placeholder="Enter label..."
-                                className="flex-1"
-                            />
-                            <Button
-                                onClick={handleLabelSave}
-                                variant="ghost"
-                                size="icon"
-                                title="Save Label"
-                            >
-                                <Save className="h-4 w-4" />
-                            </Button>
-                        </div>
-                    </div>
-                )}
-
                 <div
                     className={`flex items-start gap-2 ${
                         showFlashingBorder
@@ -1862,6 +1916,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     cellLabel: editableLabel,
                                 });
                             }}
+                            onDirtyChange={(dirty) => {
+                                setIsTextDirty(dirty);
+                            }}
                             textDirection={textDirection}
                             ref={editorHandlesRef}
                             setIsEditingFootnoteInline={setIsEditingFootnoteInline}
@@ -1874,7 +1931,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 <Tabs
                     value={activeTab || "__none__"}
                     onValueChange={(value) => {
-                        const tabValue = value as "source" | "footnotes" | "timestamps" | "audio";
+                        const tabValue = value as
+                            | "editLabel"
+                            | "source"
+                            | "footnotes"
+                            | "timestamps"
+                            | "audio";
 
                         setActiveTab(tabValue);
                         // Persist preferred tab in VS Code workspace cache
@@ -1904,6 +1966,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         className="flex w-full"
                         style={{ justifyContent: "stretch", display: "flex" }}
                     >
+                        {cellType !== CodexCellTypes.PARATEXT && (
+                            <TabsTrigger value="editLabel">
+                                <Tag className="mr-2 h-4 w-4" />
+                            </TabsTrigger>
+                        )}
                         <TabsTrigger value="source">
                             <FileCode className="mr-2 h-4 w-4" />
                             {!sourceText && (
@@ -1958,6 +2025,27 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         )}
                     </TabsList>
 
+                    <TabsContent value="editLabel">
+                        <div className="space-y-6">
+                            <div className="flex items-center gap-2">
+                                <Input
+                                    type="text"
+                                    value={editableLabel}
+                                    defaultValue={cellLabel}
+                                    onChange={handleLabelChange}
+                                    placeholder="Enter label..."
+                                    className="flex-1"
+                                />
+                                <RotateCcw
+                                    className="h-4 w-4 cursor-pointer"
+                                    onClick={() => {
+                                        setIsEditorControlsExpanded(!isEditorControlsExpanded);
+                                        discardLabelChanges();
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    </TabsContent>
                     <TabsContent value="source">
                         <div className="space-y-6">
                             {/* Source Text */}
@@ -2292,29 +2380,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 </span>
                                                 <span>Max: {formatTime(computedMaxBound)}</span>
                                             </div>
-                                            <div className="flex justify-end">
-                                                <Button
-                                                    size="sm"
-                                                    variant="secondary"
-                                                    onClick={() => {
-                                                        if (!contentBeingUpdated.cellTimestamps)
-                                                            return;
-                                                        const messageContent: EditorPostMessages = {
-                                                            command: "updateCellTimestamps",
-                                                            content: {
-                                                                cellId: cellMarkers[0],
-                                                                timestamps:
-                                                                    contentBeingUpdated.cellTimestamps,
-                                                            },
-                                                        };
-                                                        window.vscodeApi.postMessage(
-                                                            messageContent
-                                                        );
-                                                    }}
-                                                >
-                                                    Save timestamps
-                                                </Button>
-                                            </div>
                                         </div>
 
                                         <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
@@ -2356,8 +2421,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 variant="outline"
                                                 size="sm"
                                             >
-                                                <Trash2 className="mr-2 h-4 w-4" />
-                                                Clear Timestamps
+                                                <RotateCcw className="mr-1 h-4 w-4" />
+                                                Revert
                                             </Button>
                                         </div>
                                     </div>
@@ -2405,35 +2470,37 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             >
                                                 {isRecording ? (
                                                     <>
-                                                        <Square className="h-3 w-3 mr-2" />
+                                                        <Square className="h-3 w-3 mr-1" />
                                                         Stop Recording
                                                     </>
                                                 ) : (
                                                     <>
-                                                        <CircleDotDashed className="h-3 w-3 mr-2" />
+                                                        <CircleDotDashed className="h-3 w-3 mr-1" />
                                                         Start Recording
                                                     </>
                                                 )}
                                             </Button>
 
-                                            <label className="cursor-pointer">
-                                                <input
-                                                    type="file"
-                                                    accept="audio/*,video/*"
-                                                    onChange={handleFileUpload}
-                                                    className="sr-only"
-                                                />
-                                                <Button
-                                                    variant="outline"
-                                                    className="h-8 px-2 text-xs"
-                                                    asChild
-                                                >
-                                                    <span>
-                                                        <FolderOpen className="h-3 w-3 mr-2" />
-                                                        <Upload className="h-3 w-3" />
-                                                    </span>
-                                                </Button>
-                                            </label>
+                                            <Button
+                                                variant="outline"
+                                                className="flex items-center justify-center h-8 px-2 text-xs"
+                                                onClick={() => {
+                                                    document
+                                                        .getElementById("audio-file-input")
+                                                        ?.click();
+                                                }}
+                                            >
+                                                <Upload className="h-3 w-3 mr-1" />
+                                                Upload
+                                            </Button>
+                                            <input
+                                                id="audio-file-input"
+                                                type="file"
+                                                accept="audio/*,video/*"
+                                                onChange={handleFileUpload}
+                                                placeholder=""
+                                                className="hidden"
+                                            />
 
                                             {hasAudioHistory && (
                                                 <Button
@@ -2495,35 +2562,37 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             >
                                                 {isRecording ? (
                                                     <>
-                                                        <Square className="h-3 w-3 mr-2" />
+                                                        <Square className="h-3 w-3 mr-1" />
                                                         Stop Recording
                                                     </>
                                                 ) : (
                                                     <>
-                                                        <CircleDotDashed className="h-3 w-3 mr-2" />
+                                                        <CircleDotDashed className="h-3 w-3 mr-1" />
                                                         Start Recording
                                                     </>
                                                 )}
                                             </Button>
 
-                                            <label className="cursor-pointer">
-                                                <input
-                                                    type="file"
-                                                    accept="audio/*,video/*"
-                                                    onChange={handleFileUpload}
-                                                    className="sr-only"
-                                                />
-                                                <Button
-                                                    variant="outline"
-                                                    className="h-8 px-2 text-xs"
-                                                    asChild
-                                                >
-                                                    <span>
-                                                        <FolderOpen className="h-3 w-3 mr-2" />
-                                                        <Upload className="h-3 w-3" />
-                                                    </span>
-                                                </Button>
-                                            </label>
+                                            <Button
+                                                variant="outline"
+                                                className="flex items-center justify-center h-8 px-2 text-xs"
+                                                onClick={() => {
+                                                    document
+                                                        .getElementById("audio-file-input")
+                                                        ?.click();
+                                                }}
+                                            >
+                                                <Upload className="h-3 w-3 mr-1" />
+                                                Upload
+                                            </Button>
+                                            <input
+                                                id="audio-file-input"
+                                                type="file"
+                                                accept="audio/*,video/*"
+                                                onChange={handleFileUpload}
+                                                placeholder=""
+                                                className="hidden"
+                                            />
 
                                             {hasAudioHistory && (
                                                 <Button
@@ -2644,6 +2713,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         </TabsContent>
                     )}
                 </Tabs>
+                <div className="text-sm font-light text-gray-500 w-full text-right">
+                    {cellMarkers[0]}
+                </div>
             </CardContent>
 
             {/* Audio History Viewer Modal */}

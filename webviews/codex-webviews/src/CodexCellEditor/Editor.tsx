@@ -44,6 +44,7 @@ export interface EditorProps {
     initialValue?: string;
     editHistory: EditHistory[];
     onChange?: (changes: EditorContentChanged) => void;
+    onDirtyChange?: (dirty: boolean, rawHtml: string) => void;
     spellCheckResponse?: SpellCheckResponse | null;
     textDirection: "ltr" | "rtl";
     setIsEditingFootnoteInline: (isEditing: boolean) => void;
@@ -593,6 +594,9 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     isQuillEmpty: isQuillEmpty(quill),
                 });
 
+                // Notify parent about dirty state changes using raw Quill HTML
+                props.onDirtyChange?.(isDirty, content);
+
                 if (isDirty) {
                     setUnsavedChanges(true);
                     if (props.onChange) {
@@ -961,10 +965,14 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         // Force Quill to recognize the content change (guard for test env stubs)
         try {
             (quill as any)?.history?.clear?.();
-        } catch { /* ignore */ }
+        } catch {
+            /* ignore */
+        }
         try {
             (quill as any)?.update?.();
-        } catch { /* ignore */ }
+        } catch {
+            /* ignore */
+        }
 
         // Restore cursor position after processing
         if (currentSelection && typeof (quill as any).setSelection === "function") {
@@ -976,7 +984,9 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         // Emit a content change event to ensure everything is synchronized
         try {
             (quill as any)?.emitter?.emit?.("text-change", null, null, "api");
-        } catch { /* ignore */ }
+        } catch {
+            /* ignore */
+        }
     };
 
     // Save footnote content (for both creating new and editing existing)
@@ -1257,14 +1267,8 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     />
                 </div>
             )}
-            <div
-                className={`relative transition-all duration-300 ease-in-out ${
-                    isToolbarVisible || isEditingFootnoteInline
-                        ? "toolbar-visible"
-                        : "toolbar-hidden"
-                }`}
-            >
-                {!isEditingFootnoteInline && (
+            {!isEditingFootnoteInline && (
+                <div className="flex justify-end">
                     <VSCodeButton
                         appearance="icon"
                         onClick={() => setIsToolbarVisible(!isToolbarVisible)}
@@ -1279,8 +1283,15 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                             }`}
                         ></i>
                     </VSCodeButton>
-                )}
-
+                </div>
+            )}
+            <div
+                className={`relative transition-all duration-300 ease-in-out ${
+                    isToolbarVisible || isEditingFootnoteInline
+                        ? "toolbar-visible"
+                        : "toolbar-hidden"
+                }`}
+            >
                 <div
                     ref={editorRef}
                     className="quill-editor-container"
@@ -1305,7 +1316,6 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                         padding: "2px 4px",
                         fontSize: "0.8em",
                         color: "var(--vscode-descriptionForeground)",
-                        borderTop: "1px solid var(--vscode-widget-border)",
                         backgroundColor: "transparent",
                     }}
                 >
