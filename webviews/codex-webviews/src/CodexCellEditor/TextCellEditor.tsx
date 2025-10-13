@@ -973,13 +973,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 } catch {
                     // no-op
                 }
+
                 const preferred = event.data.tab as typeof activeTab;
-                setActiveTab(preferred);
+                
+                if (event.data.tab === "editLabel" && cellType === CodexCellTypes.PARATEXT) {
+                    setActiveTab("source");
+                } else {
+                    setActiveTab(preferred);
+                }
+                
                 try {
                     sessionStorage.setItem("preferred-editor-tab", preferred);
                 } catch {
                     // no-op
                 }
+                
                 if (preferred === "audio") {
                     setTimeout(centerEditor, 50);
                     setTimeout(centerEditor, 250);
@@ -1683,10 +1691,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             role="button"
                             aria-label="Cell id and label"
                         >
-                            {cellLabel && (
+                            {cellType !== CodexCellTypes.PARATEXT && (
                                 <div className="flex items-center gap-x-1" title="Edit cell label">
                                     <span className="text-lg font-semibold muted-foreground">
-                                        {editableLabel ?? "Enter label..."}
+                                        {(editableLabel || cellLabel) ?? "Enter label..."}
                                     </span>
                                     <Button
                                         variant="ghost"
@@ -1958,7 +1966,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         className="flex w-full"
                         style={{ justifyContent: "stretch", display: "flex" }}
                     >
-                        {cellLabel && (
+                        {cellType !== CodexCellTypes.PARATEXT && (
                             <TabsTrigger value="editLabel">
                                 <Tag className="mr-2 h-4 w-4" />
                             </TabsTrigger>
