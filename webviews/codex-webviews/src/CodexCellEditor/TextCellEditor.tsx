@@ -975,19 +975,19 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 }
 
                 const preferred = event.data.tab as typeof activeTab;
-                
+
                 if (event.data.tab === "editLabel" && cellType === CodexCellTypes.PARATEXT) {
                     setActiveTab("source");
                 } else {
                     setActiveTab(preferred);
                 }
-                
+
                 try {
                     sessionStorage.setItem("preferred-editor-tab", preferred);
                 } catch {
                     // no-op
                 }
-                
+
                 if (preferred === "audio") {
                     setTimeout(centerEditor, 50);
                     setTimeout(centerEditor, 250);
@@ -2380,29 +2380,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 </span>
                                                 <span>Max: {formatTime(computedMaxBound)}</span>
                                             </div>
-                                            <div className="flex justify-end">
-                                                <Button
-                                                    size="sm"
-                                                    variant="secondary"
-                                                    onClick={() => {
-                                                        if (!contentBeingUpdated.cellTimestamps)
-                                                            return;
-                                                        const messageContent: EditorPostMessages = {
-                                                            command: "updateCellTimestamps",
-                                                            content: {
-                                                                cellId: cellMarkers[0],
-                                                                timestamps:
-                                                                    contentBeingUpdated.cellTimestamps,
-                                                            },
-                                                        };
-                                                        window.vscodeApi.postMessage(
-                                                            messageContent
-                                                        );
-                                                    }}
-                                                >
-                                                    Save timestamps
-                                                </Button>
-                                            </div>
                                         </div>
 
                                         <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
@@ -2444,8 +2421,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 variant="outline"
                                                 size="sm"
                                             >
-                                                <Trash2 className="mr-2 h-4 w-4" />
-                                                Clear Timestamps
+                                                <RotateCcw className="mr-1 h-4 w-4" />
+                                                Reset Timestamps
                                             </Button>
                                         </div>
                                     </div>
