@@ -1317,7 +1317,11 @@ const CodexCellEditor: React.FC = () => {
     };
 
     const handleSaveHtml = () => {
-        const content = contentBeingUpdated;
+        // Avoid sending a stale/mismatched uri from contentBeingUpdated.
+        // Not doing this causes a warning in the console when saving timestamps
+        // or cell labels.
+        const {uri, ...rest} = contentBeingUpdated;
+        const content = rest as EditorCellContent;
         const cellId = content.cellMarkers?.[0];
         const isRetry = saveError;
         const currentRetryCount = isRetry ? saveRetryCount : 0;

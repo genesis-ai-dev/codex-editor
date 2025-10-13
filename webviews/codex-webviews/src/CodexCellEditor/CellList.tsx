@@ -508,9 +508,7 @@ const CellList: React.FC<CellListProps> = ({
                 toggleFlashingBorder();
                 return;
             }
-            const documentUri =
-                (vscode.getState() as any)?.documentUri || window.location.search.substring(1);
-
+            
             if (cellToOpen) {
                 debug("openCellById", { cellToOpen, text: cellToOpen.cellContent });
                 setContentBeingUpdated({
@@ -519,7 +517,6 @@ const CellList: React.FC<CellListProps> = ({
                     cellChanged: true,
                     cellLabel: cellToOpen.cellLabel,
                     timestamps: cellToOpen.timestamps,
-                    uri: documentUri,
                 } as EditorCellContent);
                 vscode.postMessage({
                     command: "setCurrentIdToGlobalState",
@@ -565,16 +562,12 @@ const CellList: React.FC<CellListProps> = ({
                 }
             }
 
-            const documentUri =
-                (vscode.getState() as any)?.documentUri || window.location.search.substring(1);
-
             setContentBeingUpdated({
                 cellMarkers: cellToOpen.cellMarkers,
                 cellContent: cellToOpen.cellContent,
                 cellChanged: true,
                 cellLabel: cellToOpen.cellLabel,
                 timestamps: cellToOpen.timestamps,
-                uri: documentUri,
             } as EditorCellContent);
 
             vscode.postMessage({
