@@ -327,21 +327,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 .catch(error => {
                     console.error("[Extension] Error auto-migrating legacy audio files:", error);
                 });
-
-            // Auto-optimize repository on startup if needed (non-blocking)
-            // This includes cleanup of stale files from interrupted operations (crashes/power failures)
-            // then consolidates fragmented pack files for better sync performance
-            import("./utils/repositoryOptimization")
-                .then(async (module) => {
-                    // autoOptimizeIfNeeded now includes cleanup, so we don't need to call it separately
-                    const optimized = await module.autoOptimizeIfNeeded(undefined, true);
-                    if (optimized) {
-                        console.log("[Extension] Repository optimized on startup");
-                    }
-                })
-                .catch(error => {
-                    console.error("[Extension] Error during startup repository maintenance:", error);
-                });
         }
         stepStart = trackTiming("Updating Git Configuration", gitConfigStart);
 
