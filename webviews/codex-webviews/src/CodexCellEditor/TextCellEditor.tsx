@@ -1467,7 +1467,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 })();
                 return;
             }
-        } catch {}
+        } catch { /* empty */ }
         // Skip requesting audio when we know there are no attachments for this cell
         if (audioAttachments && audioAttachments[cellMarkers[0]] === "none") {
             return;
@@ -1565,7 +1565,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         // cache base64 for future openings in this session
                         try {
                             setCachedAudioDataUrl(cellMarkers[0], message.content.audioData);
-                        } catch {}
+                        } catch { /* empty */ }
                         // If recorder was showing because there was no audio previously,
                         // switch to waveform automatically once audio is available
                         setShowRecorder(false);
