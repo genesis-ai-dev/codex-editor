@@ -1214,7 +1214,88 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             ext === ".m4a" ? "audio/mp4" :
                                 ext === ".ogg" ? "audio/ogg" : "audio/wav";
 
-                    const fileData = await vscode.workspace.fs.readFile(vscode.Uri.file(fullPath));
+                    let fileData: Uint8Array;
+
+                    try {
+                        // ========== LFS STREAMING LOGIC ==========
+                        // Import LFS helpers
+                        const { isPointerFile, parsePointerFile, replaceFileWithPointer } = await import("../../utils/lfsHelpers");
+                        const { getMediaFilesStrategy: getStrategy } = await import("../../utils/localProjectSettings");
+
+                        // Check if file is an LFS pointer
+                        const isPointer = await isPointerFile(fullPath);
+
+                        if (isPointer) {
+                            // File is an LFS pointer - need to stream from LFS
+                            debug("File is LFS pointer, streaming from server:", fullPath);
+
+                            // Get media strategy
+                            const mediaStrategy = await getStrategy(workspaceFolder.uri);
+
+                            if (mediaStrategy === "auto-download") {
+                                // This shouldn't happen in auto-download mode
+                                throw new Error("File should have been downloaded in auto-download mode");
+                            }
+
+                            // Parse pointer to get OID and size
+                            const pointer = await parsePointerFile(fullPath);
+                            if (!pointer) {
+                                throw new Error("Invalid LFS pointer file format");
+                            }
+
+                            // Get frontier API
+                            const { getAuthApi } = await import("../../extension");
+                            const frontierApi = getAuthApi();
+                            if (!frontierApi) {
+                                throw new Error("Frontier authentication extension not available. Please ensure it's installed and active.");
+                            }
+
+                            // Download from LFS
+                            debug(`Downloading LFS file: OID=${pointer.oid.substring(0, 8)}..., size=${pointer.size}`);
+                            const lfsData = await frontierApi.downloadLFSFile(
+                                workspaceFolder.uri.fsPath,
+                                pointer.oid,
+                                pointer.size
+                            );
+
+                            fileData = lfsData;
+                            debug("Successfully streamed file from LFS");
+
+                            // If strategy is "stream-and-save", replace pointer with actual file
+                            if (mediaStrategy === "stream-and-save") {
+                                try {
+                                    await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), fileData);
+                                    debug("Saved streamed file to disk (stream-and-save mode)");
+                                } catch (saveError) {
+                                    console.warn("Failed to save streamed file:", saveError);
+                                    // Don't fail the whole operation if save fails
+                                }
+                            }
+                        } else {
+                            // File is actual audio data - read normally
+                            fileData = await vscode.workspace.fs.readFile(vscode.Uri.file(fullPath));
+                            debug("Read audio file from disk:", fullPath);
+                        }
+                    } catch (lfsError) {
+                        // LFS streaming failed - send error to webview
+                        console.error("Error streaming audio file:", lfsError);
+                        const errorMessage = lfsError instanceof Error ? lfsError.message : "Failed to load audio file";
+
+                        safePostMessageToPanel(webviewPanel, {
+                            type: "providerSendsAudioData",
+                            content: {
+                                cellId: cellId,
+                                audioId: targetAttachmentId,
+                                audioData: null,
+                                error: errorMessage,
+                                transcription: targetAttachment.transcription || null
+                            }
+                        });
+
+                        return;
+                    }
+
+                    // Convert to base64 and send to webview
                     const base64Data = `data:${mimeType};base64,${Buffer.from(fileData).toString('base64')}`;
 
                     safePostMessageToPanel(webviewPanel, {
@@ -1223,15 +1304,100 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             cellId: cellId,
                             audioId: targetAttachmentId,
                             audioData: base64Data,
-                            transcription: targetAttachment.transcription || null, // Include transcription if available
-                            fileModified: fileStats.mtime // Include file modification time for cache validation
+                            transcription: targetAttachment.transcription || null,
+                            fileModified: fileStats.mtime
                         }
                     });
 
                     debug("Sent audio data for cell:", cellId, "audioId:", targetAttachmentId, "modified:", fileStats.mtime);
                     return;
                 } else {
-                    debug("Audio file not found:", fullPath);
+                    debug("Audio file not found in files/ path:", fullPath);
+
+                    // Attempt fallback: look for pointer under attachments/pointers and stream from LFS
+                    try {
+                        const filesPosix = toPosixPath(fullPath);
+                        const pointerFullPath = filesPosix.includes("/.project/attachments/files/")
+                            ? filesPosix.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
+                            : filesPosix.replace(".project/attachments/files/", ".project/attachments/pointers/");
+
+                        // Check if pointer exists
+                        let pointerStats: vscode.FileStat | undefined;
+                        try {
+                            pointerStats = await vscode.workspace.fs.stat(vscode.Uri.file(pointerFullPath));
+                        } catch { /* no-op */ }
+
+                        if (pointerStats) {
+                            // Parse pointer
+                            const { parsePointerFile, replaceFileWithPointer } = await import("../../utils/lfsHelpers");
+                            const pointer = await parsePointerFile(pointerFullPath);
+                            if (!pointer) {
+                                throw new Error("Invalid LFS pointer file format (fallback)");
+                            }
+
+                            // Get media strategy
+                            const { getMediaFilesStrategy: getStrategy } = await import("../../utils/localProjectSettings");
+                            const mediaStrategy = await getStrategy(workspaceFolder.uri);
+
+                            // Download from LFS via Frontier API
+                            const { getAuthApi } = await import("../../extension");
+                            const frontierApi = getAuthApi();
+                            if (!frontierApi) {
+                                throw new Error("Frontier authentication extension not available");
+                            }
+
+                            const lfsData = await frontierApi.downloadLFSFile(
+                                workspaceFolder.uri.fsPath,
+                                pointer.oid,
+                                pointer.size
+                            );
+
+                            // If stream-and-save, write file bytes to files path
+                            if (mediaStrategy === "stream-and-save") {
+                                try {
+                                    await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(fullPath)));
+                                    await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), lfsData);
+                                } catch (e) {
+                                    console.warn("Failed to save streamed file in fallback:", e);
+                                }
+                            } else if (mediaStrategy === "stream-only") {
+                                // Ensure files/ contains pointer for consistency (avoid repeated "not found")
+                                try {
+                                    // Derive relative path under pointers/
+                                    const relFromPointers = pointerFullPath.split("/.project/attachments/pointers/").pop() ||
+                                        pointerFullPath.split(".project/attachments/pointers/").pop();
+                                    if (relFromPointers) {
+                                        await replaceFileWithPointer(workspaceFolder.uri.fsPath, relFromPointers);
+                                    }
+                                } catch (e) {
+                                    // Non-fatal
+                                }
+                            }
+
+                            // Send to webview
+                            const ext = path.extname(fullPath).toLowerCase();
+                            const mimeType = ext === ".webm" ? "audio/webm" :
+                                ext === ".mp3" ? "audio/mp3" :
+                                    ext === ".m4a" ? "audio/mp4" :
+                                        ext === ".ogg" ? "audio/ogg" : "audio/wav";
+                            const base64Data = `data:${mimeType};base64,${Buffer.from(lfsData).toString('base64')}`;
+
+                            safePostMessageToPanel(webviewPanel, {
+                                type: "providerSendsAudioData",
+                                content: {
+                                    cellId: cellId,
+                                    audioId: targetAttachmentId,
+                                    audioData: base64Data,
+                                    transcription: targetAttachment.transcription || null,
+                                    fileModified: pointerStats.mtime,
+                                }
+                            });
+
+                            return;
+                        }
+                    } catch (fallbackErr) {
+                        console.error("Fallback pointer streaming failed:", fallbackErr);
+                    }
                 }
             }
 

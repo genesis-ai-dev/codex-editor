@@ -994,6 +994,21 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 debugLog("Opening project", projectPath);
 
                 try {
+                    // If the project is set to auto-download, proactively remove pointer stubs in files/
+                    // so that reconciliation will fetch real bytes after open.
+                    try {
+                        const projectUri = vscode.Uri.file(projectPath);
+                        const { getMediaFilesStrategy } = await import("../../utils/localProjectSettings");
+                        const strategy = await getMediaFilesStrategy(projectUri);
+                        if (strategy === "auto-download") {
+                            const { removeFilesPointerStubs } = await import("../../utils/mediaStrategyManager");
+                            const removed = await removeFilesPointerStubs(projectPath);
+                            debugLog(`Auto-download open: removed ${removed} pointer stub(s) before opening.`);
+                        }
+                    } catch (prepErr) {
+                        debugLog("Auto-download pre-open pointer cleanup skipped/failed:", prepErr);
+                    }
+
                     // Open the project directly
                     const projectUri = vscode.Uri.file(projectPath);
                     await vscode.commands.executeCommand("vscode.openFolder", projectUri);
@@ -1682,10 +1697,28 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     }
 
                     // Clone to the .codex-projects directory
-                    this.frontierApi?.cloneRepository(message.repoUrl, projectDir.fsPath);
+                    this.frontierApi?.cloneRepository(
+                        message.repoUrl,
+                        projectDir.fsPath,
+                        undefined,
+                        message.mediaStrategy
+                    );
+
+                    // Immediately persist local media strategy to .project/localProjectSettings.json
+                    try {
+                        const { setMediaFilesStrategy } = await import("../../utils/localProjectSettings");
+                        await setMediaFilesStrategy(message.mediaStrategy || "auto-download", projectDir);
+                    } catch (persistErr) {
+                        debugLog("Failed to persist local media strategy after clone", persistErr);
+                    }
                 } catch (error) {
                     console.error("Error preparing to clone repository:", error);
-                    this.frontierApi?.cloneRepository(message.repoUrl);
+                    this.frontierApi?.cloneRepository(
+                        message.repoUrl,
+                        undefined,
+                        undefined,
+                        message.mediaStrategy
+                    );
                 }
 
                 break;
@@ -1868,6 +1901,174 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
                 break;
             }
+            case "project.setMediaStrategy": {
+                const { projectPath, mediaStrategy } = message;
+
+                if (!projectPath || !mediaStrategy) {
+                    vscode.window.showErrorMessage("Invalid parameters for setting media strategy");
+                    return;
+                }
+
+                try {
+                    // Import required modules
+                    const { getMediaFilesStrategy } = await import("../../utils/localProjectSettings");
+                    const { applyMediaStrategy } = await import("../../utils/mediaStrategyManager");
+
+                    const projectUri = vscode.Uri.file(projectPath);
+                    const currentStrategy = await getMediaFilesStrategy(projectUri);
+
+                    // Check if strategy is actually changing
+                    if (currentStrategy === mediaStrategy) {
+                        debugLog(`Media strategy already set to "${mediaStrategy}"`);
+                        return;
+                    }
+
+                    // Show confirmation dialog for strategy changes
+                    let confirmMessage = "";
+                    let confirmButton = "Continue";
+
+                    if (mediaStrategy === "auto-download") {
+                        confirmMessage =
+                            `Switch to "Auto Download Media"?\n\n` +
+                            `This will download all media files for offline use. ` +
+                            `Files will be available even without internet connection.\n\n` +
+                            `This may use significant disk space and bandwidth.`;
+                        confirmButton = "Download All & Open";
+                    } else if (mediaStrategy === "stream-only") {
+                        confirmMessage =
+                            `Switch to "Stream Only"?\n\n` +
+                            `Downloaded media files will be replaced with pointers to save disk space. ` +
+                            `Media will be streamed from the server when needed.\n\n` +
+                            `Requires internet connection to play media.`;
+                        confirmButton = "Free Space & Open";
+                    } else if (mediaStrategy === "stream-and-save") {
+                        confirmMessage =
+                            `Switch to "Stream & Save"?\n\n` +
+                            `Media files will be downloaded on-demand when you play them, ` +
+                            `then saved for offline use.\n\n` +
+                            `Best balance between disk space and offline availability.`;
+                        confirmButton = "Switch & Open";
+                    }
+
+                    const confirmation = await vscode.window.showInformationMessage(
+                        confirmMessage,
+                        { modal: true },
+                        confirmButton
+                    );
+
+                    if (confirmation !== confirmButton) {
+                        debugLog("User cancelled media strategy change");
+                        // Notify webview to revert selection
+                        this.safeSendMessage({
+                            command: "project.setMediaStrategyResult",
+                            success: false,
+                            projectPath,
+                            mediaStrategy,
+                        } as any);
+                        return;
+                    }
+
+                    // Apply the strategy (this will handle downloads/replacements)
+                    await applyMediaStrategy(projectUri, mediaStrategy);
+
+                    // Inform the Frontier auth extension so Git reconciliation respects the strategy
+                    try {
+                        (this.frontierApi as any)?.setRepoMediaStrategy?.(projectPath, mediaStrategy);
+                    } catch (err) {
+                        debugLog("Failed to set repo media strategy in Frontier API", err);
+                    }
+
+                    debugLog(`Successfully changed media strategy to "${mediaStrategy}"`);
+                    // Open the project after applying strategy
+                    try {
+                        await vscode.commands.executeCommand("vscode.openFolder", projectUri);
+                    } catch (openErr) {
+                        debugLog("Failed to open project after strategy change", openErr);
+                    }
+                    // Notify webview success
+                    this.safeSendMessage({
+                        command: "project.setMediaStrategyResult",
+                        success: true,
+                        projectPath,
+                        mediaStrategy,
+                    } as any);
+                } catch (error) {
+                    console.error("Error changing media strategy:", error);
+                    vscode.window.showErrorMessage(
+                        `Failed to change media strategy: ${error instanceof Error ? error.message : String(error)}`
+                    );
+                    // Notify webview failure
+                    try {
+                        this.safeSendMessage({
+                            command: "project.setMediaStrategyResult",
+                            success: false,
+                            projectPath: (message as any).projectPath,
+                            mediaStrategy: (message as any).mediaStrategy,
+                        } as any);
+                    } catch (err) {
+                        debugLog("Failed to notify webview about media strategy failure", err);
+                    }
+                }
+
+                break;
+            }
+            case "project.cleanupMediaFiles": {
+                const { projectPath } = message;
+
+                if (!projectPath) {
+                    vscode.window.showErrorMessage("No project path provided for media cleanup");
+                    return;
+                }
+
+                try {
+                    // Show confirmation dialog
+                    const projectName = projectPath.split("/").pop() || projectPath;
+                    const confirmCleanup = await vscode.window.showWarningMessage(
+                        `Delete all downloaded media files from "${projectName}"?\n\n` +
+                        "This will remove large files (audio, video, etc.) to save disk space. " +
+                        "You can stream them again when needed.",
+                        { modal: true },
+                        "Delete Media Files"
+                    );
+
+                    if (confirmCleanup !== "Delete Media Files") {
+                        return;
+                    }
+
+                    // Find and delete LFS files
+                    await vscode.window.withProgress(
+                        {
+                            location: vscode.ProgressLocation.Notification,
+                            title: `Cleaning media files from "${projectName}"...`,
+                            cancellable: false,
+                        },
+                        async () => {
+                            const projectUri = vscode.Uri.file(projectPath);
+                            // 1) Replace downloaded media bytes in files/ with pointers (only for LFS-tracked media)
+                            try {
+                                const { replaceFilesWithPointers } = await import("../../utils/mediaStrategyManager");
+                                await replaceFilesWithPointers(projectPath);
+                            } catch (e) {
+                                debugLog("Error replacing files with pointers during cleanup:", e);
+                            }
+
+                            // 2) Remove any LFS cache directory (.git/lfs) to free space
+                            await this.cleanupLFSFiles(projectUri);
+                        }
+                    );
+
+                    vscode.window.showInformationMessage(
+                        `Media files cleaned up successfully from "${projectName}"`
+                    );
+                } catch (error) {
+                    console.error("Error cleaning up media files:", error);
+                    vscode.window.showErrorMessage(
+                        `Failed to clean media files: ${error instanceof Error ? error.message : String(error)}`
+                    );
+                }
+
+                break;
+            }
             case "project.heal": {
                 const { projectName, projectPath, gitOriginUrl } = message;
 
@@ -1958,6 +2159,70 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             await this.sendList(this.webviewPanel!);
         }
 
+    }
+
+    /**
+     * Clean up LFS files from a project directory
+     */
+    private async cleanupLFSFiles(projectUri: vscode.Uri): Promise<void> {
+        try {
+            // Check if .git/lfs directory exists
+            const gitLfsUri = vscode.Uri.joinPath(projectUri, ".git", "lfs");
+
+            try {
+                await vscode.workspace.fs.stat(gitLfsUri);
+                // Delete the LFS cache directory
+                await vscode.workspace.fs.delete(gitLfsUri, { recursive: true });
+            } catch {
+                // LFS directory doesn't exist, which is fine
+            }
+
+            // Find and restore LFS pointer files
+            // This will replace the actual files with their pointer versions
+            const gitDir = vscode.Uri.joinPath(projectUri, ".git").fsPath;
+            const workDir = projectUri.fsPath;
+
+            // Use isomorphic-git to list all files in the repository
+            const files = await git.listFiles({ fs, dir: workDir, gitdir: gitDir });
+
+            for (const filepath of files) {
+                const fileUri = vscode.Uri.joinPath(projectUri, filepath);
+
+                try {
+                    const content = await vscode.workspace.fs.readFile(fileUri);
+                    const text = Buffer.from(content).toString('utf-8', 0, 200); // Only read first 200 bytes
+
+                    // Check if this looks like it should be an LFS file
+                    // LFS files typically contain "version https://git-lfs.github.com/spec/v1"
+                    if (!text.includes('version https://git-lfs.github.com/spec/v1')) {
+                        // This might be a real LFS file that's been downloaded
+                        // Check if it's a media file by extension
+                        const ext = filepath.toLowerCase().split('.').pop();
+                        const mediaExtensions = ['mp3', 'mp4', 'wav', 'webm', 'ogg', 'flac', 'm4a', 'mov', 'avi', 'mkv', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'webp'];
+
+                        if (ext && mediaExtensions.includes(ext)) {
+                            // Try to get the LFS pointer from git
+                            try {
+                                const { blob } = await git.readBlob({ fs, dir: workDir, gitdir: gitDir, oid: 'HEAD', filepath });
+                                const pointerContent = Buffer.from(blob).toString('utf-8');
+
+                                // If the blob in git is an LFS pointer, restore it
+                                if (pointerContent.includes('version https://git-lfs.github.com/spec/v1')) {
+                                    await vscode.workspace.fs.writeFile(fileUri, Buffer.from(pointerContent, 'utf-8'));
+                                }
+                            } catch {
+                                // Couldn't read from git, skip this file
+                            }
+                        }
+                    }
+                } catch {
+                    // Skip files that can't be read
+                }
+            }
+        } catch (error) {
+            console.error('Error cleaning up LFS files:', error);
+            throw error;
+        }
     }
 
     /**

@@ -1083,12 +1083,13 @@ async function processProjectDirectory(
     const projectPath = path.join(folder, name);
 
     try {
-        // Run project validation, metadata reading, git operations, and stats in parallel
-        const [projectStatus, projectName, gitOriginUrl, stats] = await Promise.allSettled([
+        // Run project validation, metadata reading, git operations, stats, and local settings in parallel
+        const [projectStatus, projectName, gitOriginUrl, stats, mediaStrategy] = await Promise.allSettled([
             isValidCodexProject(projectPath),
             getProjectNameFromMetadata(projectPath, name),
             getGitOriginUrl(projectPath),
-            vscode.workspace.fs.stat(vscode.Uri.file(projectPath))
+            vscode.workspace.fs.stat(vscode.Uri.file(projectPath)),
+            getMediaFilesStrategyForProject(projectPath)
         ]);
 
         // Check if project is valid
@@ -1101,6 +1102,7 @@ async function processProjectDirectory(
         const nameResult = projectName.status === 'fulfilled' ? projectName.value : name;
         const gitResult = gitOriginUrl.status === 'fulfilled' ? gitOriginUrl.value : undefined;
         const statsResult = stats.status === 'fulfilled' ? stats.value : null;
+        const mediaStrategyResult = mediaStrategy.status === 'fulfilled' ? mediaStrategy.value : undefined;
 
         if (!statsResult) {
             debug(`Could not get stats for ${projectPath}`);
@@ -1118,6 +1120,7 @@ async function processProjectDirectory(
             hasVersionMismatch: statusResult.hasVersionMismatch,
             gitOriginUrl: gitResult,
             description: "...",
+            mediaStrategy: mediaStrategyResult,
         };
     } catch (error) {
         debug(`Error processing project directory ${projectPath}:`, error);
@@ -1161,6 +1164,24 @@ async function getGitOriginUrl(projectPath: string): Promise<string | undefined>
     }
 }
 
+/**
+ * Get media files strategy for a project
+ */
+async function getMediaFilesStrategyForProject(projectPath: string): Promise<"auto-download" | "stream-and-save" | "stream-only" | undefined> {
+    try {
+        const { getMediaFilesStrategyForPath } = await import("../../utils/localProjectSettings");
+        const strategy = await getMediaFilesStrategyForPath(projectPath);
+        // Ensure the strategy is one of the valid types
+        if (strategy === "auto-download" || strategy === "stream-and-save" || strategy === "stream-only") {
+            return strategy;
+        }
+        return undefined;
+    } catch (error) {
+        debug(`Could not read media strategy for ${projectPath}:`, error);
+        return undefined;
+    }
+}
+
 export { stageAndCommitAllAndSync };
 
 /**
@@ -1188,6 +1209,7 @@ async function updateGitignoreFile(): Promise<void> {
         "",
         "# Don't sync user-specific files",
         ".project/complete_drafts.txt",
+        ".project/localProjectSettings.json",
         "copilot-messages.log",
         "",
         "# Archive formats",

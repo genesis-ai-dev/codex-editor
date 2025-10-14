@@ -37,6 +37,7 @@ interface AudioWaveformWithTranscriptionProps {
     disabled?: boolean;
     onRequestRemove?: () => void;
     onShowHistory?: () => void;
+    historyCount?: number;
     onShowRecorder?: () => void;
     audioValidationPopoverProps: AudioValidationPopoverProps;
     validationStatusProps: ValidationStatusIconProps;
@@ -53,6 +54,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     disabled = false,
     onRequestRemove,
     onShowHistory,
+    historyCount,
     onShowRecorder,
     validationStatusProps,
     audioValidationPopoverProps,
@@ -337,16 +339,36 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     <Trash2 className="h-3 w-3" />
                     <span className="ml-1">Remove</span>
                 </Button>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 px-2 text-xs"
-                    onClick={() => onShowHistory?.()}
-                    title="Audio History"
-                >
-                    <History className="h-3 w-3" />
-                    <span className="ml-1">History</span>
-                </Button>
+                <div className="relative inline-block">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-2 text-xs"
+                        onClick={() => onShowHistory?.()}
+                        title="Audio History"
+                    >
+                        <History className="h-3 w-3" />
+                        <span className="ml-1">History</span>
+                    </Button>
+                    {typeof (historyCount as any) === "number" && (historyCount as any) > 0 && (
+                        <span
+                            className="absolute -top-2 -right-2 inline-flex items-center justify-center rounded-full"
+                            style={{
+                                minWidth: "1.25rem",
+                                height: "1.1rem",
+                                padding: "0 6px",
+                                backgroundColor: "var(--vscode-badge-background)",
+                                color: "var(--vscode-badge-foreground)",
+                                border: "1px solid var(--vscode-panel-border)",
+                                fontSize: "0.7rem",
+                                fontWeight: 700,
+                                lineHeight: 1,
+                            }}
+                        >
+                            {historyCount as any}
+                        </span>
+                    )}
+                </div>
                 <Button
                     variant="outline"
                     size="sm"
