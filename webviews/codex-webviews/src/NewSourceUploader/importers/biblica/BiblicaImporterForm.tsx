@@ -37,16 +37,22 @@ function escapeHtml(text: string): string {
 
 function buildInlineHTMLFromRanges(ranges: any[]): string {
     if (!Array.isArray(ranges) || ranges.length === 0) return '';
+    
+    // Build HTML from ranges (special-styled ranges already filtered out by parser)
     return ranges.map((r) => {
         const style = (r?.appliedCharacterStyle || '').toString();
+        const content = (r?.content || '').toString();
+        
         // Convert newline markers (from <Br />) to <br /> in HTML
-        const text = (r?.content || '').toString().replace(/\n/g, '<br />');
+        const text = content.replace(/\n/g, '<br />');
         const safeStyle = escapeHtml(style);
+        
         // Do not escape the injected <br /> tags; escape other text portions only
         const safeText = text
             .split('<br />')
             .map((part: string) => escapeHtml(part))
             .join('<br />');
+            
         return `<span class="idml-char" data-character-style="${safeStyle}">${safeText}</span>`;
     }).join('');
 }
@@ -166,7 +172,14 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                 } else {
                     // Fallback: Create one cell per paragraph (for non-verse content)
                     const content = paragraph.paragraphStyleRange.content;
-                    const cleanText = content
+                    
+                    // Preserve newlines for structure, convert to <br /> for HTML
+                    const contentWithBreaks = content
+                        .replace(/\r\n/g, '\n')  // Normalize line endings
+                        .replace(/\r/g, '\n');   // Normalize line endings
+                    
+                    // Create cleanText for empty check (without excessive whitespace)
+                    const cleanText = contentWithBreaks
                         .replace(/[\r\n]+/g, ' ')
                         .replace(/\s+/g, ' ')
                         .trim();
@@ -177,7 +190,19 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
 
                     const cellId = `biblica 1:${globalCellIndex + 1}`;
                     const ranges = paragraph.characterStyleRanges || [];
-                    const inlineHTML = ranges.length > 0 ? buildInlineHTMLFromRanges(ranges) : escapeHtml(cleanText);
+                    
+                    // Use characterStyleRanges if available, otherwise use content with preserved breaks
+                    let inlineHTML: string;
+                    if (ranges.length > 0) {
+                        inlineHTML = buildInlineHTMLFromRanges(ranges);
+                    } else {
+                        // Fallback: escape HTML and convert newlines to <br /> tags
+                        inlineHTML = contentWithBreaks
+                            .split('\n')
+                            .map((line: string) => escapeHtml(line))
+                            .join('<br />');
+                    }
+                    
                     const htmlContent = `<p class="biblica-paragraph" data-paragraph-style="${paragraphStyle}" data-story-id="${story.id}">${inlineHTML}</p>`;
                     const cellMetadata = {
                         cellLabel: (globalCellIndex + 1).toString(),

@@ -503,8 +503,13 @@ export class IDMLParser {
         // Check if this paragraph contains book metadata (meta:bk)
         const appliedParagraphStyle = paragraphElement.getAttribute('AppliedParagraphStyle') || '';
         if (appliedParagraphStyle.includes('meta%3abk') || appliedParagraphStyle.includes('meta:bk')) {
-            const contentNode = paragraphElement.getElementsByTagName('Content')[0];
-            const bookAbbrev = (contentNode?.textContent || '').trim();
+            // Concatenate all <Content> tags (book abbreviation may be split)
+            const contentNodes = paragraphElement.getElementsByTagName('Content');
+            let bookAbbrev = '';
+            for (let j = 0; j < contentNodes.length; j++) {
+                bookAbbrev += (contentNodes[j]?.textContent || '');
+            }
+            bookAbbrev = bookAbbrev.trim();
             if (bookAbbrev && bookAbbrev.length >= 2 && bookAbbrev.length <= 4) {
                 this.debugLog(`Found book abbreviation: ${bookAbbrev}`);
                 const metadata = this.extractElementMetadata(paragraphElement) || {};
@@ -560,8 +565,13 @@ export class IDMLParser {
 
                 // Check for chapter number marker (cv:dc)
                 if (isChapterNumberStyle(node)) {
-                    const chapterNode = node.getElementsByTagName('Content')[0];
-                    const chapterNum = (chapterNode?.textContent || '').trim();
+                    // Concatenate all <Content> tags (chapter number may be split)
+                    const chapterContentNodes = node.getElementsByTagName('Content');
+                    let chapterNum = '';
+                    for (let j = 0; j < chapterContentNodes.length; j++) {
+                        chapterNum += (chapterContentNodes[j]?.textContent || '');
+                    }
+                    chapterNum = chapterNum.trim();
                     if (chapterNum) {
                         chapterInParagraph = chapterNum;
                         lastChapterSeen = chapterNum;
@@ -577,9 +587,13 @@ export class IDMLParser {
                     continue;
                 }
 
-                // Extract verse number
-                const verseNumNode = node.getElementsByTagName('Content')[0];
-                const verseNumber = (verseNumNode?.textContent || '').trim();
+                // Extract verse number (may be split across multiple <Content> tags)
+                const contentNodes = node.getElementsByTagName('Content');
+                let verseNumber = '';
+                for (let j = 0; j < contentNodes.length; j++) {
+                    verseNumber += (contentNodes[j]?.textContent || '');
+                }
+                verseNumber = verseNumber.trim();
                 if (!verseNumber) {
                     i++;
                     continue;
@@ -744,18 +758,66 @@ export class IDMLParser {
 
     /**
      * Extract character style ranges from paragraph
+     * Filters out special-styled ranges (e.g., "source serif" for apostrophes)
+     * while preserving line breaks by merging adjacent default-styled ranges
      */
     private async extractCharacterStyleRanges(paragraphElement: Element): Promise<IDMLCharacterStyleRange[]> {
-        const characterRanges: IDMLCharacterStyleRange[] = [];
         const characterElements = paragraphElement.getElementsByTagName('CharacterStyleRange');
 
+        // First pass: extract all ranges
+        const allRanges: IDMLCharacterStyleRange[] = [];
         for (let i = 0; i < characterElements.length; i++) {
             const characterElement = characterElements[i];
             const characterRange = await this.extractCharacterStyleRange(characterElement);
-            characterRanges.push(characterRange);
+            allRanges.push(characterRange);
         }
 
-        return characterRanges;
+        // Second pass: merge default-styled ranges and handle special styles
+        const mergedRanges: IDMLCharacterStyleRange[] = [];
+        let currentMergedRange: IDMLCharacterStyleRange | null = null;
+
+        for (const range of allRanges) {
+            const isDefaultStyle = range.appliedCharacterStyle.includes('$ID/[No character style]');
+            const isSourceSerifStyle = range.appliedCharacterStyle.includes('source serif');
+
+            if (isDefaultStyle) {
+                if (currentMergedRange && currentMergedRange.appliedCharacterStyle === range.appliedCharacterStyle) {
+                    // Merge with the current range (same style)
+                    currentMergedRange.content += range.content;
+                    currentMergedRange.endIndex = range.endIndex;
+                } else {
+                    // Push previous merged range if it exists
+                    if (currentMergedRange) {
+                        mergedRanges.push(currentMergedRange);
+                    }
+                    // Start a new merged range
+                    currentMergedRange = { ...range };
+                }
+            } else if (isSourceSerifStyle) {
+                // Skip "source serif" style (apostrophes), but preserve any line breaks
+                const lineBreakCount = (range.content.match(/\n/g) || []).length;
+                if (lineBreakCount > 0 && currentMergedRange) {
+                    currentMergedRange.content += '\n'.repeat(lineBreakCount);
+                }
+                // Continue merging - don't break the current range
+            } else {
+                // Other non-default styles (e.g., "ior") should be preserved as separate ranges
+                // Push the current merged range if it exists
+                if (currentMergedRange) {
+                    mergedRanges.push(currentMergedRange);
+                    currentMergedRange = null;
+                }
+                // Add this special-styled range as-is
+                mergedRanges.push(range);
+            }
+        }
+
+        // Add the final merged range if it exists
+        if (currentMergedRange) {
+            mergedRanges.push(currentMergedRange);
+        }
+
+        return mergedRanges;
     }
 
     /**
