@@ -331,6 +331,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         model: string;
         language: string; // ISO-639-3 expected by MMS; may be ISO-639-1 and mapped
         phonetic: boolean;
+        authToken?: string;
     } | null>(null);
 
     // Helper to smoothly center the editor. Coalesces multiple calls and
@@ -1288,7 +1289,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             const wsEndpoint =
                 asrConfig?.endpoint ||
                 "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe";
-            const client = new WhisperTranscriptionClient(wsEndpoint);
+            const client = new WhisperTranscriptionClient(wsEndpoint, asrConfig?.authToken);
             transcriptionClientRef.current = client;
 
             // Set up progress handler

@@ -265,6 +265,7 @@ const CodexCellEditor: React.FC = () => {
                         model: string;
                         language: string;
                         phonetic: boolean;
+                        authToken?: string;
                     }>((resolve) => {
                         let resolved = false;
                         const onMsg = (ev: MessageEvent) => {
@@ -382,7 +383,7 @@ const CodexCellEditor: React.FC = () => {
                         }
 
                         // Transcribe
-                        const client = new WhisperTranscriptionClient(wsEndpoint);
+                        const client = new WhisperTranscriptionClient(wsEndpoint, asrConfig.authToken);
                         try {
                             // Mark cell as transcribing for UI feedback
                             setTranscribingCells((prev) => {

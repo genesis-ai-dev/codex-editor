@@ -13,12 +13,14 @@ export type AsrMeta =
 export class WhisperTranscriptionClient {
     private ws: WebSocket | null = null;
     private url: string;
+    private authToken?: string;
 
     public onProgress?: (message: string, percentage: number) => void;
     public onError?: (error: string) => void;
 
-    constructor(url: string) {
+    constructor(url: string, authToken?: string) {
         this.url = url;
+        this.authToken = authToken;
     }
 
     async transcribe(
@@ -28,8 +30,9 @@ export class WhisperTranscriptionClient {
     ): Promise<{ text: string; language: string; provider?: string; model?: string; phonetic?: string | null }> {
         return new Promise((resolve, reject) => {
             try {
-                // Create WebSocket connection
-                this.ws = new WebSocket(this.url);
+                // Create WebSocket connection with auth token if available
+                const wsUrl = this.authToken ? `${this.url}?token=${this.authToken}` : this.url;
+                this.ws = new WebSocket(wsUrl);
 
                 this.ws.onopen = () => {
                     console.log('WebSocket connection opened for transcription');

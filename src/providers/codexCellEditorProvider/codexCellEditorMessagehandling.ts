@@ -110,15 +110,35 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     getAsrConfig: async ({ webviewPanel }) => {
         try {
             const config = vscode.workspace.getConfiguration("codex-editor-extension");
-            const endpoint = config.get<string>("asrEndpoint", "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe");
+            let endpoint = config.get<string>("asrEndpoint", "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe");
             const provider = config.get<string>("asrProvider", "mms");
             const model = config.get<string>("asrModel", "facebook/mms-1b-all");
             const language = config.get<string>("asrLanguage", "eng");
             const phonetic = config.get<boolean>("asrPhonetic", false);
 
+            let authToken: string | undefined;
+
+            // Try to get authenticated endpoint from FrontierAPI
+            try {
+                const frontierApi = getAuthApi();
+                if (frontierApi) {
+                    const authStatus = frontierApi.getAuthStatus();
+                    if (authStatus.isAuthenticated) {
+                        const asrEndpoint = await frontierApi.getAsrEndpoint();
+                        if (asrEndpoint) {
+                            endpoint = asrEndpoint;
+                        }
+                        // Get auth token for authenticated requests
+                        authToken = await frontierApi.authProvider.getToken();
+                    }
+                }
+            } catch (error) {
+                console.debug("Could not get ASR endpoint from auth API:", error);
+            }
+
             safePostMessageToPanel(webviewPanel, {
                 type: "asrConfig",
-                content: { endpoint, provider, model, language, phonetic }
+                content: { endpoint, provider, model, language, phonetic, authToken }
             });
         } catch (error) {
             console.error("Error sending ASR config:", error);
