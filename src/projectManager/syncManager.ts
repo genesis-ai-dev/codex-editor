@@ -289,6 +289,18 @@ export class SyncManager {
             const syncStartTime = performance.now();
             debug("🔄 Starting background sync operation...");
 
+            // Optimize repository if needed (improves sync performance with fragmented pack files)
+            try {
+                const { autoOptimizeIfNeeded } = await import('../utils/repositoryOptimization');
+                const optimized = await autoOptimizeIfNeeded(undefined, true);
+                if (optimized) {
+                    debug("✅ Repository optimized before sync");
+                }
+            } catch (error) {
+                // Don't fail sync if optimization fails
+                debug("⚠️ Repository optimization failed (non-critical):", error);
+            }
+
             // Update sync stage and splash screen
             this.currentSyncStage = "Preparing synchronization...";
             this.notifySyncStatusListeners();
@@ -399,6 +411,31 @@ export class SyncManager {
             } catch (error) {
                 console.error("[SyncManager] Error refreshing audio attachments after sync:", error);
                 // Don't fail sync completion due to audio refresh errors
+            }
+
+            // Post-sync cleanup for media files (stream-only mode)
+            try {
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                if (workspaceFolder) {
+                    const { postSyncCleanup } = await import("../utils/mediaStrategyManager");
+                    await postSyncCleanup(workspaceFolder.uri);
+                    debug("[SyncManager] Post-sync media cleanup completed");
+                }
+            } catch (error) {
+                console.error("[SyncManager] Error in post-sync media cleanup:", error);
+                // Don't fail sync completion due to cleanup errors
+            }
+
+            // Optimize repository after sync if needed (to pack new loose objects)
+            try {
+                const { autoOptimizeIfNeeded } = await import('../utils/repositoryOptimization');
+                const optimized = await autoOptimizeIfNeeded(undefined, true);
+                if (optimized) {
+                    debug("✅ Repository optimized after sync (>50 loose objects or >10 packs)");
+                }
+            } catch (error) {
+                // Don't fail sync if post-sync optimization fails
+                debug("⚠️ Post-sync repository optimization failed (non-critical):", error);
             }
 
             // Update sync stage and splash screen

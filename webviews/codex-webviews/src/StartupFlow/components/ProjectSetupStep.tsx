@@ -196,9 +196,15 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                 onOpenProject={onOpenProject}
                 projects={projectsList}
                 onDeleteProject={handleDeleteProject}
-                onCloneProject={(project) =>
-                    project.gitOriginUrl && onCloneRepo(project.gitOriginUrl)
-                }
+                onCloneProject={(project) => {
+                    if (project.gitOriginUrl) {
+                        vscode.postMessage({
+                            command: "project.clone",
+                            repoUrl: project.gitOriginUrl,
+                            mediaStrategy: project.mediaStrategy,
+                        } as MessagesToStartupFlowProvider);
+                    }
+                }}
                 vscode={vscode}
                 progressData={progressData}
             />

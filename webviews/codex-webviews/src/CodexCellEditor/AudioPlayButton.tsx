@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { getCachedAudioDataUrl, setCachedAudioDataUrl } from "../lib/audioCache";
 import type { WebviewApi } from "vscode-webview";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 
@@ -46,6 +47,7 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = ({
                         .then((res) => res.blob())
                         .then((blob) => {
                             const blobUrl = URL.createObjectURL(blob);
+                            try { setCachedAudioDataUrl(cellId, message.content.audioData); } catch {}
                             setAudioUrl(blobUrl);
                             setIsLoading(false);
                             if (pendingPlayRef.current) {

@@ -212,7 +212,12 @@ export interface FrontierAPI {
             owner: string;
         }>
     >;
-    cloneRepository: (repositoryUrl: string, cloneToPath?: string, openWorkspace?: boolean) => Promise<boolean>;
+    cloneRepository: (
+        repositoryUrl: string,
+        cloneToPath?: string,
+        openWorkspace?: boolean,
+        mediaStrategy?: string
+    ) => Promise<boolean>;
     publishWorkspace: (options?: {
         name: string;
         description?: string;
@@ -262,4 +267,10 @@ export interface FrontierAPI {
             stage: string;
         }>;
     }>;
+
+    downloadLFSFile: (
+        projectPath: string,
+        oid: string,
+        size: number
+    ) => Promise<Buffer>;
 }

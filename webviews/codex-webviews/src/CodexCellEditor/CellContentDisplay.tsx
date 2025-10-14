@@ -1,4 +1,6 @@
 import React, { useContext, useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { getCachedAudioDataUrl, setCachedAudioDataUrl } from "../lib/audioCache";
+import { globalAudioController, type AudioControllerEvent } from "../lib/audioController";
 import {
     EditorCellContent,
     EditorPostMessages,
@@ -101,6 +103,7 @@ const AudioPlayButton: React.FC<{
                         .then((res) => res.blob())
                         .then((blob) => {
                             const blobUrl = URL.createObjectURL(blob);
+                            try { setCachedAudioDataUrl(cellId, message.content.audioData); } catch {}
                             setAudioUrl(blobUrl);
                             setIsLoading(false);
                             if (pendingPlayRef.current) {
@@ -115,8 +118,8 @@ const AudioPlayButton: React.FC<{
                                         };
                                     }
                                     audioRef.current.src = blobUrl;
-                                    audioRef.current
-                                        .play()
+                                    globalAudioController
+                                        .playExclusive(audioRef.current)
                                         .then(() => setIsPlaying(true))
                                         .catch((e) => {
                                             console.error("Error auto-playing audio for cell:", e);
@@ -204,7 +207,7 @@ const AudioPlayButton: React.FC<{
                 }
 
                 audioRef.current.src = audioUrl;
-                await audioRef.current.play();
+                await globalAudioController.playExclusive(audioRef.current);
                 setIsPlaying(true);
             }
         } catch (error) {
@@ -213,13 +216,39 @@ const AudioPlayButton: React.FC<{
         }
     };
 
+    // Keep inline button in sync if this audio is stopped by global controller
+    useEffect(() => {
+        const handler = (e: AudioControllerEvent) => {
+            if (audioRef.current && e.audio === audioRef.current) {
+                setIsPlaying(false);
+            }
+        };
+        globalAudioController.addListener(handler);
+        return () => globalAudioController.removeListener(handler);
+    }, []);
+
     // Decide icon color/style based on state
     const { iconClass, color, titleSuffix } = (() => {
-        if (state === "available") {
+        // Locally available or cached
+        if (state === "available" && (audioUrl || getCachedAudioDataUrl(cellId))) {
             return {
-                iconClass: isPlaying ? "codicon-debug-stop" : "codicon-play",
+                iconClass: isLoading
+                    ? "codicon-loading codicon-modifier-spin"
+                    : isPlaying
+                    ? "codicon-debug-stop"
+                    : "codicon-play",
                 color: "var(--vscode-charts-blue)",
                 titleSuffix: "(available)",
+            } as const;
+        }
+        // Available remotely, not cached locally yet → play with cloud
+        if (state === "available") {
+            return {
+                iconClass: isLoading
+                    ? "codicon-loading codicon-modifier-spin"
+                    : "codicon-cloud-download", // cloud behind play
+                color: "var(--vscode-charts-blue)",
+                titleSuffix: "(in cloud)",
             } as const;
         }
         if (state === "missing") {
@@ -245,7 +274,7 @@ const AudioPlayButton: React.FC<{
                 isLoading
                     ? "Preparing audio..."
                     : state === "available"
-                    ? "Play"
+                    ? (audioUrl || getCachedAudioDataUrl(cellId) ? "Play" : "Download")
                     : state === "missing"
                     ? "Missing audio"
                     : "Record"

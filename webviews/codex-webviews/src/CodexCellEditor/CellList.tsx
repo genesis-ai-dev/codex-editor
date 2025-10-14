@@ -16,6 +16,7 @@ import { getEmptyCellTranslationStyle, CellTranslationState } from "./CellTransl
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import CommentsBadge from "./CommentsBadge";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
+import { sanitizeQuillHtml } from "./utils";
 
 export interface CellListProps {
     spellCheckResponse: SpellCheckResponse | null;
@@ -730,7 +731,7 @@ const CellList: React.FC<CellListProps> = ({
                             spellCheckResponse={spellCheckResponse}
                             cellIsChild={cellIsChild}
                             cellMarkers={cellMarkers}
-                            cellContent={cellContent}
+                            cellContent={sanitizeQuillHtml(cellContent)}
                             cellIndex={i}
                             cellType={cellType}
                             cellLabel={cellLabel ?? generatedCellLabel}
@@ -960,7 +961,8 @@ const CellList: React.FC<CellListProps> = ({
                 maxWidth: "100%",
                 padding: "0 1rem",
                 boxSizing: "border-box",
-                paddingTop: "1rem",
+                // Keep minimal breathing room above the first cell to match prior layout
+                paddingTop: "0.25rem",
                 paddingBottom: "4rem",
             }}
         >

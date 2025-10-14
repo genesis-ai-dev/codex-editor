@@ -251,7 +251,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "auth.logout"; }
     | { command: "auth.status"; }
     | { command: "auth.checkAuthStatus"; }
-    | { command: "project.clone"; repoUrl: string; }
+    | { command: "project.clone"; repoUrl: string; mediaStrategy?: MediaFilesStrategy; }
     | { command: "project.new"; }
     | { command: "workspace.status"; }
     | { command: "workspace.open"; }
@@ -260,7 +260,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "getProjectsListFromGitLab"; }
     | { command: "forceRefreshProjectsList"; }
     | { command: "getProjectsSyncStatus"; }
-    | { command: "project.open"; projectPath: string; }
+    | { command: "project.open"; projectPath: string; mediaStrategy?: MediaFilesStrategy; }
     | { command: "project.delete"; projectPath: string; syncStatus?: ProjectSyncStatus; }
     | { command: "project.createEmpty"; }
     | { command: "project.initialize"; waitForStateUpdate?: boolean; }
@@ -275,7 +275,9 @@ export type MessagesToStartupFlowProvider =
     | { command: "webview.ready"; }
     | { command: "navigateToMainMenu"; }
     | { command: "zipProject"; projectName: string; projectPath: string; includeGit?: boolean; }
-    | { command: "project.heal"; projectName: string; projectPath: string; gitOriginUrl?: string; };
+    | { command: "project.heal"; projectName: string; projectPath: string; gitOriginUrl?: string; }
+    | { command: "project.setMediaStrategy"; projectPath: string; mediaStrategy: MediaFilesStrategy; }
+    | { command: "project.cleanupMediaFiles"; projectPath: string; };
 
 export type GitLabProject = {
     id: number;
@@ -295,8 +297,14 @@ export type ProjectSyncStatus =
     | "localOnlyNotSynced"
     | "error";
 
+export type MediaFilesStrategy =
+    | "auto-download"     // Download and save media files automatically
+    | "stream-and-save"   // Stream media files and save in background
+    | "stream-only";      // Stream media files without saving (read from network each time)
+
 export type ProjectWithSyncStatus = LocalProject & {
     syncStatus: ProjectSyncStatus;
+    mediaStrategy?: MediaFilesStrategy; // Media files download strategy for this project
     completionPercentage?: number;
 };
 
@@ -1275,6 +1283,7 @@ interface LocalProject {
     gitOriginUrl?: string;
     description: string;
     isOutdated?: boolean;
+    mediaStrategy?: MediaFilesStrategy;
 }
 
 export interface BiblePreview extends BasePreview {

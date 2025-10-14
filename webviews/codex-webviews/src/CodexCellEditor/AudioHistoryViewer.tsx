@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { globalAudioController, type AudioControllerEvent } from "../lib/audioController";
 import { Button } from "../components/ui/button";
 import {
     Play,
@@ -339,6 +340,16 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
         };
     }, []); // Only run on mount/unmount, not when audioUrls changes
 
+    // Sync UI with global controller (ensure only one shows playing state)
+    useEffect(() => {
+        const listener = (_e: AudioControllerEvent) => {
+            // Any global stop should reset the UI to show only one Stop at a time
+            setPlayingId(null);
+        };
+        globalAudioController.addListener(listener);
+        return () => globalAudioController.removeListener(listener);
+    }, []);
+
     const handlePlayAudio = async (attachmentId: string) => {
         try {
             // Stop any currently playing audio
@@ -394,7 +405,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
             }
 
             audio.src = audioUrl;
-            await audio.play();
+            await globalAudioController.playExclusive(audio);
             setPlayingId(attachmentId);
         } catch (error) {
             console.error("Error handling audio playback:", error);

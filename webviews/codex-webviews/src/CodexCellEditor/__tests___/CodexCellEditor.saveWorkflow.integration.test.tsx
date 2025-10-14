@@ -251,8 +251,8 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
         // Should render without crashing
         expect(document.body).toBeTruthy();
 
-        // Should have the main container with the expected styling (actual padding from rendered HTML)
-        const styledContainer = document.querySelector('[style*="padding: 1rem"]');
+        // Should have the main container
+        const styledContainer = document.querySelector('.verse-list.ql-editor');
         expect(styledContainer).toBeTruthy();
 
         // Should have verse groups rendered (check what's actually rendered)
@@ -459,8 +459,8 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
         // Should render without crashing
         expect(document.body).toBeTruthy();
 
-        // Should have the main container (actual padding from rendered HTML)
-        const container = document.querySelector('[style*="padding: 1rem"]');
+        // Should have the main container
+        const container = document.querySelector('.verse-list.ql-editor');
         expect(container).toBeTruthy();
 
         // Verify that we have multiple cell markers in our test data
@@ -571,8 +571,8 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
         // Should render without crashing
         expect(document.body).toBeTruthy();
 
-        // Should have the main container (actual padding from rendered HTML)
-        const container = document.querySelector('[style*="padding: 1rem"]');
+        // Should have the main container
+        const container = document.querySelector('.verse-list.ql-editor');
         expect(container).toBeTruthy();
 
         // Verify CellList props structure

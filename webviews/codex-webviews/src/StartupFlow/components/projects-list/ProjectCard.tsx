@@ -1,9 +1,15 @@
-import React from "react";
-import { ProjectWithSyncStatus, ProjectSyncStatus } from "types";
+import React, { useState } from "react";
+import { ProjectWithSyncStatus, ProjectSyncStatus, MediaFilesStrategy } from "types";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
 import { Skeleton } from "../../../components/ui/skeleton";
 import { cn } from "../../../lib/utils";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "../../../components/ui/dropdown-menu";
 
 interface ParsedProjectInfo {
     groups: string[];
@@ -45,13 +51,114 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     getStatusIcon,
     isProgressDataLoaded = false,
 }) => {
+    const [mediaStrategy, setMediaStrategy] = useState<MediaFilesStrategy>(
+        project.mediaStrategy || "auto-download"
+    );
+    const [pendingStrategy, setPendingStrategy] = useState<MediaFilesStrategy | null>(null);
+
+    const getStrategyLabel = (strategy: MediaFilesStrategy): string => {
+        switch (strategy) {
+            case "auto-download":
+                return "Auto Download Media";
+            case "stream-and-save":
+                return "Stream & Save";
+            case "stream-only":
+                return "Stream Only";
+            default:
+                return "Auto Download Media";
+        }
+    };
+
+    const handleMediaStrategyChange = (strategy: MediaFilesStrategy) => {
+        // Optimistically show selection but keep previous in pending in case we need to revert
+        setPendingStrategy(mediaStrategy);
+        setMediaStrategy(strategy);
+        project.mediaStrategy = strategy;
+
+        if (["downloadedAndSynced", "localOnlyNotSynced"].includes(project.syncStatus)) {
+            vscode.postMessage({
+                command: "project.setMediaStrategy",
+                projectPath: project.path,
+                mediaStrategy: strategy,
+            });
+        }
+    };
+
+    // Listen for result from provider to either confirm or revert selection
+    React.useEffect(() => {
+        const onMessage = (event: MessageEvent) => {
+            const msg = event.data;
+            if (msg?.command === "project.setMediaStrategyResult") {
+                if (!msg.success) {
+                    // Revert to pending (previous) selection
+                    if (pendingStrategy) {
+                        setMediaStrategy(pendingStrategy);
+                        project.mediaStrategy = pendingStrategy;
+                    }
+                }
+                setPendingStrategy(null);
+            }
+        };
+        window.addEventListener("message", onMessage);
+        return () => window.removeEventListener("message", onMessage);
+    }, [pendingStrategy, project]);
+
+    const renderMediaStrategyDropdown = () => (
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 text-xs px-2"
+                    title="Media Files Download Strategy"
+                >
+                    {getStrategyLabel(mediaStrategy)}
+                    <i className="codicon codicon-chevron-down ml-1 text-[10px]" />
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem
+                    onClick={() => handleMediaStrategyChange("auto-download")}
+                    className={cn(
+                        "text-xs cursor-pointer",
+                        mediaStrategy === "auto-download" && "bg-accent"
+                    )}
+                >
+                    <i className="codicon codicon-cloud-download mr-2" />
+                    Auto Download Media
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    onClick={() => handleMediaStrategyChange("stream-and-save")}
+                    className={cn(
+                        "text-xs cursor-pointer",
+                        mediaStrategy === "stream-and-save" && "bg-accent"
+                    )}
+                >
+                    <i className="codicon codicon-cloud-upload mr-2" />
+                    Stream & Save
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    onClick={() => handleMediaStrategyChange("stream-only")}
+                    className={cn(
+                        "text-xs cursor-pointer",
+                        mediaStrategy === "stream-only" && "bg-accent"
+                    )}
+                >
+                    <i className="codicon codicon-play-circle mr-2" />
+                    Stream Only
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
+    );
+
     const renderProjectActions = (project: ProjectWithSyncStatus) => {
         const isLocal = ["downloadedAndSynced", "localOnlyNotSynced"].includes(project.syncStatus);
         const isRemote = project.syncStatus === "cloudOnlyNotSynced";
 
         if (isLocal) {
             return (
-                <div className="flex gap-1">
+                <div className="flex gap-1 items-center">
+                    {renderMediaStrategyDropdown()}
                     <Button
                         variant="ghost"
                         size="sm"
@@ -67,15 +174,18 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
 
         if (isRemote) {
             return (
-                <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => onCloneProject(project)}
-                    className="h-6 text-xs px-2"
-                >
-                    <i className="codicon codicon-arrow-circle-down mr-1" />
-                    Clone
-                </Button>
+                <div className="flex gap-1 items-center">
+                    {renderMediaStrategyDropdown()}
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => onCloneProject({ ...project, mediaStrategy })}
+                        className="h-6 text-xs px-2"
+                    >
+                        <i className="codicon codicon-arrow-circle-down mr-1" />
+                        Clone
+                    </Button>
+                </div>
             );
         }
 
@@ -236,24 +346,42 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                             <span className="text-xs">{project.name}</span>
                             <div className="flex gap-2">
                                 {(project.syncStatus === "downloadedAndSynced" ||
-                                    project.syncStatus === "error") && (
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => {
-                                            vscode.postMessage({
-                                                command: "project.heal",
-                                                projectName: project.name,
-                                                projectPath: project.path,
-                                                gitOriginUrl: project.gitOriginUrl,
-                                            });
-                                        }}
-                                        className="h-6 text-xs text-yellow-600 hover:text-yellow-700"
-                                        title="Heal project by backing up, re-cloning, and merging local changes"
-                                    >
-                                        <i className="codicon codicon-heart mr-1" />
-                                        Heal
-                                    </Button>
+                                    project.syncStatus === "error") &&
+                                    mediaStrategy !== "stream-only" && (
+                                    <>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => {
+                                                vscode.postMessage({
+                                                    command: "project.cleanupMediaFiles",
+                                                    projectPath: project.path,
+                                                });
+                                            }}
+                                            className="h-6 text-xs text-purple-600 hover:text-purple-700"
+                                            title="Delete downloaded media files to save space"
+                                        >
+                                            <i className="codicon codicon-trash mr-1" />
+                                            Clean Media
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => {
+                                                vscode.postMessage({
+                                                    command: "project.heal",
+                                                    projectName: project.name,
+                                                    projectPath: project.path,
+                                                    gitOriginUrl: project.gitOriginUrl,
+                                                });
+                                            }}
+                                            className="h-6 text-xs text-yellow-600 hover:text-yellow-700"
+                                            title="Heal project by backing up, re-cloning, and merging local changes"
+                                        >
+                                            <i className="codicon codicon-heart mr-1" />
+                                            Heal
+                                        </Button>
+                                    </>
                                 )}
                                 <Button
                                     variant="outline"
