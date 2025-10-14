@@ -346,7 +346,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                             <span className="text-xs">{project.name}</span>
                             <div className="flex gap-2">
                                 {(project.syncStatus === "downloadedAndSynced" ||
-                                    project.syncStatus === "error") && (
+                                    project.syncStatus === "error") &&
+                                    mediaStrategy !== "stream-only" && (
                                     <>
                                         <Button
                                             variant="outline"

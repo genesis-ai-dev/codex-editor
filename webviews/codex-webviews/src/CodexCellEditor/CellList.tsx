@@ -960,7 +960,8 @@ const CellList: React.FC<CellListProps> = ({
                 maxWidth: "100%",
                 padding: "0 1rem",
                 boxSizing: "border-box",
-                paddingTop: "1rem",
+                // Keep minimal breathing room above the first cell to match prior layout
+                paddingTop: "0.25rem",
                 paddingBottom: "4rem",
             }}
         >
