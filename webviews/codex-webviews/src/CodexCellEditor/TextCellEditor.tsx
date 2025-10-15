@@ -1467,9 +1467,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 })();
                 return;
             }
-        } catch { /* empty */ }
+        } catch {
+            /* empty */
+        }
         // Skip requesting audio when we know there are no attachments for this cell
         if (audioAttachments && audioAttachments[cellMarkers[0]] === "none") {
+            setIsAudioLoading(false);
+            setAudioFetchPending(false);
+            setShowRecorder(true);
             return;
         }
         setAudioFetchPending(true);
@@ -1565,7 +1570,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         // cache base64 for future openings in this session
                         try {
                             setCachedAudioDataUrl(cellMarkers[0], message.content.audioData);
-                        } catch { /* empty */ }
+                        } catch {
+                            /* empty */
+                        }
                         // If recorder was showing because there was no audio previously,
                         // switch to waveform automatically once audio is available
                         setShowRecorder(false);
@@ -2470,7 +2477,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             <div className="content-section space-y-6">
                                 <h3 className="text-lg font-medium">Audio Recording</h3>
 
-                                {(isAudioLoading || audioFetchPending) ? (
+                                {isAudioLoading || audioFetchPending ? (
                                     <div className="bg-[var(--vscode-editor-background)] p-3 rounded-md border border-[var(--vscode-panel-border)] text-center text-[var(--vscode-descriptionForeground)]">
                                         Loading audio...
                                     </div>

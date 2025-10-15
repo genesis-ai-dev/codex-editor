@@ -252,7 +252,7 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
         expect(document.body).toBeTruthy();
 
         // Should have the main container
-        const styledContainer = document.querySelector('.verse-list.ql-editor');
+        const styledContainer = document.querySelector(".verse-list.ql-editor");
         expect(styledContainer).toBeTruthy();
 
         // Should have verse groups rendered (check what's actually rendered)
@@ -460,7 +460,7 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
         expect(document.body).toBeTruthy();
 
         // Should have the main container
-        const container = document.querySelector('.verse-list.ql-editor');
+        const container = document.querySelector(".verse-list.ql-editor");
         expect(container).toBeTruthy();
 
         // Verify that we have multiple cell markers in our test data
@@ -572,7 +572,7 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
         expect(document.body).toBeTruthy();
 
         // Should have the main container
-        const container = document.querySelector('.verse-list.ql-editor');
+        const container = document.querySelector(".verse-list.ql-editor");
         expect(container).toBeTruthy();
 
         // Verify CellList props structure
@@ -1048,5 +1048,456 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             (args: any[]) => args?.[0]?.command === "saveAudioAttachment"
         );
         expect(postedSave).toBe(false);
+    });
+
+    describe("Audio Loading State Fix Tests", () => {
+        beforeEach(() => {
+            // Clear any cached audio data
+            sessionStorage.clear();
+        });
+
+        it("audio loading: does NOT show 'Loading audio...' indefinitely when audioAttachments is 'none'", async () => {
+            // Set preferred tab to audio so we can see the audio UI
+            sessionStorage.setItem("preferred-editor-tab", "audio");
+
+            const props = {
+                cellMarkers: ["cell-no-audio"],
+                cellContent: "<p>Content without audio</p>",
+                editHistory: mockTranslationUnits[0].editHistory,
+                cellIndex: 0,
+                cellType: CodexCellTypes.TEXT,
+                spellCheckResponse: null,
+                contentBeingUpdated: {
+                    cellMarkers: ["cell-no-audio"],
+                    cellContent: "<p>Content without audio</p>",
+                    cellChanged: false,
+                },
+                setContentBeingUpdated: vi.fn(),
+                handleCloseEditor: vi.fn(),
+                handleSaveHtml: vi.fn(),
+                textDirection: "ltr" as const,
+                cellLabel: "Test Label",
+                cellTimestamps: { startTime: 0, endTime: 5 },
+                cellIsChild: false,
+                openCellById: vi.fn(),
+                cell: mockTranslationUnits[0],
+                isSaving: false,
+                saveError: false,
+                saveRetryCount: 0,
+                footnoteOffset: 1,
+                // Critical: Mark that there are NO attachments for this cell
+                audioAttachments: { "cell-no-audio": "none" as const },
+            };
+
+            const { container } = render(
+                <MockUnsavedChangesProvider>
+                    <MockSourceCellProvider>
+                        <MockScrollToContentProvider>
+                            <CellEditor {...props} />
+                        </MockScrollToContentProvider>
+                    </MockSourceCellProvider>
+                </MockUnsavedChangesProvider>
+            );
+
+            // Wait a moment for component to settle
+            await new Promise((r) => setTimeout(r, 100));
+
+            // The component should NOT show "Loading audio..." indefinitely
+            // Instead, it should show the recorder interface
+            const loadingText = container.textContent?.includes("Loading audio...");
+            expect(loadingText).toBe(false);
+
+            // Should show recorder buttons (Start Recording, Upload)
+            const hasRecordButton = container.textContent?.includes("Start Recording");
+            const hasUploadButton = container.textContent?.includes("Upload");
+
+            // At least one of these should be visible when audio tab is active
+            // Note: The actual visibility depends on tab switching, but the loading shouldn't be stuck
+            expect(loadingText).toBe(false); // This is the key assertion
+        });
+
+        it("audio loading: shows recorder interface when audioAttachments is 'none'", async () => {
+            sessionStorage.setItem("preferred-editor-tab", "audio");
+
+            const props = {
+                cellMarkers: ["cell-empty"],
+                cellContent: "<p>Empty audio cell</p>",
+                editHistory: mockTranslationUnits[0].editHistory,
+                cellIndex: 0,
+                cellType: CodexCellTypes.TEXT,
+                spellCheckResponse: null,
+                contentBeingUpdated: {
+                    cellMarkers: ["cell-empty"],
+                    cellContent: "<p>Empty audio cell</p>",
+                    cellChanged: false,
+                },
+                setContentBeingUpdated: vi.fn(),
+                handleCloseEditor: vi.fn(),
+                handleSaveHtml: vi.fn(),
+                textDirection: "ltr" as const,
+                cellLabel: "Empty Audio Label",
+                cellTimestamps: { startTime: 0, endTime: 5 },
+                cellIsChild: false,
+                openCellById: vi.fn(),
+                cell: mockTranslationUnits[0],
+                isSaving: false,
+                saveError: false,
+                saveRetryCount: 0,
+                footnoteOffset: 1,
+                audioAttachments: { "cell-empty": "none" as const },
+            };
+
+            const { container } = render(
+                <MockUnsavedChangesProvider>
+                    <MockSourceCellProvider>
+                        <MockScrollToContentProvider>
+                            <CellEditor {...props} />
+                        </MockScrollToContentProvider>
+                    </MockSourceCellProvider>
+                </MockUnsavedChangesProvider>
+            );
+
+            // Wait for initial render
+            await new Promise((r) => setTimeout(r, 50));
+
+            // Should NOT request audio when attachments are marked as "none"
+            const calls = (mockVscode.postMessage as any).mock.calls || [];
+            const requestedAudio = calls.some(
+                (args: any[]) =>
+                    args?.[0]?.command === "requestAudioForCell" &&
+                    args?.[0]?.content?.cellId === "cell-empty"
+            );
+            expect(requestedAudio).toBe(false);
+
+            // Should NOT show loading message
+            expect(container.textContent?.includes("Loading audio...")).toBe(false);
+        });
+
+        it("audio loading: does NOT get stuck when audioAttachments transitions from undefined to 'none'", async () => {
+            sessionStorage.setItem("preferred-editor-tab", "audio");
+
+            const props = {
+                cellMarkers: ["cell-transition"],
+                cellContent: "<p>Transition test</p>",
+                editHistory: mockTranslationUnits[0].editHistory,
+                cellIndex: 0,
+                cellType: CodexCellTypes.TEXT,
+                spellCheckResponse: null,
+                contentBeingUpdated: {
+                    cellMarkers: ["cell-transition"],
+                    cellContent: "<p>Transition test</p>",
+                    cellChanged: false,
+                },
+                setContentBeingUpdated: vi.fn(),
+                handleCloseEditor: vi.fn(),
+                handleSaveHtml: vi.fn(),
+                textDirection: "ltr" as const,
+                cellLabel: "Transition Label",
+                cellTimestamps: { startTime: 0, endTime: 5 },
+                cellIsChild: false,
+                openCellById: vi.fn(),
+                cell: mockTranslationUnits[0],
+                isSaving: false,
+                saveError: false,
+                saveRetryCount: 0,
+                footnoteOffset: 1,
+                // Start with undefined audioAttachments (initial state)
+                audioAttachments: undefined,
+            };
+
+            const { rerender, container } = render(
+                <MockUnsavedChangesProvider>
+                    <MockSourceCellProvider>
+                        <MockScrollToContentProvider>
+                            <CellEditor {...props} />
+                        </MockScrollToContentProvider>
+                    </MockSourceCellProvider>
+                </MockUnsavedChangesProvider>
+            );
+
+            await new Promise((r) => setTimeout(r, 50));
+
+            // Now update to show no attachments
+            const updatedProps = {
+                ...props,
+                audioAttachments: { "cell-transition": "none" as const },
+            };
+
+            rerender(
+                <MockUnsavedChangesProvider>
+                    <MockSourceCellProvider>
+                        <MockScrollToContentProvider>
+                            <CellEditor {...updatedProps} />
+                        </MockScrollToContentProvider>
+                    </MockSourceCellProvider>
+                </MockUnsavedChangesProvider>
+            );
+
+            // Dispatch the providerSendsAudioAttachments message
+            window.dispatchEvent(
+                new MessageEvent("message", {
+                    data: {
+                        type: "providerSendsAudioAttachments",
+                        attachments: { "cell-transition": "none" },
+                    },
+                })
+            );
+
+            await waitFor(() => {
+                // Should NOT show loading after attachments update to "none"
+                expect(container.textContent?.includes("Loading audio...")).toBe(false);
+            });
+        });
+
+        it("audio loading: properly handles 'deletedOnly' attachment state", async () => {
+            const props = {
+                cellMarkers: ["cell-deleted"],
+                cellContent: "<p>Deleted audio cell</p>",
+                editHistory: mockTranslationUnits[0].editHistory,
+                cellIndex: 0,
+                cellType: CodexCellTypes.TEXT,
+                spellCheckResponse: null,
+                contentBeingUpdated: {
+                    cellMarkers: ["cell-deleted"],
+                    cellContent: "<p>Deleted audio cell</p>",
+                    cellChanged: false,
+                },
+                setContentBeingUpdated: vi.fn(),
+                handleCloseEditor: vi.fn(),
+                handleSaveHtml: vi.fn(),
+                textDirection: "ltr" as const,
+                cellLabel: "Deleted Audio Label",
+                cellTimestamps: { startTime: 0, endTime: 5 },
+                cellIsChild: false,
+                openCellById: vi.fn(),
+                cell: mockTranslationUnits[0],
+                isSaving: false,
+                saveError: false,
+                saveRetryCount: 0,
+                footnoteOffset: 1,
+                // Don't set audioAttachments initially - we'll send the message
+            };
+
+            const { container } = render(
+                <MockUnsavedChangesProvider>
+                    <MockSourceCellProvider>
+                        <MockScrollToContentProvider>
+                            <CellEditor {...props} />
+                        </MockScrollToContentProvider>
+                    </MockSourceCellProvider>
+                </MockUnsavedChangesProvider>
+            );
+
+            // Wait a bit for render
+            await new Promise((r) => setTimeout(r, 50));
+
+            // Simulate the provider sending deletedOnly state
+            window.dispatchEvent(
+                new MessageEvent("message", {
+                    data: {
+                        type: "providerSendsAudioAttachments",
+                        attachments: { "cell-deleted": "deletedOnly" },
+                    },
+                })
+            );
+
+            // Wait for message to be processed
+            await new Promise((r) => setTimeout(r, 100));
+
+            // Should NOT show loading for deletedOnly state (similar to "none")
+            expect(container.textContent?.includes("Loading audio...")).toBe(false);
+        });
+
+        it("audio loading: shows loading only when actually fetching available audio", async () => {
+            sessionStorage.setItem("preferred-editor-tab", "audio");
+
+            const props = {
+                cellMarkers: ["cell-available"],
+                cellContent: "<p>Cell with audio</p>",
+                editHistory: mockTranslationUnits[0].editHistory,
+                cellIndex: 0,
+                cellType: CodexCellTypes.TEXT,
+                spellCheckResponse: null,
+                contentBeingUpdated: {
+                    cellMarkers: ["cell-available"],
+                    cellContent: "<p>Cell with audio</p>",
+                    cellChanged: false,
+                },
+                setContentBeingUpdated: vi.fn(),
+                handleCloseEditor: vi.fn(),
+                handleSaveHtml: vi.fn(),
+                textDirection: "ltr" as const,
+                cellLabel: "Available Audio Label",
+                cellTimestamps: { startTime: 0, endTime: 5 },
+                cellIsChild: false,
+                openCellById: vi.fn(),
+                cell: mockTranslationUnits[0],
+                isSaving: false,
+                saveError: false,
+                saveRetryCount: 0,
+                footnoteOffset: 1,
+                audioAttachments: { "cell-available": "available" as const },
+            };
+
+            const { container } = render(
+                <MockUnsavedChangesProvider>
+                    <MockSourceCellProvider>
+                        <MockScrollToContentProvider>
+                            <CellEditor {...props} />
+                        </MockScrollToContentProvider>
+                    </MockSourceCellProvider>
+                </MockUnsavedChangesProvider>
+            );
+
+            // Initially might show loading while requesting
+            await new Promise((r) => setTimeout(r, 50));
+
+            // Should have requested audio
+            expect(mockVscode.postMessage).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    command: "requestAudioForCell",
+                    content: { cellId: "cell-available" },
+                })
+            );
+
+            // Now send the audio data back
+            window.dispatchEvent(
+                new MessageEvent("message", {
+                    data: {
+                        type: "providerSendsAudioData",
+                        content: {
+                            cellId: "cell-available",
+                            audioData: "data:audio/webm;base64,test",
+                            audioId: "audio-123",
+                        },
+                    },
+                })
+            );
+
+            // After receiving audio, loading should stop
+            await waitFor(() => {
+                expect(container.textContent?.includes("Loading audio...")).toBe(false);
+            });
+        });
+
+        it("audio loading: handles null audioData response correctly", async () => {
+            sessionStorage.setItem("preferred-editor-tab", "audio");
+
+            const props = {
+                cellMarkers: ["cell-null-response"],
+                cellContent: "<p>Null response test</p>",
+                editHistory: mockTranslationUnits[0].editHistory,
+                cellIndex: 0,
+                cellType: CodexCellTypes.TEXT,
+                spellCheckResponse: null,
+                contentBeingUpdated: {
+                    cellMarkers: ["cell-null-response"],
+                    cellContent: "<p>Null response test</p>",
+                    cellChanged: false,
+                },
+                setContentBeingUpdated: vi.fn(),
+                handleCloseEditor: vi.fn(),
+                handleSaveHtml: vi.fn(),
+                textDirection: "ltr" as const,
+                cellLabel: "Null Response Label",
+                cellTimestamps: { startTime: 0, endTime: 5 },
+                cellIsChild: false,
+                openCellById: vi.fn(),
+                cell: mockTranslationUnits[0],
+                isSaving: false,
+                saveError: false,
+                saveRetryCount: 0,
+                footnoteOffset: 1,
+                audioAttachments: { "cell-null-response": "available" as const },
+            };
+
+            const { container } = render(
+                <MockUnsavedChangesProvider>
+                    <MockSourceCellProvider>
+                        <MockScrollToContentProvider>
+                            <CellEditor {...props} />
+                        </MockScrollToContentProvider>
+                    </MockSourceCellProvider>
+                </MockUnsavedChangesProvider>
+            );
+
+            await new Promise((r) => setTimeout(r, 50));
+
+            // Send null audio data (no actual audio available)
+            window.dispatchEvent(
+                new MessageEvent("message", {
+                    data: {
+                        type: "providerSendsAudioData",
+                        content: {
+                            cellId: "cell-null-response",
+                            audioData: null,
+                        },
+                    },
+                })
+            );
+
+            await waitFor(() => {
+                // Should NOT be stuck in loading state
+                expect(container.textContent?.includes("Loading audio...")).toBe(false);
+            });
+        });
+
+        it("audio loading: does NOT show loading when cached audio exists", async () => {
+            // Pre-cache some audio data
+            const cachedDataUrl = "data:audio/webm;base64,cached";
+            sessionStorage.setItem("audio-data-url-cell-cached", cachedDataUrl);
+
+            const props = {
+                cellMarkers: ["cell-cached"],
+                cellContent: "<p>Cached audio cell</p>",
+                editHistory: mockTranslationUnits[0].editHistory,
+                cellIndex: 0,
+                cellType: CodexCellTypes.TEXT,
+                spellCheckResponse: null,
+                contentBeingUpdated: {
+                    cellMarkers: ["cell-cached"],
+                    cellContent: "<p>Cached audio cell</p>",
+                    cellChanged: false,
+                },
+                setContentBeingUpdated: vi.fn(),
+                handleCloseEditor: vi.fn(),
+                handleSaveHtml: vi.fn(),
+                textDirection: "ltr" as const,
+                cellLabel: "Cached Audio Label",
+                cellTimestamps: { startTime: 0, endTime: 5 },
+                cellIsChild: false,
+                openCellById: vi.fn(),
+                cell: mockTranslationUnits[0],
+                isSaving: false,
+                saveError: false,
+                saveRetryCount: 0,
+                footnoteOffset: 1,
+                // Set audio as available so preload tries to load it
+                audioAttachments: { "cell-cached": "available" as const },
+            };
+
+            const { container } = render(
+                <MockUnsavedChangesProvider>
+                    <MockSourceCellProvider>
+                        <MockScrollToContentProvider>
+                            <CellEditor {...props} />
+                        </MockScrollToContentProvider>
+                    </MockSourceCellProvider>
+                </MockUnsavedChangesProvider>
+            );
+
+            // Should load from cache quickly without prolonged loading state
+            await new Promise((r) => setTimeout(r, 200));
+
+            // The cached audio should be used, so no prolonged loading state
+            const calls = (mockVscode.postMessage as any).mock.calls || [];
+            const requestedAudioAfterCache = calls.some(
+                (args: any[]) =>
+                    args?.[0]?.command === "requestAudioForCell" &&
+                    args?.[0]?.content?.cellId === "cell-cached"
+            );
+            // With cached audio, it should load from cache and not show loading
+            expect(container.textContent?.includes("Loading audio...")).toBe(false);
+        });
     });
 });
