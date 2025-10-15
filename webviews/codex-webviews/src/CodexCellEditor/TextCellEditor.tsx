@@ -433,6 +433,39 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [unresolvedCommentsCount, setUnresolvedCommentsCount] = useState<number>(0);
     const [showDiscardModal, setShowDiscardModal] = useState(false);
 
+    // Global Escape-to-close handler
+    useEffect(() => {
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key !== "Escape") return;
+
+            // Close Audio History overlay if open
+            if (showAudioHistory) {
+                event.preventDefault();
+                setShowAudioHistory(false);
+                return;
+            }
+
+            // If the discard modal is visible, Escape should cancel it and return to editor
+            if (showDiscardModal) {
+                event.preventDefault();
+                setShowDiscardModal(false);
+                return;
+            }
+
+            // If there are unsaved changes, show discard confirmation
+            event.preventDefault();
+            if (unsavedChanges) {
+                setShowDiscardModal(true);
+            } else {
+                handleCloseEditor();
+            }
+        };
+
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+        // Include dependencies that influence behavior
+    }, [unsavedChanges, showAudioHistory, showDiscardModal, handleCloseEditor]);
+
     const handleSaveCell = () => {
         // Merge the latest label into the content payload used by saveHtml
         setContentBeingUpdated({
