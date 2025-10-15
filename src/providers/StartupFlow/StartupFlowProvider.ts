@@ -998,8 +998,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     // so that reconciliation will fetch real bytes after open.
                     try {
                         const projectUri = vscode.Uri.file(projectPath);
-                        const { getMediaFilesStrategy } = await import("../../utils/localProjectSettings");
+                        const { getMediaFilesStrategy, getFlags, setLastModeRun, setChangesApplied } = await import("../../utils/localProjectSettings");
                         const strategy = await getMediaFilesStrategy(projectUri);
+
+                        // If there are pending changes from a prior Switch Only, apply now
+                        const flags = await getFlags(projectUri);
+                        if (flags && flags.changesApplied === false && strategy) {
+                            const { applyMediaStrategy } = await import("../../utils/mediaStrategyManager");
+                            await applyMediaStrategy(projectUri, strategy);
+                            await setLastModeRun(strategy, projectUri);
+                            await setChangesApplied(true, projectUri);
+                        }
+
                         if (strategy === "auto-download") {
                             const { removeFilesPointerStubs } = await import("../../utils/mediaStrategyManager");
                             const removed = await removeFilesPointerStubs(projectPath);
@@ -1912,7 +1922,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 try {
                     // Import required modules
                     const { getMediaFilesStrategy } = await import("../../utils/localProjectSettings");
-                    const { applyMediaStrategy } = await import("../../utils/mediaStrategyManager");
+                    const { applyMediaStrategy, applyMediaStrategyAndRecord } = await import("../../utils/mediaStrategyManager");
+                    const { setMediaFilesStrategy, setLastModeRun, setChangesApplied, getFlags } = await import("../../utils/localProjectSettings");
 
                     const projectUri = vscode.Uri.file(projectPath);
                     const currentStrategy = await getMediaFilesStrategy(projectUri);
@@ -1925,7 +1936,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                     // Show confirmation dialog for strategy changes
                     let confirmMessage = "";
-                    let confirmButton = "Continue";
+                    let openButton = "Continue";
+                    const switchOnlyButton = "Switch Only";
 
                     if (mediaStrategy === "auto-download") {
                         confirmMessage =
@@ -1933,30 +1945,31 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             `This will download all media files for offline use. ` +
                             `Files will be available even without internet connection.\n\n` +
                             `This may use significant disk space and bandwidth.`;
-                        confirmButton = "Download All & Open";
+                        openButton = "Download All & Open";
                     } else if (mediaStrategy === "stream-only") {
                         confirmMessage =
                             `Switch to "Stream Only"?\n\n` +
                             `Downloaded media files will be replaced with pointers to save disk space. ` +
                             `Media will be streamed from the server when needed.\n\n` +
                             `Requires internet connection to play media.`;
-                        confirmButton = "Free Space & Open";
+                        openButton = "Free Space & Open";
                     } else if (mediaStrategy === "stream-and-save") {
                         confirmMessage =
                             `Switch to "Stream & Save"?\n\n` +
                             `Media files will be downloaded on-demand when you play them, ` +
                             `then saved for offline use.\n\n` +
                             `Best balance between disk space and offline availability.`;
-                        confirmButton = "Switch & Open";
+                        openButton = "Switch & Open";
                     }
 
-                    const confirmation = await vscode.window.showInformationMessage(
+                    const selection = await vscode.window.showInformationMessage(
                         confirmMessage,
                         { modal: true },
-                        confirmButton
+                        openButton,
+                        switchOnlyButton
                     );
 
-                    if (confirmation !== confirmButton) {
+                    if (!selection) {
                         debugLog("User cancelled media strategy change");
                         // Notify webview to revert selection
                         this.safeSendMessage({
@@ -1968,8 +1981,31 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         return;
                     }
 
-                    // Apply the strategy (this will handle downloads/replacements)
-                    await applyMediaStrategy(projectUri, mediaStrategy);
+                    if (selection === switchOnlyButton) {
+                        // Switch but do not open; mark changesApplied=false and only update strategy
+                        await setMediaFilesStrategy(mediaStrategy, projectUri);
+                        const { lastModeRun } = await getFlags(projectUri);
+                        // If switching to same as last mode run, no changes needed
+                        if (lastModeRun && lastModeRun === mediaStrategy) {
+                            await setChangesApplied(true, projectUri);
+                        } else {
+                            await setChangesApplied(false, projectUri);
+                        }
+                        // Notify Frontier about strategy so clone/sync respects it
+                        try { (this.frontierApi as any)?.setRepoMediaStrategy?.(projectPath, mediaStrategy); } catch (setErr) { debugLog("Failed to set repo media strategy in Frontier API (switchOnly)", setErr); }
+                        // Notify success but do not open
+                        this.safeSendMessage({
+                            command: "project.setMediaStrategyResult",
+                            success: true,
+                            projectPath,
+                            mediaStrategy,
+                            switchOnly: true,
+                        } as any);
+                        return;
+                    }
+
+                    // Switch & Open: apply now, record flags, and open folder
+                    await applyMediaStrategyAndRecord(projectUri, mediaStrategy);
 
                     // Inform the Frontier auth extension so Git reconciliation respects the strategy
                     try {

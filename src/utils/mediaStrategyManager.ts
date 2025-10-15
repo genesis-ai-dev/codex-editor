@@ -4,6 +4,8 @@ import {
     MediaFilesStrategy,
     getMediaFilesStrategy,
     setMediaFilesStrategy,
+    setLastModeRun,
+    setChangesApplied,
 } from "./localProjectSettings";
 import {
     findAllPointerFiles,
@@ -174,10 +176,22 @@ export async function removeFilesPointerStubs(projectPath: string): Promise<numb
 }
 
 /**
+ * Apply a media strategy to a project and record flags when used in a
+ * Switch & Open scenario. This is a thin wrapper to apply and then set
+ * lastModeRun and changesApplied=true.
+ */
+export async function applyMediaStrategyAndRecord(
+    projectUri: vscode.Uri,
+    newStrategy: MediaFilesStrategy
+): Promise<void> {
+    await applyMediaStrategy(projectUri, newStrategy);
+    await setLastModeRun(newStrategy, projectUri);
+    await setChangesApplied(true, projectUri);
+}
+
+/**
  * Apply a media strategy to a project
  * This handles the transition between strategies
- * @param projectUri - URI of the project workspace
- * @param newStrategy - New strategy to apply
  */
 export async function applyMediaStrategy(
     projectUri: vscode.Uri,
@@ -203,7 +217,6 @@ export async function applyMediaStrategy(
                 // Quick path: remove pointer stubs from files/ so reconcile/download kicks in after open
                 const removed = await removeFilesPointerStubs(projectPath);
                 debug(`Removed ${removed} pointer stub(s) from files directory.`);
-                // Optional: we could also proactively download, but UX prefers fast open
                 break;
             }
             case "stream-only":
@@ -240,8 +253,6 @@ export async function applyMediaStrategy(
 
 /**
  * Clean up media files after sync for stream-only mode
- * This replaces newly-synced files with their pointers
- * @param projectUri - URI of the project workspace
  */
 export async function postSyncCleanup(projectUri: vscode.Uri): Promise<void> {
     try {

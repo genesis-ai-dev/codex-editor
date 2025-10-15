@@ -11,7 +11,8 @@ export type MediaFilesStrategy =
 
 export interface LocalProjectSettings {
     mediaFilesStrategy?: MediaFilesStrategy;
-    // Add other local settings here as needed
+    lastModeRun?: MediaFilesStrategy;
+    changesApplied?: boolean;
 }
 
 const SETTINGS_FILE_NAME = "localProjectSettings.json";
@@ -43,8 +44,8 @@ export async function readLocalProjectSettings(workspaceFolderUri?: vscode.Uri):
         debug("Read local project settings:", settings);
         return settings;
     } catch (error) {
-        // File doesn't exist or is invalid - return empty settings
-        debug("No local project settings found or invalid, returning empty settings");
+        // File doesn't exist or is invalid - return defaults
+        debug("No local project settings found or invalid, returning defaults");
         return {};
     }
 }
@@ -103,6 +104,29 @@ export async function setMediaFilesStrategy(
     const settings = await readLocalProjectSettings(workspaceFolderUri);
     settings.mediaFilesStrategy = strategy;
     await writeLocalProjectSettings(settings, workspaceFolderUri);
+}
+
+export async function setLastModeRun(
+    mode: MediaFilesStrategy,
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    settings.lastModeRun = mode;
+    await writeLocalProjectSettings(settings, workspaceFolderUri);
+}
+
+export async function setChangesApplied(
+    applied: boolean,
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    settings.changesApplied = applied;
+    await writeLocalProjectSettings(settings, workspaceFolderUri);
+}
+
+export async function getFlags(workspaceFolderUri?: vscode.Uri): Promise<Pick<LocalProjectSettings, "lastModeRun" | "changesApplied">> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    return { lastModeRun: settings.lastModeRun, changesApplied: settings.changesApplied };
 }
 
 /**

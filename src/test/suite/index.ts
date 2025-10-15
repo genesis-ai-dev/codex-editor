@@ -1,11 +1,22 @@
 // Imports mocha for the browser, defining the `mocha` global.
 require("mocha/mocha");
 
+import * as fs from "fs";
+
 // Ensure a minimal location object exists for mocha in non-browser contexts
 if (typeof (globalThis as any).location === "undefined") {
     (globalThis as any).location = { search: "" } as any;
 } else if (typeof (globalThis as any).location.search === "undefined") {
     (globalThis as any).location.search = "";
+}
+
+// Ensure OS temp directory exists for tests (memfs may lack '/tmp')
+try {
+    if (typeof (fs as any)?.mkdirSync === "function") {
+        fs.mkdirSync("/tmp", { recursive: true });
+    }
+} catch (e) {
+    // non-fatal; environments without memfs/root permissions will ignore
 }
 
 // Define our own promisify function

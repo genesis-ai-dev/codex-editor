@@ -55,6 +55,8 @@ import { migrateAudioAttachments } from "./utils/audioAttachmentsMigrationUtils"
 import { registerTestingCommands } from "./evaluation/testingCommands";
 import { initializeABTesting } from "./utils/abTestingSetup";
 import { migration_addValidationsForUserEdits } from "./projectManager/utils/migrationUtils";
+import * as fs from "fs";
+import * as os from "os";
 
 const DEBUG_MODE = false;
 function debug(...args: any[]): void {
@@ -227,6 +229,15 @@ async function restoreTabLayout(context: vscode.ExtensionContext) {
 
 export async function activate(context: vscode.ExtensionContext) {
     const activationStart = globalThis.performance.now();
+
+    // Ensure OS temp directory exists in test/web environments (mock FS may not have /tmp)
+    try {
+        const tmp = os.tmpdir();
+        const tmpUri = vscode.Uri.file(tmp);
+        await vscode.workspace.fs.createDirectory(tmpUri);
+    } catch (e) {
+        console.warn("[Extension] Could not ensure temp directory exists:", e);
+    }
 
     // Save tab layout and close all editors before showing splash screen
     try {
