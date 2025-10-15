@@ -127,6 +127,8 @@ beforeAll(() => {
         // @ts-expect-error allow override for test
         HTMLCanvasElement.prototype.getContext = vi.fn(() => ({}));
     }
+    // Mock scrollIntoView which is not supported in jsdom
+    Element.prototype.scrollIntoView = vi.fn();
 });
 
 // Mock @sharedUtils
