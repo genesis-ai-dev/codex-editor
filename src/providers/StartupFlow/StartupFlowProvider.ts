@@ -1713,21 +1713,15 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // Directory doesn't exist, which is what we want
                     }
 
-                    // Clone to the .codex-projects directory
-                    this.frontierApi?.cloneRepository(
+                    // Clone to the .codex-projects directory and await completion
+                    await this.frontierApi?.cloneRepository(
                         message.repoUrl,
                         projectDir.fsPath,
                         undefined,
                         message.mediaStrategy
                     );
-
-                    // Immediately persist local media strategy to .project/localProjectSettings.json
-                    try {
-                        const { setMediaFilesStrategy } = await import("../../utils/localProjectSettings");
-                        await setMediaFilesStrategy(message.mediaStrategy || "auto-download", projectDir);
-                    } catch (persistErr) {
-                        debugLog("Failed to persist local media strategy after clone", persistErr);
-                    }
+                    // Do NOT write localProjectSettings.json here to avoid interfering with checkout.
+                    // We'll persist settings after the project is opened, where we also ensure .gitignore.
                 } catch (error) {
                     console.error("Error preparing to clone repository:", error);
                     this.frontierApi?.cloneRepository(
@@ -2331,6 +2325,16 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         await this.copyDirectory(projectUri, tempFolderUri, { excludeGit: true });
         debugLog(`Temporary files saved to: ${tempFolderUri.fsPath}`);
 
+        // Determine media strategy before deletion so re-clone respects user's choice
+        let healMediaStrategy: "auto-download" | "stream-and-save" | "stream-only" | undefined;
+        try {
+            const { getMediaFilesStrategy } = await import("../../utils/localProjectSettings");
+            healMediaStrategy = await getMediaFilesStrategy(projectUri);
+            debugLog(`Heal using media strategy: ${healMediaStrategy || "(default)"}`);
+        } catch (e) {
+            debugLog("Could not read media strategy before heal; default will be used", e);
+        }
+
         // Step 3: Delete the unhealthy project
         progress.report({ increment: 10, message: "Removing corrupted project..." });
         await vscode.workspace.fs.delete(projectUri, { recursive: true, useTrash: false });
@@ -2338,7 +2342,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
         // Step 4: Re-clone the project
         progress.report({ increment: 20, message: "Re-cloning from remote..." });
-        const cloneSuccess = await this.frontierApi?.cloneRepository(gitOriginUrl, projectPath, false);
+        const cloneSuccess = await this.frontierApi?.cloneRepository(
+            gitOriginUrl,
+            projectPath,
+            false,
+            healMediaStrategy
+        );
         if (!cloneSuccess) {
             throw new Error("Failed to clone repository");
         }

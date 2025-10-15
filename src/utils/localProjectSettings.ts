@@ -10,9 +10,12 @@ export type MediaFilesStrategy =
     | "stream-only";      // Stream media files without saving (read from network each time)
 
 export interface LocalProjectSettings {
+    currentMediaFilesStrategy?: MediaFilesStrategy;
+    lastMediaFileStrategyRun?: MediaFilesStrategy;
+    changesApplied?: boolean;
+    // Legacy keys (read and mirrored for backward compatibility)
     mediaFilesStrategy?: MediaFilesStrategy;
     lastModeRun?: MediaFilesStrategy;
-    changesApplied?: boolean;
 }
 
 const SETTINGS_FILE_NAME = "localProjectSettings.json";
@@ -41,8 +44,22 @@ export async function readLocalProjectSettings(workspaceFolderUri?: vscode.Uri):
     try {
         const fileContent = await vscode.workspace.fs.readFile(settingsPath);
         const settings = JSON.parse(Buffer.from(fileContent).toString("utf-8"));
-        debug("Read local project settings:", settings);
-        return settings;
+        // Normalize to new canonical keys while keeping legacy fields mirrored in-memory
+        const normalized: LocalProjectSettings = { ...settings };
+        if (normalized.currentMediaFilesStrategy === undefined && normalized.mediaFilesStrategy !== undefined) {
+            normalized.currentMediaFilesStrategy = normalized.mediaFilesStrategy;
+        }
+        if (normalized.mediaFilesStrategy === undefined && normalized.currentMediaFilesStrategy !== undefined) {
+            normalized.mediaFilesStrategy = normalized.currentMediaFilesStrategy;
+        }
+        if (normalized.lastMediaFileStrategyRun === undefined && normalized.lastModeRun !== undefined) {
+            normalized.lastMediaFileStrategyRun = normalized.lastModeRun;
+        }
+        if (normalized.lastModeRun === undefined && normalized.lastMediaFileStrategyRun !== undefined) {
+            normalized.lastModeRun = normalized.lastMediaFileStrategyRun;
+        }
+        debug("Read local project settings:", normalized);
+        return normalized;
     } catch (error) {
         // File doesn't exist or is invalid - return defaults
         debug("No local project settings found or invalid, returning defaults");
@@ -76,10 +93,15 @@ export async function writeLocalProjectSettings(
             // Directory might already exist, that's fine
         }
 
-        // Write settings file
-        const content = JSON.stringify(settings, null, 2);
+        // Write settings file with new canonical keys only
+        const toWrite: LocalProjectSettings = {
+            currentMediaFilesStrategy: settings.currentMediaFilesStrategy ?? settings.mediaFilesStrategy,
+            lastMediaFileStrategyRun: settings.lastMediaFileStrategyRun ?? settings.lastModeRun,
+            changesApplied: settings.changesApplied,
+        };
+        const content = JSON.stringify(toWrite, null, 2);
         await vscode.workspace.fs.writeFile(settingsPath, Buffer.from(content, "utf-8"));
-        debug("Wrote local project settings:", settings);
+        debug("Wrote local project settings:", toWrite);
     } catch (error) {
         console.error("Failed to write local project settings:", error);
         throw error;
@@ -91,7 +113,7 @@ export async function writeLocalProjectSettings(
  */
 export async function getMediaFilesStrategy(workspaceFolderUri?: vscode.Uri): Promise<MediaFilesStrategy | undefined> {
     const settings = await readLocalProjectSettings(workspaceFolderUri);
-    return settings.mediaFilesStrategy;
+    return settings.currentMediaFilesStrategy ?? settings.mediaFilesStrategy;
 }
 
 /**
@@ -102,7 +124,8 @@ export async function setMediaFilesStrategy(
     workspaceFolderUri?: vscode.Uri
 ): Promise<void> {
     const settings = await readLocalProjectSettings(workspaceFolderUri);
-    settings.mediaFilesStrategy = strategy;
+    settings.mediaFilesStrategy = strategy; // legacy mirror
+    settings.currentMediaFilesStrategy = strategy;
     await writeLocalProjectSettings(settings, workspaceFolderUri);
 }
 
@@ -111,7 +134,8 @@ export async function setLastModeRun(
     workspaceFolderUri?: vscode.Uri
 ): Promise<void> {
     const settings = await readLocalProjectSettings(workspaceFolderUri);
-    settings.lastModeRun = mode;
+    settings.lastModeRun = mode; // legacy mirror
+    settings.lastMediaFileStrategyRun = mode;
     await writeLocalProjectSettings(settings, workspaceFolderUri);
 }
 
@@ -159,8 +183,8 @@ export async function ensureLocalProjectSettingsExists(
 
     // Create with defaults
     const def: LocalProjectSettings = {
-        mediaFilesStrategy: "auto-download",
-        lastModeRun: "auto-download",
+        currentMediaFilesStrategy: "auto-download",
+        lastMediaFileStrategyRun: "auto-download",
         changesApplied: true,
         ...(defaults || {}),
     };

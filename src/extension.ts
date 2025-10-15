@@ -435,8 +435,16 @@ export async function activate(context: vscode.ExtensionContext) {
             // Ensure local project settings exist when a Codex project is open
             try {
                 if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-                    const { afterProjectDetectedEnsureLocalSettings } = await import("./projectManager/utils/projectUtils");
-                    await afterProjectDetectedEnsureLocalSettings(vscode.workspace.workspaceFolders[0].uri);
+                    // Only ensure settings once a repo is fully initialized (avoid during clone checkout)
+                    try {
+                        const projectUri = vscode.workspace.workspaceFolders[0].uri;
+                        const gitDir = vscode.Uri.joinPath(projectUri, ".git");
+                        await vscode.workspace.fs.stat(gitDir);
+                        const { afterProjectDetectedEnsureLocalSettings } = await import("./projectManager/utils/projectUtils");
+                        await afterProjectDetectedEnsureLocalSettings(projectUri);
+                    } catch {
+                        // No .git yet; skip until project is fully initialized/opened
+                    }
                 }
             } catch (e) {
                 console.warn("[Extension] Failed to ensure local project settings exist:", e);

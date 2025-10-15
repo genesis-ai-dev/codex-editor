@@ -1373,6 +1373,13 @@ export async function ensureGitConfigsAreUpToDate(): Promise<void> {
 
 export async function afterProjectDetectedEnsureLocalSettings(projectUri: vscode.Uri): Promise<void> {
     try {
+        // Guard: only create settings after repo exists (avoid during clone checkout)
+        try {
+            const gitDir = vscode.Uri.joinPath(projectUri, ".git");
+            await vscode.workspace.fs.stat(gitDir);
+        } catch {
+            return;
+        }
         const { ensureLocalProjectSettingsExists } = await import("../../utils/localProjectSettings");
         await ensureLocalProjectSettingsExists(projectUri);
     } catch (e) {
