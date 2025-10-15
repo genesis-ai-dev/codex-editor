@@ -1008,11 +1008,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         const { getMediaFilesStrategy, getFlags, setLastModeRun, setChangesApplied } = await import("../../utils/localProjectSettings");
                         const strategy = await getMediaFilesStrategy(projectUri);
 
-                        // If there are pending changes from a prior Switch Only, apply now
+                        // If there are pending changes (either explicitly marked or
+                        // inferred from a mismatch between last run and current), apply now
                         const flags = await getFlags(projectUri);
-                        if (flags && flags.changesApplied === false && strategy) {
+                        if (strategy && (flags?.changesApplied === false || (flags?.lastModeRun && flags.lastModeRun !== strategy))) {
                             const { applyMediaStrategy } = await import("../../utils/mediaStrategyManager");
-                            await applyMediaStrategy(projectUri, strategy);
+                            // Force the apply when lastModeRun differs to ensure on-disk state matches selection
+                            await applyMediaStrategy(projectUri, strategy, true);
                             await setLastModeRun(strategy, projectUri);
                             await setChangesApplied(true, projectUri);
                         }
@@ -2012,8 +2014,25 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         return;
                     }
 
-                    // Switch & Open: apply now, record flags, and open folder
-                    await applyMediaStrategyAndRecord(projectUri, mediaStrategy);
+                    // Switch & Open: apply now only if needed. If the selected
+                    // strategy is the same as the last run one, we should not
+                    // perform any destructive changes (like replacing files)
+                    // and instead just confirm flags and proceed to open.
+                    try {
+                        const { getFlags, setLastModeRun, setChangesApplied, setMediaFilesStrategy } = await import("../../utils/localProjectSettings");
+                        const flags = await getFlags(projectUri);
+                        if (flags?.lastModeRun === mediaStrategy) {
+                            // Return to last-run mode: do not touch files. Just ensure
+                            // the selected strategy is stored and flags are consistent.
+                            await setMediaFilesStrategy(mediaStrategy, projectUri);
+                            await setLastModeRun(mediaStrategy, projectUri);
+                            await setChangesApplied(true, projectUri);
+                        } else {
+                            await applyMediaStrategyAndRecord(projectUri, mediaStrategy);
+                        }
+                    } catch {
+                        await applyMediaStrategyAndRecord(projectUri, mediaStrategy);
+                    }
 
                     // Inform the Frontier auth extension so Git reconciliation respects the strategy
                     try {

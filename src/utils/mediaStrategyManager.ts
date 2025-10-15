@@ -6,6 +6,7 @@ import {
     setMediaFilesStrategy,
     setLastModeRun,
     setChangesApplied,
+    getFlags,
 } from "./localProjectSettings";
 import {
     findAllPointerFiles,
@@ -184,6 +185,20 @@ export async function applyMediaStrategyAndRecord(
     projectUri: vscode.Uri,
     newStrategy: MediaFilesStrategy
 ): Promise<void> {
+    // If we're switching back to the strategy that last ran, there are no
+    // on-disk changes required. Only update flags and the stored strategy.
+    try {
+        const { lastModeRun } = await getFlags(projectUri);
+        if (lastModeRun === newStrategy) {
+            await setMediaFilesStrategy(newStrategy, projectUri);
+            await setLastModeRun(newStrategy, projectUri);
+            await setChangesApplied(true, projectUri);
+            return;
+        }
+    } catch {
+        // If flags can't be read, fall through to normal apply path
+    }
+
     await applyMediaStrategy(projectUri, newStrategy);
     await setLastModeRun(newStrategy, projectUri);
     await setChangesApplied(true, projectUri);
@@ -195,19 +210,20 @@ export async function applyMediaStrategyAndRecord(
  */
 export async function applyMediaStrategy(
     projectUri: vscode.Uri,
-    newStrategy: MediaFilesStrategy
+    newStrategy: MediaFilesStrategy,
+    forceApply: boolean = false
 ): Promise<void> {
     const projectPath = projectUri.fsPath;
     const currentStrategy = await getMediaFilesStrategy(projectUri);
 
     debug(`Applying strategy change: ${currentStrategy} -> ${newStrategy}`);
 
-    if (currentStrategy === newStrategy) {
+    if (!forceApply && currentStrategy === newStrategy) {
         debug("Strategy unchanged, nothing to do");
         return;
     }
 
-    // Save new strategy first
+    // Save new strategy first (idempotent if unchanged)
     await setMediaFilesStrategy(newStrategy, projectUri);
 
     // Apply strategy-specific actions
