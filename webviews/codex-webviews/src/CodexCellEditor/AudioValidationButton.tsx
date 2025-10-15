@@ -8,7 +8,7 @@ import { computeAudioValidationUpdate } from "./validationUtils";
 import ValidationStatusIcon from "./AudioValidationStatusIcon";
 import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
 import { audioPopoverTracker } from "./validationUtils";
-import AudioValidatorsPopover from "./components/AudioValidatorsPopover";
+import ValidatorPopover from "./components/ValidatorPopover";
 
 interface AudioValidationButtonProps {
     cellId: string;
@@ -71,15 +71,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     const uniqueValidationUsers = baseValidators;
     const currentValidations = baseValidators.length;
 
-    const fetchValidationCountAudio = () => {
-        // Only fetch if parent hasn't provided it
-        if (requiredAudioValidationsProp == null) {
-            vscode.postMessage({
-                command: "getValidationCountAudio",
-            });
-        }
-    };
-
     // Update validation state when attachments or hook-derived validators change
     useEffect(() => {
         if (!cell.attachments) {
@@ -125,7 +116,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     };
 
     useMessageHandler(
-        "audioValidationButton",
+        `audioValidationButton-${cellId}-${uniqueId.current}`,
         (event: MessageEvent) => {
             const message = event.data as any;
             if (!currentUsername && message.type === "currentUsername") {
@@ -281,7 +272,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
 
             {/* Popover for validation users */}
             {showPopover && uniqueValidationUsers.length > 0 && (
-                <AudioValidatorsPopover
+                <ValidatorPopover
                     anchorRef={buttonRef as any}
                     show={showPopover}
                     setShow={setShowPopover}
@@ -300,6 +291,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                         processValidationQueue(vscode, true).catch((error) =>
                             console.error("Audio validation queue processing error:", error)
                         );
+                        handleRequestClose();
                     }}
                 />
             )}
