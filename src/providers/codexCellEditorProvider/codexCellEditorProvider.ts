@@ -50,6 +50,8 @@ interface StateStore {
 export class CodexCellEditorProvider implements vscode.CustomEditorProvider<CodexCellDocument> {
     public currentDocument: CodexCellDocument | undefined;
     private webviewPanels: Map<string, vscode.WebviewPanel> = new Map();
+    private webviewReadyState: Map<string, boolean> = new Map(); // Track if webview is ready to receive content
+    private pendingWebviewUpdates: Map<string, (() => void)[]> = new Map(); // Track pending update functions
     private userInfo: { username: string; email: string; } | undefined;
     private stateStore: StateStore | undefined;
     private stateStoreListener: (() => void) | undefined;
@@ -295,6 +297,48 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         return document;
     }
 
+    /**
+     * Mark a webview as ready and execute any pending updates
+     */
+    private markWebviewReady(documentUri: string): void {
+        debug("Marking webview ready for:", documentUri);
+        this.webviewReadyState.set(documentUri, true);
+
+        // Execute any pending updates
+        const pending = this.pendingWebviewUpdates.get(documentUri);
+        if (pending && pending.length > 0) {
+            debug(`Executing ${pending.length} pending updates for:`, documentUri);
+            pending.forEach(updateFn => updateFn());
+            this.pendingWebviewUpdates.delete(documentUri);
+        }
+    }
+
+    /**
+     * Schedule a webview update, executing immediately if ready or queuing if not
+     */
+    private scheduleWebviewUpdate(documentUri: string, updateFn: () => void): void {
+        const isReady = this.webviewReadyState.get(documentUri);
+
+        if (isReady) {
+            debug("Webview ready, executing update immediately for:", documentUri);
+            updateFn();
+        } else {
+            debug("Webview not ready, queuing update for:", documentUri);
+            const existing = this.pendingWebviewUpdates.get(documentUri) || [];
+            existing.push(updateFn);
+            this.pendingWebviewUpdates.set(documentUri, existing);
+        }
+    }
+
+    /**
+     * Reset webview ready state (called when HTML is reset)
+     */
+    private resetWebviewReadyState(documentUri: string): void {
+        debug("Resetting webview ready state for:", documentUri);
+        this.webviewReadyState.set(documentUri, false);
+        this.pendingWebviewUpdates.delete(documentUri);
+    }
+
     public async resolveCustomEditor(
         document: CodexCellDocument,
         webviewPanel: vscode.WebviewPanel,
@@ -382,11 +426,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Load bible book map after HTML is set, then send to webview
         await this.loadBibleBookMap(document);
 
-        // Send initial bible book map to webview
+        // Send initial bible book map to webview (scheduled to wait for webview ready)
         if (this.bibleBookMap) {
-            this.postMessageToWebview(webviewPanel, {
-                type: "setBibleBookMap" as any, // Use type assertion for custom message
-                data: Array.from(this.bibleBookMap.entries()),
+            const bibleBookMapData = Array.from(this.bibleBookMap.entries());
+            this.scheduleWebviewUpdate(document.uri.toString(), () => {
+                this.postMessageToWebview(webviewPanel, {
+                    type: "setBibleBookMap" as any, // Use type assertion for custom message
+                    data: bibleBookMapData,
+                });
             });
         }
 
@@ -663,7 +710,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 this.stateStoreListener();
                 this.stateStoreListener = undefined;
             }
-            this.webviewPanels.delete(document.uri.toString());
+            const docUri = document.uri.toString();
+            this.webviewPanels.delete(docUri);
+            this.webviewReadyState.delete(docUri);
+            this.pendingWebviewUpdates.delete(docUri);
             jumpToCellListenerDispose();
             listeners.forEach((l) => l.dispose());
             if (watcher) {
@@ -677,6 +727,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Handle messages from webview
         const onMessageDisposable = webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages | GlobalMessage) => {
             debug("Received message from webview:", e);
+
+            // Check for webview-ready signal
+            if ((e as any).command === 'webviewReady') {
+                this.markWebviewReady(document.uri.toString());
+                return;
+            }
+
             if ("destination" in e) {
                 debug("Handling global message");
                 GlobalProvider.getInstance().handleMessage(e as GlobalMessage);
@@ -687,14 +744,27 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         });
         listeners.push(onMessageDisposable);
 
-        // Initial update
-        debug("Performing initial webview update");
-        updateWebview();
+        // Schedule initial update - will execute when webview signals ready
+        debug("Scheduling initial webview update");
+        this.scheduleWebviewUpdate(document.uri.toString(), () => {
+            debug("Executing initial webview update");
+            updateWebview();
+        });
 
-        // Send initial correction editor mode state
-        this.postMessageToWebview(webviewPanel, {
-            type: "correctionEditorModeChanged",
-            enabled: this.isCorrectionEditorMode,
+        // Fallback timeout in case webview-ready message is missed (shouldn't happen normally)
+        setTimeout(() => {
+            if (!this.webviewReadyState.get(document.uri.toString())) {
+                debug("Webview ready timeout expired, forcing initial update");
+                this.markWebviewReady(document.uri.toString());
+            }
+        }, 5000); // 5 second fallback
+
+        // Send initial correction editor mode state (scheduled to wait for webview ready)
+        this.scheduleWebviewUpdate(document.uri.toString(), () => {
+            this.postMessageToWebview(webviewPanel, {
+                type: "correctionEditorModeChanged",
+                enabled: this.isCorrectionEditorMode,
+            });
         });
 
         // No longer sending separate audio attachments status; attachments are included with initial content
@@ -711,7 +781,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Clean up webview panel from our tracking when it's disposed
         const disposeListener = webviewPanel.onDidDispose(() => {
-            this.webviewPanels.delete(document.uri.toString());
+            const docUri = document.uri.toString();
+            this.webviewPanels.delete(docUri);
+            this.webviewReadyState.delete(docUri);
+            this.pendingWebviewUpdates.delete(docUri);
         });
         listeners.push(disposeListener);
     }
@@ -1692,6 +1765,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const isSourceText = this.isSourceText(document.uri);
         const videoUrl = this.getVideoUrl(notebookData.metadata?.videoUrl, webviewPanel);
 
+        // Reset webview ready state since we're resetting the HTML
+        this.resetWebviewReadyState(document.uri.toString());
+
         webviewPanel.webview.html = this.getHtmlForWebview(
             webviewPanel.webview,
             document,
@@ -1707,30 +1783,34 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const userInfo = await authApi?.getUserInfo();
         const username = userInfo?.username || "anonymous";
 
-        this.postMessageToWebview(webviewPanel, {
-            type: "providerSendsInitialContent",
-            content: processedData,
-            isSourceText: isSourceText,
-            sourceCellMap: document._sourceCellMap,
-            username: username,
-            validationCount: validationCount,
-            validationCountAudio: validationCountAudio,
-        });
-
-        this.postMessageToWebview(webviewPanel, {
-            type: "providerUpdatesNotebookMetadataForWebview",
-            content: notebookData.metadata,
-        });
-
-        // Audio attachment availability is derived in the webview from QuillCellContent.attachments
-
-        if (videoUrl) {
+        // Schedule updates to wait for webview ready signal
+        this.scheduleWebviewUpdate(document.uri.toString(), () => {
             this.postMessageToWebview(webviewPanel, {
-                type: "updateVideoUrlInWebview",
-                content: videoUrl,
+                type: "providerSendsInitialContent",
+                content: processedData,
+                isSourceText: isSourceText,
+                sourceCellMap: document._sourceCellMap,
+                username: username,
+                validationCount: validationCount,
+                validationCountAudio: validationCountAudio,
             });
-        }
-        debug("Webview refresh completed");
+
+            this.postMessageToWebview(webviewPanel, {
+                type: "providerUpdatesNotebookMetadataForWebview",
+                content: notebookData.metadata,
+            });
+
+            // Audio attachment availability is derived in the webview from QuillCellContent.attachments
+
+            if (videoUrl) {
+                this.postMessageToWebview(webviewPanel, {
+                    type: "updateVideoUrlInWebview",
+                    content: videoUrl,
+                });
+            }
+        });
+
+        debug("Webview refresh scheduled");
     }
 
     // Removed: sendAudioAttachmentsStatus; audio availability is computed client-side from content
