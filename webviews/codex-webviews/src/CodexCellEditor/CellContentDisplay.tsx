@@ -103,7 +103,7 @@ const AudioPlayButton: React.FC<{
                         .then((res) => res.blob())
                         .then((blob) => {
                             const blobUrl = URL.createObjectURL(blob);
-                            try { setCachedAudioDataUrl(cellId, message.content.audioData); } catch {}
+                            try { setCachedAudioDataUrl(cellId, message.content.audioData); } catch { /* empty */ }
                             setAudioUrl(blobUrl);
                             setIsLoading(false);
                             if (pendingPlayRef.current) {
@@ -920,6 +920,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                     isSourceText={isSourceText}
                                                     currentUsername={currentUsername}
                                                     requiredValidations={requiredValidations}
+                                                    setShowSparkleButton={setShowSparkleButton}
                                                     disabled={shouldDisableValidation(
                                                         cell.cellContent,
                                                         audioAttachments?.[cellIds[0]] as any
