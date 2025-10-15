@@ -998,6 +998,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     // so that reconciliation will fetch real bytes after open.
                     try {
                         const projectUri = vscode.Uri.file(projectPath);
+                        // Ensure settings file exists for this project (with defaults)
+                        try {
+                            const { ensureLocalProjectSettingsExists } = await import("../../utils/localProjectSettings");
+                            await ensureLocalProjectSettingsExists(projectUri);
+                        } catch (e) {
+                            debugLog("Failed to ensure local project settings exist before open", e);
+                        }
                         const { getMediaFilesStrategy, getFlags, setLastModeRun, setChangesApplied } = await import("../../utils/localProjectSettings");
                         const strategy = await getMediaFilesStrategy(projectUri);
 
@@ -1926,6 +1933,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     const { setMediaFilesStrategy, setLastModeRun, setChangesApplied, getFlags } = await import("../../utils/localProjectSettings");
 
                     const projectUri = vscode.Uri.file(projectPath);
+                    // Ensure settings json exists prior to reads/writes
+                    try {
+                        const { ensureLocalProjectSettingsExists } = await import("../../utils/localProjectSettings");
+                        await ensureLocalProjectSettingsExists(projectUri);
+                    } catch (e) {
+                        debugLog("Failed to ensure local project settings exist before setMediaStrategy", e);
+                    }
                     const currentStrategy = await getMediaFilesStrategy(projectUri);
 
                     // Check if strategy is actually changing

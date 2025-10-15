@@ -432,6 +432,16 @@ export async function activate(context: vscode.ExtensionContext) {
             // Always initialize extension to ensure language server is available before webviews
             await initializeExtension(context, metadataExists);
 
+            // Ensure local project settings exist when a Codex project is open
+            try {
+                if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+                    const { afterProjectDetectedEnsureLocalSettings } = await import("./projectManager/utils/projectUtils");
+                    await afterProjectDetectedEnsureLocalSettings(vscode.workspace.workspaceFolders[0].uri);
+                }
+            } catch (e) {
+                console.warn("[Extension] Failed to ensure local project settings exist:", e);
+            }
+
             if (!metadataExists) {
                 const watchStart = globalThis.performance.now();
                 await watchForInitialization(context, metadataUri);

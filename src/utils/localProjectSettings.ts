@@ -137,3 +137,33 @@ export async function getMediaFilesStrategyForPath(projectPath: string): Promise
     return getMediaFilesStrategy(projectUri);
 }
 
+/**
+ * Ensure the localProjectSettings.json file exists. If missing, create it
+ * with sensible defaults that avoid unnecessary work.
+ */
+export async function ensureLocalProjectSettingsExists(
+    workspaceFolderUri?: vscode.Uri,
+    defaults?: Partial<LocalProjectSettings>
+): Promise<void> {
+    const settingsPath = getSettingsFilePath(workspaceFolderUri);
+    if (!settingsPath) return;
+
+    // Probe existence
+    let exists = true;
+    try {
+        await vscode.workspace.fs.stat(settingsPath);
+    } catch {
+        exists = false;
+    }
+    if (exists) return;
+
+    // Create with defaults
+    const def: LocalProjectSettings = {
+        mediaFilesStrategy: "auto-download",
+        lastModeRun: "auto-download",
+        changesApplied: true,
+        ...(defaults || {}),
+    };
+    await writeLocalProjectSettings(def, workspaceFolderUri);
+}
+
