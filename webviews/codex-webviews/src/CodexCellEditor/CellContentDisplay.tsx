@@ -802,14 +802,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 setShowSparkleButton(false);
                             }}
                         >
-                            {/* This is a spacer div to base align the action buttons with the text if line numbers are enabled */}
-                            <div
-                                className={`cell-label-text ${
-                                    lineNumbersEnabled ? "invisible" : "hidden"
-                                }`}
-                            >
-                                {lineNumber}
-                            </div>
                             <div className="action-button-container flex items-center gap-1">
                                 {!isSourceText && (
                                     <Button
