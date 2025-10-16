@@ -42,7 +42,15 @@ interface CellContentDisplayProps {
     handleCellTranslation?: (cellId: string) => void;
     handleCellClick: (cellId: string) => void;
     cellDisplayMode: CELL_DISPLAY_MODES;
-    audioAttachments?: { [cellId: string]: "available" | "available-local" | "available-pointer" | "deletedOnly" | "none" | "missing" };
+    audioAttachments?: {
+        [cellId: string]:
+            | "available"
+            | "available-local"
+            | "available-pointer"
+            | "deletedOnly"
+            | "none"
+            | "missing";
+    };
     footnoteOffset?: number; // Starting footnote number for this cell
     isCorrectionEditorMode?: boolean; // Whether correction editor mode is active
     translationUnits?: QuillCellContent[]; // Full list of translation units for finding previous cell
@@ -65,7 +73,13 @@ function debug(message: string, ...args: any[]): void {
 const AudioPlayButton: React.FC<{
     cellId: string;
     vscode: WebviewApi<unknown>;
-    state?: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+    state?:
+        | "available"
+        | "available-local"
+        | "available-pointer"
+        | "missing"
+        | "deletedOnly"
+        | "none";
     onOpenCell?: (cellId: string) => void;
 }> = React.memo(({ cellId, vscode, state = "available", onOpenCell }) => {
     const [isPlaying, setIsPlaying] = useState(false);
@@ -164,7 +178,11 @@ const AudioPlayButton: React.FC<{
     const handlePlayAudio = async () => {
         try {
             // For any non-available state, open editor on audio tab and auto-start recording
-            if (state !== "available" && state !== "available-local" && state !== "available-pointer") {
+            if (
+                state !== "available" &&
+                state !== "available-local" &&
+                state !== "available-pointer"
+            ) {
                 // For missing audio, just open the editor without auto-starting recording
                 if (state !== "missing") {
                     try {
@@ -290,7 +308,9 @@ const AudioPlayButton: React.FC<{
                 isLoading
                     ? "Preparing audio..."
                     : state === "available" || state === "available-pointer"
-                    ? (audioUrl || getCachedAudioDataUrl(cellId) ? "Play" : "Download")
+                    ? audioUrl || getCachedAudioDataUrl(cellId)
+                        ? "Play"
+                        : "Download"
                     : state === "available-local"
                     ? "Play"
                     : state === "missing"
@@ -896,7 +916,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                             style={{
                                                 fontWeight: 500,
                                                 lineHeight: 1.2,
-                                                width: isSourceText ? "3ch" : "1.6ch",
+                                                minWidth: isSourceText ? "3ch" : "1.6ch",
                                                 color: "var(--vscode-descriptionForeground)",
                                                 fontSize: "0.9em",
                                             }}
@@ -941,8 +961,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                                 isSourceText &&
                                                                 !(
                                                                     audioState === "available" ||
-                                                                    audioState === "available-local" ||
-                                                                    audioState === "available-pointer" ||
+                                                                    audioState ===
+                                                                        "available-local" ||
+                                                                    audioState ===
+                                                                        "available-pointer" ||
                                                                     audioState === "missing"
                                                                 )
                                                             )
