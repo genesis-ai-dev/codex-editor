@@ -1266,6 +1266,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 try {
                                     await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), fileData);
                                     debug("Saved streamed file to disk (stream-and-save mode)");
+                                    // Immediately inform webview this cell now has a local file
+                                    try {
+                                        safePostMessageToPanel(webviewPanel, {
+                                            type: "providerSendsAudioAttachments",
+                                            attachments: { [cellId]: "available-local" as const }
+                                        });
+                                    } catch { /* non-fatal */ }
                                 } catch (saveError) {
                                     console.warn("Failed to save streamed file:", saveError);
                                     // Don't fail the whole operation if save fails
@@ -1357,6 +1364,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 try {
                                     await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(fullPath)));
                                     await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), lfsData);
+                                    // Targeted availability update for this cell
+                                    try {
+                                        safePostMessageToPanel(webviewPanel, {
+                                            type: "providerSendsAudioAttachments",
+                                            attachments: { [cellId]: "available-local" as const }
+                                        });
+                                    } catch { /* non-fatal */ }
                                 } catch (e) {
                                     console.warn("Failed to save streamed file in fallback:", e);
                                 }

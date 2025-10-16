@@ -328,6 +328,29 @@ const AudioPlayButton: React.FC<{
     );
 });
 
+// Cell Label Text Component
+const CellLabelText: React.FC<{
+    label: string;
+    cellDisplayMode: CELL_DISPLAY_MODES;
+    forceLabelTopRow: boolean;
+}> = React.memo(({ label, cellDisplayMode, forceLabelTopRow }) => {
+    return (
+        <div
+            className="cell-label-text text-primary inline-block text-right relative -top-[2px] ml-px"
+            style={{
+                fontWeight:
+                    cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL ? 500 : "normal",
+                lineHeight: 1.2,
+                overflowWrap: "anywhere",
+                flexBasis: forceLabelTopRow ? "100%" : "auto",
+            }}
+            title={label}
+        >
+            {label}
+        </div>
+    );
+});
+
 const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
     ({
         cell,
@@ -799,174 +822,219 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     wordBreak: "break-word",
                 }}
             >
-                <div className="cell-header flex justify-start items-start shrink-0 gap-[1px]">
-                    {cellDisplayMode !== CELL_DISPLAY_MODES.INLINE && (
+                <div className="flex flex-col gap-[0.25rem]">
+                    {lineNumbersEnabled && label ? (
                         <div
-                            className={`cell-actions flex justify-start items-center ${
-                                lineNumbersEnabled ? "flex-col gap-[0.25rem]" : "flex-row"
-                            }`}
-                            onMouseOver={(e) => {
-                                e.stopPropagation();
-                                setShowSparkleButton(true);
+                            data-testid="buffer-spacer-for-label"
+                            style={{
+                                display: "flex",
+                                flex: 1,
                             }}
-                            onMouseOut={(e) => {
-                                e.stopPropagation();
-                                setShowSparkleButton(false);
-                            }}
+                            className="invisible"
                         >
-                            <div className="action-button-container flex items-center gap-1">
-                                {!isSourceText && (
-                                    <Button
-                                        style={{
-                                            height: "16px",
-                                            width: "16px",
-                                            padding: 0,
-                                            display: "flex",
-                                            alignItems: "center",
-                                            justifyContent: "center",
-                                            position: "relative",
-                                            opacity: showSparkleButton ? 1 : 0,
-                                            transform: `translateX(${
-                                                showSparkleButton ? "0" : "20px"
-                                            }) scale(${showSparkleButton ? 1 : 0})`,
-                                            transition:
-                                                "all 0.2s ease-in-out, transform 0.2s cubic-bezier(.68,-0.75,.27,1.75)",
-                                            visibility: showSparkleButton ? "visible" : "hidden",
-                                        }}
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleSparkleButtonClick(e);
-                                        }}
-                                    >
-                                        <i
-                                            className={`codicon ${
-                                                isInTranslationProcess
-                                                    ? "codicon-loading codicon-modifier-spin"
-                                                    : "codicon-sparkle"
-                                            }`}
-                                            style={{ fontSize: "12px" }}
-                                        ></i>
-                                    </Button>
-                                )}
-                                {lineNumber && lineNumbersEnabled && (
-                                    <div
-                                        className="cell-line-number whitespace-nowrap text-right mr-[0.25rem]"
-                                        style={{
-                                            fontWeight: 500,
-                                            lineHeight: 1.2,
-                                            width: isSourceText ? "3ch" : "1.6ch",
-                                            color: "var(--vscode-descriptionForeground)",
-                                            fontSize: "0.9em",
-                                        }}
-                                        title={`Line ${lineNumber}`}
-                                    >
-                                        {lineNumber}
-                                    </div>
-                                )}
-                                {!isSourceText &&
-                                    SHOW_VALIDATION_BUTTON &&
-                                    !isInTranslationProcess && (
-                                        <>
-                                            <div className="flex items-center justify-center gap-x-px">
-                                                <AudioValidationButton
-                                                    cellId={cellIds[0]}
-                                                    cell={cell}
-                                                    vscode={vscode}
-                                                    isSourceText={isSourceText}
-                                                    currentUsername={currentUsername}
-                                                    requiredAudioValidations={
-                                                        requiredAudioValidations
-                                                    }
-                                                    setShowSparkleButton={setShowSparkleButton}
-                                                    disabled={
-                                                        audioState === "none" ||
-                                                        audioState === "deletedOnly"
-                                                    }
-                                                    disabledReason={
-                                                        audioState === "none" ||
-                                                        audioState === "deletedOnly"
-                                                            ? "Audio validation requires audio"
-                                                            : undefined
-                                                    }
-                                                />
-                                                {/* Audio Play Button */}
-                                                {audioAttachments &&
-                                                    audioAttachments[cellIds[0]] !== undefined &&
-                                                    (() => {
-                                                        // For source text: show the button for available or missing; hide when none/deletedOnly
-                                                        if (
-                                                            isSourceText &&
-                                                            !(
-                                                                audioState === "available" ||
-                                                                audioState === "available-local" ||
-                                                                audioState === "available-pointer" ||
-                                                                audioState === "missing"
-                                                            )
-                                                        )
-                                                            return null;
-
-                                                        return (
-                                                            <AudioPlayButton
-                                                                cellId={cellIds[0]}
-                                                                vscode={vscode}
-                                                                state={audioState}
-                                                                onOpenCell={(id) => {
-                                                                    // Use force variant to ensure editor opens even with unsaved state
-                                                                    const open =
-                                                                        (window as any)
-                                                                            .openCellByIdForce ||
-                                                                        (window as any)
-                                                                            .openCellById;
-                                                                    if (typeof open === "function")
-                                                                        open(id);
-                                                                }}
-                                                            />
-                                                        );
-                                                    })()}
-                                            </div>
-                                            <div className="flex flex-col items-center justify-center">
-                                                <ValidationButton
-                                                    cellId={cellIds[0]}
-                                                    cell={cell}
-                                                    vscode={vscode}
-                                                    isSourceText={isSourceText}
-                                                    currentUsername={currentUsername}
-                                                    requiredValidations={requiredValidations}
-                                                    setShowSparkleButton={setShowSparkleButton}
-                                                    disabled={shouldDisableValidation(
-                                                        cell.cellContent,
-                                                        audioAttachments?.[cellIds[0]] as any
-                                                    )}
-                                                    disabledReason={(() => {
-                                                        const audioState = audioAttachments?.[
-                                                            cellIds[0]
-                                                        ] as any;
-                                                        return shouldDisableValidation(
-                                                            cell.cellContent,
-                                                            audioState
-                                                        )
-                                                            ? "Validation disabled: no text"
-                                                            : undefined;
-                                                    })()}
-                                                />
-                                            </div>
-                                        </>
+                            <CellLabelText
+                                label={lineNumber}
+                                cellDisplayMode={cellDisplayMode}
+                                forceLabelTopRow={forceLabelTopRow}
+                            />
+                        </div>
+                    ) : null}
+                    <div className="cell-header flex justify-start items-start shrink-0 gap-[1px]">
+                        {cellDisplayMode !== CELL_DISPLAY_MODES.INLINE && (
+                            <div
+                                className={`cell-actions flex justify-start items-center ${
+                                    lineNumbersEnabled ? "flex-col gap-[0.25rem]" : "flex-row"
+                                }`}
+                                onMouseOver={(e) => {
+                                    e.stopPropagation();
+                                    setShowSparkleButton(true);
+                                }}
+                                onMouseOut={(e) => {
+                                    e.stopPropagation();
+                                    setShowSparkleButton(false);
+                                }}
+                            >
+                                <div className="action-button-container flex items-center gap-1">
+                                    {!isSourceText && (
+                                        <Button
+                                            style={{
+                                                height: "16px",
+                                                width: "16px",
+                                                padding: 0,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                position: "relative",
+                                                opacity: showSparkleButton ? 1 : 0,
+                                                transform: `translateX(${
+                                                    showSparkleButton ? "0" : "20px"
+                                                }) scale(${showSparkleButton ? 1 : 0})`,
+                                                transition:
+                                                    "all 0.2s ease-in-out, transform 0.2s cubic-bezier(.68,-0.75,.27,1.75)",
+                                                visibility: showSparkleButton
+                                                    ? "visible"
+                                                    : "hidden",
+                                            }}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleSparkleButtonClick(e);
+                                            }}
+                                        >
+                                            <i
+                                                className={`codicon ${
+                                                    isInTranslationProcess
+                                                        ? "codicon-loading codicon-modifier-spin"
+                                                        : "codicon-sparkle"
+                                                }`}
+                                                style={{ fontSize: "12px" }}
+                                            ></i>
+                                        </Button>
                                     )}
+                                    {lineNumber && lineNumbersEnabled && (
+                                        <div
+                                            className="cell-line-number whitespace-nowrap text-right mr-[0.25rem]"
+                                            style={{
+                                                fontWeight: 500,
+                                                lineHeight: 1.2,
+                                                width: isSourceText ? "3ch" : "1.6ch",
+                                                color: "var(--vscode-descriptionForeground)",
+                                                fontSize: "0.9em",
+                                            }}
+                                            title={`Line ${lineNumber}`}
+                                        >
+                                            {lineNumber}
+                                        </div>
+                                    )}
+                                    {!isSourceText &&
+                                        SHOW_VALIDATION_BUTTON &&
+                                        !isInTranslationProcess && (
+                                            <>
+                                                <div className="flex items-center justify-center gap-x-px">
+                                                    <AudioValidationButton
+                                                        cellId={cellIds[0]}
+                                                        cell={cell}
+                                                        vscode={vscode}
+                                                        isSourceText={isSourceText}
+                                                        currentUsername={currentUsername}
+                                                        requiredAudioValidations={
+                                                            requiredAudioValidations
+                                                        }
+                                                        setShowSparkleButton={setShowSparkleButton}
+                                                        disabled={
+                                                            audioState === "none" ||
+                                                            audioState === "deletedOnly"
+                                                        }
+                                                        disabledReason={
+                                                            audioState === "none" ||
+                                                            audioState === "deletedOnly"
+                                                                ? "Audio validation requires audio"
+                                                                : undefined
+                                                        }
+                                                    />
+                                                    {/* Audio Play Button */}
+                                                    {audioAttachments &&
+                                                        audioAttachments[cellIds[0]] !==
+                                                            undefined &&
+                                                        (() => {
+                                                            // For source text: show the button for available or missing; hide when none/deletedOnly
+                                                            if (
+                                                                isSourceText &&
+                                                                !(
+                                                                    audioState === "available" ||
+                                                                    audioState === "available-local" ||
+                                                                    audioState === "available-pointer" ||
+                                                                    audioState === "missing"
+                                                                )
+                                                            )
+                                                                return null;
 
-                                {/* Merge Button - only show in correction editor mode for source text */}
-                                {isSourceText &&
-                                    isCorrectionEditorMode &&
-                                    !cell.merged &&
-                                    (() => {
-                                        // Check if this is the first cell - if so, don't show merge button
-                                        const currentCellId = cellIds[0];
-                                        const currentIndex = translationUnits?.findIndex(
-                                            (unit) => unit.cellMarkers[0] === currentCellId
-                                        );
-                                        const isFirstCell = currentIndex === 0;
+                                                            return (
+                                                                <AudioPlayButton
+                                                                    cellId={cellIds[0]}
+                                                                    vscode={vscode}
+                                                                    state={audioState}
+                                                                    onOpenCell={(id) => {
+                                                                        // Use force variant to ensure editor opens even with unsaved state
+                                                                        const open =
+                                                                            (window as any)
+                                                                                .openCellByIdForce ||
+                                                                            (window as any)
+                                                                                .openCellById;
+                                                                        if (
+                                                                            typeof open ===
+                                                                            "function"
+                                                                        )
+                                                                            open(id);
+                                                                    }}
+                                                                />
+                                                            );
+                                                        })()}
+                                                </div>
+                                                <div className="flex flex-col items-center justify-center">
+                                                    <ValidationButton
+                                                        cellId={cellIds[0]}
+                                                        cell={cell}
+                                                        vscode={vscode}
+                                                        isSourceText={isSourceText}
+                                                        currentUsername={currentUsername}
+                                                        requiredValidations={requiredValidations}
+                                                        setShowSparkleButton={setShowSparkleButton}
+                                                        disabled={shouldDisableValidation(
+                                                            cell.cellContent,
+                                                            audioAttachments?.[cellIds[0]] as any
+                                                        )}
+                                                        disabledReason={(() => {
+                                                            const audioState = audioAttachments?.[
+                                                                cellIds[0]
+                                                            ] as any;
+                                                            return shouldDisableValidation(
+                                                                cell.cellContent,
+                                                                audioState
+                                                            )
+                                                                ? "Validation disabled: no text"
+                                                                : undefined;
+                                                        })()}
+                                                    />
+                                                </div>
+                                            </>
+                                        )}
 
-                                        return !isFirstCell;
-                                    })() && (
+                                    {/* Merge Button - only show in correction editor mode for source text */}
+                                    {isSourceText &&
+                                        isCorrectionEditorMode &&
+                                        !cell.merged &&
+                                        (() => {
+                                            // Check if this is the first cell - if so, don't show merge button
+                                            const currentCellId = cellIds[0];
+                                            const currentIndex = translationUnits?.findIndex(
+                                                (unit) => unit.cellMarkers[0] === currentCellId
+                                            );
+                                            const isFirstCell = currentIndex === 0;
+
+                                            return !isFirstCell;
+                                        })() && (
+                                            <div style={{ flexShrink: 0 }}>
+                                                <Button
+                                                    variant="ghost"
+                                                    style={{
+                                                        height: "16px",
+                                                        width: "16px",
+                                                        padding: 0,
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                        justifyContent: "center",
+                                                    }}
+                                                    onClick={handleMergeWithPrevious}
+                                                    title="Merge with previous cell"
+                                                >
+                                                    <i
+                                                        className="codicon codicon-merge"
+                                                        style={{ fontSize: "12px" }}
+                                                    />
+                                                </Button>
+                                            </div>
+                                        )}
+                                    {isSourceText && isCorrectionEditorMode && cell.merged && (
                                         <div style={{ flexShrink: 0 }}>
                                             <Button
                                                 variant="ghost"
@@ -978,42 +1046,21 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                     alignItems: "center",
                                                     justifyContent: "center",
                                                 }}
-                                                onClick={handleMergeWithPrevious}
-                                                title="Merge with previous cell"
+                                                onClick={handleCancelMerge}
+                                                title="Cancel merge"
                                             >
                                                 <i
-                                                    className="codicon codicon-merge"
+                                                    className="codicon codicon-debug-step-back"
                                                     style={{ fontSize: "12px" }}
                                                 />
                                             </Button>
                                         </div>
                                     )}
-                                {isSourceText && isCorrectionEditorMode && cell.merged && (
-                                    <div style={{ flexShrink: 0 }}>
-                                        <Button
-                                            variant="ghost"
-                                            style={{
-                                                height: "16px",
-                                                width: "16px",
-                                                padding: 0,
-                                                display: "flex",
-                                                alignItems: "center",
-                                                justifyContent: "center",
-                                            }}
-                                            onClick={handleCancelMerge}
-                                            title="Cancel merge"
-                                        >
-                                            <i
-                                                className="codicon codicon-debug-step-back"
-                                                style={{ fontSize: "12px" }}
-                                            />
-                                        </Button>
-                                    </div>
-                                )}
+                                </div>
+                                {getAlertDot()}
                             </div>
-                            {getAlertDot()}
-                        </div>
-                    )}
+                        )}
+                    </div>
                 </div>
 
                 {/* Right side: wrappable label + content */}
@@ -1028,21 +1075,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 >
                     {/* Cell label - shown after line number when present */}
                     {label && (
-                        <div
-                            className="cell-label-text text-primary inline-block text-right relative -top-[2px] ml-px"
-                            style={{
-                                fontWeight:
-                                    cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
-                                        ? 500
-                                        : "normal",
-                                lineHeight: 1.2,
-                                overflowWrap: "anywhere",
-                                flexBasis: forceLabelTopRow ? "100%" : "auto",
-                            }}
-                            title={label}
-                        >
-                            {label}
-                        </div>
+                        <CellLabelText
+                            label={label}
+                            cellDisplayMode={cellDisplayMode}
+                            forceLabelTopRow={forceLabelTopRow}
+                        />
                     )}
                     <div
                         className={`flex-1 min-w-0 min-h-[1rem] ${

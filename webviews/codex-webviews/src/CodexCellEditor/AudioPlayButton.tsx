@@ -30,11 +30,17 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = ({
             const message = event.data;
 
             if (message.type === "providerSendsAudioAttachments") {
-                if (audioUrl && audioUrl.startsWith("blob:")) {
-                    URL.revokeObjectURL(audioUrl);
+                // Only clear cached URL if this cell's availability actually changed to a different state
+                const attachments = message.attachments || {};
+                const newState = attachments[cellId];
+                if (typeof newState !== "undefined") {
+                    // If we previously had no audio URL and still don't, no-op; avoid churn
+                    if (audioUrl && audioUrl.startsWith("blob:")) {
+                        URL.revokeObjectURL(audioUrl);
+                    }
+                    setAudioUrl(null);
+                    setIsLoading(false);
                 }
-                setAudioUrl(null);
-                setIsLoading(false);
             }
 
             if (message.type === "providerSendsAudioData" && message.content.cellId === cellId) {

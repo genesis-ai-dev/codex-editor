@@ -235,7 +235,24 @@ export const useVSCodeMessageHandler = ({
                     break;
                 case "providerSendsAudioAttachments":
                     if (message.attachments) {
-                        setAudioAttachments(message.attachments);
+                        // Merge incrementally and only trigger state update if a value actually changes
+                        setAudioAttachments((prev: any) => {
+                            try {
+                                const incoming = message.attachments as Record<string, string>;
+                                let changed = false;
+                                const next = { ...(prev || {}) } as Record<string, string>;
+                                for (const key of Object.keys(incoming)) {
+                                    const val = incoming[key as keyof typeof incoming];
+                                    if (next[key] !== val) {
+                                        next[key] = val as any;
+                                        changed = true;
+                                    }
+                                }
+                                return changed ? (next as any) : prev;
+                            } catch {
+                                return message.attachments;
+                            }
+                        });
                     }
                     break;
                 case "providerSendsABTestVariants":
