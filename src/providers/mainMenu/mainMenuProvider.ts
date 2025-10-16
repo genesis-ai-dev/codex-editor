@@ -23,8 +23,7 @@ import { SyncManager } from "../../projectManager/syncManager";
 import { manualUpdateCheck } from "../../utils/updateChecker";
 import { CommentsMigrator } from "../../utils/commentsMigrationUtils";
 import * as path from "path";
-import { PublishProjectView } from "../../../webviews/codex-webviews/src/MainMenu/PublishProjectView";
-
+import { PublishProjectView } from "../publishProjectView/PublishProjectView";
 const DEBUG_MODE = false; // Set to true to enable debug logging
 
 function debugLog(...args: any[]): void {
