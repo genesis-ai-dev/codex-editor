@@ -103,7 +103,11 @@ const AudioPlayButton: React.FC<{
                         .then((res) => res.blob())
                         .then((blob) => {
                             const blobUrl = URL.createObjectURL(blob);
-                            try { setCachedAudioDataUrl(cellId, message.content.audioData); } catch { /* empty */ }
+                            try {
+                                setCachedAudioDataUrl(cellId, message.content.audioData);
+                            } catch {
+                                /* empty */
+                            }
                             setAudioUrl(blobUrl);
                             setIsLoading(false);
                             if (pendingPlayRef.current) {
@@ -274,7 +278,9 @@ const AudioPlayButton: React.FC<{
                 isLoading
                     ? "Preparing audio..."
                     : state === "available"
-                    ? (audioUrl || getCachedAudioDataUrl(cellId) ? "Play" : "Download")
+                    ? audioUrl || getCachedAudioDataUrl(cellId)
+                        ? "Play"
+                        : "Download"
                     : state === "missing"
                     ? "Missing audio"
                     : "Record"
@@ -1033,7 +1039,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         </div>
                     )}
                     <div
-                        className={`flex-1 min-w-0 min-h-[1rem] ${lineNumbersEnabled ? "pr-[0.25rem]" : "px-[0.25rem]"}`}
+                        className={`flex-1 min-w-0 min-h-[1rem] ${
+                            lineNumbersEnabled ? "pr-[0.25rem]" : "px-[0.25rem]"
+                        }`}
                     >
                         {renderContent()}
                     </div>
