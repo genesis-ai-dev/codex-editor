@@ -42,7 +42,7 @@ interface CellContentDisplayProps {
     handleCellTranslation?: (cellId: string) => void;
     handleCellClick: (cellId: string) => void;
     cellDisplayMode: CELL_DISPLAY_MODES;
-    audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" | "missing" };
+    audioAttachments?: { [cellId: string]: "available" | "available-local" | "available-pointer" | "deletedOnly" | "none" | "missing" };
     footnoteOffset?: number; // Starting footnote number for this cell
     isCorrectionEditorMode?: boolean; // Whether correction editor mode is active
     translationUnits?: QuillCellContent[]; // Full list of translation units for finding previous cell
@@ -65,7 +65,7 @@ function debug(message: string, ...args: any[]): void {
 const AudioPlayButton: React.FC<{
     cellId: string;
     vscode: WebviewApi<unknown>;
-    state?: "available" | "missing" | "deletedOnly" | "none";
+    state?: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
     onOpenCell?: (cellId: string) => void;
 }> = React.memo(({ cellId, vscode, state = "available", onOpenCell }) => {
     const [isPlaying, setIsPlaying] = useState(false);
@@ -164,7 +164,7 @@ const AudioPlayButton: React.FC<{
     const handlePlayAudio = async () => {
         try {
             // For any non-available state, open editor on audio tab and auto-start recording
-            if (state !== "available") {
+            if (state !== "available" && state !== "available-local" && state !== "available-pointer") {
                 // For missing audio, just open the editor without auto-starting recording
                 if (state !== "missing") {
                     try {
@@ -233,8 +233,8 @@ const AudioPlayButton: React.FC<{
 
     // Decide icon color/style based on state
     const { iconClass, color, titleSuffix } = (() => {
-        // Locally available or cached
-        if (state === "available" && (audioUrl || getCachedAudioDataUrl(cellId))) {
+        // If we already have audio bytes (from cache or just streamed), show Play regardless of pointer/local state
+        if (audioUrl || getCachedAudioDataUrl(cellId)) {
             return {
                 iconClass: isLoading
                     ? "codicon-loading codicon-modifier-spin"
@@ -245,14 +245,26 @@ const AudioPlayButton: React.FC<{
                 titleSuffix: "(available)",
             } as const;
         }
-        // Available remotely, not cached locally yet → play with cloud
-        if (state === "available") {
+        // Local file present but not yet loaded into memory
+        if (state === "available-local") {
+            return {
+                iconClass: isLoading
+                    ? "codicon-loading codicon-modifier-spin"
+                    : isPlaying
+                    ? "codicon-debug-stop"
+                    : "codicon-play",
+                color: "var(--vscode-charts-blue)",
+                titleSuffix: "(local)",
+            } as const;
+        }
+        // Available remotely/downloadable or pointer-only → show cloud
+        if (state === "available" || state === "available-pointer") {
             return {
                 iconClass: isLoading
                     ? "codicon-loading codicon-modifier-spin"
                     : "codicon-cloud-download", // cloud behind play
                 color: "var(--vscode-charts-blue)",
-                titleSuffix: "(in cloud)",
+                titleSuffix: state === "available-pointer" ? "(pointer)" : "(in cloud)",
             } as const;
         }
         if (state === "missing") {
@@ -277,10 +289,10 @@ const AudioPlayButton: React.FC<{
             title={
                 isLoading
                     ? "Preparing audio..."
-                    : state === "available"
-                    ? audioUrl || getCachedAudioDataUrl(cellId)
-                        ? "Play"
-                        : "Download"
+                    : state === "available" || state === "available-pointer"
+                    ? (audioUrl || getCachedAudioDataUrl(cellId) ? "Play" : "Download")
+                    : state === "available-local"
+                    ? "Play"
                     : state === "missing"
                     ? "Missing audio"
                     : "Record"
@@ -886,6 +898,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                             isSourceText &&
                                                             !(
                                                                 audioState === "available" ||
+                                                                audioState === "available-local" ||
+                                                                audioState === "available-pointer" ||
                                                                 audioState === "missing"
                                                             )
                                                         )

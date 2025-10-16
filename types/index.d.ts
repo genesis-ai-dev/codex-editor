@@ -1778,7 +1778,8 @@ type EditorReceiveMessages =
     }
     | {
         type: "providerSendsAudioAttachments";
-        attachments: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; };
+        // Availability now distinguishes between real local files vs LFS pointer placeholders
+        attachments: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; };
     }
     | {
         type: "providerSendsAudioData";

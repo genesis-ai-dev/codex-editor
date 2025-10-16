@@ -3,7 +3,7 @@ import { getCachedAudioDataUrl, setCachedAudioDataUrl } from "../lib/audioCache"
 import type { WebviewApi } from "vscode-webview";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 
-type AudioState = "available" | "missing" | "deletedOnly" | "none";
+type AudioState = "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
 
 interface AudioPlayButtonProps {
     cellId: string;
@@ -144,9 +144,22 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = ({
     };
 
     const { iconClass, color } = (() => {
-        if (state === "available") {
+        // If we already have an audio URL, always show Play (post-stream or cache)
+        if (audioUrl) {
             return {
                 iconClass: isPlaying ? "codicon-debug-stop" : "codicon-play",
+                color: "var(--vscode-charts-blue)",
+            } as const;
+        }
+        if (state === "available" || state === "available-local") {
+            return {
+                iconClass: isPlaying ? "codicon-debug-stop" : "codicon-play",
+                color: "var(--vscode-charts-blue)",
+            } as const;
+        }
+        if (state === "available-pointer") {
+            return {
+                iconClass: isPlaying ? "codicon-debug-stop" : "codicon-cloud-download",
                 color: "var(--vscode-charts-blue)",
             } as const;
         }
@@ -166,8 +179,10 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = ({
             title={
                 isLoading
                     ? "Preparing audio..."
-                    : state === "available"
+                    : state === "available" || state === "available-local"
                     ? "Play"
+                    : state === "available-pointer"
+                    ? "Download"
                     : state === "missing"
                     ? "Missing audio"
                     : "Record"

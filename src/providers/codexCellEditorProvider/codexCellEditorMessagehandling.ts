@@ -1598,7 +1598,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             }
             const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
-            const availability: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; } = {} as any;
+            const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {} as any;
 
             for (const cell of cells) {
                 const cellId = cell?.metadata?.id;
@@ -1784,13 +1784,14 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             }
             const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
-            const availability: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; } = {} as any;
+            const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {} as any;
             let validatedByArray: ValidationEntry[] = [];
 
             for (const cell of cells) {
                 const cellId = cell?.metadata?.id;
                 if (!cellId) continue;
                 let hasAvailable = false;
+                let hasAvailablePointer = false;
                 let hasMissing = false;
                 let hasDeleted = false;
                 const atts = cell?.metadata?.attachments || {};
@@ -1803,7 +1804,22 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         } else if (att.isMissing) {
                             hasMissing = true;
                         } else {
-                            hasAvailable = true;
+                            // Differentiate pointer vs real file by inspecting attachments/files path
+                            try {
+                                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                                const url = String(att.url || "");
+                                if (ws && url) {
+                                    const filesPath = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+                                    const abs = path.join(ws.uri.fsPath, filesPath);
+                                    const { isPointerFile } = await import("../../utils/lfsHelpers");
+                                    const isPtr = await isPointerFile(abs).catch(() => false);
+                                    if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
+                                } else {
+                                    hasAvailable = true;
+                                }
+                            } catch {
+                                hasAvailable = true;
+                            }
                         }
                     }
 
@@ -1812,7 +1828,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         validatedByArray = [...validatedBy];
                     }
                 }
-                availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                availability[cellId] = hasAvailable
+                    ? "available-local"
+                    : hasAvailablePointer
+                        ? "available-pointer"
+                        : hasMissing
+                            ? "missing"
+                            : hasDeleted
+                                ? "deletedOnly"
+                                : "none";
             }
 
             provider.postMessageToWebview(webviewPanel, {

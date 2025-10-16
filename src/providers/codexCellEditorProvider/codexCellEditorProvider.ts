@@ -554,6 +554,58 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 type: "providerUpdatesNotebookMetadataForWebview",
                 content: notebookData.metadata,
             });
+
+            // After sending initial content, send refined audio availability with pointer detection
+            try {
+                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (ws && Array.isArray(notebookData?.cells)) {
+                    const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
+                    for (const cell of notebookData.cells as any[]) {
+                        const cellId = cell?.metadata?.id;
+                        if (!cellId) continue;
+                        let hasAvailable = false; let hasAvailablePointer = false; let hasMissing = false; let hasDeleted = false;
+                        const atts = cell?.metadata?.attachments || {};
+                        for (const key of Object.keys(atts)) {
+                            const att: any = atts[key];
+                            if (att && att.type === "audio") {
+                                if (att.isDeleted) hasDeleted = true;
+                                else if (att.isMissing) hasMissing = true;
+                                else {
+                                    try {
+                                        const url = String(att.url || "");
+                                        if (url) {
+                                            const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+                                            const abs = path.join(ws.uri.fsPath, filesRel);
+                                            const { isPointerFile } = await import("../../utils/lfsHelpers");
+                                            const isPtr = await isPointerFile(abs).catch(() => false);
+                                            if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
+                                        } else {
+                                            hasAvailable = true;
+                                        }
+                                    } catch { hasAvailable = true; }
+                                }
+                            }
+                        }
+                        availability[cellId] = hasAvailable
+                            ? "available-local"
+                            : hasAvailablePointer
+                                ? "available-pointer"
+                                : hasMissing
+                                    ? "missing"
+                                    : hasDeleted
+                                        ? "deletedOnly"
+                                        : "none";
+                    }
+                    if (Object.keys(availability).length > 0) {
+                        this.postMessageToWebview(webviewPanel, {
+                            type: "providerSendsAudioAttachments",
+                            attachments: availability as any,
+                        });
+                    }
+                }
+            } catch (e) {
+                debug("Failed to compute refined audio availability", e);
+            }
         };
 
         // Function to update audio attachments for a specific cell when files change externally
@@ -568,7 +620,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 }
 
                 const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
-                const availability: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; } = {};
+                const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
 
                 // Only update the specific cell that changed
                 const cell = cells.find((cell: any) => cell?.metadata?.id === cellId);
@@ -3375,14 +3427,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 }
 
                 const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
-                const availability: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; } = {};
+                const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
 
                 // Check audio availability for all cells
                 for (const cell of cells) {
                     const cellId = cell?.metadata?.id;
                     if (!cellId) continue;
 
-                    let hasAvailable = false;
+                    let hasAvailable = false; let hasAvailablePointer = false;
                     let hasMissing = false;
                     let hasDeleted = false;
                     const atts = cell?.metadata?.attachments || {};
@@ -3392,11 +3444,35 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         if (att && att.type === "audio") {
                             if (att.isDeleted) hasDeleted = true;
                             else if (att.isMissing) hasMissing = true;
-                            else hasAvailable = true;
+                            else {
+                                try {
+                                    const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                                    const url = String(att.url || "");
+                                    if (ws && url) {
+                                        const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+                                        const abs = path.join(ws.uri.fsPath, filesRel);
+                                        const { isPointerFile } = await import("../../utils/lfsHelpers");
+                                        const res = await isPointerFile(abs).catch(() => false);
+                                        if (res) hasAvailablePointer = true; else hasAvailable = true;
+                                    } else {
+                                        hasAvailable = true;
+                                    }
+                                } catch {
+                                    hasAvailable = true;
+                                }
+                            }
                         }
                     }
 
-                    availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                    availability[cellId] = hasAvailable
+                        ? "available-local"
+                        : hasAvailablePointer
+                            ? "available-pointer"
+                            : hasMissing
+                                ? "missing"
+                                : hasDeleted
+                                    ? "deletedOnly"
+                                    : "none";
                 }
 
                 // Send updated audio attachments to webview

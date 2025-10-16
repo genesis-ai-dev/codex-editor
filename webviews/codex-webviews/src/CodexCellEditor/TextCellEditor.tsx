@@ -1568,11 +1568,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                 const availability = (message.attachments || {}) as Record<
                     string,
-                    "available" | "deletedOnly" | "none"
+                    "available" | "available-local" | "available-pointer" | "deletedOnly" | "none"
                 >;
                 const stateForCell = availability[cellMarkers[0]];
 
-                if (stateForCell === "available") {
+                if (stateForCell === "available" || stateForCell === "available-local" || stateForCell === "available-pointer") {
                     // We have audio for this cell; request the actual data once
                     setIsAudioLoading(true);
                     const messageContent: EditorPostMessages = {
