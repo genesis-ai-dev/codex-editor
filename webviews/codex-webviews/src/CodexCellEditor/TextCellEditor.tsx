@@ -1702,6 +1702,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
         [cellMarkers, audioBlob, isAudioLoading, centerEditor]
     );
 
+    const displayEditableLabel = () => {
+        if (editableLabel !== "") {
+            return editableLabel;
+        }
+        
+        return <span className="font-normal text-base text-gray-500 italic">Enter label...</span>;
+    };
+
     // Listen for audio history responses and update hasAudioHistory
     useMessageHandler(
         "textCellEditor-audioHistoryResponse",
@@ -1760,7 +1768,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             {cellType !== CodexCellTypes.PARATEXT && (
                                 <div className="flex items-center gap-x-1" title="Edit cell label">
                                     <span className="text-lg font-semibold muted-foreground">
-                                        {(editableLabel || cellLabel) ?? "Enter label..."}
+                                        {displayEditableLabel()}
                                     </span>
                                     <Button
                                         variant="ghost"
