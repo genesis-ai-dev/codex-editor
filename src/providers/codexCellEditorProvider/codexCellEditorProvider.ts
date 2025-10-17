@@ -583,28 +583,57 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 else {
                                     try {
                                         const url = String(att.url || "");
-                                        if (url) {
+                                        if (ws && url) {
                                             const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
-                                            const abs = path.join(ws.uri.fsPath, filesRel);
-                                            const { isPointerFile } = await import("../../utils/lfsHelpers");
-                                            const isPtr = await isPointerFile(abs).catch(() => false);
-                                            if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
+                                            const filesAbs = path.join(ws.uri.fsPath, filesRel);
+                                            try {
+                                                await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
+                                                const { isPointerFile } = await import("../../utils/lfsHelpers");
+                                                const isPtr = await isPointerFile(filesAbs).catch(() => false);
+                                                if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
+                                            } catch {
+                                                const pointerAbs = filesAbs.includes("/.project/attachments/files/")
+                                                    ? filesAbs.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
+                                                    : filesAbs.replace(".project/attachments/files/", ".project/attachments/pointers/");
+                                                try {
+                                                    await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
+                                                    hasAvailablePointer = true;
+                                                } catch {
+                                                    hasMissing = true;
+                                                }
+                                            }
                                         } else {
-                                            hasAvailable = true;
+                                            hasMissing = true;
                                         }
-                                    } catch { hasAvailable = true; }
+                                    } catch { hasMissing = true; }
                                 }
                             }
                         }
-                        availability[cellId] = hasAvailable
-                            ? "available-local"
-                            : hasAvailablePointer
-                                ? "available-pointer"
-                                : hasMissing
-                                    ? "missing"
-                                    : hasDeleted
-                                        ? "deletedOnly"
-                                        : "none";
+                        // Determine provisional state before version gate
+                        let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+                        if (hasAvailable) state = "available-local";
+                        else if (hasAvailablePointer) state = "available-pointer";
+                        else if (hasMissing) state = "missing";
+                        else if (hasDeleted) state = "deletedOnly";
+                        else state = "none";
+
+                        // If Frontier installed version is below minimum, any non-local availability
+                        // should present as "available-pointer" (cloud/download) to avoid Play UI.
+                        if (state !== "available-local") {
+                            try {
+                                const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
+                                const status = await getFrontierVersionStatus();
+                                if (!status.ok) {
+                                    if (state !== "missing" && state !== "deletedOnly" && state !== "none") {
+                                        state = "available-pointer"; // normalize to non-playable
+                                    }
+                                }
+                            } catch {
+                                // On failure to check, leave state unchanged
+                            }
+                        }
+
+                        availability[cellId] = state as any;
                     }
                     if (Object.keys(availability).length > 0) {
                         this.postMessageToWebview(webviewPanel, {
@@ -619,7 +648,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         };
 
         // Function to update audio attachments for a specific cell when files change externally
-        const updateAudioAttachmentsForCell = (webviewPanel: vscode.WebviewPanel, document: CodexCellDocument, cellId: string) => {
+        const updateAudioAttachmentsForCell = async (webviewPanel: vscode.WebviewPanel, document: CodexCellDocument, cellId: string) => {
             debug("Updating audio attachments for cell:", cellId);
 
             try {
@@ -636,6 +665,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 const cell = cells.find((cell: any) => cell?.metadata?.id === cellId);
                 if (cell) {
                     let hasAvailable = false;
+                    let hasAvailablePointer = false;
                     let hasMissing = false;
                     let hasDeleted = false;
                     const atts = cell?.metadata?.attachments || {};
@@ -644,10 +674,45 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         if (att && att.type === "audio") {
                             if (att.isDeleted) hasDeleted = true;
                             else if (att.isMissing) hasMissing = true;
-                            else hasAvailable = true;
+                            else {
+                                try {
+                                    const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                                    const url = String(att.url || "");
+                                    if (ws && url) {
+                                        const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+                                        const abs = path.join(ws.uri.fsPath, filesRel);
+                                        const { isPointerFile } = await import("../../utils/lfsHelpers");
+                                        const isPtr = await isPointerFile(abs).catch(() => false);
+                                        if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
+                                    } else {
+                                        hasAvailable = true;
+                                    }
+                                } catch { hasAvailable = true; }
+                            }
                         }
                     }
-                    availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+
+                    // Determine provisional state, then apply version gate
+                    let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+                    if (hasAvailable) state = "available-local";
+                    else if (hasAvailablePointer) state = "available-pointer";
+                    else if (hasMissing) state = "missing";
+                    else if (hasDeleted) state = "deletedOnly";
+                    else state = "none";
+
+                    if (state !== "available-local") {
+                        try {
+                            const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
+                            const status = await getFrontierVersionStatus();
+                            if (!status.ok) {
+                                if (state !== "missing" && state !== "deletedOnly" && state !== "none") {
+                                    state = "available-pointer";
+                                }
+                            }
+                        } catch { /* ignore */ }
+                    }
+
+                    availability[cellId] = state as any;
 
                     // Send targeted update for this specific cell
                     safePostMessageToPanel(webviewPanel, {
