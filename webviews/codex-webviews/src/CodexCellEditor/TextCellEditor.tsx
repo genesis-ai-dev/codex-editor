@@ -123,7 +123,15 @@ interface CellEditorProps {
     footnoteOffset?: number;
     prevEndTime?: number;
     nextStartTime?: number;
-    audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" | "missing" };
+    audioAttachments?: {
+        [cellId: string]:
+            | "available"
+            | "available-local"
+            | "available-pointer"
+            | "deletedOnly"
+            | "none"
+            | "missing";
+    };
     requiredValidations?: number;
     requiredAudioValidations?: number;
     currentUsername?: string | null;
@@ -331,6 +339,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         model: string;
         language: string; // ISO-639-3 expected by MMS; may be ISO-639-1 and mapped
         phonetic: boolean;
+        authToken?: string;
     } | null>(null);
 
     // Helper to smoothly center the editor. Coalesces multiple calls and
@@ -1321,7 +1330,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             const wsEndpoint =
                 asrConfig?.endpoint ||
                 "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe";
-            const client = new WhisperTranscriptionClient(wsEndpoint);
+            const client = new WhisperTranscriptionClient(wsEndpoint, asrConfig?.authToken);
             transcriptionClientRef.current = client;
 
             // Set up progress handler
@@ -1510,14 +1519,26 @@ const CellEditor: React.FC<CellEditorProps> = ({
             setShowRecorder(true);
             return;
         }
-        setAudioFetchPending(true);
-        // Show loading immediately while we request audio data
-        setIsAudioLoading(true);
-        const messageContent: EditorPostMessages = {
-            command: "requestAudioForCell",
-            content: { cellId: cellMarkers[0] },
-        };
-        window.vscodeApi.postMessage(messageContent);
+        // Respect auto-download toggle: only fetch when enabled or when the file is already local
+        const autoInit = (window as any).__autoDownloadAudioOnOpenInitialized;
+        const autoFlag = (window as any).__autoDownloadAudioOnOpen;
+        // Default to false if not initialized to match disk default
+        const shouldAutoDownload = autoInit ? !!autoFlag : false;
+        const stateForCell = audioAttachments?.[cellMarkers[0]];
+        const isLocal = stateForCell === "available-local";
+        if (shouldAutoDownload || isLocal) {
+            setAudioFetchPending(true);
+            setIsAudioLoading(true);
+            const messageContent: EditorPostMessages = {
+                command: "requestAudioForCell",
+                content: { cellId: cellMarkers[0] },
+            };
+            window.vscodeApi.postMessage(messageContent);
+        } else {
+            // Do not auto-fetch; wait for user click (AudioPlayButton will send request)
+            setIsAudioLoading(false);
+            setAudioFetchPending(false);
+        }
     }, [cellMarkers, audioBlob, audioAttachments]);
 
     // Load existing audio when component mounts
@@ -1568,12 +1589,20 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                 const availability = (message.attachments || {}) as Record<
                     string,
-                    "available" | "deletedOnly" | "none"
+                    "available" | "available-local" | "available-pointer" | "deletedOnly" | "none"
                 >;
                 const stateForCell = availability[cellMarkers[0]];
 
-                if (stateForCell === "available") {
-                    // We have audio for this cell; request the actual data once
+                const autoInit = (window as any).__autoDownloadAudioOnOpenInitialized;
+                const autoFlag = (window as any).__autoDownloadAudioOnOpen;
+                const shouldAutoDownload = autoInit ? !!autoFlag : false;
+
+                if (
+                    (stateForCell === "available" ||
+                        stateForCell === "available-local" ||
+                        stateForCell === "available-pointer") &&
+                    shouldAutoDownload
+                ) {
                     setIsAudioLoading(true);
                     const messageContent: EditorPostMessages = {
                         command: "requestAudioForCell",
@@ -1706,7 +1735,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         if (editableLabel !== "") {
             return editableLabel;
         }
-        
+
         return <span className="font-normal text-base text-gray-500 italic">Enter label...</span>;
     };
 
@@ -2520,7 +2549,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                                 {isAudioLoading || audioFetchPending ? (
                                     <div className="bg-[var(--vscode-editor-background)] p-3 rounded-md border border-[var(--vscode-panel-border)] text-center text-[var(--vscode-descriptionForeground)]">
-                                        Loading audio...
+                                        {audioAttachments && (
+                                            (audioAttachments[cellMarkers[0]] === "available" ||
+                                                audioAttachments[cellMarkers[0]] === "available-pointer")
+                                        ) ? "Downloading audio..." : "Loading audio..."}
                                     </div>
                                 ) : showRecorder ||
                                   !audioUrl ||
@@ -2532,8 +2564,34 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     <div className="bg-[var(--vscode-editor-background)] p-3 sm:p-4 rounded-md shadow w-full">
                                         {!audioUrl && (
                                             <div className="bg-[var(--vscode-editor-background)] p-3 rounded-md shadow-sm">
-                                                <div className="flex items-center justify-center h-16 text-[var(--vscode-foreground)] text-sm">
-                                                    <span>No audio attached to this cell yet.</span>
+                                                <div className="flex items-center justify-center h-20 text-[var(--vscode-foreground)] text-sm">
+                                                    {audioAttachments && (
+                                                        audioAttachments[cellMarkers[0]] === "available" ||
+                                                        audioAttachments[cellMarkers[0]] === "available-pointer"
+                                                    ) ? (
+                                                        <div className="flex flex-col items-center gap-2">
+                                                            <Button
+                                                            onClick={() => {
+                                                                setIsAudioLoading(true);
+                                                                setAudioFetchPending(true);
+                                                                const messageContent: EditorPostMessages = {
+                                                                    command: "requestAudioForCell",
+                                                                    content: { cellId: cellMarkers[0] },
+                                                                };
+                                                                window.vscodeApi.postMessage(messageContent);
+                                                            }}
+                                                            className="h-9 px-3 text-sm"
+                                                        >
+                                                            <i className="codicon codicon-cloud-download mr-1" />
+                                                            Click to download
+                                                            </Button>
+                                                            <div className="text-xs text-muted-foreground">
+                                                                You can enable auto-download in settings
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <span>No audio attached to this cell yet.</span>
+                                                    )}
                                                 </div>
                                             </div>
                                         )}

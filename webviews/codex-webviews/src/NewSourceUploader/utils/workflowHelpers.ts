@@ -98,7 +98,7 @@ export const sanitizeFileName = (fileName: string): string => {
  */
 export const splitContentIntoSegments = (
     content: string,
-    splitStrategy: 'paragraphs' | 'lines' | 'sections' = 'paragraphs'
+    splitStrategy: 'paragraphs' | 'lines' | 'sections' | 'sentences' = 'paragraphs'
 ): string[] => {
     switch (splitStrategy) {
         case 'paragraphs':
@@ -119,6 +119,14 @@ export const splitContentIntoSegments = (
                 .split(/(?=^#{1,6}\s)|(?=^.+\n={3,})|(?=^.+\n-{3,})|\n\s*\n\s*\n/m)
                 .map(section => section.trim())
                 .filter(section => section.length > 0);
+
+        case 'sentences':
+            // Split on sentence boundaries while preserving abbreviations
+            // Matches: . ! ? followed by space/newline/end, but not abbreviations like Dr. Mr. etc.
+            return content
+                .split(/(?<=[.!?])\s+(?=[A-Z])|(?<=[.!?])[\r\n]+/)
+                .map(sentence => sentence.trim())
+                .filter(sentence => sentence.length > 0);
 
         default:
             return [content];

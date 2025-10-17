@@ -16,10 +16,57 @@ function debug(message: string, ...args: any[]): void {
     }
 }
 
+// Pre-initialize pdf-parse module to work around test file bug
+// The library has a known issue where it tries to access a test file on first require()
+let pdfParseModule: any = null;
+let pdfParseInitialized = false;
+
+async function initializePdfParse(): Promise<void> {
+    if (pdfParseInitialized) {
+        return;
+    }
+
+    try {
+        console.log('[PDF] Initializing pdf-parse module...');
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        pdfParseModule = require('pdf-parse');
+        console.log('[PDF] Module loaded successfully');
+        pdfParseInitialized = true;
+    } catch (err: any) {
+        // Known bug: first require() may throw ENOENT for test file
+        const msg = String(err?.message || '');
+        const isKnownBug = /ENOENT/.test(msg) && /05-versions-space\.pdf/.test(msg);
+
+        if (isKnownBug) {
+            console.log('[PDF] Known test file error during initialization, retrying...');
+            // Wait a bit and try again
+            await new Promise(resolve => setTimeout(resolve, 100));
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                pdfParseModule = require('pdf-parse');
+                console.log('[PDF] Module loaded successfully on retry');
+                pdfParseInitialized = true;
+            } catch (retryErr) {
+                console.error('[PDF] Failed to initialize pdf-parse after retry:', retryErr);
+                // Mark as initialized anyway to prevent repeated attempts
+                pdfParseInitialized = true;
+            }
+        } else {
+            console.error('[PDF] Unexpected error initializing pdf-parse:', err);
+            pdfParseInitialized = true;
+        }
+    }
+}
+
 export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvider {
     public static readonly viewType = "newSourceUploaderProvider";
 
-    constructor(private readonly context: vscode.ExtensionContext) { }
+    constructor(private readonly context: vscode.ExtensionContext) {
+        // Initialize pdf-parse module early to trigger and handle the test file bug
+        initializePdfParse().catch(err => {
+            console.error('[PDF] Module initialization failed:', err);
+        });
+    }
 
     async openCustomDocument(
         uri: vscode.Uri,
@@ -136,6 +183,63 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 } else if (message.command === "downloadResource") {
                     // Handle generic plugin download requests
                     await this.handleDownloadResource(message, webviewPanel);
+                } else if (message.command === "extractPdfText") {
+                    const { requestId, dataBase64 } = message as { requestId: string; dataBase64: string; fileName?: string; };
+                    try {
+                        // Ensure pdf-parse is initialized
+                        await initializePdfParse();
+
+                        if (!pdfParseModule) {
+                            throw new Error('PDF parser module failed to initialize');
+                        }
+
+                        const base64 = (dataBase64 || '').includes(',') ? (dataBase64 || '').split(',').pop() || '' : (dataBase64 || '');
+                        const buffer = Buffer.from(base64, 'base64');
+                        if (!buffer.length) {
+                            throw new Error('Empty PDF payload from webview');
+                        }
+
+                        // Use the pre-initialized module
+                        const pdfParse = pdfParseModule as (data: Buffer | { data: Buffer; }) => Promise<{ text: string; }>;
+
+                        console.log(`[PDF] Parsing PDF with buffer size: ${buffer.length} bytes`);
+
+                        // Try both data formats
+                        let text = '';
+                        try {
+                            // Try wrapper format first
+                            const result = await pdfParse({ data: buffer });
+                            text = result?.text || '';
+                            console.log(`[PDF] ✓ Successfully extracted ${text.length} characters (wrapper format)`);
+                        } catch (e1: any) {
+                            console.log(`[PDF] Wrapper format failed, trying raw buffer format`);
+                            try {
+                                // Try raw buffer format
+                                const result = await pdfParse(buffer);
+                                text = result?.text || '';
+                                console.log(`[PDF] ✓ Successfully extracted ${text.length} characters (raw format)`);
+                            } catch (e2: any) {
+                                const msg = String(e2?.message || e1?.message || '');
+                                console.error('[PDF] All parsing attempts failed:', { e1: e1?.message, e2: e2?.message });
+                                throw new Error(`PDF parsing failed: ${msg}`);
+                            }
+                        }
+
+                        webviewPanel.webview.postMessage({
+                            command: 'extractPdfTextResult',
+                            requestId,
+                            success: true,
+                            text
+                        });
+                    } catch (err) {
+                        console.error('[NEW SOURCE UPLOADER] PDF extraction failed:', err);
+                        webviewPanel.webview.postMessage({
+                            command: 'extractPdfTextResult',
+                            requestId,
+                            success: false,
+                            error: err instanceof Error ? err.message : 'Unknown error'
+                        });
+                    }
                 } else if (message.command === "fetchTargetFile") {
                     // Fetch target file content for translation imports
                     const { sourceFilePath } = message;
@@ -237,6 +341,13 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             }),
             ...(processedNotebook.metadata.mammothMessages && {
                 mammothMessages: processedNotebook.metadata.mammothMessages
+            }),
+            // Preserve DOCX round-trip structure
+            ...((processedNotebook.metadata as any)?.docxDocument && {
+                docxDocument: (processedNotebook.metadata as any).docxDocument
+            }),
+            ...((processedNotebook.metadata as any)?.originalHash && {
+                originalHash: (processedNotebook.metadata as any).originalHash
             }),
         } as any; // Cast to any to allow custom fields
 

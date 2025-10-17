@@ -25,7 +25,7 @@ export async function isPointerFile(filePath: string): Promise<boolean> {
 
         // Quick check: LFS pointers are always < 200 bytes
         // Real media files are always much larger
-        if (stats.size > 200) {
+        if (stats.size > 400) {
             return false;
         }
 

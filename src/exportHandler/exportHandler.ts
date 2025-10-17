@@ -301,7 +301,7 @@ export enum CodexExportFormat {
     XLIFF = "xliff",
     CSV = "csv",
     TSV = "tsv",
-    IDML_ROUNDTRIP = "idml-roundtrip",
+    REBUILD_EXPORT = "rebuild-export",
 }
 
 export interface ExportOptions {
@@ -344,14 +344,15 @@ async function exportCodexContentAsIdmlRoundtrip(
                     const fileName = basename(file.fsPath);
                     const bookCode = fileName.split(".")[0] || "";
 
-                    // Detect if this is a Biblica file based on filename pattern
-                    const isBiblicaFile = fileName.toLowerCase().endsWith('-biblica.codex');
-                    const exporterType = isBiblicaFile ? 'Biblica' : 'Standard';
-
-                    console.log(`[IDML Export] Processing ${fileName} using ${exporterType} exporter`);
-
                     // Read codex notebook
                     const codexNotebook = await readCodexNotebookFromUri(file);
+
+                    // Detect if this is a Biblica file based on corpusMarker metadata (more reliable than filename)
+                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker || '';
+                    const isBiblicaFile = corpusMarker === 'biblica' || corpusMarker === 'biblica-idml' || fileName.toLowerCase().endsWith('-biblica.codex');
+                    const exporterType = isBiblicaFile ? 'Biblica' : 'Standard';
+
+                    console.log(`[IDML Export] Processing ${fileName} (corpusMarker: ${corpusMarker}) using ${exporterType} exporter`);
 
                     // Lookup original attachment by originalFileName metadata on the notebook (fallback to {bookCode}.idml)
                     const originalFileName = (codexNotebook.metadata as any)?.originalFileName || `${bookCode}.idml`;
@@ -389,6 +390,342 @@ async function exportCodexContentAsIdmlRoundtrip(
             }
 
             vscode.window.showInformationMessage(`IDML round-trip export completed to ${userSelectedPath}`);
+        }
+    );
+}
+
+// DOCX Round-trip export: Uses experimental DOCX exporter for round-trip functionality
+async function exportCodexContentAsDocxRoundtrip(
+    userSelectedPath: string,
+    filesToExport: string[],
+    _options?: ExportOptions
+) {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) {
+        vscode.window.showErrorMessage("No workspace folder found.");
+        return;
+    }
+
+    const exportFolder = vscode.Uri.file(userSelectedPath);
+    await vscode.workspace.fs.createDirectory(exportFolder);
+
+    return vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: "Exporting DOCX Round-trip (Experimental)",
+            cancellable: false,
+        },
+        async (progress) => {
+            const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
+
+            // Import experimental DOCX exporter
+            const { exportDocxWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/docx/experiment/docxExporter");
+
+            // For each selected codex file, find its original attachment and create a translated copy in export folder
+            for (const [index, filePath] of filesToExport.entries()) {
+                progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
+                try {
+                    const file = vscode.Uri.file(filePath);
+                    const fileName = basename(file.fsPath);
+                    const bookCode = fileName.split(".")[0] || "";
+
+                    console.log(`[DOCX Export] Processing ${fileName} using experimental round-trip exporter`);
+
+                    // Read codex notebook
+                    const codexNotebook = await readCodexNotebookFromUri(file);
+
+                    // Check if this is a round-trip DOCX file
+                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
+                    if (corpusMarker !== 'docx-roundtrip') {
+                        console.warn(`[DOCX Export] Skipping ${fileName} - not imported with round-trip importer (corpusMarker: ${corpusMarker})`);
+                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with DOCX round-trip importer`);
+                        continue;
+                    }
+
+                    // Lookup original attachment by originalFileName metadata
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName || `${bookCode}.docx`;
+                    const originalsDir = vscode.Uri.joinPath(
+                        workspaceFolders[0].uri,
+                        ".project",
+                        "attachments",
+                        "originals"
+                    );
+                    const originalFileUri = vscode.Uri.joinPath(originalsDir, originalFileName);
+
+                    // Load original DOCX
+                    const docxData = await vscode.workspace.fs.readFile(originalFileUri);
+
+                    // Get the stored DOCX document structure
+                    const docxDocument = (codexNotebook.metadata as any)?.docxDocument;
+                    if (!docxDocument) {
+                        throw new Error(`No DOCX document structure found in metadata for ${fileName}`);
+                    }
+
+                    // Export with translations
+                    const updatedDocxData = await exportDocxWithTranslations(
+                        docxData.buffer as ArrayBuffer,
+                        codexNotebook.cells,
+                        docxDocument
+                    );
+
+                    // Save translated DOCX into the chosen export folder
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+                    const exportedName = originalFileName.replace(/\.docx$/i, `_${timestamp}_translated.docx`);
+                    const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
+                    await vscode.workspace.fs.writeFile(exportedUri, new Uint8Array(updatedDocxData));
+
+                    console.log(`[DOCX Export] Round-trip export completed: ${exportedName}`);
+                } catch (err) {
+                    console.error("DOCX round-trip export failed:", err);
+                    vscode.window.showErrorMessage(`DOCX round-trip export failed: ${err instanceof Error ? err.message : String(err)}`);
+                }
+            }
+
+            vscode.window.showInformationMessage(`DOCX round-trip export completed to ${userSelectedPath}`);
+        }
+    );
+}
+
+// PDF Round-trip export
+async function exportCodexContentAsPdfRoundtrip(
+    userSelectedPath: string,
+    filesToExport: string[],
+    _options?: ExportOptions
+) {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) {
+        vscode.window.showErrorMessage("No workspace folder found.");
+        return;
+    }
+
+    const exportFolder = vscode.Uri.file(userSelectedPath);
+    await vscode.workspace.fs.createDirectory(exportFolder);
+
+    return vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: "Exporting PDF Round-trip",
+            cancellable: false,
+        },
+        async (progress) => {
+            const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
+
+            // Import PDF exporter
+            const { exportPdfWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/pdf/pdfExporter");
+
+            // For each selected codex file, find its original attachment and create a translated copy in export folder
+            for (const [index, filePath] of filesToExport.entries()) {
+                progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
+                try {
+                    const file = vscode.Uri.file(filePath);
+                    const fileName = basename(file.fsPath);
+                    const bookCode = fileName.split(".")[0] || "";
+
+                    console.log(`[PDF Export] Processing ${fileName} using PDF exporter`);
+
+                    // Read codex notebook
+                    const codexNotebook = await readCodexNotebookFromUri(file);
+
+                    // Check if this is a PDF file
+                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker || '';
+                    const isPdfFile = corpusMarker === 'pdf' || corpusMarker === 'pdf-importer' || corpusMarker === 'pdf-sentence';
+                    if (!isPdfFile) {
+                        console.warn(`[PDF Export] Skipping ${fileName} - not imported with PDF importer (corpusMarker: ${corpusMarker})`);
+                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with PDF importer`);
+                        continue;
+                    }
+
+                    // Lookup original attachment by originalFileName metadata
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName || `${bookCode}.pdf`;
+                    const originalsDir = vscode.Uri.joinPath(
+                        workspaceFolders[0].uri,
+                        ".project",
+                        "attachments",
+                        "originals"
+                    );
+                    const originalFileUri = vscode.Uri.joinPath(originalsDir, originalFileName);
+
+                    // Load original PDF
+                    const pdfData = await vscode.workspace.fs.readFile(originalFileUri);
+
+                    // Use PDF exporter to create translated PDF
+                    // Convert Uint8Array to proper ArrayBuffer for pdf-lib
+                    const pdfBuffer = new Uint8Array(pdfData).buffer as ArrayBuffer;
+                    const updatedPdfData = await exportPdfWithTranslations(pdfBuffer, codexNotebook.cells);
+
+                    // Save updated PDF into the chosen export folder
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+                    const translatedName = originalFileName.replace(/\.pdf$/i, `_${timestamp}_translated.pdf`);
+                    const translatedUri = vscode.Uri.joinPath(exportFolder, translatedName);
+
+                    await vscode.workspace.fs.writeFile(translatedUri, new Uint8Array(updatedPdfData));
+
+                    console.log(`[PDF Export] ✓ Exported ${translatedName}`);
+
+                } catch (error) {
+                    console.error(`[PDF Export] Error exporting ${filePath}:`, error);
+                    vscode.window.showErrorMessage(`Failed to export ${basename(filePath)}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+            }
+
+            vscode.window.showInformationMessage(`PDF round-trip export completed to ${userSelectedPath}`);
+        }
+    );
+}
+
+/**
+ * Rebuild Export: Intelligently routes files to appropriate exporters based on corpusMarker metadata
+ * This enables round-trip export for multiple file types in a single export operation
+ */
+async function exportCodexContentAsRebuild(
+    userSelectedPath: string,
+    filesToExport: string[],
+    options?: ExportOptions
+) {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) {
+        vscode.window.showErrorMessage("No workspace folder found.");
+        return;
+    }
+
+    return vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: "Rebuilding Exports",
+            cancellable: false,
+        },
+        async (progress) => {
+            // Group files by their corpusMarker (file type)
+            const filesByType: Record<string, string[]> = {};
+            const unsupportedFiles: Array<{ file: string; marker: string; }> = [];
+
+            progress.report({ message: "Analyzing file types...", increment: 10 });
+
+            // Analyze each file's corpusMarker
+            for (const filePath of filesToExport) {
+                try {
+                    const file = vscode.Uri.file(filePath);
+                    const codexNotebook = await readCodexNotebookFromUri(file);
+                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker || 'unknown';
+
+                    console.log(`[Rebuild Export] ${basename(filePath)} -> corpusMarker: ${corpusMarker}`);
+
+                    // Group by supported types
+                    if (corpusMarker === 'docx-roundtrip') {
+                        filesByType['docx'] = filesByType['docx'] || [];
+                        filesByType['docx'].push(filePath);
+                    } else if (
+                        corpusMarker === 'biblica' ||
+                        corpusMarker === 'biblica-idml' ||
+                        corpusMarker === 'idml-roundtrip' ||
+                        corpusMarker.startsWith('idml-')
+                    ) {
+                        // Biblica files and IDML files both use the IDML exporter
+                        filesByType['idml'] = filesByType['idml'] || [];
+                        filesByType['idml'].push(filePath);
+                    } else if (
+                        corpusMarker === 'pdf' ||
+                        corpusMarker === 'pdf-importer' ||  // Backward compatibility
+                        corpusMarker === 'pdf-sentence'     // Backward compatibility
+                    ) {
+                        // PDF files use the PDF exporter
+                        filesByType['pdf'] = filesByType['pdf'] || [];
+                        filesByType['pdf'].push(filePath);
+                    } else {
+                        unsupportedFiles.push({ file: basename(filePath), marker: corpusMarker });
+                    }
+                } catch (error) {
+                    console.error(`[Rebuild Export] Error analyzing ${filePath}:`, error);
+                    unsupportedFiles.push({ file: basename(filePath), marker: 'error' });
+                }
+            }
+
+            // Report analysis results
+            const typeCount = Object.keys(filesByType).length;
+            const supportedCount = Object.values(filesByType).reduce((sum, files) => sum + files.length, 0);
+
+            console.log(`[Rebuild Export] Found ${supportedCount} supported files across ${typeCount} types`);
+            console.log(`[Rebuild Export] File groups:`, Object.keys(filesByType).map(type => `${type}: ${filesByType[type].length}`).join(', '));
+
+            // Export each file type group
+            let processedCount = 0;
+            const totalFiles = supportedCount;
+
+            // Export DOCX files
+            if (filesByType['docx']?.length > 0) {
+                console.log(`[Rebuild Export] Exporting ${filesByType['docx'].length} DOCX file(s)...`);
+                progress.report({
+                    message: `Exporting ${filesByType['docx'].length} DOCX file(s)...`,
+                    increment: 30
+                });
+                try {
+                    await exportCodexContentAsDocxRoundtrip(userSelectedPath, filesByType['docx'], options);
+                    processedCount += filesByType['docx'].length;
+                } catch (error) {
+                    console.error('[Rebuild Export] DOCX export failed:', error);
+                    vscode.window.showErrorMessage(`DOCX export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+            }
+
+            // Export IDML files
+            if (filesByType['idml']?.length > 0) {
+                console.log(`[Rebuild Export] Exporting ${filesByType['idml'].length} IDML file(s)...`);
+                progress.report({
+                    message: `Exporting ${filesByType['idml'].length} IDML file(s)...`,
+                    increment: 20
+                });
+                try {
+                    await exportCodexContentAsIdmlRoundtrip(userSelectedPath, filesByType['idml'], options);
+                    processedCount += filesByType['idml'].length;
+                } catch (error) {
+                    console.error('[Rebuild Export] IDML export failed:', error);
+                    vscode.window.showErrorMessage(`IDML export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+            }
+
+            // Export PDF files
+            if (filesByType['pdf']?.length > 0) {
+                console.log(`[Rebuild Export] Exporting ${filesByType['pdf'].length} PDF file(s)...`);
+                progress.report({
+                    message: `Exporting ${filesByType['pdf'].length} PDF file(s)...`,
+                    increment: 20
+                });
+                try {
+                    await exportCodexContentAsPdfRoundtrip(userSelectedPath, filesByType['pdf'], options);
+                    processedCount += filesByType['pdf'].length;
+                } catch (error) {
+                    console.error('[Rebuild Export] PDF export failed:', error);
+                    vscode.window.showErrorMessage(`PDF export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+            }
+
+            progress.report({ message: "Complete", increment: 30 });
+
+            // Show summary
+            const messages: string[] = [];
+            if (processedCount > 0) {
+                messages.push(`✓ Successfully exported ${processedCount} file(s)`);
+            }
+            if (unsupportedFiles.length > 0) {
+                messages.push(`⚠ Skipped ${unsupportedFiles.length} unsupported file(s)`);
+                console.warn('[Rebuild Export] Unsupported files:', unsupportedFiles);
+            }
+
+            if (messages.length > 0) {
+                vscode.window.showInformationMessage(messages.join('\n'));
+            }
+
+            // Show details for unsupported files
+            if (unsupportedFiles.length > 0) {
+                const unsupportedList = unsupportedFiles
+                    .map(f => `  • ${f.file} (type: ${f.marker})`)
+                    .join('\n');
+
+                vscode.window.showWarningMessage(
+                    `The following files were skipped (unsupported or coming soon):\n${unsupportedList}\n\nSupported types: DOCX, IDML, Biblica, PDF`,
+                    { modal: false }
+                );
+            }
         }
     );
 }
@@ -432,8 +769,8 @@ export async function exportCodexContent(
         case CodexExportFormat.TSV:
             await exportCodexContentAsTsv(userSelectedPath, filesToExport, options);
             break;
-        case CodexExportFormat.IDML_ROUNDTRIP:
-            await exportCodexContentAsIdmlRoundtrip(userSelectedPath, filesToExport, options);
+        case CodexExportFormat.REBUILD_EXPORT:
+            await exportCodexContentAsRebuild(userSelectedPath, filesToExport, options);
             break;
     }
 }

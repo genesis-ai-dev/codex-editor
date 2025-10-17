@@ -229,6 +229,7 @@ export interface FrontierAPI {
         username: string;
     }>;
     getLlmEndpoint: () => Promise<string | undefined>;
+    getAsrEndpoint: () => Promise<string | undefined>;
     syncChanges: (options?: { commitMessage?: string; }) => Promise<{
         hasConflicts: boolean;
         conflicts?: Array<ConflictFile>;

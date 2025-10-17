@@ -178,13 +178,14 @@ const serverConfig = {
 
 const testConfig = {
     name: "test",
-    target: "webworker",
+    target: "node", // VS Code extension tests run in Node.js context
     mode: "none",
     entry: "./src/test/suite/index.ts",
     output: {
         path: path.resolve(__dirname, "out", "test", "suite"),
         filename: "index.js",
         libraryTarget: "commonjs2",
+        publicPath: '', // Disable automatic publicPath for extension host compatibility
     },
     externals: {
         vscode: "commonjs vscode",

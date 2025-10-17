@@ -45,6 +45,11 @@ function debug(...args: any[]): void {
     }
 }
 
+// Debounce container for broadcasting auto-download flag updates
+let autoDownloadBroadcastTimer: NodeJS.Timeout | undefined;
+let pendingAutoDownloadValue: boolean | undefined;
+
+
 // Helper to use VS Code FS API
 async function pathExists(filePath: string): Promise<boolean> {
     try {
@@ -90,18 +95,69 @@ interface MessageHandlerContext {
 // Individual message handlers
 const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<void> | void> = {
     webviewReady: () => { /* no-op */ },
+    setAutoDownloadAudioOnOpen: async ({ event, document, webviewPanel, provider }) => {
+        try {
+            const typed = event as any;
+            const value = !!typed?.content?.value;
+            const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+            const { setAutoDownloadAudioOnOpen } = await import("../../utils/localProjectSettings");
+            await setAutoDownloadAudioOnOpen(value, ws?.uri);
+            // Debounce broadcast so rapid toggles coalesce
+            pendingAutoDownloadValue = value;
+            if (autoDownloadBroadcastTimer) {
+                clearTimeout(autoDownloadBroadcastTimer);
+            }
+            autoDownloadBroadcastTimer = setTimeout(() => {
+                try {
+                    const panels = provider.getWebviewPanels();
+                    panels.forEach((panel) => {
+                        provider.postMessageToWebview(panel, {
+                            type: "providerUpdatesNotebookMetadataForWebview",
+                            content: { autoDownloadAudioOnOpen: pendingAutoDownloadValue },
+                        } as any);
+                    });
+                } catch (broadcastErr) {
+                    console.warn("Failed to broadcast autoDownloadAudioOnOpen", broadcastErr);
+                } finally {
+                    autoDownloadBroadcastTimer = undefined;
+                }
+            }, 150);
+        } catch (e) {
+            console.warn("Failed to set autoDownloadAudioOnOpen", e);
+        }
+    },
     getAsrConfig: async ({ webviewPanel }) => {
         try {
             const config = vscode.workspace.getConfiguration("codex-editor-extension");
-            const endpoint = config.get<string>("asrEndpoint", "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe");
+            let endpoint = config.get<string>("asrEndpoint", "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe");
             const provider = config.get<string>("asrProvider", "mms");
             const model = config.get<string>("asrModel", "facebook/mms-1b-all");
             const language = config.get<string>("asrLanguage", "eng");
             const phonetic = config.get<boolean>("asrPhonetic", false);
 
+            let authToken: string | undefined;
+
+            // Try to get authenticated endpoint from FrontierAPI
+            try {
+                const frontierApi = getAuthApi();
+                if (frontierApi) {
+                    const authStatus = frontierApi.getAuthStatus();
+                    if (authStatus.isAuthenticated) {
+                        const asrEndpoint = await frontierApi.getAsrEndpoint();
+                        if (asrEndpoint) {
+                            endpoint = asrEndpoint;
+                        }
+                        // Get auth token for authenticated requests
+                        authToken = await frontierApi.authProvider.getToken();
+                    }
+                }
+            } catch (error) {
+                console.debug("Could not get ASR endpoint from auth API:", error);
+            }
+
             safePostMessageToPanel(webviewPanel, {
                 type: "asrConfig",
-                content: { endpoint, provider, model, language, phonetic }
+                content: { endpoint, provider, model, language, phonetic, authToken }
             });
         } catch (error) {
             console.error("Error sending ASR config:", error);
@@ -131,16 +187,18 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             await document.updateCellAttachment(cellId, attachmentId, updated);
 
             // Notify webview(s) of updated audio attachments status
-            const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
-            // Recompute availability using attachment flags (isDeleted, isMissing)
+            await scanForAudioAttachments(document, webviewPanel);
+            // Recompute availability with pointer detection so UI shows correct icon
             try {
+                const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
                 const notebookData = JSON.parse(document.getText());
-                const availability: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; } = {};
-                if (Array.isArray(notebookData?.cells)) {
+                const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
+                if (Array.isArray(notebookData?.cells) && workspaceFolder) {
                     for (const cell of notebookData.cells) {
                         const id = cell?.metadata?.id;
                         if (!id) continue;
                         let hasAvailable = false;
+                        let hasAvailablePointer = false;
                         let hasMissing = false;
                         let hasDeleted = false;
                         const atts = cell?.metadata?.attachments || {};
@@ -152,11 +210,43 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 } else if (att.isMissing) {
                                     hasMissing = true;
                                 } else {
-                                    hasAvailable = true;
+                                    try {
+                                        const url = String(att.url || "");
+                                        if (url) {
+                                            const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+                                            const abs = path.join(workspaceFolder.uri.fsPath, filesRel);
+                                            const { isPointerFile } = await import("../../utils/lfsHelpers");
+                                            const isPtr = await isPointerFile(abs).catch(() => false);
+                                            if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
+                                        } else {
+                                            hasAvailable = true;
+                                        }
+                                    } catch { hasAvailable = true; }
                                 }
                             }
                         }
-                        availability[id] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+
+                        let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+                        if (hasAvailable) state = "available-local";
+                        else if (hasAvailablePointer) state = "available-pointer";
+                        else if (hasMissing) state = "missing";
+                        else if (hasDeleted) state = "deletedOnly";
+                        else state = "none";
+
+                        // Apply installed-version gate (no modal) to avoid showing Play when blocked
+                        if (state !== "available-local") {
+                            try {
+                                const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
+                                const status = await getFrontierVersionStatus();
+                                if (!status.ok) {
+                                    if (state !== "missing" && state !== "deletedOnly" && state !== "none") {
+                                        state = "available-pointer";
+                                    }
+                                }
+                            } catch { /* ignore */ }
+                        }
+
+                        availability[id] = state as any;
                     }
                 }
                 provider.postMessageToWebview(webviewPanel, {
@@ -441,96 +531,127 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const cellId = typedEvent.content.currentLineId;
         const addContentToValue = typedEvent.content.addContentToValue;
 
+        // Always preflight: if source text is empty, try to transcribe first, then only attempt LLM
+        // In test environments the command may be unregistered; skip gracefully in that case.
+        let contentIsEmpty = false;
         try {
-            const isAudioOnly = Boolean((document as any)._documentData?.metadata?.audioOnly);
-            if (isAudioOnly) {
-                const sourceCell = await vscode.commands.executeCommand(
-                    "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
-                    cellId
-                ) as { cellId: string; content: string; } | null;
-                const contentIsEmpty = !sourceCell || !sourceCell.content || (sourceCell.content.replace(/<[^>]*>/g, "").trim() === "");
-
-                if (contentIsEmpty) {
-                    try {
-                        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-                        if (workspaceFolder) {
-                            const normalizedPath = document.uri.fsPath.replace(/\\/g, "/");
-                            const baseFileName = path.basename(normalizedPath);
-                            const sourceFileName = baseFileName.endsWith(".codex")
-                                ? baseFileName.replace(".codex", ".source")
-                                : baseFileName;
-                            const sourcePath = vscode.Uri.joinPath(
-                                workspaceFolder.uri,
-                                ".project",
-                                "sourceTexts",
-                                sourceFileName
-                            );
-
-                            await vscode.commands.executeCommand(
-                                "vscode.openWith",
-                                sourcePath,
-                                "codex.cellEditor",
-                                { viewColumn: vscode.ViewColumn.One }
-                            );
-
-                            const sourcePanel = provider.getWebviewPanels().get(sourcePath.toString());
-                            if (sourcePanel) {
-                                const NUMBER_OF_CELLS_TO_TRANSCRIBE_AHEAD = 1;
-                                await vscode.window.withProgress(
-                                    {
-                                        location: vscode.ProgressLocation.Notification,
-                                        title: "Transcribing source audio…",
-                                        cancellable: false,
-                                    },
-                                    async (progress) => {
-                                        // Start transcription for the specific cell only
-                                        safePostMessageToPanel(sourcePanel, {
-                                            type: "startBatchTranscription",
-                                            content: { count: NUMBER_OF_CELLS_TO_TRANSCRIBE_AHEAD, cellId }
-                                        } as any);
-
-                                        // Mock progress while polling for source content availability
-                                        let progressValue = 0;
-                                        const timer = setInterval(() => {
-                                            progressValue = Math.min(progressValue + 3, 95);
-                                            progress.report({ increment: 3 });
-                                        }, 500);
-
-                                        try {
-                                            const timeoutMs = 30000;
-                                            const start = Date.now();
-                                            for (; ;) {
-                                                const src = await vscode.commands.executeCommand(
-                                                    "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
-                                                    cellId
-                                                ) as { cellId: string; content: string; } | null;
-                                                const hasText = !!src && !!src.content && src.content.replace(/<[^>]*>/g, "").trim() !== "";
-                                                if (hasText) break;
-                                                if (Date.now() - start > timeoutMs) break;
-                                                await new Promise((r) => setTimeout(r, 400));
-                                            }
-                                        } finally {
-                                            clearInterval(timer);
-                                            progress.report({ increment: 100 - progressValue });
-                                        }
-                                    }
-                                );
-
-                                // After transcription completes (or timeout), proceed with LLM completion automatically
-                                await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
-                                return;
-                            }
-                        }
-                    } catch (e) {
-                        console.warn("Failed to initialize transcription before LLM completion", e);
-                    }
-                }
-            }
+            const sourceCell = await vscode.commands.executeCommand(
+                "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+                cellId
+            ) as { cellId: string; content: string; } | null;
+            contentIsEmpty = !sourceCell || !sourceCell.content || (sourceCell.content.replace(/<[^>]*>/g, "").trim() === "");
         } catch (e) {
-            console.warn("Audio-only preflight failed; proceeding with normal completion", e);
+            console.warn("getSourceCellByCellIdFromAllSourceCells unavailable; skipping transcription preflight");
+            contentIsEmpty = false;
         }
 
-        // Default: enqueue translation now
+        if (contentIsEmpty) {
+            try {
+                const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (!workspaceFolder) return;
+
+                const normalizedPath = document.uri.fsPath.replace(/\\/g, "/");
+                const baseFileName = path.basename(normalizedPath);
+                const sourceFileName = baseFileName.endsWith(".codex")
+                    ? baseFileName.replace(".codex", ".source")
+                    : baseFileName;
+                const sourcePath = vscode.Uri.joinPath(
+                    workspaceFolder.uri,
+                    ".project",
+                    "sourceTexts",
+                    sourceFileName
+                );
+
+                await vscode.commands.executeCommand(
+                    "vscode.openWith",
+                    sourcePath,
+                    "codex.cellEditor",
+                    { viewColumn: vscode.ViewColumn.One }
+                );
+
+                // Wait briefly for the source panel to register
+                let sourcePanel = provider.getWebviewPanels().get(sourcePath.toString());
+                if (!sourcePanel) {
+                    const waitStart = Date.now();
+                    while (!sourcePanel && Date.now() - waitStart < 1500) {
+                        await new Promise((r) => setTimeout(r, 100));
+                        sourcePanel = provider.getWebviewPanels().get(sourcePath.toString());
+                    }
+                }
+
+                if (!sourcePanel) {
+                    vscode.window.showWarningMessage("Could not open source for transcription. Please try again.");
+                    return;
+                }
+
+                await vscode.window.withProgress(
+                    {
+                        location: vscode.ProgressLocation.Notification,
+                        title: "Transcribing source audio…",
+                        cancellable: false,
+                    },
+                    async (progress) => {
+                        // Start transcription for the specific cell only
+                        safePostMessageToPanel(sourcePanel!, {
+                            type: "startBatchTranscription",
+                            content: { count: 1, cellId }
+                        } as any);
+
+                        // Mock progress while polling for source content availability
+                        let progressValue = 0;
+                        const timer = setInterval(() => {
+                            progressValue = Math.min(progressValue + 3, 95);
+                            progress.report({ increment: 3 });
+                        }, 500);
+
+                        try {
+                            const timeoutMs = 40000;
+                            const start = Date.now();
+                            for (; ;) {
+                                let src: { cellId: string; content: string; } | null = null;
+                                try {
+                                    src = await vscode.commands.executeCommand(
+                                        "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+                                        cellId
+                                    ) as { cellId: string; content: string; } | null;
+                                } catch {
+                                    // Command not available; abort polling
+                                    break;
+                                }
+                                const hasText = !!src && !!src.content && src.content.replace(/<[^>]*>/g, "").trim() !== "";
+                                if (hasText) break;
+                                if (Date.now() - start > timeoutMs) break;
+                                await new Promise((r) => setTimeout(r, 400));
+                            }
+                        } finally {
+                            clearInterval(timer);
+                            progress.report({ increment: 100 - progressValue });
+                        }
+                    }
+                );
+
+                // After transcription completes (or timeout), only then try LLM
+                const ready = await provider.isLLMReady().catch(() => true);
+                if (!ready) {
+                    vscode.window.showWarningMessage(
+                        "Transcription complete, but LLM is not configured. Set an API key or sign in to generate predictions."
+                    );
+                }
+                await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
+                return;
+            } catch (e) {
+                console.warn("Transcription preflight failed; not attempting LLM", e);
+                return; // Do not proceed to LLM on preflight error
+            }
+        }
+
+        // If source already has text, proceed only if LLM is ready
+        const ready = await provider.isLLMReady().catch(() => true);
+        if (!ready) {
+            vscode.window.showWarningMessage(
+                "LLM is not configured. Set an API key or sign in to generate predictions."
+            );
+        }
         await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
     },
 
@@ -1237,6 +1358,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 throw new Error("File should have been downloaded in auto-download mode");
                             }
 
+                            // Enforce version gates (Frontier required version + project metadata versions)
+                            const { ensureAllVersionGatesForMedia } = await import("../../utils/versionGate");
+                            const allowed = await ensureAllVersionGatesForMedia(true);
+                            if (!allowed) {
+                                throw new Error("Media operation blocked due to version requirements.");
+                            }
+
                             // Parse pointer to get OID and size
                             const pointer = await parsePointerFile(fullPath);
                             if (!pointer) {
@@ -1266,6 +1394,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 try {
                                     await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), fileData);
                                     debug("Saved streamed file to disk (stream-and-save mode)");
+                                    // Immediately inform webview this cell now has a local file
+                                    try {
+                                        safePostMessageToPanel(webviewPanel, {
+                                            type: "providerSendsAudioAttachments",
+                                            attachments: { [cellId]: "available-local" as const }
+                                        });
+                                    } catch { /* non-fatal */ }
                                 } catch (saveError) {
                                     console.warn("Failed to save streamed file:", saveError);
                                     // Don't fail the whole operation if save fails
@@ -1328,6 +1463,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         } catch { /* no-op */ }
 
                         if (pointerStats) {
+                            // Enforce version gates prior to fallback streaming
+                            const { ensureAllVersionGatesForMedia } = await import("../../utils/versionGate");
+                            const allowed = await ensureAllVersionGatesForMedia(true);
+                            if (!allowed) {
+                                throw new Error("Media operation blocked due to version requirements.");
+                            }
+
                             // Parse pointer
                             const { parsePointerFile, replaceFileWithPointer } = await import("../../utils/lfsHelpers");
                             const pointer = await parsePointerFile(pointerFullPath);
@@ -1357,6 +1499,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 try {
                                     await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(fullPath)));
                                     await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), lfsData);
+                                    // Targeted availability update for this cell
+                                    try {
+                                        safePostMessageToPanel(webviewPanel, {
+                                            type: "providerSendsAudioAttachments",
+                                            attachments: { [cellId]: "available-local" as const }
+                                        });
+                                    } catch { /* non-fatal */ }
                                 } catch (e) {
                                     console.warn("Failed to save streamed file in fallback:", e);
                                 }
@@ -1598,12 +1747,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             }
             const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
-            const availability: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; } = {} as any;
+            const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {} as any;
 
             for (const cell of cells) {
                 const cellId = cell?.metadata?.id;
                 if (!cellId) continue;
                 let hasAvailable = false;
+                let hasAvailablePointer = false;
                 let hasMissing = false;
                 let hasDeleted = false;
                 const atts = cell?.metadata?.attachments || {};
@@ -1615,11 +1765,55 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         } else if (att.isMissing) {
                             hasMissing = true;
                         } else {
-                            hasAvailable = true;
+                            try {
+                                const url = String(att.url || "");
+                                if (url) {
+                                    const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+                                    const filesAbs = path.join(workspaceFolder.uri.fsPath, filesRel);
+                                    try {
+                                        await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
+                                        const { isPointerFile } = await import("../../utils/lfsHelpers");
+                                        const isPtr = await isPointerFile(filesAbs).catch(() => false);
+                                        if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
+                                    } catch {
+                                        const pointerAbs = filesAbs.includes("/.project/attachments/files/")
+                                            ? filesAbs.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
+                                            : filesAbs.replace(".project/attachments/files/", ".project/attachments/pointers/");
+                                        try {
+                                            await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
+                                            hasAvailablePointer = true;
+                                        } catch {
+                                            hasMissing = true;
+                                        }
+                                    }
+                                } else {
+                                    hasMissing = true;
+                                }
+                            } catch { hasMissing = true; }
                         }
                     }
                 }
-                availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                // Provisional state
+                let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+                if (hasAvailable) state = "available-local";
+                else if (hasAvailablePointer) state = "available-pointer";
+                else if (hasMissing) state = "missing";
+                else if (hasDeleted) state = "deletedOnly";
+                else state = "none";
+
+                if (state !== "available-local") {
+                    try {
+                        const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
+                        const status = await getFrontierVersionStatus();
+                        if (!status.ok) {
+                            if (state !== "missing" && state !== "deletedOnly" && state !== "none") {
+                                state = "available-pointer";
+                            }
+                        }
+                    } catch { /* ignore */ }
+                }
+
+                availability[cellId] = state as any;
             }
 
             provider.postMessageToWebview(webviewPanel, {
@@ -1784,13 +1978,14 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             }
             const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
-            const availability: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; } = {} as any;
+            const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {} as any;
             let validatedByArray: ValidationEntry[] = [];
 
             for (const cell of cells) {
                 const cellId = cell?.metadata?.id;
                 if (!cellId) continue;
                 let hasAvailable = false;
+                let hasAvailablePointer = false;
                 let hasMissing = false;
                 let hasDeleted = false;
                 const atts = cell?.metadata?.attachments || {};
@@ -1803,7 +1998,22 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         } else if (att.isMissing) {
                             hasMissing = true;
                         } else {
-                            hasAvailable = true;
+                            // Differentiate pointer vs real file by inspecting attachments/files path
+                            try {
+                                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                                const url = String(att.url || "");
+                                if (ws && url) {
+                                    const filesPath = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+                                    const abs = path.join(ws.uri.fsPath, filesPath);
+                                    const { isPointerFile } = await import("../../utils/lfsHelpers");
+                                    const isPtr = await isPointerFile(abs).catch(() => false);
+                                    if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
+                                } else {
+                                    hasAvailable = true;
+                                }
+                            } catch {
+                                hasAvailable = true;
+                            }
                         }
                     }
 
@@ -1812,7 +2022,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         validatedByArray = [...validatedBy];
                     }
                 }
-                availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                availability[cellId] = hasAvailable
+                    ? "available-local"
+                    : hasAvailablePointer
+                        ? "available-pointer"
+                        : hasMissing
+                            ? "missing"
+                            : hasDeleted
+                                ? "deletedOnly"
+                                : "none";
             }
 
             provider.postMessageToWebview(webviewPanel, {
@@ -2132,17 +2350,51 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     const availability: { [k: string]: "available" | "missing" | "deletedOnly" | "none"; } = {} as any;
                     const cell = cells.find((c: any) => c?.metadata?.id === cellId);
                     if (cell) {
-                        let hasAvailable = false; let hasMissing = false; let hasDeleted = false;
+                        let hasAvailable = false; let hasAvailablePointer = false; let hasMissing = false; let hasDeleted = false;
                         const atts = cell?.metadata?.attachments || {};
                         for (const key of Object.keys(atts)) {
                             const att: any = atts[key];
                             if (att && att.type === "audio") {
                                 if (att.isDeleted) hasDeleted = true;
                                 else if (att.isMissing) hasMissing = true;
-                                else hasAvailable = true;
+                                else {
+                                    try {
+                                        const url = String(att.url || "");
+                                        if (url) {
+                                            const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+                                            const abs = path.join(workspaceFolder.uri.fsPath, filesRel);
+                                            const { isPointerFile } = await import("../../utils/lfsHelpers");
+                                            const isPtr = await isPointerFile(abs).catch(() => false);
+                                            if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
+                                        } else {
+                                            hasAvailable = true;
+                                        }
+                                    } catch { hasAvailable = true; }
+                                }
                             }
                         }
-                        availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                        // Provisional state
+                        let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+                        if (hasAvailable) state = "available-local";
+                        else if (hasAvailablePointer) state = "available-pointer";
+                        else if (hasMissing) state = "missing";
+                        else if (hasDeleted) state = "deletedOnly";
+                        else state = "none";
+
+                        // Apply installed-version gate to avoid Play icon when blocked
+                        if (state !== "available-local") {
+                            try {
+                                const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
+                                const status = await getFrontierVersionStatus();
+                                if (!status.ok) {
+                                    if (state !== "missing" && state !== "deletedOnly" && state !== "none") {
+                                        state = "available-pointer";
+                                    }
+                                }
+                            } catch { /* ignore */ }
+                        }
+
+                        availability[cellId] = state as any;
                         safePostMessageToPanel(webviewPanel, { type: "providerSendsAudioAttachments", attachments: availability });
                     }
                 } catch { /* ignore */ }

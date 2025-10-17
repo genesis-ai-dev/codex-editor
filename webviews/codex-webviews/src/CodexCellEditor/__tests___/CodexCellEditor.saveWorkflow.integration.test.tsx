@@ -725,6 +725,10 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             audioAttachments: { "cell-1": "available" as const },
         };
 
+        // Ensure auto-download behavior is enabled for this test case
+        (window as any).__autoDownloadAudioOnOpenInitialized = true;
+        (window as any).__autoDownloadAudioOnOpen = true;
+
         render(
             <MockUnsavedChangesProvider>
                 <MockSourceCellProvider>
@@ -780,6 +784,10 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             // Explicitly mark no attachments
             audioAttachments: { "cell-2": "none" as const },
         };
+
+        // Ensure auto-download behavior is enabled for this test case
+        (window as any).__autoDownloadAudioOnOpenInitialized = true;
+        (window as any).__autoDownloadAudioOnOpen = true;
 
         render(
             <MockUnsavedChangesProvider>

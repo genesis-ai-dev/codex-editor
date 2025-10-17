@@ -57,7 +57,7 @@ interface UseVSCodeMessageHandlerProps {
     singleCellTranslationCompleted?: () => void;
     singleCellTranslationFailed?: () => void;
     setChapterNumber?: (chapterNumber: number) => void;
-    setAudioAttachments: (attachments: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; }) => void;
+    setAudioAttachments: Dispatch<SetStateAction<{ [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; }>>;
 
     // A/B testing handlers
     showABTestVariants?: (data: { variants: string[]; cellId: string; testId: string; }) => void;
@@ -100,11 +100,46 @@ export const useVSCodeMessageHandler = ({
             switch (message.type) {
                 case "providerSendsInitialContent":
                     setContent(message.content, message.isSourceText, message.sourceCellMap);
+                    // Bootstrap audio availability from initial content
+                    try {
+                        const units = (message.content || []) as QuillCellContent[];
+                        const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
+                        for (const unit of units) {
+                            const cellId = unit?.cellMarkers?.[0];
+                            if (!cellId) continue;
+                            let hasAvailable = false; let hasMissing = false; let hasDeleted = false;
+                            const atts = unit?.attachments || ({} as any);
+                            for (const key of Object.keys(atts)) {
+                                const att = (atts as any)[key];
+                                if (att && att.type === "audio") {
+                                    if (att.isDeleted) hasDeleted = true;
+                                    else if (att.isMissing) hasMissing = true;
+                                    else hasAvailable = true;
+                                }
+                            }
+                            availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                        }
+                        setAudioAttachments(availability);
+                    } catch { /* ignore */ }
+                    break;
+                case "updateNotebookMetadata":
+                    // no-op here (handled below in providerUpdatesNotebookMetadataForWebview)
+                    break;
+                case "providerUpdatesNotebookMetadataForWebview":
+                    // Hydrate auto-download flag and notify metadata update in one place
+                    try {
+                        if (typeof (message?.content?.autoDownloadAudioOnOpen) === "boolean") {
+                            (window as any).__autoDownloadAudioOnOpen = !!message.content.autoDownloadAudioOnOpen;
+                            (window as any).__autoDownloadAudioOnOpenInitialized = true;
+                        }
+                    } catch { }
+                    try { updateNotebookMetadata(message.content); } catch { }
+                    break;
 
                     // Derive audio attachment availability from QuillCellContent.attachments
                     try {
                         const units = (message.content || []) as QuillCellContent[];
-                        const availability: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; } = {};
+                        const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
                         for (const unit of units) {
                             const cellId = unit?.cellMarkers?.[0];
                             if (!cellId) continue;
@@ -143,9 +178,6 @@ export const useVSCodeMessageHandler = ({
                     updateTextDirection(message.direction);
                     break;
                 case "updateNotebookMetadata":
-                    updateNotebookMetadata(message.content);
-                    break;
-                case "providerUpdatesNotebookMetadataForWebview":
                     updateNotebookMetadata(message.content);
                     break;
                 case "updateVideoUrlInWebview":
@@ -235,7 +267,24 @@ export const useVSCodeMessageHandler = ({
                     break;
                 case "providerSendsAudioAttachments":
                     if (message.attachments) {
-                        setAudioAttachments(message.attachments);
+                        // Merge incrementally and only trigger state update if a value actually changes
+                        setAudioAttachments((prev) => {
+                            try {
+                                const incoming = message.attachments as Record<string, string>;
+                                let changed = false;
+                                const next = { ...(prev || {}) } as Record<string, string>;
+                                for (const key of Object.keys(incoming)) {
+                                    const val = incoming[key as keyof typeof incoming];
+                                    if (next[key] !== val) {
+                                        next[key] = val as any;
+                                        changed = true;
+                                    }
+                                }
+                                return changed ? (next as any) : prev;
+                            } catch {
+                                return message.attachments;
+                            }
+                        });
                     }
                     break;
                 case "providerSendsABTestVariants":
