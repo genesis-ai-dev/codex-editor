@@ -1522,7 +1522,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
         // Respect auto-download toggle: only fetch when enabled or when the file is already local
         const autoInit = (window as any).__autoDownloadAudioOnOpenInitialized;
         const autoFlag = (window as any).__autoDownloadAudioOnOpen;
-        const shouldAutoDownload = autoInit ? !!autoFlag : true;
+        // Default to false if not initialized to match disk default
+        const shouldAutoDownload = autoInit ? !!autoFlag : false;
         const stateForCell = audioAttachments?.[cellMarkers[0]];
         const isLocal = stateForCell === "available-local";
         if (shouldAutoDownload || isLocal) {
@@ -1594,7 +1595,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                 const autoInit = (window as any).__autoDownloadAudioOnOpenInitialized;
                 const autoFlag = (window as any).__autoDownloadAudioOnOpen;
-                const shouldAutoDownload = autoInit ? !!autoFlag : true;
+                const shouldAutoDownload = autoInit ? !!autoFlag : false;
 
                 if (
                     (stateForCell === "available" ||
