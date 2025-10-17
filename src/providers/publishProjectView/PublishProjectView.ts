@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
+import { safePostMessageToPanel } from "../../utils/webviewUtils";
+import { GlobalProvider } from "../../globalProvider";
 
 export interface GroupList {
     id: number;
@@ -37,36 +39,37 @@ export class PublishProjectView {
                 switch (message.command) {
                     case "init": {
                         const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name || "";
-                        this._panel.webview.postMessage({
+                        safePostMessageToPanel(this._panel, {
                             type: "init",
                             defaults: {
                                 name: workspaceName,
                                 visibility: "private",
                             },
-                        });
+                        }, "PublishProject");
                         break;
                     }
                     case "fetchGroups": {
                         try {
-                            this._panel.webview.postMessage({ type: "busy", value: true });
+                            safePostMessageToPanel(this._panel, { type: "busy", value: true }, "PublishProject");
                             const groups = (await vscode.commands.executeCommand(
                                 "frontier.listGroupsUserIsAtLeastMemberOf"
                             )) as GroupList[];
-                            this._panel.webview.postMessage({ type: "groups", groups });
+                            safePostMessageToPanel(this._panel, { type: "groups", groups }, "PublishProject");
                         } catch (error) {
-                            this._panel.webview.postMessage({
+                            safePostMessageToPanel(this._panel, {
                                 type: "error",
                                 message:
                                     error instanceof Error ? error.message : String(error),
-                            });
+                            }, "PublishProject");
                         } finally {
-                            this._panel.webview.postMessage({ type: "busy", value: false });
+                            // In case the panel was disposed during the async work, this will no-op safely
+                            safePostMessageToPanel(this._panel, { type: "busy", value: false }, "PublishProject");
                         }
                         break;
                     }
                     case "createProject": {
                         try {
-                            this._panel.webview.postMessage({ type: "busy", value: true });
+                            safePostMessageToPanel(this._panel, { type: "busy", value: true }, "PublishProject");
                             const payload = message.payload as {
                                 name: string;
                                 description?: string;
@@ -86,24 +89,31 @@ export class PublishProjectView {
                                             ? payload.groupId
                                             : undefined,
                                     force: true,
-                                    nonInteractive: true,
                                 }
                             );
 
                             if (result !== false) {
+                                // Notify Main Menu to refresh state so repoHasRemote updates immediately
+                                try {
+                                    const mainMenuProvider = GlobalProvider.getInstance().getProvider("codex-editor.mainMenu");
+                                    await (mainMenuProvider as any)?.receiveMessage({ command: "refreshState" });
+                                } catch (e) {
+                                    console.debug("[PublishProject] Failed to request Main Menu refresh:", e);
+                                }
                                 vscode.window.showInformationMessage(
                                     "Project published successfully"
                                 );
                                 this.dispose();
                             }
                         } catch (error) {
-                            this._panel.webview.postMessage({
+                            safePostMessageToPanel(this._panel, {
                                 type: "error",
                                 message:
                                     error instanceof Error ? error.message : String(error),
-                            });
+                            }, "PublishProject");
                         } finally {
-                            this._panel.webview.postMessage({ type: "busy", value: false });
+                            // If the panel has been disposed (e.g., after success), this will safely no-op
+                            safePostMessageToPanel(this._panel, { type: "busy", value: false }, "PublishProject");
                         }
                         break;
                     }

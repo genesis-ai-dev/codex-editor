@@ -9,12 +9,8 @@ import {
     ProjectManagerMessageFromWebview,
     ProjectManagerMessageToWebview,
     ProjectManagerState,
-    MenuSection,
-    MenuButton,
-    MainMenuMessages
 } from "../../../types";
 import { createNewWorkspaceAndProject, openProject, createNewProject } from "../../utils/projectCreationUtils/projectCreationUtils";
-import { FrontierAPI } from "webviews/codex-webviews/src/StartupFlow/types";
 import git from "isomorphic-git";
 // Note: avoid top-level http(s) imports to keep test bundling simple
 import * as fs from "fs";
