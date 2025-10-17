@@ -2585,9 +2585,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     Click to download
                                                                 </Button>
                                                             )}
-                                                            <div className="text-xs text-muted-foreground">
-                                                                You can enable auto-download in settings
-                                                            </div>
+                                                            {(() => {
+                                                                const autoInit = (window as any).__autoDownloadAudioOnOpenInitialized;
+                                                                const autoFlag = (window as any).__autoDownloadAudioOnOpen;
+                                                                if (autoInit && !!autoFlag) return null;
+                                                                return (
+                                                                    <div className="text-xs text-muted-foreground">
+                                                                        You can enable auto-download in settings
+                                                                    </div>
+                                                                );
+                                                            })()}
                                                         </div>
                                                     ) : (
                                                         <span>No audio attached to this cell yet.</span>
