@@ -2547,14 +2547,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             <div className="content-section space-y-6">
                                 <h3 className="text-lg font-medium">Audio Recording</h3>
 
-                                {isAudioLoading || audioFetchPending ? (
-                                    <div className="bg-[var(--vscode-editor-background)] p-3 rounded-md border border-[var(--vscode-panel-border)] text-center text-[var(--vscode-descriptionForeground)]">
-                                        {audioAttachments && (
-                                            (audioAttachments[cellMarkers[0]] === "available" ||
-                                                audioAttachments[cellMarkers[0]] === "available-pointer")
-                                        ) ? "Downloading audio..." : "Loading audio..."}
-                                    </div>
-                                ) : showRecorder ||
+                                {showRecorder ||
                                   !audioUrl ||
                                   !(
                                       audioUrl.startsWith("blob:") ||
@@ -2570,21 +2563,28 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         audioAttachments[cellMarkers[0]] === "available-pointer"
                                                     ) ? (
                                                         <div className="flex flex-col items-center gap-2">
-                                                            <Button
-                                                            onClick={() => {
-                                                                setIsAudioLoading(true);
-                                                                setAudioFetchPending(true);
-                                                                const messageContent: EditorPostMessages = {
-                                                                    command: "requestAudioForCell",
-                                                                    content: { cellId: cellMarkers[0] },
-                                                                };
-                                                                window.vscodeApi.postMessage(messageContent);
-                                                            }}
-                                                            className="h-9 px-3 text-sm"
-                                                        >
-                                                            <i className="codicon codicon-cloud-download mr-1" />
-                                                            Click to download
-                                                            </Button>
+                                                            {isAudioLoading || audioFetchPending ? (
+                                                                <Button disabled className="h-9 px-3 text-sm opacity-80 cursor-default">
+                                                                    <i className="codicon codicon-sync codicon-modifier-spin mr-1" />
+                                                                    Downloading audio...
+                                                                </Button>
+                                                            ) : (
+                                                                <Button
+                                                                    onClick={() => {
+                                                                        setIsAudioLoading(true);
+                                                                        setAudioFetchPending(true);
+                                                                        const messageContent: EditorPostMessages = {
+                                                                            command: "requestAudioForCell",
+                                                                            content: { cellId: cellMarkers[0] },
+                                                                        };
+                                                                        window.vscodeApi.postMessage(messageContent);
+                                                                    }}
+                                                                    className="h-9 px-3 text-sm"
+                                                                >
+                                                                    <i className="codicon codicon-cloud-download mr-1" />
+                                                                    Click to download
+                                                                </Button>
+                                                            )}
                                                             <div className="text-xs text-muted-foreground">
                                                                 You can enable auto-download in settings
                                                             </div>
