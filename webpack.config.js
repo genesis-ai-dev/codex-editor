@@ -178,7 +178,7 @@ const serverConfig = {
 
 const testConfig = {
     name: "test",
-    target: "webworker",
+    target: "node", // VS Code extension tests run in Node.js context
     mode: "none",
     entry: "./src/test/suite/index.ts",
     output: {
