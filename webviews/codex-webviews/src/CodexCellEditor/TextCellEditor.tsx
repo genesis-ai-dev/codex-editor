@@ -2568,7 +2568,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         audioAttachments[cellMarkers[0]] === "available" ||
                                                         audioAttachments[cellMarkers[0]] === "available-pointer"
                                                     ) ? (
-                                                        <Button
+                                                        <div className="flex flex-col items-center gap-2">
+                                                            <Button
                                                             onClick={() => {
                                                                 setIsAudioLoading(true);
                                                                 setAudioFetchPending(true);
@@ -2582,7 +2583,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         >
                                                             <i className="codicon codicon-cloud-download mr-1" />
                                                             Click to download
-                                                        </Button>
+                                                            </Button>
+                                                            <div className="text-xs text-muted-foreground">
+                                                                You can enable auto-download in settings
+                                                            </div>
+                                                        </div>
                                                     ) : (
                                                         <span>No audio attached to this cell yet.</span>
                                                     )}
