@@ -185,6 +185,7 @@ const testConfig = {
         path: path.resolve(__dirname, "out", "test", "suite"),
         filename: "index.js",
         libraryTarget: "commonjs2",
+        publicPath: '', // Disable automatic publicPath for extension host compatibility
     },
     externals: {
         vscode: "commonjs vscode",
