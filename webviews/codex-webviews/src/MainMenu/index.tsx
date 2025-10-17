@@ -1,17 +1,13 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
-import { Badge } from "../components/ui/badge";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
-import { Separator } from "../components/ui/separator";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { SyncSettings } from "../components/SyncSettings";
 import {
     TextDisplaySettingsModal,
     type TextDisplaySettings,
 } from "../components/TextDisplaySettingsModal";
-import { cn } from "../lib/utils";
 import "../tailwind.css";
 
 const SHOULD_SHOW_RELEASE_NOTES_LINK = true;
@@ -20,20 +16,6 @@ const RELEASE_NOTES_URL = "https://docs.codexeditor.app/docs/releases/latest/";
 // Declare the acquireVsCodeApi function and acquire the VS Code API
 declare function acquireVsCodeApi(): any;
 const vscode = acquireVsCodeApi();
-
-interface MenuButton {
-    id: string;
-    label: string;
-    icon: string;
-    viewId?: string;
-    command?: string;
-    description?: string;
-}
-
-interface MenuSection {
-    title: string;
-    buttons: MenuButton[];
-}
 
 interface ProjectManagerState {
     projectOverview: any | null;
@@ -537,7 +519,7 @@ function MainMenu() {
                                             </label>
                                             <div className="flex items-center justify-between">
                                                 <span className="text-sm">
-                                                    Text: {" "}
+                                                    Text:{" "}
                                                     {String(
                                                         projectState.projectOverview
                                                             .validationCount || 1
@@ -556,7 +538,7 @@ function MainMenu() {
                                             </div>
                                             <div className="flex items-center justify-between">
                                                 <span className="text-sm">
-                                                    Audio: {" "}
+                                                    Audio:{" "}
                                                     {String(
                                                         projectState.projectOverview
                                                             .validationCountAudio || 1
@@ -566,7 +548,9 @@ function MainMenu() {
                                                     size="sm"
                                                     variant="ghost"
                                                     onClick={() =>
-                                                        handleProjectAction("setValidationCountAudio")
+                                                        handleProjectAction(
+                                                            "setValidationCountAudio"
+                                                        )
                                                     }
                                                     className="w-9"
                                                 >
