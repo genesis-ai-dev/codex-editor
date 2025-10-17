@@ -207,15 +207,40 @@ const AudioPlayButton: React.FC<{
                 }
                 setIsPlaying(false);
             } else {
-                // If we don't have audio yet, request it and keep the UI calm (no spinner icon)
-                if (!audioUrl) {
-                    pendingPlayRef.current = true;
-                    setIsLoading(true);
-                    vscode.postMessage({
-                        command: "requestAudioForCell",
-                        content: { cellId },
-                    } as EditorPostMessages);
-                    return;
+                // If we don't have audio yet, try cached data first; only request if not cached
+                let effectiveUrl: string | null = audioUrl;
+                if (!effectiveUrl) {
+                    const cached = getCachedAudioDataUrl(cellId);
+                    if (cached) {
+                        pendingPlayRef.current = true;
+                        setIsLoading(true);
+                        try {
+                            const res = await fetch(cached);
+                            const blob = await res.blob();
+                            const blobUrl = URL.createObjectURL(blob);
+                            setAudioUrl(blobUrl); // update state for future plays
+                            effectiveUrl = blobUrl; // use immediately for this play
+                            setIsLoading(false);
+                            // fall through to playback below
+                        } catch {
+                            // If cache hydration fails, request from provider
+                            pendingPlayRef.current = true;
+                            setIsLoading(true);
+                            vscode.postMessage({
+                                command: "requestAudioForCell",
+                                content: { cellId },
+                            } as EditorPostMessages);
+                            return;
+                        }
+                    } else {
+                        pendingPlayRef.current = true;
+                        setIsLoading(true);
+                        vscode.postMessage({
+                            command: "requestAudioForCell",
+                            content: { cellId },
+                        } as EditorPostMessages);
+                        return;
+                    }
                 }
 
                 // Create or reuse audio element
@@ -228,7 +253,7 @@ const AudioPlayButton: React.FC<{
                     };
                 }
 
-                audioRef.current.src = audioUrl;
+                audioRef.current.src = effectiveUrl || audioUrl || "";
                 await globalAudioController.playExclusive(audioRef.current);
                 setIsPlaying(true);
             }
