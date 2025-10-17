@@ -59,6 +59,19 @@ export async function downloadAllLFSFiles(projectPath: string): Promise<number> 
     let downloadedCount = 0;
 
     try {
+        // Before any downloads, enforce version gates (Frontier installed + project metadata requirements)
+        try {
+            const { ensureAllVersionGatesForMedia } = await import("./versionGate");
+            const allowed = await ensureAllVersionGatesForMedia(true);
+            if (!allowed) {
+                // Block entire bulk download
+                return 0;
+            }
+        } catch (gateErr) {
+            console.warn("Blocking media download due to version requirements:", gateErr);
+            return 0;
+        }
+
         // Get frontier API
         const { getAuthApi } = await import("../extension");
         const frontierApi = getAuthApi();

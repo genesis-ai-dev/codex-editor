@@ -100,6 +100,41 @@ export const useVSCodeMessageHandler = ({
             switch (message.type) {
                 case "providerSendsInitialContent":
                     setContent(message.content, message.isSourceText, message.sourceCellMap);
+                    // Bootstrap audio availability from initial content
+                    try {
+                        const units = (message.content || []) as QuillCellContent[];
+                        const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
+                        for (const unit of units) {
+                            const cellId = unit?.cellMarkers?.[0];
+                            if (!cellId) continue;
+                            let hasAvailable = false; let hasMissing = false; let hasDeleted = false;
+                            const atts = unit?.attachments || ({} as any);
+                            for (const key of Object.keys(atts)) {
+                                const att = (atts as any)[key];
+                                if (att && att.type === "audio") {
+                                    if (att.isDeleted) hasDeleted = true;
+                                    else if (att.isMissing) hasMissing = true;
+                                    else hasAvailable = true;
+                                }
+                            }
+                            availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                        }
+                        setAudioAttachments(availability);
+                    } catch { /* ignore */ }
+                    break;
+                case "updateNotebookMetadata":
+                    // no-op here (handled below in providerUpdatesNotebookMetadataForWebview)
+                    break;
+                case "providerUpdatesNotebookMetadataForWebview":
+                    // Hydrate auto-download flag and notify metadata update in one place
+                    try {
+                        if (typeof (message?.content?.autoDownloadAudioOnOpen) === "boolean") {
+                            (window as any).__autoDownloadAudioOnOpen = !!message.content.autoDownloadAudioOnOpen;
+                            (window as any).__autoDownloadAudioOnOpenInitialized = true;
+                        }
+                    } catch { }
+                    try { updateNotebookMetadata(message.content); } catch { }
+                    break;
 
                     // Derive audio attachment availability from QuillCellContent.attachments
                     try {
@@ -143,9 +178,6 @@ export const useVSCodeMessageHandler = ({
                     updateTextDirection(message.direction);
                     break;
                 case "updateNotebookMetadata":
-                    updateNotebookMetadata(message.content);
-                    break;
-                case "providerUpdatesNotebookMetadataForWebview":
                     updateNotebookMetadata(message.content);
                     break;
                 case "updateVideoUrlInWebview":

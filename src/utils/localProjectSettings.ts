@@ -13,6 +13,8 @@ export interface LocalProjectSettings {
     currentMediaFilesStrategy?: MediaFilesStrategy;
     lastMediaFileStrategyRun?: MediaFilesStrategy;
     changesApplied?: boolean;
+    /** When true, the editor will download/stream audio as soon as a cell opens */
+    autoDownloadAudioOnOpen?: boolean;
     // Legacy keys (read and mirrored for backward compatibility)
     mediaFilesStrategy?: MediaFilesStrategy;
     lastModeRun?: MediaFilesStrategy;
@@ -98,6 +100,7 @@ export async function writeLocalProjectSettings(
             currentMediaFilesStrategy: settings.currentMediaFilesStrategy ?? settings.mediaFilesStrategy,
             lastMediaFileStrategyRun: settings.lastMediaFileStrategyRun ?? settings.lastModeRun,
             changesApplied: settings.changesApplied,
+            autoDownloadAudioOnOpen: settings.autoDownloadAudioOnOpen,
         };
         const content = JSON.stringify(toWrite, null, 2);
         await vscode.workspace.fs.writeFile(settingsPath, Buffer.from(content, "utf-8"));
@@ -186,8 +189,23 @@ export async function ensureLocalProjectSettingsExists(
         currentMediaFilesStrategy: "auto-download",
         lastMediaFileStrategyRun: "auto-download",
         changesApplied: true,
+        autoDownloadAudioOnOpen: false,
         ...(defaults || {}),
     };
     await writeLocalProjectSettings(def, workspaceFolderUri);
+}
+
+export async function getAutoDownloadAudioOnOpen(workspaceFolderUri?: vscode.Uri): Promise<boolean> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    return !!settings.autoDownloadAudioOnOpen;
+}
+
+export async function setAutoDownloadAudioOnOpen(
+    value: boolean,
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    settings.autoDownloadAudioOnOpen = !!value;
+    await writeLocalProjectSettings(settings, workspaceFolderUri);
 }
 

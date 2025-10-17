@@ -395,9 +395,9 @@ const CellList: React.FC<CellListProps> = ({
         }
     }, [cellsInAutocompleteQueue, currentProcessingCellId]);
 
-    // Helper function to generate appropriate cell label using global line numbers
-    // Helper function to get the global visible cell number (skipping paratext cells)
-    const getGlobalVisibleCellNumber = useCallback(
+    // Helper function to generate appropriate cell label using chapter-based verse numbers
+    // Helper function to get the chapter-based verse number (skipping paratext cells)
+    const getChapterBasedVerseNumber = useCallback(
         (cell: QuillCellContent, allCells: QuillCellContent[]): number => {
             const cellIndex = allCells.findIndex(
                 (unit) => unit.cellMarkers[0] === cell.cellMarkers[0]
@@ -405,14 +405,25 @@ const CellList: React.FC<CellListProps> = ({
 
             if (cellIndex === -1) return 1; // Fallback if not found
 
-            // Count non-paratext cells up to and including this one
+            // Extract chapter information from the current cell
+            const currentCellMarker = cell.cellMarkers[0];
+            const currentCellParts = currentCellMarker.split(":");
+            if (currentCellParts.length < 2) return 1; // Invalid cell marker format
+            
+            const currentChapterId = currentCellParts[0]; // e.g., "GEN 1"
+            const currentVerseNumber = parseInt(currentCellParts[1]); // e.g., 1 from "GEN 1:1"
+            
+            if (isNaN(currentVerseNumber)) return 1; // Invalid verse number
+
+            // Count non-paratext cells within the same chapter up to and including this one
             let visibleCellCount = 0;
             for (let i = 0; i <= cellIndex; i++) {
                 const cellIdParts = allCells[i].cellMarkers[0].split(":");
                 if (
                     allCells[i].cellType !== CodexCellTypes.PARATEXT &&
-                    cellIdParts.length < 3 &&
-                    !allCells[i].merged
+                    cellIdParts.length >= 2 &&
+                    !allCells[i].merged &&
+                    cellIdParts[0] === currentChapterId // Only count cells from the same chapter
                 ) {
                     visibleCellCount++;
                 }
@@ -453,11 +464,11 @@ const CellList: React.FC<CellListProps> = ({
                 );
 
                 if (parentCell) {
-                    // Get parent's label using global line numbers
+                    // Get parent's label using chapter-based verse numbers
                     const parentLabel =
                         parentCell.cellLabel ||
                         (parentCell.cellType !== CodexCellTypes.PARATEXT
-                            ? getGlobalVisibleCellNumber(parentCell, fullDocumentTranslationUnits)
+                            ? getChapterBasedVerseNumber(parentCell, fullDocumentTranslationUnits)
                             : "");
 
                     // Find all siblings (cells with the same parent)
@@ -483,10 +494,10 @@ const CellList: React.FC<CellListProps> = ({
                 }
             }
 
-            // Get global visible cell number (skipping paratext cells)
-            return getGlobalVisibleCellNumber(cell, fullDocumentTranslationUnits).toString();
+            // Get chapter-based verse number (skipping paratext cells)
+            return getChapterBasedVerseNumber(cell, fullDocumentTranslationUnits).toString();
         },
-        [fullDocumentTranslationUnits, getGlobalVisibleCellNumber]
+        [fullDocumentTranslationUnits, getChapterBasedVerseNumber]
     );
 
     // Helper function to determine if cell content is effectively empty

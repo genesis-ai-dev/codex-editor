@@ -868,7 +868,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                             disabled={!!error || isLoading}
                             title={
                                 isLoading && hasLoadedRef.current
-                                    ? "Loading audio..."
+                                    ? "Downloading audio..."
                                     : isPlaying
                                         ? "Pause (Space)"
                                         : "Play (Space)"

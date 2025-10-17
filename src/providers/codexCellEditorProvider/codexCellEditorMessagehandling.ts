@@ -45,6 +45,10 @@ function debug(...args: any[]): void {
     }
 }
 
+// Debounce container for broadcasting auto-download flag updates
+let autoDownloadBroadcastTimer: NodeJS.Timeout | undefined;
+let pendingAutoDownloadValue: boolean | undefined;
+
 
 // Helper to use VS Code FS API
 async function pathExists(filePath: string): Promise<boolean> {
@@ -91,6 +95,37 @@ interface MessageHandlerContext {
 // Individual message handlers
 const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<void> | void> = {
     webviewReady: () => { /* no-op */ },
+    setAutoDownloadAudioOnOpen: async ({ event, document, webviewPanel, provider }) => {
+        try {
+            const typed = event as any;
+            const value = !!typed?.content?.value;
+            const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+            const { setAutoDownloadAudioOnOpen } = await import("../../utils/localProjectSettings");
+            await setAutoDownloadAudioOnOpen(value, ws?.uri);
+            // Debounce broadcast so rapid toggles coalesce
+            pendingAutoDownloadValue = value;
+            if (autoDownloadBroadcastTimer) {
+                clearTimeout(autoDownloadBroadcastTimer);
+            }
+            autoDownloadBroadcastTimer = setTimeout(() => {
+                try {
+                    const panels = provider.getWebviewPanels();
+                    panels.forEach((panel) => {
+                        provider.postMessageToWebview(panel, {
+                            type: "providerUpdatesNotebookMetadataForWebview",
+                            content: { autoDownloadAudioOnOpen: pendingAutoDownloadValue },
+                        } as any);
+                    });
+                } catch (broadcastErr) {
+                    console.warn("Failed to broadcast autoDownloadAudioOnOpen", broadcastErr);
+                } finally {
+                    autoDownloadBroadcastTimer = undefined;
+                }
+            }, 150);
+        } catch (e) {
+            console.warn("Failed to set autoDownloadAudioOnOpen", e);
+        }
+    },
     getAsrConfig: async ({ webviewPanel }) => {
         try {
             const config = vscode.workspace.getConfiguration("codex-editor-extension");
@@ -152,16 +187,18 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             await document.updateCellAttachment(cellId, attachmentId, updated);
 
             // Notify webview(s) of updated audio attachments status
-            const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
-            // Recompute availability using attachment flags (isDeleted, isMissing)
+            await scanForAudioAttachments(document, webviewPanel);
+            // Recompute availability with pointer detection so UI shows correct icon
             try {
+                const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
                 const notebookData = JSON.parse(document.getText());
-                const availability: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; } = {};
-                if (Array.isArray(notebookData?.cells)) {
+                const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
+                if (Array.isArray(notebookData?.cells) && workspaceFolder) {
                     for (const cell of notebookData.cells) {
                         const id = cell?.metadata?.id;
                         if (!id) continue;
                         let hasAvailable = false;
+                        let hasAvailablePointer = false;
                         let hasMissing = false;
                         let hasDeleted = false;
                         const atts = cell?.metadata?.attachments || {};
@@ -173,11 +210,43 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 } else if (att.isMissing) {
                                     hasMissing = true;
                                 } else {
-                                    hasAvailable = true;
+                                    try {
+                                        const url = String(att.url || "");
+                                        if (url) {
+                                            const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+                                            const abs = path.join(workspaceFolder.uri.fsPath, filesRel);
+                                            const { isPointerFile } = await import("../../utils/lfsHelpers");
+                                            const isPtr = await isPointerFile(abs).catch(() => false);
+                                            if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
+                                        } else {
+                                            hasAvailable = true;
+                                        }
+                                    } catch { hasAvailable = true; }
                                 }
                             }
                         }
-                        availability[id] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+
+                        let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+                        if (hasAvailable) state = "available-local";
+                        else if (hasAvailablePointer) state = "available-pointer";
+                        else if (hasMissing) state = "missing";
+                        else if (hasDeleted) state = "deletedOnly";
+                        else state = "none";
+
+                        // Apply installed-version gate (no modal) to avoid showing Play when blocked
+                        if (state !== "available-local") {
+                            try {
+                                const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
+                                const status = await getFrontierVersionStatus();
+                                if (!status.ok) {
+                                    if (state !== "missing" && state !== "deletedOnly" && state !== "none") {
+                                        state = "available-pointer";
+                                    }
+                                }
+                            } catch { /* ignore */ }
+                        }
+
+                        availability[id] = state as any;
                     }
                 }
                 provider.postMessageToWebview(webviewPanel, {
@@ -1289,6 +1358,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 throw new Error("File should have been downloaded in auto-download mode");
                             }
 
+                            // Enforce version gates (Frontier required version + project metadata versions)
+                            const { ensureAllVersionGatesForMedia } = await import("../../utils/versionGate");
+                            const allowed = await ensureAllVersionGatesForMedia(true);
+                            if (!allowed) {
+                                throw new Error("Media operation blocked due to version requirements.");
+                            }
+
                             // Parse pointer to get OID and size
                             const pointer = await parsePointerFile(fullPath);
                             if (!pointer) {
@@ -1387,6 +1463,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         } catch { /* no-op */ }
 
                         if (pointerStats) {
+                            // Enforce version gates prior to fallback streaming
+                            const { ensureAllVersionGatesForMedia } = await import("../../utils/versionGate");
+                            const allowed = await ensureAllVersionGatesForMedia(true);
+                            if (!allowed) {
+                                throw new Error("Media operation blocked due to version requirements.");
+                            }
+
                             // Parse pointer
                             const { parsePointerFile, replaceFileWithPointer } = await import("../../utils/lfsHelpers");
                             const pointer = await parsePointerFile(pointerFullPath);
@@ -1670,6 +1753,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 const cellId = cell?.metadata?.id;
                 if (!cellId) continue;
                 let hasAvailable = false;
+                let hasAvailablePointer = false;
                 let hasMissing = false;
                 let hasDeleted = false;
                 const atts = cell?.metadata?.attachments || {};
@@ -1681,11 +1765,55 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         } else if (att.isMissing) {
                             hasMissing = true;
                         } else {
-                            hasAvailable = true;
+                            try {
+                                const url = String(att.url || "");
+                                if (url) {
+                                    const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+                                    const filesAbs = path.join(workspaceFolder.uri.fsPath, filesRel);
+                                    try {
+                                        await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
+                                        const { isPointerFile } = await import("../../utils/lfsHelpers");
+                                        const isPtr = await isPointerFile(filesAbs).catch(() => false);
+                                        if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
+                                    } catch {
+                                        const pointerAbs = filesAbs.includes("/.project/attachments/files/")
+                                            ? filesAbs.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
+                                            : filesAbs.replace(".project/attachments/files/", ".project/attachments/pointers/");
+                                        try {
+                                            await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
+                                            hasAvailablePointer = true;
+                                        } catch {
+                                            hasMissing = true;
+                                        }
+                                    }
+                                } else {
+                                    hasMissing = true;
+                                }
+                            } catch { hasMissing = true; }
                         }
                     }
                 }
-                availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                // Provisional state
+                let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+                if (hasAvailable) state = "available-local";
+                else if (hasAvailablePointer) state = "available-pointer";
+                else if (hasMissing) state = "missing";
+                else if (hasDeleted) state = "deletedOnly";
+                else state = "none";
+
+                if (state !== "available-local") {
+                    try {
+                        const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
+                        const status = await getFrontierVersionStatus();
+                        if (!status.ok) {
+                            if (state !== "missing" && state !== "deletedOnly" && state !== "none") {
+                                state = "available-pointer";
+                            }
+                        }
+                    } catch { /* ignore */ }
+                }
+
+                availability[cellId] = state as any;
             }
 
             provider.postMessageToWebview(webviewPanel, {
@@ -2222,17 +2350,51 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     const availability: { [k: string]: "available" | "missing" | "deletedOnly" | "none"; } = {} as any;
                     const cell = cells.find((c: any) => c?.metadata?.id === cellId);
                     if (cell) {
-                        let hasAvailable = false; let hasMissing = false; let hasDeleted = false;
+                        let hasAvailable = false; let hasAvailablePointer = false; let hasMissing = false; let hasDeleted = false;
                         const atts = cell?.metadata?.attachments || {};
                         for (const key of Object.keys(atts)) {
                             const att: any = atts[key];
                             if (att && att.type === "audio") {
                                 if (att.isDeleted) hasDeleted = true;
                                 else if (att.isMissing) hasMissing = true;
-                                else hasAvailable = true;
+                                else {
+                                    try {
+                                        const url = String(att.url || "");
+                                        if (url) {
+                                            const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+                                            const abs = path.join(workspaceFolder.uri.fsPath, filesRel);
+                                            const { isPointerFile } = await import("../../utils/lfsHelpers");
+                                            const isPtr = await isPointerFile(abs).catch(() => false);
+                                            if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
+                                        } else {
+                                            hasAvailable = true;
+                                        }
+                                    } catch { hasAvailable = true; }
+                                }
                             }
                         }
-                        availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                        // Provisional state
+                        let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+                        if (hasAvailable) state = "available-local";
+                        else if (hasAvailablePointer) state = "available-pointer";
+                        else if (hasMissing) state = "missing";
+                        else if (hasDeleted) state = "deletedOnly";
+                        else state = "none";
+
+                        // Apply installed-version gate to avoid Play icon when blocked
+                        if (state !== "available-local") {
+                            try {
+                                const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
+                                const status = await getFrontierVersionStatus();
+                                if (!status.ok) {
+                                    if (state !== "missing" && state !== "deletedOnly" && state !== "none") {
+                                        state = "available-pointer";
+                                    }
+                                }
+                            } catch { /* ignore */ }
+                        }
+
+                        availability[cellId] = state as any;
                         safePostMessageToPanel(webviewPanel, { type: "providerSendsAudioAttachments", attachments: availability });
                     }
                 } catch { /* ignore */ }
