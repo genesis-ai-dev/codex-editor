@@ -22,7 +22,7 @@ const ValidationStatusIcon: React.FC<ValidationStatusIconProps> = ({
             <i
                 className="codicon codicon-loading"
                 style={{
-                    fontSize: "12px",
+                    fontSize: "14px",
                     color: isDisabled
                         ? "var(--vscode-disabledForeground)"
                         : "var(--vscode-descriptionForeground)",
@@ -58,10 +58,11 @@ const ValidationStatusIcon: React.FC<ValidationStatusIconProps> = ({
                     <i
                         className="codicon codicon-check-all"
                         style={{
-                            fontSize: "12px",
+                            fontSize: "14px",
                             color: isDisabled
                                 ? "var(--vscode-disabledForeground)"
-                                : "var(--vscode-testing-iconPassed)",
+                                : "var(--vscode-charts-green)",
+                            filter: "drop-shadow(0 0 0.5px rgba(0,0,0,0.45))",
                         }}
                     ></i>
                     {displayValidationText && <span className="ml-1">Fully validated</span>}
@@ -73,10 +74,11 @@ const ValidationStatusIcon: React.FC<ValidationStatusIconProps> = ({
                 <i
                     className="codicon codicon-check-all"
                     style={{
-                        fontSize: "12px",
+                        fontSize: "14px",
                         color: isDisabled
                             ? "var(--vscode-disabledForeground)"
-                            : "var(--vscode-descriptionForeground)",
+                            : "var(--vscode-charts-green)",
+                        filter: "drop-shadow(0 0 0.5px rgba(0,0,0,0.45))",
                     }}
                 ></i>
                 {displayValidationText && (
@@ -92,10 +94,11 @@ const ValidationStatusIcon: React.FC<ValidationStatusIconProps> = ({
                 <i
                     className="codicon codicon-check"
                     style={{
-                        fontSize: "12px",
+                        fontSize: "14px",
                         color: isDisabled
                             ? "var(--vscode-disabledForeground)"
-                            : "var(--vscode-testing-iconPassed)",
+                            : "var(--vscode-charts-green)",
+                        filter: "drop-shadow(0 0 0.5px rgba(0,0,0,0.45))",
                     }}
                 ></i>
                 {displayValidationText && <span className="ml-1">Validated by you</span>}
