@@ -45,6 +45,10 @@ function debug(...args: any[]): void {
     }
 }
 
+// Debounce container for broadcasting auto-download flag updates
+let autoDownloadBroadcastTimer: NodeJS.Timeout | undefined;
+let pendingAutoDownloadValue: boolean | undefined;
+
 
 // Helper to use VS Code FS API
 async function pathExists(filePath: string): Promise<boolean> {
@@ -98,18 +102,26 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             const ws = vscode.workspace.getWorkspaceFolder(document.uri);
             const { setAutoDownloadAudioOnOpen } = await import("../../utils/localProjectSettings");
             await setAutoDownloadAudioOnOpen(value, ws?.uri);
-            // Broadcast updated flag to all open webviews so they stay in sync
-            try {
-                const panels = provider.getWebviewPanels();
-                panels.forEach((panel) => {
-                    provider.postMessageToWebview(panel, {
-                        type: "providerUpdatesNotebookMetadataForWebview",
-                        content: { autoDownloadAudioOnOpen: value },
-                    } as any);
-                });
-            } catch (broadcastErr) {
-                console.warn("Failed to broadcast autoDownloadAudioOnOpen", broadcastErr);
+            // Debounce broadcast so rapid toggles coalesce
+            pendingAutoDownloadValue = value;
+            if (autoDownloadBroadcastTimer) {
+                clearTimeout(autoDownloadBroadcastTimer);
             }
+            autoDownloadBroadcastTimer = setTimeout(() => {
+                try {
+                    const panels = provider.getWebviewPanels();
+                    panels.forEach((panel) => {
+                        provider.postMessageToWebview(panel, {
+                            type: "providerUpdatesNotebookMetadataForWebview",
+                            content: { autoDownloadAudioOnOpen: pendingAutoDownloadValue },
+                        } as any);
+                    });
+                } catch (broadcastErr) {
+                    console.warn("Failed to broadcast autoDownloadAudioOnOpen", broadcastErr);
+                } finally {
+                    autoDownloadBroadcastTimer = undefined;
+                }
+            }, 150);
         } catch (e) {
             console.warn("Failed to set autoDownloadAudioOnOpen", e);
         }

@@ -312,33 +312,21 @@ export function MobileHeaderMenu({
                         </div>
                         {subsections.map((section, index) => {
                             const progress = calculateSubsectionProgress ? calculateSubsectionProgress(section, isSourceText) : { isFullyTranslated: false, isFullyValidated: false };
+                            const isActive = currentSubsectionIndex === index;
                             return (
                                 <DropdownMenuItem
                                     key={section.id}
                                     onClick={() => setCurrentSubsectionIndex(index)}
-                                    className={`cursor-pointer ${currentSubsectionIndex === index ? 'bg-accent text-accent-foreground font-semibold' : ''}`}
+                                    className={`cursor-pointer ${isActive ? 'bg-accent text-accent-foreground font-semibold' : ''}`}
                                 >
                                     <i className="codicon codicon-location mr-2 h-4 w-4" />
                                     <span>Go to {section.label}</span>
                                     <div className="flex items-center gap-1 ml-auto">
-                                        {/* remove checkmark; rely on highlight */}
                                         {progress.isFullyValidated && (
-                                            <div
-                                                className="w-2 h-2 rounded-full"
-                                                style={{
-                                                    backgroundColor: "var(--vscode-editorWarning-foreground)",
-                                                }}
-                                                title="Page fully validated"
-                                            />
+                                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--vscode-editorWarning-foreground)" }} title="Page fully validated" />
                                         )}
                                         {!progress.isFullyValidated && progress.isFullyTranslated && (
-                                            <div
-                                                className="w-2 h-2 rounded-full"
-                                                style={{
-                                                    backgroundColor: "var(--vscode-charts-blue)",
-                                                }}
-                                                title="Page fully translated"
-                                            />
+                                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--vscode-charts-blue)" }} title="Page fully translated" />
                                         )}
                                     </div>
                                 </DropdownMenuItem>

@@ -166,6 +166,38 @@ ChapterNavigationHeaderProps) {
         }
     }, [metadata?.autoDownloadAudioOnOpen]);
 
+    // Memoized dropdown item row to reduce re-renders
+    const MemoDropdownRow = useCallback(
+        ({ label, isActive, isValidated, isTranslated, onClick }: { label: string; isActive: boolean; isValidated: boolean; isTranslated: boolean; onClick: () => void; }) => {
+            return (
+                <DropdownMenuItem
+                    onClick={onClick}
+                    className={`flex items-center justify-between cursor-pointer ${isActive ? 'bg-accent text-accent-foreground font-semibold' : ''}`}
+                    role="menuitem"
+                >
+                    <span>{label}</span>
+                    <div className="flex items-center gap-1">
+                        {isValidated && (
+                            <div
+                                className="w-2 h-2 rounded-full"
+                                style={{ backgroundColor: "var(--vscode-editorWarning-foreground)" }}
+                                title="Page fully validated"
+                            />
+                        )}
+                        {!isValidated && isTranslated && (
+                            <div
+                                className="w-2 h-2 rounded-full"
+                                style={{ backgroundColor: "var(--vscode-charts-blue)" }}
+                                title="Page fully translated"
+                            />
+                        )}
+                    </div>
+                </DropdownMenuItem>
+            );
+        },
+        []
+    );
+
     // Determine the display name using the map
     const getDisplayTitle = useCallback(() => {
         const firstMarker = translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]; // e.g., "GEN 1"
@@ -929,38 +961,16 @@ ChapterNavigationHeaderProps) {
                             >
                                 {subsections.map((section, index) => {
                                     const progress = calculateSubsectionProgress(section, isSourceText);
+                                    const isActive = currentSubsectionIndex === index;
                                     return (
-                                        <DropdownMenuItem
+                                        <MemoDropdownRow
                                             key={section.id}
+                                            label={section.label}
+                                            isActive={isActive}
+                                            isValidated={progress.isFullyValidated}
+                                            isTranslated={progress.isFullyTranslated}
                                             onClick={() => setCurrentSubsectionIndex(index)}
-                                            className={`flex items-center justify-between cursor-pointer ${currentSubsectionIndex === index ? 'bg-accent text-accent-foreground font-semibold' : ''}`}
-                                        >
-                                            <span>{section.label}</span>
-                                            <div className="flex items-center gap-1">
-                                                {progress.isFullyValidated && (
-                                                    <div
-                                                        className="w-2 h-2 rounded-full"
-                                                        style={{
-                                                            backgroundColor:
-                                                                "var(--vscode-editorWarning-foreground)",
-                                                        }}
-                                                        title="Page fully validated"
-                                                    />
-                                                )}
-                                                {/* remove checkmark; rely on highlight */}
-                                                {!progress.isFullyValidated &&
-                                                    progress.isFullyTranslated && (
-                                                        <div
-                                                            className="w-2 h-2 rounded-full"
-                                                            style={{
-                                                                backgroundColor:
-                                                                    "var(--vscode-charts-blue)",
-                                                            }}
-                                                            title="Page fully translated"
-                                                        />
-                                                    )}
-                                            </div>
-                                        </DropdownMenuItem>
+                                        />
                                     );
                                 })}
                             </DropdownMenuContent>
