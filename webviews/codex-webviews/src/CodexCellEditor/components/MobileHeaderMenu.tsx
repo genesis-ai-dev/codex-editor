@@ -13,6 +13,7 @@ import { Slider } from "../../components/ui/slider";
 import { CELL_DISPLAY_MODES } from "../CodexCellEditor";
 import { type CustomNotebookMetadata, type QuillCellContent } from "../../../../../types";
 import { type Subsection } from "../../lib/types";
+import { DropdownMenuCheckboxItem } from "../../components/ui/dropdown-menu";
 
 interface MobileHeaderMenuProps {
     // Translation controls
@@ -56,6 +57,8 @@ interface MobileHeaderMenuProps {
 
     // VS Code integration
     vscode: any;
+    autoDownloadAudioOnOpen?: boolean;
+    onToggleAutoDownloadAudio?: (value: boolean) => void;
 
     // Chapter navigation props (for very small screens)
     totalChapters?: number;
@@ -96,6 +99,8 @@ export function MobileHeaderMenu({
     chapterNumber,
     isCorrectionEditorMode,
     vscode,
+    autoDownloadAudioOnOpen,
+    onToggleAutoDownloadAudio,
     totalChapters,
     setChapterNumber,
     jumpToChapter,
@@ -311,14 +316,12 @@ export function MobileHeaderMenu({
                                 <DropdownMenuItem
                                     key={section.id}
                                     onClick={() => setCurrentSubsectionIndex(index)}
-                                    className={`cursor-pointer ${currentSubsectionIndex === index ? 'bg-accent' : ''}`}
+                                    className={`cursor-pointer ${currentSubsectionIndex === index ? 'bg-accent text-accent-foreground font-semibold' : ''}`}
                                 >
                                     <i className="codicon codicon-location mr-2 h-4 w-4" />
                                     <span>Go to {section.label}</span>
                                     <div className="flex items-center gap-1 ml-auto">
-                                        {currentSubsectionIndex === index && (
-                                            <i className="codicon codicon-check h-4 w-4" />
-                                        )}
+                                        {/* remove checkmark; rely on highlight */}
                                         {progress.isFullyValidated && (
                                             <div
                                                 className="w-2 h-2 rounded-full"
@@ -404,6 +407,29 @@ export function MobileHeaderMenu({
                         </DropdownMenuItem>
                     </>
                 )}
+
+                {/* Auto-download audio toggle */}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                    onClick={() => onToggleAutoDownloadAudio && onToggleAutoDownloadAudio(!autoDownloadAudioOnOpen)}
+                    className="cursor-pointer"
+                >
+                    <i className="codicon codicon-cloud-download mr-2 h-4 w-4" />
+                    <span className="flex-1">Auto-download audio on open</span>
+                    <span
+                        className="text-xs px-2 py-0.5 rounded-full"
+                        style={{
+                            backgroundColor: autoDownloadAudioOnOpen
+                                ? "var(--vscode-charts-blue)"
+                                : "var(--vscode-editorHoverWidget-border)",
+                            color: autoDownloadAudioOnOpen
+                                ? "var(--vscode-editor-background)"
+                                : "var(--vscode-foreground)",
+                        }}
+                    >
+                        {autoDownloadAudioOnOpen ? "On" : "Off"}
+                    </span>
+                </DropdownMenuItem>
 
                 {/* Font Size Slider */}
                 <DropdownMenuSeparator />

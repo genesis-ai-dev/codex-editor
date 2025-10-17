@@ -549,11 +549,21 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 validationCountAudio: validationCountAudio,
             });
 
-            // Also send updated metadata to ensure font size changes are reflected
-            this.postMessageToWebview(webviewPanel, {
-                type: "providerUpdatesNotebookMetadataForWebview",
-                content: notebookData.metadata,
-            });
+            // Also send updated metadata plus the autoDownloadAudioOnOpen flag for the project
+            try {
+                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                const { getAutoDownloadAudioOnOpen } = await import("../../utils/localProjectSettings");
+                const autoFlag = await getAutoDownloadAudioOnOpen(ws?.uri);
+                this.postMessageToWebview(webviewPanel, {
+                    type: "providerUpdatesNotebookMetadataForWebview",
+                    content: { ...notebookData.metadata, autoDownloadAudioOnOpen: !!autoFlag },
+                });
+            } catch {
+                this.postMessageToWebview(webviewPanel, {
+                    type: "providerUpdatesNotebookMetadataForWebview",
+                    content: notebookData.metadata,
+                });
+            }
 
             // After sending initial content, send refined audio availability with pointer detection
             try {

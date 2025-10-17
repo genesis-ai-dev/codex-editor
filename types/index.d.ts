@@ -873,6 +873,8 @@ export interface CustomNotebookMetadata {
     fontSizeSource?: "global" | "local"; // Track whether font size was set globally or locally
     lineNumbersEnabled?: boolean;
     lineNumbersEnabledSource?: "global" | "local"; // Track whether line numbers visibility was set globally or locally
+    /** When true, the editor will download/stream audio as soon as a cell opens */
+    autoDownloadAudioOnOpen?: boolean;
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {

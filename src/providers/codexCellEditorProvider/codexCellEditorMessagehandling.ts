@@ -91,6 +91,29 @@ interface MessageHandlerContext {
 // Individual message handlers
 const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<void> | void> = {
     webviewReady: () => { /* no-op */ },
+    setAutoDownloadAudioOnOpen: async ({ event, document, webviewPanel, provider }) => {
+        try {
+            const typed = event as any;
+            const value = !!typed?.content?.value;
+            const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+            const { setAutoDownloadAudioOnOpen } = await import("../../utils/localProjectSettings");
+            await setAutoDownloadAudioOnOpen(value, ws?.uri);
+            // Broadcast updated flag to all open webviews so they stay in sync
+            try {
+                const panels = provider.getWebviewPanels();
+                panels.forEach((panel) => {
+                    provider.postMessageToWebview(panel, {
+                        type: "providerUpdatesNotebookMetadataForWebview",
+                        content: { autoDownloadAudioOnOpen: value },
+                    } as any);
+                });
+            } catch (broadcastErr) {
+                console.warn("Failed to broadcast autoDownloadAudioOnOpen", broadcastErr);
+            }
+        } catch (e) {
+            console.warn("Failed to set autoDownloadAudioOnOpen", e);
+        }
+    },
     getAsrConfig: async ({ webviewPanel }) => {
         try {
             const config = vscode.workspace.getConfiguration("codex-editor-extension");
