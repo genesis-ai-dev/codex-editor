@@ -39,7 +39,15 @@ export interface CellListProps {
     currentProcessingCellId?: string; // Currently processing cell ID
     cellsInAutocompleteQueue?: string[]; // Cells queued for autocompletion
     successfulCompletions?: Set<string>; // Cells that completed successfully
-    audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" | "missing" }; // Cells that have audio attachments
+    audioAttachments?: {
+        [cellId: string]:
+            | "available"
+            | "available-local"
+            | "available-pointer"
+            | "deletedOnly"
+            | "none"
+            | "missing";
+    }; // Cells that have audio attachments
     isSaving?: boolean;
     saveError?: boolean; // Whether there was a save error/timeout
     saveRetryCount?: number; // Number of save retry attempts
@@ -509,7 +517,7 @@ const CellList: React.FC<CellListProps> = ({
                 toggleFlashingBorder();
                 return;
             }
-            
+
             if (cellToOpen) {
                 debug("openCellById", { cellToOpen, text: cellToOpen.cellContent });
                 setContentBeingUpdated({

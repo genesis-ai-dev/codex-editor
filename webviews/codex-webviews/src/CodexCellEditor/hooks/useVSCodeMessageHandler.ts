@@ -57,7 +57,7 @@ interface UseVSCodeMessageHandlerProps {
     singleCellTranslationCompleted?: () => void;
     singleCellTranslationFailed?: () => void;
     setChapterNumber?: (chapterNumber: number) => void;
-    setAudioAttachments: (attachments: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; }) => void;
+    setAudioAttachments: Dispatch<SetStateAction<{ [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; }>>;
 
     // A/B testing handlers
     showABTestVariants?: (data: { variants: string[]; cellId: string; testId: string; }) => void;
@@ -236,7 +236,7 @@ export const useVSCodeMessageHandler = ({
                 case "providerSendsAudioAttachments":
                     if (message.attachments) {
                         // Merge incrementally and only trigger state update if a value actually changes
-                        setAudioAttachments((prev: any) => {
+                        setAudioAttachments((prev) => {
                             try {
                                 const incoming = message.attachments as Record<string, string>;
                                 let changed = false;

@@ -123,7 +123,15 @@ interface CellEditorProps {
     footnoteOffset?: number;
     prevEndTime?: number;
     nextStartTime?: number;
-    audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" | "missing" };
+    audioAttachments?: {
+        [cellId: string]:
+            | "available"
+            | "available-local"
+            | "available-pointer"
+            | "deletedOnly"
+            | "none"
+            | "missing";
+    };
     requiredValidations?: number;
     requiredAudioValidations?: number;
     currentUsername?: string | null;
@@ -1572,7 +1580,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 >;
                 const stateForCell = availability[cellMarkers[0]];
 
-                if (stateForCell === "available" || stateForCell === "available-local" || stateForCell === "available-pointer") {
+                if (
+                    stateForCell === "available" ||
+                    stateForCell === "available-local" ||
+                    stateForCell === "available-pointer"
+                ) {
                     // We have audio for this cell; request the actual data once
                     setIsAudioLoading(true);
                     const messageContent: EditorPostMessages = {
@@ -1706,7 +1718,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         if (editableLabel !== "") {
             return editableLabel;
         }
-        
+
         return <span className="font-normal text-base text-gray-500 italic">Enter label...</span>;
     };
 

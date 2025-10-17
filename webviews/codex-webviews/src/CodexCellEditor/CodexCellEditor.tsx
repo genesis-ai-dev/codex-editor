@@ -222,7 +222,13 @@ const CodexCellEditor: React.FC = () => {
 
     // Add audio attachments state
     const [audioAttachments, setAudioAttachments] = useState<{
-        [cellId: string]: "available" | "deletedOnly" | "none" | "missing";
+        [cellId: string]:
+            | "available"
+            | "available-local"
+            | "available-pointer"
+            | "deletedOnly"
+            | "none"
+            | "missing";
     }>({});
 
     // Add cells per page configuration
