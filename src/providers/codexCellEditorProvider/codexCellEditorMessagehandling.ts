@@ -45,22 +45,6 @@ function debug(...args: any[]): void {
     }
 }
 
-// Ensure critical commands exist in lightweight test environments
-// This mirrors activation-time registration but is safe to run when already registered
-// and is a no-op in production.
-(async () => {
-    try {
-        const cmds = await vscode.commands.getCommands(true);
-        if (!cmds.includes("extension.scheduleSync")) {
-            // No-op fallback to prevent command-not-found errors in tests
-            vscode.commands.registerCommand("extension.scheduleSync", (_message: string) => {
-                // Intentionally empty - tests don't need actual sync functionality
-            });
-        }
-    } catch {
-        // ignore
-    }
-})();
 
 // Helper to use VS Code FS API
 async function pathExists(filePath: string): Promise<boolean> {
