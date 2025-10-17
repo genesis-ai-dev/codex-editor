@@ -1,15 +1,12 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, Dispatch, SetStateAction } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { QuillCellContent, ValidationEntry } from "../../../../types";
 import { getCellValueData } from "@sharedUtils";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { processValidationQueue, enqueueValidation } from "./validationQueue";
-import {
-    isValidValidationEntry,
-    textPopoverTracker,
-} from "./validationUtils";
+import { isValidValidationEntry, textPopoverTracker } from "./validationUtils";
 import { useTextValidationStatus } from "./hooks/useTextValidationStatus";
-import AudioValidatorsPopover from "./components/AudioValidatorsPopover";
+import ValidatorPopover from "./components/ValidatorPopover";
 import ValidationStatusIcon from "./AudioValidationStatusIcon";
 
 interface ValidationButtonProps {
@@ -19,6 +16,7 @@ interface ValidationButtonProps {
     isSourceText: boolean;
     currentUsername?: string | null;
     requiredValidations?: number;
+    setShowSparkleButton?: Dispatch<SetStateAction<boolean>>;
     disabled?: boolean;
     disabledReason?: string;
 }
@@ -30,6 +28,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     isSourceText,
     currentUsername,
     requiredValidations: requiredValidationsProp,
+    setShowSparkleButton,
     disabled: externallyDisabled,
     disabledReason,
 }) => {
@@ -122,7 +121,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     }, [requiredValidationsProp]);
 
     useMessageHandler(
-        "validationButton",
+        `validationButton-${cellId}-${uniqueId.current}`,
         (event: MessageEvent) => {
             const message = event.data;
             if (!currentUsername && message.type === "currentUsername") {
@@ -241,6 +240,10 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     };
 
     const closePopover = () => {
+        if (setShowSparkleButton) {
+            setShowSparkleButton(false);
+        }
+
         setShowPopover(false);
         textPopoverTracker.setActivePopover(null);
         clearCloseTimer();
@@ -315,7 +318,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
 
             {/* Popover for validation users */}
             {showPopover && uniqueValidationUsers.length > 0 && (
-                <AudioValidatorsPopover
+                <ValidatorPopover
                     anchorRef={buttonRef as any}
                     show={showPopover}
                     setShow={setShowPopover}
@@ -332,6 +335,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                         processValidationQueue(vscode).catch((error) =>
                             console.error("Validation queue processing error:", error)
                         );
+                        closePopover();
                     }}
                     title="Validators"
                     popoverTracker={textPopoverTracker}

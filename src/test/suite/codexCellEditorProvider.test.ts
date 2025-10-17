@@ -977,11 +977,15 @@ suite("CodexCellEditorProvider Test Suite", () => {
         assert.strictEqual(audioDataMsg.content.cellId, cellId);
         assert.strictEqual(typeof audioDataMsg.content.audioData, "string");
 
-        // And availability should be updated to 'available' for this cell
+        // And availability should be updated to an available state for this cell
         const availabilityMsg = postedMessages.find((m) => m?.type === "providerSendsAudioAttachments");
         assert.ok(availabilityMsg, "Should post providerSendsAudioAttachments after save");
         const availabilityMap = availabilityMsg.attachments || {};
-        assert.strictEqual(availabilityMap[cellId], "available", "Saved cell should be marked available");
+        assert.ok([
+            "available",
+            "available-local",
+            "available-pointer",
+        ].includes(availabilityMap[cellId]), "Saved cell should be marked available (local or pointer)");
 
         // Restore stub
         (vscode.workspace as any).getWorkspaceFolder = originalGetWorkspaceFolder;
@@ -1154,7 +1158,11 @@ suite("CodexCellEditorProvider Test Suite", () => {
         assert.strictEqual(historyMsg.content.cellId, cellId);
         const availMsg = posted.find((m) => m?.type === "providerSendsAudioAttachments");
         assert.ok(availMsg, "Should post providerSendsAudioAttachments after revalidation");
-        assert.strictEqual(availMsg.attachments[cellId], "available");
+        assert.ok([
+            "available",
+            "available-local",
+            "available-pointer",
+        ].includes(availMsg.attachments[cellId]), "Revalidated cell should be available (local or pointer)");
 
         // Restore stub
         (vscode.workspace as any).getWorkspaceFolder = originalGetWorkspaceFolder;

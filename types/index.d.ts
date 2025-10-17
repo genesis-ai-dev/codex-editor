@@ -873,6 +873,8 @@ export interface CustomNotebookMetadata {
     fontSizeSource?: "global" | "local"; // Track whether font size was set globally or locally
     lineNumbersEnabled?: boolean;
     lineNumbersEnabledSource?: "global" | "local"; // Track whether line numbers visibility was set globally or locally
+    /** When true, the editor will download/stream audio as soon as a cell opens */
+    autoDownloadAudioOnOpen?: boolean;
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
@@ -1784,7 +1786,8 @@ type EditorReceiveMessages =
     }
     | {
         type: "providerSendsAudioAttachments";
-        attachments: { [cellId: string]: "available" | "missing" | "deletedOnly" | "none"; };
+        // Availability now distinguishes between real local files vs LFS pointer placeholders
+        attachments: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; };
     }
     | {
         type: "providerSendsAudioData";

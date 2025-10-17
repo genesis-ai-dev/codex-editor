@@ -7,7 +7,7 @@ import ValidationStatusIcon from "./AudioValidationStatusIcon.tsx";
 import type { ValidationStatusIconProps } from "./AudioValidationStatusIcon.tsx";
 import type { QuillCellContent } from "../../../../types";
 import { processValidationQueue, enqueueValidation } from "./validationQueue";
-import AudioValidatorsPopover from "./components/AudioValidatorsPopover";
+import ValidatorPopover from "./components/ValidatorPopover";
 import { audioPopoverTracker } from "./validationUtils";
 import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
 
@@ -285,7 +285,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     {showValidatorsPopover &&
                         audioValidationPopoverProps &&
                         uniqueValidationUsers.length > 0 && (
-                            <AudioValidatorsPopover
+                            <ValidatorPopover
                                 anchorRef={validationContainerRef}
                                 show={showValidatorsPopover}
                                 setShow={setShowValidatorsPopover}

@@ -15,6 +15,7 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuCheckboxItem,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
@@ -128,6 +129,7 @@ export function ChapterNavigationHeader({
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
+    const [autoDownloadAudioOnOpen, setAutoDownloadAudioOnOpenState] = useState<boolean>(false);
     const [showChapterSelector, setShowChapterSelector] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const chapterTitleRef = useRef<HTMLDivElement>(null);
@@ -156,6 +158,45 @@ ChapterNavigationHeaderProps) {
             setPendingFontSize(null); // Clear any pending changes
         }
     }, [metadata?.fontSize]);
+
+    // Keep autoDownloadAudioOnOpen in sync when provider broadcasts metadata updates
+    useEffect(() => {
+        if (typeof metadata?.autoDownloadAudioOnOpen === "boolean") {
+            setAutoDownloadAudioOnOpenState(!!metadata.autoDownloadAudioOnOpen);
+        }
+    }, [metadata?.autoDownloadAudioOnOpen]);
+
+    // Memoized dropdown item row to reduce re-renders
+    const MemoDropdownRow = useCallback(
+        ({ label, isActive, isValidated, isTranslated, onClick }: { label: string; isActive: boolean; isValidated: boolean; isTranslated: boolean; onClick: () => void; }) => {
+            return (
+                <DropdownMenuItem
+                    onClick={onClick}
+                    className={`flex items-center justify-between cursor-pointer ${isActive ? 'bg-accent text-accent-foreground font-semibold' : ''}`}
+                    role="menuitem"
+                >
+                    <span>{label}</span>
+                    <div className="flex items-center gap-1">
+                        {isValidated && (
+                            <div
+                                className="w-2 h-2 rounded-full"
+                                style={{ backgroundColor: "var(--vscode-editorWarning-foreground)" }}
+                                title="Page fully validated"
+                            />
+                        )}
+                        {!isValidated && isTranslated && (
+                            <div
+                                className="w-2 h-2 rounded-full"
+                                style={{ backgroundColor: "var(--vscode-charts-blue)" }}
+                                title="Page fully translated"
+                            />
+                        )}
+                    </div>
+                </DropdownMenuItem>
+            );
+        },
+        []
+    );
 
     // Determine the display name using the map
     const getDisplayTitle = useCallback(() => {
@@ -666,6 +707,13 @@ ChapterNavigationHeaderProps) {
                         shouldHideNavButtons={shouldHideNavButtons}
                         allCellsForChapter={allCellsForChapter}
                         calculateSubsectionProgress={calculateSubsectionProgress}
+                        autoDownloadAudioOnOpen={autoDownloadAudioOnOpen}
+                        onToggleAutoDownloadAudio={(val) => {
+                            setAutoDownloadAudioOnOpenState(!!val);
+                            try {
+                                vscode.postMessage({ command: "setAutoDownloadAudioOnOpen", content: { value: !!val } });
+                            } catch {}
+                        }}
                     />
                 </div>
             )}
@@ -913,43 +961,16 @@ ChapterNavigationHeaderProps) {
                             >
                                 {subsections.map((section, index) => {
                                     const progress = calculateSubsectionProgress(section, isSourceText);
+                                    const isActive = currentSubsectionIndex === index;
                                     return (
-                                        <DropdownMenuItem
+                                        <MemoDropdownRow
                                             key={section.id}
+                                            label={section.label}
+                                            isActive={isActive}
+                                            isValidated={progress.isFullyValidated}
+                                            isTranslated={progress.isFullyTranslated}
                                             onClick={() => setCurrentSubsectionIndex(index)}
-                                            className="flex items-center justify-between cursor-pointer"
-                                        >
-                                            <span>{section.label}</span>
-                                            <div className="flex items-center gap-1">
-                                                {progress.isFullyValidated && (
-                                                    <div
-                                                        className="w-2 h-2 rounded-full"
-                                                        style={{
-                                                            backgroundColor:
-                                                                "var(--vscode-editorWarning-foreground)",
-                                                        }}
-                                                        title="Page fully validated"
-                                                    />
-                                                )}
-                                                {currentSubsectionIndex === index && (
-                                                    <i
-                                                        className="codicon codicon-check"
-                                                        style={{ fontSize: "12px" }}
-                                                    />
-                                                )}
-                                                {!progress.isFullyValidated &&
-                                                    progress.isFullyTranslated && (
-                                                        <div
-                                                            className="w-2 h-2 rounded-full"
-                                                            style={{
-                                                                backgroundColor:
-                                                                    "var(--vscode-charts-blue)",
-                                                            }}
-                                                            title="Page fully translated"
-                                                        />
-                                                    )}
-                                            </div>
-                                        </DropdownMenuItem>
+                                        />
                                     );
                                 })}
                             </DropdownMenuContent>
@@ -1021,8 +1042,21 @@ ChapterNavigationHeaderProps) {
                 )}
                 <DropdownMenu onOpenChange={handleDropdownOpenChange}>
                     <DropdownMenuTrigger asChild>
-                        <Button variant="outline" title="Advanced Settings">
+                        <Button variant="outline" title="Advanced Settings" className="relative">
                             <i className="codicon codicon-settings-gear" />
+                            {autoDownloadAudioOnOpen ? (
+                                <span
+                                    className="absolute rounded-full"
+                                    style={{
+                                        width: 8,
+                                        height: 8,
+                                        right: 6,
+                                        top: 6,
+                                        backgroundColor: "var(--vscode-charts-blue)",
+                                    }}
+                                    title="Auto-download enabled"
+                                />
+                            ) : null}
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
@@ -1044,6 +1078,35 @@ ChapterNavigationHeaderProps) {
                             <i className="codicon codicon-arrow-swap mr-2 h-4 w-4" />
                             <span>Text Direction ({textDirection.toUpperCase()})</span>
                         </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={() => {
+                                const next = !autoDownloadAudioOnOpen;
+                                setAutoDownloadAudioOnOpenState(next);
+                                try { vscode.postMessage({ command: "setAutoDownloadAudioOnOpen", content: { value: next } }); } catch {}
+                                try {
+                                    (window as any).__autoDownloadAudioOnOpen = next;
+                                    (window as any).__autoDownloadAudioOnOpenInitialized = true;
+                                } catch {}
+                            }}
+                            className="cursor-pointer"
+                        >
+                            <i className="codicon codicon-cloud-download mr-2 h-4 w-4" />
+                            <span className="flex-1">Auto-download audio on open</span>
+                            <span
+                                className="text-xs px-2 py-0.5 rounded-full"
+                                style={{
+                                    backgroundColor: autoDownloadAudioOnOpen
+                                        ? "var(--vscode-charts-blue)"
+                                        : "var(--vscode-editorHoverWidget-border)",
+                                    color: autoDownloadAudioOnOpen
+                                        ? "var(--vscode-editor-background)"
+                                        : "var(--vscode-foreground)",
+                                }}
+                            >
+                                {autoDownloadAudioOnOpen ? "On" : "Off"}
+                            </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
 
                         <DropdownMenuItem
                             onClick={() => {

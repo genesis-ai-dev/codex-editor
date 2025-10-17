@@ -55,6 +55,8 @@ import { migrateAudioAttachments } from "./utils/audioAttachmentsMigrationUtils"
 import { registerTestingCommands } from "./evaluation/testingCommands";
 import { initializeABTesting } from "./utils/abTestingSetup";
 import { migration_addValidationsForUserEdits } from "./projectManager/utils/migrationUtils";
+import * as fs from "fs";
+import * as os from "os";
 
 const DEBUG_MODE = false;
 function debug(...args: any[]): void {
@@ -227,6 +229,15 @@ async function restoreTabLayout(context: vscode.ExtensionContext) {
 
 export async function activate(context: vscode.ExtensionContext) {
     const activationStart = globalThis.performance.now();
+
+    // Ensure OS temp directory exists in test/web environments (mock FS may not have /tmp)
+    try {
+        const tmp = os.tmpdir();
+        const tmpUri = vscode.Uri.file(tmp);
+        await vscode.workspace.fs.createDirectory(tmpUri);
+    } catch (e) {
+        console.warn("[Extension] Could not ensure temp directory exists:", e);
+    }
 
     // Save tab layout and close all editors before showing splash screen
     try {
@@ -420,6 +431,24 @@ export async function activate(context: vscode.ExtensionContext) {
 
             // Always initialize extension to ensure language server is available before webviews
             await initializeExtension(context, metadataExists);
+
+            // Ensure local project settings exist when a Codex project is open
+            try {
+                if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+                    // Only ensure settings once a repo is fully initialized (avoid during clone checkout)
+                    try {
+                        const projectUri = vscode.workspace.workspaceFolders[0].uri;
+                        const gitDir = vscode.Uri.joinPath(projectUri, ".git");
+                        await vscode.workspace.fs.stat(gitDir);
+                        const { afterProjectDetectedEnsureLocalSettings } = await import("./projectManager/utils/projectUtils");
+                        await afterProjectDetectedEnsureLocalSettings(projectUri);
+                    } catch {
+                        // No .git yet; skip until project is fully initialized/opened
+                    }
+                }
+            } catch (e) {
+                console.warn("[Extension] Failed to ensure local project settings exist:", e);
+            }
 
             if (!metadataExists) {
                 const watchStart = globalThis.performance.now();

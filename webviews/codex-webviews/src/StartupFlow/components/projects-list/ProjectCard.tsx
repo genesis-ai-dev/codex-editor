@@ -348,7 +348,6 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                 {(project.syncStatus === "downloadedAndSynced" ||
                                     project.syncStatus === "error") &&
                                     mediaStrategy !== "stream-only" && (
-                                    <>
                                         <Button
                                             variant="outline"
                                             size="sm"
@@ -364,25 +363,24 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                             <i className="codicon codicon-trash mr-1" />
                                             Clean Media
                                         </Button>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => {
-                                                vscode.postMessage({
-                                                    command: "project.heal",
-                                                    projectName: project.name,
-                                                    projectPath: project.path,
-                                                    gitOriginUrl: project.gitOriginUrl,
-                                                });
-                                            }}
-                                            className="h-6 text-xs text-yellow-600 hover:text-yellow-700"
-                                            title="Heal project by backing up, re-cloning, and merging local changes"
-                                        >
-                                            <i className="codicon codicon-heart mr-1" />
-                                            Heal
-                                        </Button>
-                                    </>
-                                )}
+                                    )}
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                        vscode.postMessage({
+                                            command: "project.heal",
+                                            projectName: project.name,
+                                            projectPath: project.path,
+                                            gitOriginUrl: project.gitOriginUrl,
+                                        });
+                                    }}
+                                    className="h-6 text-xs text-yellow-600 hover:text-yellow-700"
+                                    title="Heal project by backing up, re-cloning, and merging local changes"
+                                >
+                                    <i className="codicon codicon-heart mr-1" />
+                                    Heal
+                                </Button>
                                 <Button
                                     variant="outline"
                                     size="sm"

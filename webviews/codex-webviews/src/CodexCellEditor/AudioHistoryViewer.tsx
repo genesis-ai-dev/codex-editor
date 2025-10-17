@@ -490,6 +490,18 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
 
     const currentAttachment = getLatestAttachment();
 
+    // Allow closing the history viewer with Escape
+    useEffect(() => {
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === "Escape") {
+                event.preventDefault();
+                handleClose();
+            }
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, []);
+
     return (
         <div
             style={{

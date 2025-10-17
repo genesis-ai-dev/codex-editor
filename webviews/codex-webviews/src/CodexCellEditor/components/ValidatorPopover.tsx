@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from "react";
 import type { ValidationEntry } from "../../../../../types";
 import { formatTimestamp, audioPopoverTracker } from "../validationUtils";
 
-interface AudioValidatorsPopoverProps {
+interface ValidatorPopoverProps {
     anchorRef: React.RefObject<HTMLElement>;
     show: boolean;
     setShow: (show: boolean) => void;
@@ -20,7 +20,7 @@ interface AudioValidatorsPopoverProps {
     };
 }
 
-export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
+export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
     anchorRef,
     show,
     setShow,
@@ -31,7 +31,7 @@ export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
     onRequestClose,
     cancelCloseTimer,
     scheduleCloseTimer,
-    title = "Audio Validators",
+    title = "Validators",
     popoverTracker = audioPopoverTracker,
 }) => {
     const popoverRef = useRef<HTMLDivElement>(null);
@@ -226,4 +226,4 @@ export const AudioValidatorsPopover: React.FC<AudioValidatorsPopoverProps> = ({
     );
 };
 
-export default AudioValidatorsPopover;
+export default ValidatorPopover;

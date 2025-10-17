@@ -615,12 +615,34 @@ export class MainMenuProvider extends BaseWebviewProvider {
             }
             case "getAsrSettings": {
                 const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                let endpoint = config.get<string>("asrEndpoint", "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe");
+                let authToken: string | undefined;
+
+                // Try to get authenticated endpoint from FrontierAPI
+                try {
+                    const frontierApi = getAuthApi();
+                    if (frontierApi) {
+                        const authStatus = frontierApi.getAuthStatus();
+                        if (authStatus.isAuthenticated) {
+                            const asrEndpoint = await frontierApi.getAsrEndpoint();
+                            if (asrEndpoint) {
+                                endpoint = asrEndpoint;
+                            }
+                            // Get auth token for authenticated requests
+                            authToken = await frontierApi.authProvider.getToken();
+                        }
+                    }
+                } catch (error) {
+                    console.debug("Could not get ASR endpoint from auth API:", error);
+                }
+
                 const settings = {
-                    endpoint: config.get<string>("asrEndpoint", "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe"),
+                    endpoint,
                     provider: config.get<string>("asrProvider", "mms"),
                     model: config.get<string>("asrModel", "facebook/mms-1b-all"),
                     language: config.get<string>("asrLanguage", "eng"),
                     phonetic: config.get<boolean>("asrPhonetic", false),
+                    authToken,
                 };
                 if (this._view) {
                     safePostMessageToView(this._view, { command: "asrSettings", data: settings }, "MainMenu");
