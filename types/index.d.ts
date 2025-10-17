@@ -1513,6 +1513,12 @@ interface MenuButton {
     description?: string;
 }
 
+// Minimal typings for pdf-parse used in the extension host
+declare module 'pdf-parse' {
+    const pdfParse: (data: Buffer) => Promise<{ text: string; }>;
+    export default pdfParse;
+}
+
 // NewSourceUploader message types (moved to plugin types)
 export type NewSourceUploaderPostMessages = any; // Placeholder - actual types are in plugin.ts
 

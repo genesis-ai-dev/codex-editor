@@ -13,7 +13,8 @@ import {
 } from "lucide-react";
 
 // Import the actual plugin definitions
-import { docxImporterPlugin } from "./docx/index.tsx";
+// import { docxImporterPlugin } from "./docx/index.tsx"; // Old mammoth.js importer
+import { docxRoundtripImporterPlugin as docxImporterPlugin } from "./docx/experiment/index.tsx"; // New round-trip importer
 import { markdownImporterPlugin } from "./markdown/index.tsx";
 import { usfmImporterPlugin } from "./usfm/index.tsx";
 import { ebibleDownloadImporterPlugin } from "./ebibleCorpus/index.tsx";
@@ -27,7 +28,7 @@ import { audioImporterPlugin } from "./audio/index.tsx";
 import { biblicaImporterPlugin } from "./biblica/index.tsx";
 // import { tmsImporterPlugin } from "./tms/index.tsx";
 // import { rtfImporterPlugin } from "./rtf/index.tsx";
-// import { pdfImporterPlugin } from "./pdf/index.tsx";
+import { pdfImporterPlugin } from "./pdf/index.tsx";
 import { indesignImporterPlugin } from "./indesign/index.tsx";
 
 // Import placeholder components - these will be created for each importer
@@ -63,7 +64,7 @@ export const importerPlugins: ImporterPlugin[] = [
     {
         ...docxImporterPlugin,
         name: "Word Documents",
-        description: "Microsoft Word files with images",
+        description: "Microsoft Word files with round-trip export support",
         tags: [...(docxImporterPlugin.tags || []), "Essential", "Documents", "Microsoft"],
     },
     {
@@ -96,13 +97,13 @@ export const importerPlugins: ImporterPlugin[] = [
     //     description: "Rich Text Format files with Bible verses, chapters, and books",
     //     tags: [...(rtfImporterPlugin.tags || []), "Essential", "Documents"],
     // },
-    // {
-    //     ...pdfImporterPlugin,
-    //     name: "PDF Documents",
-    //     description: "Portable Document Format files with Bible text",
-    //     icon: FileText,
-    //     tags: ["Essential", "Documents", "PDF"],
-    // },
+    {
+        ...pdfImporterPlugin,
+        name: "PDF Documents",
+        description: "Portable Document Format files with Bible text",
+        icon: FileText,
+        tags: ["Essential", "Documents", "PDF"],
+    },
     {
         ...indesignImporterPlugin,
         name: "InDesign Files",

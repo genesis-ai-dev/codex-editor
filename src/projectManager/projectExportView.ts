@@ -322,14 +322,23 @@ function getWebviewContent(
                                     <span class="format-tag">Translation Ready</span>
                                 </div>
                             </div>
-                            <div class="format-option" data-format="idml-roundtrip" style="flex: 1;">
-                                <i class="codicon codicon-package"></i>
+                            <div class="format-option" data-format="rebuild-export" style="flex: 1;">
+                                <i class="codicon codicon-refresh"></i>
                                 <div>
-                                    <strong>IDML Round-trip</strong>
-                                    <p>Export translated content back into the original IDML structure (auto-detects Biblica files)</p>
-                                    <span class="format-tag">InDesign</span>
+                                    <strong>Rebuild Export</strong>
+                                    <p>Intelligently detects file type and exports back to original format (DOCX, IDML, Biblica, PDF)</p>
+                                    <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem; flex-wrap: wrap;">
+                                        <span class="format-tag" style="background-color: var(--vscode-charts-green);">DOCX</span>
+                                        <span class="format-tag" style="background-color: var(--vscode-charts-green);">IDML</span>
+                                        <span class="format-tag" style="background-color: var(--vscode-charts-green);">Biblica</span>
+                                        <span class="format-tag" style="background-color: var(--vscode-charts-green);">PDF</span>
+                                    </div>
                                 </div>
                             </div>
+                        </div>
+                        
+                        <!-- Audio Export Option (moved to separate row) -->
+                        <div style="display: flex; gap: 1rem;">
                             <div class="format-option" data-format="audio" style="flex: 1;">
                                 <i class="codicon codicon-mic"></i>
                                 <div>
