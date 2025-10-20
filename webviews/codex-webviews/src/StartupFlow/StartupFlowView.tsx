@@ -15,7 +15,7 @@ import { createActor } from "xstate";
 import { InputCriticalProjectInfo } from "./components/InputCriticalProjectInfo";
 import NameProjectModal from "./components/NameProjectModal";
 import { WebviewApi } from "vscode-webview";
-import ConfirmModal from "./components/ConfirmModal";
+import ConfirmModal from "../components/ConfirmModal";
 
 enum StartupFlowStates {
     LOGIN_REGISTER = "loginRegister",
@@ -353,6 +353,18 @@ export const StartupFlowView: React.FC = () => {
         "value in startup flow"
     );
 
+    const data = (window as any).__codexConfirmData as
+        | { original: string; sanitized: string }
+        | undefined;
+
+    const sanitized = data?.sanitized || "";
+
+    const confirmModalContent = (
+        <div className="flex flex-col justify-center items-center py-4">
+            <div className="font-semibold">{sanitized}</div>
+        </div>
+    );
+
     return (
         <div className="startup-flow-container">
             <div
@@ -451,17 +463,19 @@ export const StartupFlowView: React.FC = () => {
                 title="Confirm Project Name"
                 description="Project name will be saved in the following format"
                 open={showConfirmSanitizedNameModal}
+                content={confirmModalContent}
+                disableSubmit={!sanitized}
                 onCancel={() => {
                     setShowConfirmSanitizedNameModal(false);
                     (window as any).__codexConfirmData = undefined;
                     setPendingSanitizedName(null);
                     setShowNameModal(true);
                 }}
-                onSubmit={(name?: string) => {
+                onSubmit={() => {
                     vscode.postMessage({
                         command: "project.createEmpty.confirm",
                         proceed: true,
-                        projectName: name,
+                        projectName: sanitized,
                     } as MessagesToStartupFlowProvider);
                     setShowConfirmSanitizedNameModal(false);
                     (window as any).__codexConfirmData = undefined;
