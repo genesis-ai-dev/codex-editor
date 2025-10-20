@@ -405,15 +405,16 @@ const CellList: React.FC<CellListProps> = ({
 
             if (cellIndex === -1) return 1; // Fallback if not found
 
-            // Extract chapter information from the current cell
-            const currentCellMarker = cell.cellMarkers[0];
-            const currentCellParts = currentCellMarker.split(":");
-            if (currentCellParts.length < 2) return 1; // Invalid cell marker format
+            // FIXME: THIS BROKE LINE NUMBERS WHEN UPLOADING SUBTITLES. NEED TO FIX.
+            // // Extract chapter information from the current cell
+            // const currentCellMarker = cell.cellMarkers[0];
+            // const currentCellParts = currentCellMarker.split(":");
+            // if (currentCellParts.length < 2) return 1; // Invalid cell marker format
             
-            const currentChapterId = currentCellParts[0]; // e.g., "GEN 1"
-            const currentVerseNumber = parseInt(currentCellParts[1]); // e.g., 1 from "GEN 1:1"
+            // const currentChapterId = currentCellParts[0]; // e.g., "GEN 1"
+            // const currentVerseNumber = parseInt(currentCellParts[1]); // e.g., 1 from "GEN 1:1"
             
-            if (isNaN(currentVerseNumber)) return 1; // Invalid verse number
+            // if (isNaN(currentVerseNumber)) return 1; // Invalid verse number
 
             // Count non-paratext cells within the same chapter up to and including this one
             let visibleCellCount = 0;
@@ -422,8 +423,8 @@ const CellList: React.FC<CellListProps> = ({
                 if (
                     allCells[i].cellType !== CodexCellTypes.PARATEXT &&
                     cellIdParts.length >= 2 &&
-                    !allCells[i].merged &&
-                    cellIdParts[0] === currentChapterId // Only count cells from the same chapter
+                    !allCells[i].merged /* && FIXME: THIS BROKE LINE NUMBERS WHEN UPLOADING SUBTITLES. NEED TO FIX.
+                    cellIdParts[0] === currentChapterId // Only count cells from the same chapter */
                 ) {
                     visibleCellCount++;
                 }
