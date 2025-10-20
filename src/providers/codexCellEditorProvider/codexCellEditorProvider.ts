@@ -48,10 +48,14 @@ interface StateStore {
 }
 
 export class CodexCellEditorProvider implements vscode.CustomEditorProvider<CodexCellDocument> {
+    private static instance: CodexCellEditorProvider | undefined;
+
     public currentDocument: CodexCellDocument | undefined;
     private webviewPanels: Map<string, vscode.WebviewPanel> = new Map();
     private webviewReadyState: Map<string, boolean> = new Map(); // Track if webview is ready to receive content
     private pendingWebviewUpdates: Map<string, (() => void)[]> = new Map(); // Track pending update functions
+    private refreshInFlight: Set<string> = new Set(); // Prevent overlapping refreshes per document
+    private pendingRefresh: Set<string> = new Set(); // Queue one follow-up refresh if needed
     private userInfo: { username: string; email: string; } | undefined;
     private stateStore: StateStore | undefined;
     private stateStoreListener: (() => void) | undefined;
@@ -143,9 +147,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     // Add correction editor mode state
     private isCorrectionEditorMode: boolean = false;
 
+    public static getInstance(): CodexCellEditorProvider | undefined {
+        return CodexCellEditorProvider.instance;
+    }
+
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         debug("Registering CodexCellEditorProvider");
         const provider = new CodexCellEditorProvider(context);
+        CodexCellEditorProvider.instance = provider;
         const providerRegistration = vscode.window.registerCustomEditorProvider(
             CodexCellEditorProvider.viewType,
             provider,
@@ -337,6 +346,36 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         debug("Resetting webview ready state for:", documentUri);
         this.webviewReadyState.set(documentUri, false);
         this.pendingWebviewUpdates.delete(documentUri);
+    }
+
+    /**
+     * Wait for a webview to be ready with exponential backoff
+     * @param documentUri The URI of the document to wait for
+     * @param maxWaitMs Maximum time to wait (default 5000ms)
+     * @returns Promise that resolves when ready or times out
+     */
+    public async waitForWebviewReady(documentUri: string, maxWaitMs: number = 5000): Promise<boolean> {
+        const startTime = Date.now();
+        let attempt = 0;
+        const maxAttempts = 10;
+
+        while (Date.now() - startTime < maxWaitMs && attempt < maxAttempts) {
+            if (this.webviewReadyState.get(documentUri)) {
+                debug(`Webview ready after ${Date.now() - startTime}ms:`, documentUri);
+                return true;
+            }
+
+            // Exponential backoff: 10ms, 20ms, 40ms, 80ms, 160ms, 320ms, 640ms...
+            const backoffMs = Math.min(10 * Math.pow(2, attempt), 500);
+            await new Promise(resolve => setTimeout(resolve, backoffMs));
+            attempt++;
+        }
+
+        const isReady = this.webviewReadyState.get(documentUri) || false;
+        if (!isReady) {
+            debug(`Webview not ready after ${maxWaitMs}ms timeout:`, documentUri);
+        }
+        return isReady;
     }
 
     public async resolveCustomEditor(
@@ -1079,6 +1118,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const styleResetUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "reset.css")
         );
+        const styleResetUriWithBuster = `${styleResetUri.toString()}?id=${encodeURIComponent(document.uri.toString())}`;
         // Note: vscode.css was removed in favor of Tailwind CSS in individual webviews
         const codiconsUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
@@ -1089,6 +1129,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 "codicon.css"
             )
         );
+        const codiconsUriWithBuster = `${codiconsUri.toString()}?id=${encodeURIComponent(document.uri.toString())}`;
         const scriptUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
                 this.context.extensionUri,
@@ -1099,6 +1140,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 "index.js"
             )
         );
+        // Force a unique URL to avoid SW caching across panels
+        const scriptUriWithBuster = `${scriptUri.toString()}?id=${encodeURIComponent(document.uri.toString())}`;
 
         const notebookData = this.getDocumentAsJson(document);
         const videoPath = notebookData.metadata?.videoUrl;
@@ -1135,9 +1178,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' 'strict-dynamic' https://www.youtube.com; frame-src https://www.youtube.com; worker-src ${webview.cspSource} blob:; connect-src https://languagetool.org/api/ data: wss://ryderwishart--whisper-websocket-transcription-websocket-transcribe.modal.run wss://*.modal.run; img-src 'self' data: ${webview.cspSource} https:; font-src ${webview.cspSource}; media-src ${webview.cspSource} https: blob: data:;">
-                <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
-                <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' 'strict-dynamic' https://www.youtube.com; frame-src https://www.youtube.com; worker-src ${webview.cspSource} blob:; connect-src https://languagetool.org/api/ data: wss://ryderwishart--whisper-websocket-transcription-websocket-transcribe.modal.run wss://*.modal.run; img-src 'self' data: ${webview.cspSource} https:; font-src ${webview.cspSource} data:; media-src ${webview.cspSource} https: blob: data:;">
+                <link href="${styleResetUriWithBuster}" rel="stylesheet" nonce="${nonce}">
+                <link href="${codiconsUriWithBuster}" rel="stylesheet" nonce="${nonce}" />
                 <title>Codex Cell Editor</title>
                 
                 <script nonce="${nonce}">
@@ -1155,7 +1198,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             </head>
             <body>
                 <div id="root"></div>
-                <script nonce="${nonce}" src="${scriptUri}"></script>
+                <script nonce="${nonce}" src="${scriptUriWithBuster}"></script>
                 
                 <style>
                     .floating-apply-validations-button {
@@ -1468,6 +1511,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     "codex.cellEditor",
                     { viewColumn: vscode.ViewColumn.One }
                 );
+                // Wait for source webview to be ready
+                await this.waitForWebviewReady(sourcePath.toString(), 3000);
             } catch (e) {
                 console.warn("Failed to open source editor for transcription preflight", e);
                 // Continue; we may already have a panel open
@@ -2023,6 +2068,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Reset webview ready state since we're resetting the HTML
         this.resetWebviewReadyState(document.uri.toString());
 
+        // Prevent overlapping refreshes which can race SW/iframe creation
+        const docKey = document.uri.toString();
+        if (this.refreshInFlight.has(docKey)) {
+            // Debounce: remember that another refresh was requested
+            this.pendingRefresh.add(docKey);
+            debug("Refresh already in-flight, queuing another once complete");
+            return;
+        }
+        this.refreshInFlight.add(docKey);
+
         webviewPanel.webview.html = this.getHtmlForWebview(
             webviewPanel.webview,
             document,
@@ -2066,6 +2121,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         });
 
         debug("Webview refresh scheduled");
+
+        // Release in-flight lock after a tick and run any queued refresh once
+        setTimeout(() => {
+            this.refreshInFlight.delete(docKey);
+            if (this.pendingRefresh.has(docKey)) {
+                this.pendingRefresh.delete(docKey);
+                debug("Running queued refresh after previous in-flight completed");
+                // Fire and forget; next call will set in-flight again
+                this.refreshWebview(webviewPanel, document);
+            }
+        }, 0);
     }
 
     // Removed: sendAudioAttachmentsStatus; audio availability is computed client-side from content
@@ -2163,6 +2229,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 "codex.cellEditor",
                 { viewColumn: vscode.ViewColumn.One }
             );
+
+            // Wait for source webview to be ready before opening target
+            const sourceReady = await this.waitForWebviewReady(sourcePath.toString(), 3000);
+            if (!sourceReady) {
+                debug("Source webview not ready, opening target anyway");
+            }
 
             // Open the codex file in the right-most group (ViewColumn.Two)
             await vscode.commands.executeCommand(

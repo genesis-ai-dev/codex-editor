@@ -122,9 +122,7 @@ export const useVSCodeMessageHandler = ({
                         setAudioAttachments(availability);
                     } catch { /* ignore */ }
                     break;
-                case "updateNotebookMetadata":
-                    // no-op here (handled below in providerUpdatesNotebookMetadataForWebview)
-                    break;
+
                 case "providerUpdatesNotebookMetadataForWebview":
                     // Hydrate auto-download flag and notify metadata update in one place
                     try {
@@ -132,8 +130,8 @@ export const useVSCodeMessageHandler = ({
                             (window as any).__autoDownloadAudioOnOpen = !!message.content.autoDownloadAudioOnOpen;
                             (window as any).__autoDownloadAudioOnOpenInitialized = true;
                         }
-                    } catch { }
-                    try { updateNotebookMetadata(message.content); } catch { }
+                    } catch { console.error("Error deriving audio attachment availability"); }
+                    try { updateNotebookMetadata(message.content); } catch { console.error("Error updating notebook metadata"); }
                     break;
 
                     // Derive audio attachment availability from QuillCellContent.attachments
