@@ -272,7 +272,7 @@ const CodexCellEditor: React.FC = () => {
                         language: string;
                         phonetic: boolean;
                         authToken?: string;
-                    }>((resolve) => {
+                    }>((resolve, reject) => {
                         let resolved = false;
                         const onMsg = (ev: MessageEvent) => {
                             if (ev.data?.type === "asrConfig") {
@@ -286,16 +286,10 @@ const CodexCellEditor: React.FC = () => {
                         setTimeout(() => {
                             if (!resolved) {
                                 window.removeEventListener("message", onMsg);
-                                resolve({
-                                    endpoint:
-                                        "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe",
-                                    provider: "mms",
-                                    model: "facebook/mms-1b-all",
-                                    language: "eng",
-                                    phonetic: false,
-                                });
+                                // Reject instead of using hardcoded fallback - let backend provide endpoint
+                                reject(new Error("Timeout waiting for ASR config from backend. Please check your ASR settings."));
                             }
-                        }, 2000);
+                        }, 5000);
                     });
 
                     const toIso3 = (code?: string) => {

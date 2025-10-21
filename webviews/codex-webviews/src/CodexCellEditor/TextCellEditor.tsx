@@ -1326,10 +1326,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
             } catch {
                 /* ignore */
             }
-            // Create transcription client using configured endpoint (fallback to legacy)
-            const wsEndpoint =
-                asrConfig?.endpoint ||
-                "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe";
+            // Create transcription client using configured endpoint from backend
+            const wsEndpoint = asrConfig?.endpoint;
+            if (!wsEndpoint) {
+                throw new Error("ASR endpoint not configured. Please check your ASR settings.");
+            }
             const client = new WhisperTranscriptionClient(wsEndpoint, asrConfig?.authToken);
             transcriptionClientRef.current = client;
 
