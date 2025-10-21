@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { VSCodeButton, VSCodeTextField } from "@vscode/webview-ui-toolkit/react";
 import {
     Dialog,
     DialogContent,
@@ -8,6 +7,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "../../components/ui/dialog";
+import { Button, Input } from "../../components/ui";
 
 interface NameProjectModalProps {
     open: boolean;
@@ -23,7 +23,12 @@ export const NameProjectModal: React.FC<NameProjectModalProps> = ({
     onSubmit,
 }) => {
     const [name, setName] = useState<string>(defaultValue);
-    useEffect(() => setName(defaultValue), [defaultValue]);
+
+    useEffect(() => {
+        if (open) {
+            setName(defaultValue);
+        }
+    }, [open, defaultValue]);
 
     const validationError = useMemo(() => {
         if (!name.trim()) return "Project name cannot be empty";
@@ -32,41 +37,37 @@ export const NameProjectModal: React.FC<NameProjectModalProps> = ({
     }, [name]);
 
     return (
-        <Dialog open={open}>
+        <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onCancel()}>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>
-                        New Project
-                    </DialogTitle>
-                    <DialogDescription>
-                        Choose a name for your new project
-                    </DialogDescription>
+                    <DialogTitle>New Project</DialogTitle>
+                    <DialogDescription>Choose a name for your new project</DialogDescription>
                 </DialogHeader>
 
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <VSCodeTextField
+                <div className="flex flex-col gap-2">
+                    <Input
+                        type="text"
                         value={name}
-                        onInput={(e: any) => setName(e.target.value || "")}
+                        className="placeholder:text-gray-400"
+                        onChange={(e) => setName(e.target.value)}
                         placeholder="my-translation-project"
                         autoFocus
                     />
                     {validationError ? (
-                        <span style={{ color: "var(--vscode-errorForeground)", fontSize: 12 }}>
-                            {validationError}
-                        </span>
+                        <span className="text-sm text-red-500">{validationError}</span>
                     ) : null}
                 </div>
 
                 <DialogFooter>
-                    <VSCodeButton appearance="secondary" onClick={onCancel}>
+                    <Button variant="secondary" onClick={onCancel}>
                         Cancel
-                    </VSCodeButton>
-                    <VSCodeButton
+                    </Button>
+                    <Button
                         disabled={Boolean(validationError)}
                         onClick={() => onSubmit(name.trim())}
                     >
                         Create
-                    </VSCodeButton>
+                    </Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

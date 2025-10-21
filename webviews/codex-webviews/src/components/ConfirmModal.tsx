@@ -1,5 +1,4 @@
 import React from "react";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import {
     Dialog,
     DialogContent,
@@ -8,6 +7,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "./ui/dialog";
+import { Button } from "./ui/button";
 
 interface ConfirmModalProps {
     open: boolean;
@@ -29,7 +29,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
     onSubmit,
 }) => {
     return (
-        <Dialog open={open}>
+        <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onCancel()}>
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>{title}</DialogTitle>
@@ -37,12 +37,12 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
                 </DialogHeader>
                 {content}
                 <DialogFooter>
-                    <VSCodeButton appearance="secondary" onClick={onCancel}>
+                    <Button variant="secondary" onClick={onCancel}>
                         Cancel
-                    </VSCodeButton>
-                    <VSCodeButton onClick={() => onSubmit} disabled={disableSubmit}>
+                    </Button>
+                    <Button autoFocus onClick={onSubmit} disabled={disableSubmit}>
                         Continue
-                    </VSCodeButton>
+                    </Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

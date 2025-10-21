@@ -285,22 +285,14 @@ export const StartupFlowView: React.FC = () => {
     };
 
     const [showNameModal, setShowNameModal] = useState(false);
-    const [pendingSanitizedName, setPendingSanitizedName] = useState<{
-        original: string;
-        sanitized: string;
-    } | null>(null);
+    const [pendingSanitizedName, setPendingSanitizedName] = useState<string | null>(null);
     const [showConfirmSanitizedNameModal, setShowConfirmSanitizedNameModal] = useState(false);
 
     useEffect(() => {
         const onMessage = (event: MessageEvent<any>) => {
             const message = event.data as MessagesFromStartupFlowProvider;
             if (message?.command === "project.nameWillBeSanitized") {
-                const payload = {
-                    original: message.original,
-                    sanitized: message.sanitized,
-                };
-                setPendingSanitizedName(payload);
-                (window as any).__codexConfirmData = payload;
+                setPendingSanitizedName(message.sanitized);
                 setShowConfirmSanitizedNameModal(true);
             }
         };
@@ -348,20 +340,9 @@ export const StartupFlowView: React.FC = () => {
     //     }
     // }, [state.value]);
 
-    console.log(
-        { value, doesThisWork: value === StartupFlowStates.OPEN_OR_CREATE_PROJECT },
-        "value in startup flow"
-    );
-
-    const data = (window as any).__codexConfirmData as
-        | { original: string; sanitized: string }
-        | undefined;
-
-    const sanitized = data?.sanitized || "";
-
     const confirmModalContent = (
         <div className="flex flex-col justify-center items-center py-4">
-            <div className="font-semibold">{sanitized}</div>
+            <div className="font-semibold">{pendingSanitizedName}</div>
         </div>
     );
 
@@ -452,6 +433,7 @@ export const StartupFlowView: React.FC = () => {
 
             <NameProjectModal
                 open={showNameModal}
+                defaultValue={pendingSanitizedName || ""}
                 onCancel={() => {
                     setShowNameModal(false);
                     setPendingSanitizedName(null);
@@ -464,10 +446,9 @@ export const StartupFlowView: React.FC = () => {
                 description="Project name will be saved in the following format"
                 open={showConfirmSanitizedNameModal}
                 content={confirmModalContent}
-                disableSubmit={!sanitized}
+                disableSubmit={!pendingSanitizedName}
                 onCancel={() => {
                     setShowConfirmSanitizedNameModal(false);
-                    (window as any).__codexConfirmData = undefined;
                     setPendingSanitizedName(null);
                     setShowNameModal(true);
                 }}
@@ -475,10 +456,9 @@ export const StartupFlowView: React.FC = () => {
                     vscode.postMessage({
                         command: "project.createEmpty.confirm",
                         proceed: true,
-                        projectName: sanitized,
+                        projectName: pendingSanitizedName,
                     } as MessagesToStartupFlowProvider);
                     setShowConfirmSanitizedNameModal(false);
-                    (window as any).__codexConfirmData = undefined;
                     setPendingSanitizedName(null);
                 }}
             />
