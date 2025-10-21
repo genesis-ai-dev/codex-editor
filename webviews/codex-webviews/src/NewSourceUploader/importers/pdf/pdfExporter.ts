@@ -1,17 +1,43 @@
 /**
  * PDF Round-Trip Exporter
  * 
- * Rebuilds a PDF with translated content by:
- * 1. Loading the original PDF from stored data
- * 2. Extracting text positions and layout
- * 3. Replacing text with translations while preserving layout
- * 4. Generating a new PDF with updated content
+ * Creates a new PDF with translated content.
+ * Note: Full layout preservation requires complex PDF parsing libraries that work in Node.js.
+ * This version creates a clean, readable PDF with the translated text.
  * 
- * Current Implementation: Basic text replacement
- * Future Enhancement: Preserve fonts, colors, positioning, images
+ * Implementation: Uses pdf-lib for PDF creation
  */
 
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb, PDFPage } from 'pdf-lib';
+
+/**
+ * Strip HTML tags and decode HTML entities from text
+ */
+function stripHtml(html: string): string {
+    if (!html) return '';
+
+    // Remove HTML tags
+    let text = html.replace(/<[^>]*>/g, '');
+
+    // Decode common HTML entities
+    const entityMap: Record<string, string> = {
+        '&amp;': '&',
+        '&lt;': '<',
+        '&gt;': '>',
+        '&quot;': '"',
+        '&#39;': "'",
+        '&nbsp;': ' ',
+    };
+
+    Object.keys(entityMap).forEach(entity => {
+        text = text.replace(new RegExp(entity, 'g'), entityMap[entity]);
+    });
+
+    // Clean up extra whitespace
+    text = text.replace(/\s+/g, ' ').trim();
+
+    return text;
+}
 
 /**
  * Sanitize text for WinAnsi encoding (StandardFonts limitation)
@@ -55,6 +81,33 @@ function sanitizeForWinAnsi(text: string): string {
 }
 
 /**
+ * Wrap text to fit within a given width
+ */
+function wrapText(text: string, maxWidth: number, font: any, fontSize: number): string[] {
+    const words = text.split(' ');
+    const lines: string[] = [];
+    let currentLine = '';
+
+    for (const word of words) {
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        const testWidth = font.widthOfTextAtSize(testLine, fontSize);
+
+        if (testWidth > maxWidth && currentLine) {
+            lines.push(currentLine);
+            currentLine = word;
+        } else {
+            currentLine = testLine;
+        }
+    }
+
+    if (currentLine) {
+        lines.push(currentLine);
+    }
+
+    return lines;
+}
+
+/**
  * Export PDF with translations
  * 
  * @param originalFileData - Original PDF file as ArrayBuffer
@@ -73,108 +126,90 @@ export async function exportPdfWithTranslations(
         console.log('[PDF Exporter] Starting PDF export...');
         console.log(`[PDF Exporter] Cells to process: ${codexCells.length}`);
 
-        // Load the original PDF
-        const pdfDoc = await PDFDocument.load(originalFileData);
-        console.log(`[PDF Exporter] Loaded original PDF with ${pdfDoc.getPageCount()} pages`);
+        // Create new PDF
+        const pdfDoc = await PDFDocument.create();
+        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-        // Collect translations from cells
+        // Page settings
+        const pageWidth = 595; // A4 width in points
+        const pageHeight = 842; // A4 height in points
+        const margin = 50;
+        const maxWidth = pageWidth - (2 * margin);
+        const fontSize = 12;
+        const lineHeight = fontSize * 1.5;
+
+        let currentPage = pdfDoc.addPage([pageWidth, pageHeight]);
+        let yPosition = pageHeight - margin;
+
+        // Collect and process translations
         const translations: Array<{
             index: number;
-            original: string;
-            translation: string;
+            text: string;
         }> = [];
 
         codexCells.forEach((cell, index) => {
-            const translation = cell.value?.trim();
-            const originalContent = cell.metadata?.originalContent || cell.metadata?.data?.originalContent;
+            const rawTranslation = cell.value?.trim();
 
-            if (translation && originalContent) {
-                translations.push({
-                    index,
-                    original: originalContent,
-                    translation: translation
-                });
+            if (rawTranslation) {
+                // Strip HTML tags
+                const translation = stripHtml(rawTranslation);
+
+                if (translation) {
+                    translations.push({
+                        index: index + 1,
+                        text: sanitizeForWinAnsi(translation)
+                    });
+                }
             }
         });
 
-        console.log(`[PDF Exporter] Found ${translations.length} translations`);
+        console.log(`[PDF Exporter] Found ${translations.length} translations to render`);
 
-        // Create a new PDF with translations
-        // Note: This is a simplified implementation that creates a new document
-        // A more advanced implementation would:
-        // 1. Extract exact text positions from original PDF
-        // 2. Replace text in place preserving fonts, sizes, colors
-        // 3. Maintain all images, graphics, and layout
+        // Render each translation
+        for (const translation of translations) {
+            // Wrap text to fit page width
+            const lines = wrapText(translation.text, maxWidth, font, fontSize);
 
-        const newPdf = await PDFDocument.create();
-        const font = await newPdf.embedFont(StandardFonts.Helvetica);
+            // Check if we need a new page
+            const requiredHeight = lines.length * lineHeight + 10; // +10 for spacing
+            if (yPosition - requiredHeight < margin) {
+                currentPage = pdfDoc.addPage([pageWidth, pageHeight]);
+                yPosition = pageHeight - margin;
+            }
 
-        // Add pages with translated content
-        const pageSize = { width: 612, height: 792 }; // Letter size
-        const margin = 50;
-        const lineHeight = 14;
-        const maxWidth = pageSize.width - 2 * margin;
+            // Draw sentence number (optional, can be removed)
+            // currentPage.drawText(`[${translation.index}]`, {
+            //     x: margin,
+            //     y: yPosition,
+            //     size: fontSize - 2,
+            //     font: font,
+            //     color: rgb(0.5, 0.5, 0.5),
+            // });
+            // yPosition -= lineHeight;
 
-        let currentPage = newPdf.addPage([pageSize.width, pageSize.height]);
-        let yPosition = pageSize.height - margin;
-
-        translations.forEach((item) => {
-            // Sanitize text for WinAnsi encoding
-            const text = sanitizeForWinAnsi(item.translation);
-
-            // Simple word wrapping
-            const words = text.split(' ');
-            let line = '';
-
-            words.forEach((word) => {
-                const testLine = line + (line ? ' ' : '') + word;
-                const textWidth = font.widthOfTextAtSize(testLine, 12);
-
-                if (textWidth > maxWidth && line) {
-                    // Draw current line
-                    if (yPosition < margin) {
-                        // Start new page
-                        currentPage = newPdf.addPage([pageSize.width, pageSize.height]);
-                        yPosition = pageSize.height - margin;
-                    }
-
+            // Draw each line of text
+            for (const line of lines) {
+                try {
                     currentPage.drawText(line, {
                         x: margin,
                         y: yPosition,
-                        size: 12,
+                        size: fontSize,
                         font: font,
                         color: rgb(0, 0, 0),
                     });
-
                     yPosition -= lineHeight;
-                    line = word;
-                } else {
-                    line = testLine;
+                } catch (error) {
+                    console.warn(`[PDF Exporter] Could not draw text line:`, error);
                 }
-            });
-
-            // Draw remaining text
-            if (line) {
-                if (yPosition < margin) {
-                    currentPage = newPdf.addPage([pageSize.width, pageSize.height]);
-                    yPosition = pageSize.height - margin;
-                }
-
-                currentPage.drawText(line, {
-                    x: margin,
-                    y: yPosition,
-                    size: 12,
-                    font: font,
-                    color: rgb(0, 0, 0),
-                });
-
-                yPosition -= lineHeight * 1.5; // Extra space between sentences
             }
-        });
+
+            // Add spacing between sentences
+            yPosition -= lineHeight * 0.5;
+        }
 
         // Serialize the PDF
-        const pdfBytes = await newPdf.save();
-        console.log(`[PDF Exporter] ✓ Generated new PDF with ${newPdf.getPageCount()} pages`);
+        const pdfBytes = await pdfDoc.save();
+        console.log(`[PDF Exporter] ✓ Generated new PDF with ${pdfDoc.getPageCount()} pages`);
 
         // Convert Uint8Array to ArrayBuffer properly
         return pdfBytes.buffer.slice(pdfBytes.byteOffset, pdfBytes.byteOffset + pdfBytes.byteLength) as ArrayBuffer;
