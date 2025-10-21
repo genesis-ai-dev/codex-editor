@@ -100,7 +100,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
 
     const createCellsFromStories = useCallback(async (stories: any[], htmlRepresentation: any, document: any) => {
         const cells: any[] = [];
-        let globalCellIndex = 0; // Global counter for sequential numbering
+        let globalCellIndex = 0; // Global counter for sequential numbering across all content
         
         for (const story of stories) {
             // Try to find HTML story, but don't require it
@@ -123,19 +123,22 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                     
                     for (const verse of verseSegments) {
                         const { bookAbbreviation, chapterNumber, verseNumber, beforeVerse, verseContent, afterVerse } = verse;
-                        const bookPrefix = bookAbbreviation ? `${bookAbbreviation} ` : '';
-                        const cellId = `${bookPrefix}${chapterNumber}:${verseNumber}`;
+                        // Use simple sequential numbering for all cells
+                        globalCellIndex++;
+                        const cellId = `biblica 1:${globalCellIndex}`;
+                        // Store original verse reference for metadata
+                        const originalVerseRef = bookAbbreviation ? `${bookAbbreviation} ${chapterNumber}:${verseNumber}` : `${chapterNumber}:${verseNumber}`;
                         
                         // Create HTML content for the verse
                         const htmlContent = `<p class="biblica-verse" data-book="${bookAbbreviation}" data-chapter="${chapterNumber}" data-verse="${verseNumber}" data-paragraph-style="${paragraphStyle}" data-story-id="${story.id}">${escapeHtml(verseContent)}</p>`;
                         
                         const cellMetadata = {
-                            cellLabel: `${bookPrefix}${chapterNumber}:${verseNumber}`,
+                            cellLabel: originalVerseRef, // Keep original verse reference in label
                             isBibleVerse: true,
                             bookAbbreviation,
                             chapterNumber,
                             verseNumber,
-                            verseId: cellId,
+                            verseId: originalVerseRef, // Keep original verse reference
                             storyId: story.id,
                             storyName: story.name,
                             paragraphId: paragraph.id,
@@ -167,7 +170,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                         const images = await extractImagesFromHtml(htmlContent);
                         cell.images = images;
                         cells.push(cell);
-                        addDebugLog(`Created verse cell: ${cellId}`);
+                        addDebugLog(`Created verse cell: ${cellId} (original: ${originalVerseRef})`);
                     }
                 } else {
                     // Fallback: Create one cell per paragraph (for non-verse content)
@@ -188,7 +191,9 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                         continue;
                     }
 
-                    const cellId = `biblica 1:${globalCellIndex + 1}`;
+                    // Use simple sequential numbering for all cells
+                    globalCellIndex++;
+                    const cellId = `biblica 1:${globalCellIndex}`;
                     const ranges = paragraph.characterStyleRanges || [];
                     
                     // Use characterStyleRanges if available, otherwise use content with preserved breaks
@@ -205,7 +210,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                     
                     const htmlContent = `<p class="biblica-paragraph" data-paragraph-style="${paragraphStyle}" data-story-id="${story.id}">${inlineHTML}</p>`;
                     const cellMetadata = {
-                        cellLabel: (globalCellIndex + 1).toString(),
+                        cellLabel: globalCellIndex.toString(), // Use sequential number as label
                         storyId: story.id,
                         storyName: story.name,
                         paragraphId: paragraph.id,
@@ -245,7 +250,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                     const images = await extractImagesFromHtml(htmlContent);
                     cell.images = images;
                     cells.push(cell);
-                    globalCellIndex++;
+                    addDebugLog(`Created paragraph cell: ${cellId}`);
                 }
             }
         }

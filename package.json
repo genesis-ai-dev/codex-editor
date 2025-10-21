@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.6.21",
+    "version": "0.6.22",
     "engines": {
         "node": ">=18.0.0",
         "vscode": "^1.78.0"
@@ -769,7 +769,7 @@
                         "title": "ASR WebSocket Endpoint",
                         "type": "string",
                         "default": "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe",
-                        "description": "WebSocket endpoint for audio transcription. Leave default to use authenticated Codex service, or set custom endpoint for local development."
+                        "description": "WebSocket endpoint for audio transcription. When authenticated with Frontier, the auth server endpoint is automatically used. This setting is used as fallback when not authenticated or for local development."
                     },
                     "codex-editor-extension.asrProvider": {
                         "title": "ASR Provider",
@@ -1066,9 +1066,10 @@
         "ml-pca": "^4.1.1",
         "moment": "^2.30.1",
         "openai": "^4.67.3",
+        "path": "^0.12.7",
         "pdf-lib": "^1.17.1",
         "pdf-parse": "^1.1.1",
-        "path": "^0.12.7",
+        "pdfjs-dist": "4.0.379",
         "pnpm": "^8.15.5",
         "proc-log": "^5.0.0",
         "react-wordcloud": "^1.2.7",

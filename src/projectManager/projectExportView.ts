@@ -287,7 +287,7 @@ function getWebviewContent(
             ? `
                     <h3>Select Export Format</h3>
                     <div style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem;">
-                        <!-- Standard Export Formats -->
+                        <!-- Standard Export Formats - Row 1: Plaintext | USFM -->
                         <div style="display: flex; gap: 1rem;">
                             <div class="format-option" data-format="plaintext" style="flex: 1;">
                                 <i class="codicon codicon-file-text"></i>
@@ -303,6 +303,10 @@ function getWebviewContent(
                                     <p>Export in Universal Standard Format Markers</p>
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- Standard Export Formats - Row 2: HTML | XLIFF -->
+                        <div style="display: flex; gap: 1rem;">
                             <div class="format-option" data-format="html" style="flex: 1;">
                                 <i class="codicon codicon-browser"></i>
                                 <div>
@@ -310,10 +314,6 @@ function getWebviewContent(
                                     <p>Export as web pages with chapter navigation</p>
                                 </div>
                             </div>
-                        </div>
-
-                        <!-- Translation Export Options -->
-                        <div style="display: flex; gap: 1rem; margin-top: 1rem;">
                             <div class="format-option" data-format="xliff" style="flex: 1;">
                                 <i class="codicon codicon-symbol-interface"></i>
                                 <div>
@@ -322,6 +322,10 @@ function getWebviewContent(
                                     <span class="format-tag">Translation Ready</span>
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- Rebuild Export - Full Width -->
+                        <div style="display: flex; gap: 1rem;">
                             <div class="format-option" data-format="rebuild-export" style="flex: 1;">
                                 <i class="codicon codicon-refresh"></i>
                                 <div>
@@ -337,7 +341,7 @@ function getWebviewContent(
                             </div>
                         </div>
                         
-                        <!-- Audio Export Option (moved to separate row) -->
+                        <!-- Audio Export - Full Width -->
                         <div style="display: flex; gap: 1rem;">
                             <div class="format-option" data-format="audio" style="flex: 1;">
                                 <i class="codicon codicon-mic"></i>
