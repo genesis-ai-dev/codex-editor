@@ -29,7 +29,7 @@ import { isValidValidationEntry } from "./validationUtils";
 import "./TranslationAnimations.css";
 import { CellTranslationState } from "./CellTranslationStyles";
 import { getVSCodeAPI } from "../shared/vscodeApi";
-import { Subsection } from "../lib/types";
+import { Subsection, ProgressPercentages } from "../lib/types";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { WhisperTranscriptionClient, type AsrMeta } from "./WhisperTranscriptionClient";
@@ -39,13 +39,6 @@ export enum CELL_DISPLAY_MODES {
     INLINE = "inline",
     ONE_LINE_PER_CELL = "one-line-per-cell",
 }
-
-export type ProgressPercentages = {
-    percentTranslationsCompleted: number;
-    percentFullyValidatedTranslations: number;
-    percentAudioValidatedTranslations: number;
-    percentValidatedTranslations: number;
-};
 
 const DEBUG_ENABLED = false; // todo: turn this on and clean up the functions that are getting called thousands of times, probably once per cell
 
@@ -1230,7 +1223,7 @@ const CodexCellEditor: React.FC = () => {
                     percentTranslationsCompleted: 0,
                     percentFullyValidatedTranslations: 0,
                     percentAudioValidatedTranslations: 0,
-                    percentValidatedTranslations: 0,
+                    percentTextValidatedTranslations: 0,
                 };
             }
 
@@ -1276,14 +1269,14 @@ const CodexCellEditor: React.FC = () => {
 
             const percentTranslationsCompleted = (cellsWithValues / totalCells) * 100;
             const percentAudioValidatedTranslations = (audioValidatedCells / totalCells) * 100;
-            const percentValidatedTranslations = (validatedCells / totalCells) * 100;
+            const percentTextValidatedTranslations = (validatedCells / totalCells) * 100;
             const percentFullyValidatedTranslations = (fullyValidatedCells / totalCells) * 100;
 
             return {
                 percentTranslationsCompleted,
                 percentFullyValidatedTranslations,
                 percentAudioValidatedTranslations,
-                percentValidatedTranslations,
+                percentTextValidatedTranslations,
             };
         },
         [translationUnits, requiredValidations, requiredAudioValidations]

@@ -10,7 +10,7 @@ import {
     type CustomNotebookMetadata,
 } from "../../../../types";
 import { EditMapUtils } from "../../../../src/utils/editMapUtils";
-import { type FileStatus, type EditorPosition, type Subsection } from "../lib/types";
+import { type FileStatus, type EditorPosition, type Subsection, type ProgressPercentages } from "../lib/types";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -72,7 +72,7 @@ interface ChapterNavigationHeaderProps {
     isCorrectionEditorMode?: boolean;
     chapterProgress?: Record<
         number,
-        { percentTranslationsCompleted: number; percentFullyValidatedTranslations: number }
+        ProgressPercentages
     >;
     allCellsForChapter?: QuillCellContent[];
     onTempFontSizeChange?: (fontSize: number) => void;
@@ -712,7 +712,9 @@ ChapterNavigationHeaderProps) {
                             setAutoDownloadAudioOnOpenState(!!val);
                             try {
                                 vscode.postMessage({ command: "setAutoDownloadAudioOnOpen", content: { value: !!val } });
-                            } catch {}
+                            } catch (error) {
+                                console.error("Error setting auto download audio on open", error);
+                            }
                         }}
                     />
                 </div>
@@ -1082,11 +1084,17 @@ ChapterNavigationHeaderProps) {
                             onClick={() => {
                                 const next = !autoDownloadAudioOnOpen;
                                 setAutoDownloadAudioOnOpenState(next);
-                                try { vscode.postMessage({ command: "setAutoDownloadAudioOnOpen", content: { value: next } }); } catch {}
+                                try { 
+                                    vscode.postMessage({ command: "setAutoDownloadAudioOnOpen", content: { value: next } }); 
+                                } catch (error) {
+                                    console.error("Error setting auto download audio on open", error);
+                                }
                                 try {
                                     (window as any).__autoDownloadAudioOnOpen = next;
                                     (window as any).__autoDownloadAudioOnOpenInitialized = true;
-                                } catch {}
+                                } catch (error) {
+                                    console.error("Error setting auto download audio on open", error);
+                                }
                             }}
                             className="cursor-pointer"
                         >

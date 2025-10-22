@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { Button } from "../../components/ui/button";
+import { ProgressPercentages } from "../../lib/types";
 
 interface ChapterSelectorModalProps {
     isOpen: boolean;
@@ -12,10 +13,12 @@ interface ChapterSelectorModalProps {
     bookTitle: string;
     unsavedChanges: boolean;
     anchorRef: React.RefObject<HTMLDivElement>;
-    chapterProgress?: Record<
-        number,
-        { percentTranslationsCompleted: number; percentFullyValidatedTranslations: number }
-    >;
+    chapterProgress?: Record<number, ProgressPercentages>;
+}
+
+interface ChapterColor {
+    backgroundColor: string;
+    textColor: string;
 }
 
 export function ChapterSelectorModal({
@@ -35,44 +38,51 @@ export function ChapterSelectorModal({
     const [arrowPosition, setArrowPosition] = useState<"top" | "bottom">("top");
 
     // Helper function to get chapter background color based on progress
-    const getChapterBackgroundColor = (chapter: number, isSelected: boolean) => {
+    const getChapterColor = (chapter: number): ChapterColor => {
         if (!chapterProgress || !chapterProgress[chapter]) {
             // Default styling when no progress data
-            return "var(--vscode-editorWidget-background)";
+            return {
+                backgroundColor: "var(--vscode-editorWidget-background)",
+                textColor: "var(--vscode-foreground)",
+            };
         }
 
         const progress = chapterProgress[chapter];
-        const { percentTranslationsCompleted, percentFullyValidatedTranslations } = progress;
+        const {
+            percentAudioValidatedTranslations,
+            percentTextValidatedTranslations,
+            percentFullyValidatedTranslations,
+        } = progress;
 
         // If 100% validated (secondary color)
         if (percentFullyValidatedTranslations >= 100) {
-            return "var(--vscode-editorWarning-foreground)";
-        }
-        // If 100% translated (primary color)
-        else if (percentTranslationsCompleted >= 100) {
-            return "var(--vscode-charts-blue)";
-        }
-        // Default styling
-        else {
-            return "var(--vscode-editorWidget-background)";
+            return {
+                backgroundColor: "var(--vscode-editorWarning-foreground)",
+                textColor: "var(--vscode-editor-background)",
+            };
+        } else if (percentTextValidatedTranslations >= 100) {
+            return {
+                backgroundColor: "var(--vscode-charts-green)",
+                textColor: "var(--vscode-editor-background)",
+            };
+        } else if (percentAudioValidatedTranslations >= 100) {
+            return {
+                backgroundColor: "var(--vscode-charts-blue)",
+                textColor: "var(--vscode-editor-background)",
+            };
+        } else {
+            return {
+                backgroundColor: "var(--vscode-editorWidget-background)",
+                textColor: "var(--vscode-foreground)",
+            };
         }
     };
 
-    // Helper function to get text color based on background
-    const getChapterTextColor = (chapter: number, isSelected: boolean) => {
+    const getIsFullyTranslated = (chapter: number) => {
         if (!chapterProgress || !chapterProgress[chapter]) {
-            return isSelected ? "var(--vscode-button-foreground)" : "var(--vscode-foreground)";
+            return false;
         }
-
-        const progress = chapterProgress[chapter];
-        const { percentTranslationsCompleted, percentFullyValidatedTranslations } = progress;
-
-        // If progress colors are applied, use contrasting text
-        if (percentFullyValidatedTranslations >= 100 || percentTranslationsCompleted >= 100) {
-            return "var(--vscode-editor-background)"; // Dark text on colored background
-        }
-
-        return "var(--vscode-foreground)";
+        return chapterProgress[chapter].percentTranslationsCompleted >= 100;
     };
 
     // Calculate position and dimensions
@@ -273,8 +283,8 @@ export function ChapterSelectorModal({
             >
                 {Array.from({ length: totalChapters }, (_, i) => i + 1).map((chapter) => {
                     const isSelected = currentChapter === chapter;
-                    const backgroundColor = getChapterBackgroundColor(chapter, isSelected);
-                    const textColor = getChapterTextColor(chapter, isSelected);
+                    const isFullyTranslated = getIsFullyTranslated(chapter);
+                    const { backgroundColor, textColor } = getChapterColor(chapter);
 
                     return (
                         <div
@@ -300,6 +310,14 @@ export function ChapterSelectorModal({
                                     : "none",
                             }}
                         >
+                            {isFullyTranslated && (
+                                <div className="absolute top-0.5 right-0.5 w-2.5 h-2.5 p-[6px] flex items-center justify-center">
+                                    <i
+                                        className="codicon codicon-check"
+                                        style={{ color: textColor, fontSize: "10px" }}
+                                    />
+                                </div>
+                            )}
                             {chapter}
                         </div>
                     );
