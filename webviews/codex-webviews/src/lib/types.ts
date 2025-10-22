@@ -41,6 +41,7 @@ export interface CustomNotebookMetadata {
 
 export interface ProgressPercentages {
     percentTranslationsCompleted: number;
+    percentAudioTranslationsCompleted: number;
     percentFullyValidatedTranslations: number;
     percentAudioValidatedTranslations: number;
     percentTextValidatedTranslations: number;

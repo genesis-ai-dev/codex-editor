@@ -1221,6 +1221,7 @@ const CodexCellEditor: React.FC = () => {
             if (totalCells === 0) {
                 return {
                     percentTranslationsCompleted: 0,
+                    percentAudioTranslationsCompleted: 0,
                     percentFullyValidatedTranslations: 0,
                     percentAudioValidatedTranslations: 0,
                     percentTextValidatedTranslations: 0,
@@ -1233,6 +1234,14 @@ const CodexCellEditor: React.FC = () => {
                     cell.cellContent &&
                     cell.cellContent.trim().length > 0 &&
                     cell.cellContent !== "<span></span>"
+            ).length;
+
+            const cellsWithAudioValues = cellsForChapter.filter(
+                (cell) => 
+                    cell.attachments 
+                    && Object.keys(cell.attachments).length > 0
+                    && cell.attachments[Object.keys(cell.attachments)[0]].type === "audio"
+                    && cell.attachments[Object.keys(cell.attachments)[0]].isDeleted === false
             ).length;
 
             // Calculate validation data using the same logic as navigation provider
@@ -1268,12 +1277,14 @@ const CodexCellEditor: React.FC = () => {
             }).length;
 
             const percentTranslationsCompleted = (cellsWithValues / totalCells) * 100;
+            const percentAudioTranslationsCompleted = (cellsWithAudioValues / totalCells) * 100;
             const percentAudioValidatedTranslations = (audioValidatedCells / totalCells) * 100;
             const percentTextValidatedTranslations = (validatedCells / totalCells) * 100;
             const percentFullyValidatedTranslations = (fullyValidatedCells / totalCells) * 100;
 
             return {
                 percentTranslationsCompleted,
+                percentAudioTranslationsCompleted,
                 percentFullyValidatedTranslations,
                 percentAudioValidatedTranslations,
                 percentTextValidatedTranslations,

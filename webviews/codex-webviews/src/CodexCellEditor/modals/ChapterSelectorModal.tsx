@@ -17,8 +17,8 @@ interface ChapterSelectorModalProps {
 }
 
 interface ChapterColor {
-    backgroundColor: string;
-    textColor: string;
+    audioBackgroundColor: string;
+    textBackgroundColor: string;
 }
 
 export function ChapterSelectorModal({
@@ -39,11 +39,14 @@ export function ChapterSelectorModal({
 
     // Helper function to get chapter background color based on progress
     const getChapterColor = (chapter: number): ChapterColor => {
+        let audioBackgroundColor = "text-gray-300";
+        let textBackgroundColor = "text-gray-300";
+
         if (!chapterProgress || !chapterProgress[chapter]) {
             // Default styling when no progress data
             return {
-                backgroundColor: "var(--vscode-editorWidget-background)",
-                textColor: "var(--vscode-foreground)",
+                audioBackgroundColor: audioBackgroundColor,
+                textBackgroundColor: textBackgroundColor,
             };
         }
 
@@ -51,31 +54,42 @@ export function ChapterSelectorModal({
         const {
             percentAudioValidatedTranslations,
             percentTextValidatedTranslations,
-            percentFullyValidatedTranslations,
+            percentTranslationsCompleted,
+            percentAudioTranslationsCompleted,
         } = progress;
+        console.log("percentTranslationsCompleted", percentTranslationsCompleted);
 
-        // If 100% validated (secondary color)
-        if (percentFullyValidatedTranslations >= 100) {
-            return {
-                backgroundColor: "var(--vscode-editorWarning-foreground)",
-                textColor: "var(--vscode-editor-background)",
-            };
-        } else if (percentTextValidatedTranslations >= 100) {
-            return {
-                backgroundColor: "var(--vscode-charts-green)",
-                textColor: "var(--vscode-editor-background)",
-            };
-        } else if (percentAudioValidatedTranslations >= 100) {
-            return {
-                backgroundColor: "var(--vscode-charts-blue)",
-                textColor: "var(--vscode-editor-background)",
-            };
-        } else {
-            return {
-                backgroundColor: "var(--vscode-editorWidget-background)",
-                textColor: "var(--vscode-foreground)",
-            };
+        console.log("percentAudioValidatedTranslations", percentAudioValidatedTranslations);
+        console.log("percentTextValidatedTranslations", percentTextValidatedTranslations);
+
+        if (percentTextValidatedTranslations > 0 && percentTextValidatedTranslations < 100) {
+            textBackgroundColor = "text-gray-500";
         }
+
+        if (percentAudioValidatedTranslations > 0 && percentAudioValidatedTranslations < 100) {
+            audioBackgroundColor = "text-gray-500";
+        }
+
+        if (percentTranslationsCompleted >= 100) {
+            textBackgroundColor = "text-blue-600";
+        }
+
+        if (percentAudioTranslationsCompleted >= 100) {
+            audioBackgroundColor = "text-blue-600";
+        }
+
+        if (percentTextValidatedTranslations >= 100) {
+            textBackgroundColor = "text-yellow-500";
+        }
+
+        if (percentAudioValidatedTranslations >= 100) {
+            audioBackgroundColor = "text-yellow-500";
+        }
+
+        return {
+            audioBackgroundColor: audioBackgroundColor,
+            textBackgroundColor: textBackgroundColor,
+        };
     };
 
     const getIsFullyTranslated = (chapter: number) => {
@@ -284,7 +298,7 @@ export function ChapterSelectorModal({
                 {Array.from({ length: totalChapters }, (_, i) => i + 1).map((chapter) => {
                     const isSelected = currentChapter === chapter;
                     const isFullyTranslated = getIsFullyTranslated(chapter);
-                    const { backgroundColor, textColor } = getChapterColor(chapter);
+                    const { textBackgroundColor, audioBackgroundColor } = getChapterColor(chapter);
 
                     return (
                         <div
@@ -295,12 +309,11 @@ export function ChapterSelectorModal({
                                     onClose();
                                 }
                             }}
-                            className={`aspect-square flex items-center justify-center rounded cursor-pointer transition-all relative overflow-hidden min-w-[32px] min-h-[32px] ${
+                            className={`aspect-square flex items-center justify-center rounded cursor-pointer transition-all relative overflow-hidden min-w-[32px] min-h-[32px] bg-gray-50 ${
                                 unsavedChanges ? "opacity-60 cursor-not-allowed" : ""
                             } ${isSelected ? "font-semibold" : ""}`}
                             style={{
-                                backgroundColor,
-                                color: textColor,
+                                color: "var(--vscode-foreground)",
                                 border: isSelected
                                     ? "2px solid var(--vscode-focusBorder)"
                                     : "1px solid var(--vscode-widget-border)",
@@ -310,18 +323,54 @@ export function ChapterSelectorModal({
                                     : "none",
                             }}
                         >
-                            <div className="flex flex-col items-center justify-center">
-                                {chapter}
-                                <div className="flex items-center justify-center">
-                                    <div className="flex flex-grow">
-                                        <i className="codicon codicon-mic" />
+                            <div className="flex flex-col items-center justify-center w-full h-full">
+                                <div className="flex w-full h-full justify-center items-center bg-white shadow-sm">
+                                    {chapter}
+                                </div>
+                                <div className="flex w-full items-center justify-center p-[2px] border-t border-[var(--vscode-widget-border)]">
+                                    <div
+                                        className={`flex w-full justify-center items-center ${audioBackgroundColor}`}
+                                    >
+                                        <svg
+                                            viewBox="0 0 64 64"
+                                            width="14"
+                                            height="14"
+                                            aria-hidden="true"
+                                        >
+                                            <path
+                                                fill="currentColor"
+                                                d="M32,44c6.629,0,12-5.371,12-12V12c0-6.629-5.371-12-12-12S20,5.371,20,12v20C20,38.629,25.371,44,32,44z"
+                                            />
+                                            <path
+                                                fill="currentColor"
+                                                d="M52,28c-2.211,0-4,1.789-4,4c0,8.836-7.164,16-16,16s-16-7.164-16-16c0-2.211-1.789-4-4-4s-4,1.789-4,4
+                                                    c0,11.887,8.656,21.73,20,23.641V60c0,2.211,1.789,4,4,4s4-1.789,4-4v-4.359C47.344,53.73,56,43.887,56,32
+                                                    C56,29.789,54.211,28,52,28z"
+                                            />
+                                        </svg>
                                     </div>
-                                    <div className="flex flex-grow">
-                                        <i className="codicon codicon-symbol-string" />
+                                    <div
+                                        className={`flex w-full justify-center items-center ${textBackgroundColor}`}
+                                        // style={{ color: backgroundColor }}
+                                    >
+                                        <svg
+                                            viewBox="0 0 512 512"
+                                            width="14"
+                                            height="14"
+                                            aria-hidden="true"
+                                        >
+                                            <path
+                                                fill="currentColor"
+                                                d="M478.33,433.6l-90-218a22,22,0,0,0-40.67,0l-90,218a22,22,0,1,0,40.67,16.79L316.66,406H419.33l18.33,44.39A22,22,0,0,0,458,464a22,22,0,0,0,20.32-30.4ZM334.83,362,368,281.65,401.17,362Z"
+                                            />
+                                            <path
+                                                fill="currentColor"
+                                                d="M267.84,342.92a22,22,0,0,0-4.89-30.7c-.2-.15-15-11.13-36.49-34.73,39.65-53.68,62.11-114.75,71.27-143.49H330a22,22,0,0,0,0-44H214V70a22,22,0,0,0-44,0V90H54a22,22,0,0,0,0,44H251.25c-9.52,26.95-27.05,69.5-53.79,108.36-31.41-41.68-43.08-68.65-43.17-68.87a22,22,0,0,0-40.58,17c.58,1.38,14.55,34.23,52.86,83.93.92,1.19,1.83,2.35,2.74,3.51-39.24,44.35-77.74,71.86-93.85,80.74a22,22,0,1,0,21.07,38.63c2.16-1.18,48.6-26.89,101.63-85.59,22.52,24.08,38,35.44,38.93,36.1a22,22,0,0,0,30.75-4.9Z"
+                                            />
+                                        </svg>
                                     </div>
                                 </div>
                             </div>
-                            
                         </div>
                     );
                 })}
