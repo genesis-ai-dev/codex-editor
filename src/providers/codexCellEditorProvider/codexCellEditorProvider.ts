@@ -1981,7 +1981,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             cellContent: cell.value,
             cellType: cell.metadata?.type,
             editHistory: cell.metadata?.edits,
-            timestamps: cell.metadata?.data, // FIXME: add strong types because this is where the timestamps are and it's not clear
+            // Prefer nested data for timestamps, but fall back to legacy top-level fields if needed
+            timestamps: cell.metadata?.data,
             cellLabel: cell.metadata?.cellLabel,
             merged: cell.metadata?.data?.merged,
             deleted: cell.metadata?.data?.deleted,
