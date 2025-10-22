@@ -38,9 +38,7 @@ export function ChapterSelectorModal({
     const getChapterBackgroundColor = (chapter: number, isSelected: boolean) => {
         if (!chapterProgress || !chapterProgress[chapter]) {
             // Default styling when no progress data
-            return isSelected
-                ? "var(--vscode-button-background)"
-                : "var(--vscode-editorWidget-background)";
+            return "var(--vscode-editorWidget-background)";
         }
 
         const progress = chapterProgress[chapter];
@@ -56,9 +54,7 @@ export function ChapterSelectorModal({
         }
         // Default styling
         else {
-            return isSelected
-                ? "var(--vscode-button-background)"
-                : "var(--vscode-editorWidget-background)";
+            return "var(--vscode-editorWidget-background)";
         }
     };
 
@@ -76,7 +72,7 @@ export function ChapterSelectorModal({
             return "var(--vscode-editor-background)"; // Dark text on colored background
         }
 
-        return isSelected ? "var(--vscode-button-foreground)" : "var(--vscode-foreground)";
+        return "var(--vscode-foreground)";
     };
 
     // Calculate position and dimensions
@@ -304,14 +300,6 @@ export function ChapterSelectorModal({
                                     : "none",
                             }}
                         >
-                            {isSelected && (
-                                <div className="absolute top-0.5 right-0.5 w-2.5 h-2.5 flex items-center justify-center">
-                                    <i
-                                        className="codicon codicon-check"
-                                        style={{ fontSize: "8px", color: textColor }}
-                                    />
-                                </div>
-                            )}
                             {chapter}
                         </div>
                     );

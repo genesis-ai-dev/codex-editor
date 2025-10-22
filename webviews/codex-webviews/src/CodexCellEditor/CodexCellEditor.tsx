@@ -40,6 +40,13 @@ export enum CELL_DISPLAY_MODES {
     ONE_LINE_PER_CELL = "one-line-per-cell",
 }
 
+export type ProgressPercentages = {
+    percentTranslationsCompleted: number;
+    percentFullyValidatedTranslations: number;
+    percentAudioValidatedTranslations: number;
+    percentValidatedTranslations: number;
+};
+
 const DEBUG_ENABLED = false; // todo: turn this on and clean up the functions that are getting called thousands of times, probably once per cell
 
 // Enhanced debug function with categories
@@ -287,7 +294,11 @@ const CodexCellEditor: React.FC = () => {
                             if (!resolved) {
                                 window.removeEventListener("message", onMsg);
                                 // Reject instead of using hardcoded fallback - let backend provide endpoint
-                                reject(new Error("Timeout waiting for ASR config from backend. Please check your ASR settings."));
+                                reject(
+                                    new Error(
+                                        "Timeout waiting for ASR config from backend. Please check your ASR settings."
+                                    )
+                                );
                             }
                         }, 5000);
                     });
@@ -383,7 +394,10 @@ const CodexCellEditor: React.FC = () => {
                         }
 
                         // Transcribe
-                        const client = new WhisperTranscriptionClient(wsEndpoint, asrConfig.authToken);
+                        const client = new WhisperTranscriptionClient(
+                            wsEndpoint,
+                            asrConfig.authToken
+                        );
                         try {
                             // Mark cell as transcribing for UI feedback
                             setTranscribingCells((prev) => {
@@ -1198,7 +1212,7 @@ const CodexCellEditor: React.FC = () => {
 
     // Calculate progress for each chapter based on translation and validation status
     const calculateChapterProgress = useCallback(
-        (chapterNum: number) => {
+        (chapterNum: number): ProgressPercentages => {
             // Filter cells for the specific chapter (excluding paratext and merged cells)
             const cellsForChapter = translationUnits.filter((cell) => {
                 const cellId = cell?.cellMarkers?.[0];
@@ -1212,7 +1226,12 @@ const CodexCellEditor: React.FC = () => {
 
             const totalCells = cellsForChapter.length;
             if (totalCells === 0) {
-                return { percentTranslationsCompleted: 0, percentFullyValidatedTranslations: 0 };
+                return {
+                    percentTranslationsCompleted: 0,
+                    percentFullyValidatedTranslations: 0,
+                    percentAudioValidatedTranslations: 0,
+                    percentValidatedTranslations: 0,
+                };
             }
 
             // Count cells with content (translated)
@@ -1225,36 +1244,54 @@ const CodexCellEditor: React.FC = () => {
 
             // Calculate validation data using the same logic as navigation provider
             const cellWithValidatedData = cellsForChapter.map((cell) => {
-                return getCellValueData({
-                    cellContent: cell.cellContent,
-                    cellMarkers: cell.cellMarkers,
-                    cellType: cell.cellType,
-                    cellLabel: cell.cellLabel,
-                    editHistory: cell.editHistory,
-                });
+                return getCellValueData(cell);
             });
 
             const minimumValidationsRequired = requiredValidations ?? 1;
-            const fullyValidatedCells = cellWithValidatedData.filter(
-                (cell) =>
+            const minimumAudioValidationsRequired = requiredAudioValidations ?? 1;
+
+            const fullyValidatedCells = cellWithValidatedData.filter((cell) => {
+                const validatedBy =
+                    cell.validatedBy?.filter((v) => !v.isDeleted).length >=
+                    minimumValidationsRequired;
+                const audioValidatedBy =
+                    cell.audioValidatedBy?.filter((v) => !v.isDeleted).length >=
+                    minimumAudioValidationsRequired;
+                return validatedBy && audioValidatedBy;
+            }).length;
+
+            const validatedCells = cellWithValidatedData.filter((cell) => {
+                return (
                     cell.validatedBy?.filter((v) => !v.isDeleted).length >=
                     minimumValidationsRequired
-            ).length;
+                );
+            }).length;
+
+            const audioValidatedCells = cellWithValidatedData.filter((cell) => {
+                return (
+                    cell.audioValidatedBy?.filter((v) => !v.isDeleted).length >=
+                    minimumAudioValidationsRequired
+                );
+            }).length;
 
             const percentTranslationsCompleted = (cellsWithValues / totalCells) * 100;
+            const percentAudioValidatedTranslations = (audioValidatedCells / totalCells) * 100;
+            const percentValidatedTranslations = (validatedCells / totalCells) * 100;
             const percentFullyValidatedTranslations = (fullyValidatedCells / totalCells) * 100;
 
-            return { percentTranslationsCompleted, percentFullyValidatedTranslations };
+            return {
+                percentTranslationsCompleted,
+                percentFullyValidatedTranslations,
+                percentAudioValidatedTranslations,
+                percentValidatedTranslations,
+            };
         },
-        [translationUnits, requiredValidations]
+        [translationUnits, requiredValidations, requiredAudioValidations]
     );
 
     // Calculate progress for all chapters
     const allChapterProgress = useMemo(() => {
-        const progress: Record<
-            number,
-            { percentTranslationsCompleted: number; percentFullyValidatedTranslations: number }
-        > = {};
+        const progress: Record<number, ProgressPercentages> = {};
         for (let i = 1; i <= totalChapters; i++) {
             progress[i] = calculateChapterProgress(i);
         }

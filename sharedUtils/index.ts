@@ -1,4 +1,4 @@
-import { QuillCellContent } from "../types";
+import { QuillCellContent, ValidationEntry } from "../types";
 import { EditMapUtils } from "../src/utils/editMapUtils";
 
 export const removeHtmlTags = (content: string) => {
@@ -58,7 +58,7 @@ export const getCellValueData = (cell: QuillCellContent) => {
         .find((edit) => EditMapUtils.isValue(edit.editMap) && edit.value === cell.cellContent);
 
     // Get audio validation from attachments instead of edits
-    let audioValidatedBy: any[] = [];
+    let audioValidatedBy: ValidationEntry[] = [];
     if (cell.attachments) {
         const audioAttachments = Object.entries(cell.attachments).filter(([, attachment]: [string, any]) =>
             attachment && attachment.type === "audio" && !attachment.isDeleted
