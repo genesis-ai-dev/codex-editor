@@ -310,15 +310,18 @@ export function ChapterSelectorModal({
                                     : "none",
                             }}
                         >
-                            {isFullyTranslated && (
-                                <div className="absolute top-0.5 right-0.5 w-2.5 h-2.5 p-[6px] flex items-center justify-center">
-                                    <i
-                                        className="codicon codicon-check"
-                                        style={{ color: textColor, fontSize: "10px" }}
-                                    />
+                            <div className="flex flex-col items-center justify-center">
+                                {chapter}
+                                <div className="flex items-center justify-center">
+                                    <div className="flex flex-grow">
+                                        <i className="codicon codicon-mic" />
+                                    </div>
+                                    <div className="flex flex-grow">
+                                        <i className="codicon codicon-symbol-string" />
+                                    </div>
                                 </div>
-                            )}
-                            {chapter}
+                            </div>
+                            
                         </div>
                     );
                 })}
