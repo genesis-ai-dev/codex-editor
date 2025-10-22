@@ -5,12 +5,14 @@ import NotebookMetadataModal from "./NotebookMetadataModal";
 import { AutocompleteModal } from "./modals/AutocompleteModal";
 import { ChapterSelectorModal } from "./modals/ChapterSelectorModal";
 import { MobileHeaderMenu } from "./components/MobileHeaderMenu";
-import {
-    type QuillCellContent,
-    type CustomNotebookMetadata,
-} from "../../../../types";
+import { type QuillCellContent, type CustomNotebookMetadata } from "../../../../types";
 import { EditMapUtils } from "../../../../src/utils/editMapUtils";
-import { type FileStatus, type EditorPosition, type Subsection, type ProgressPercentages } from "../lib/types";
+import {
+    type FileStatus,
+    type EditorPosition,
+    type Subsection,
+    type ProgressPercentages,
+} from "../lib/types";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -70,10 +72,7 @@ interface ChapterNavigationHeaderProps {
     onClose?: () => void;
     onTriggerSync?: () => void;
     isCorrectionEditorMode?: boolean;
-    chapterProgress?: Record<
-        number,
-        ProgressPercentages
-    >;
+    chapterProgress?: Record<number, ProgressPercentages>;
     allCellsForChapter?: QuillCellContent[];
     onTempFontSizeChange?: (fontSize: number) => void;
     onFontSizeSave?: (fontSize: number) => void;
@@ -168,11 +167,25 @@ ChapterNavigationHeaderProps) {
 
     // Memoized dropdown item row to reduce re-renders
     const MemoDropdownRow = useCallback(
-        ({ label, isActive, isValidated, isTranslated, onClick }: { label: string; isActive: boolean; isValidated: boolean; isTranslated: boolean; onClick: () => void; }) => {
+        ({
+            label,
+            isActive,
+            isValidated,
+            isTranslated,
+            onClick,
+        }: {
+            label: string;
+            isActive: boolean;
+            isValidated: boolean;
+            isTranslated: boolean;
+            onClick: () => void;
+        }) => {
             return (
                 <DropdownMenuItem
                     onClick={onClick}
-                    className={`flex items-center justify-between cursor-pointer ${isActive ? 'bg-accent text-accent-foreground font-semibold' : ''}`}
+                    className={`flex items-center justify-between cursor-pointer ${
+                        isActive ? "bg-accent text-accent-foreground font-semibold" : ""
+                    }`}
                     role="menuitem"
                 >
                     <span>{label}</span>
@@ -180,7 +193,9 @@ ChapterNavigationHeaderProps) {
                         {isValidated && (
                             <div
                                 className="w-2 h-2 rounded-full"
-                                style={{ backgroundColor: "var(--vscode-editorWarning-foreground)" }}
+                                style={{
+                                    backgroundColor: "var(--vscode-editorWarning-foreground)",
+                                }}
                                 title="Page fully validated"
                             />
                         )}
@@ -223,8 +238,8 @@ ChapterNavigationHeaderProps) {
 
         const fullTitle = getDisplayTitle();
         const lastSpaceIndex = Math.max(
-            fullTitle.lastIndexOf('\u00A0'),
-            fullTitle.lastIndexOf(' ')
+            fullTitle.lastIndexOf("\u00A0"),
+            fullTitle.lastIndexOf(" ")
         );
         const bookName = lastSpaceIndex > 0 ? fullTitle.substring(0, lastSpaceIndex) : fullTitle;
         const chapterNum = lastSpaceIndex > 0 ? fullTitle.substring(lastSpaceIndex + 1) : "";
@@ -235,15 +250,17 @@ ChapterNavigationHeaderProps) {
 
             const availableWidth = Math.min(
                 parentRect.width,
-                isVerySmallScreen ? window.innerWidth * 0.5 :
-                shouldShowHamburger ? window.innerWidth * 0.6 :
-                window.innerWidth * 0.4
+                isVerySmallScreen
+                    ? window.innerWidth * 0.5
+                    : shouldShowHamburger
+                    ? window.innerWidth * 0.6
+                    : window.innerWidth * 0.4
             );
 
-            const temp = document.createElement('span');
-            const h1 = container.querySelector('h1') as HTMLElement | null;
-            temp.style.visibility = 'hidden';
-            temp.style.position = 'absolute';
+            const temp = document.createElement("span");
+            const h1 = container.querySelector("h1") as HTMLElement | null;
+            temp.style.visibility = "hidden";
+            temp.style.position = "absolute";
             temp.style.fontSize = window.getComputedStyle(h1 || container).fontSize;
             temp.style.fontFamily = window.getComputedStyle(h1 || container).fontFamily;
 
@@ -265,7 +282,8 @@ ChapterNavigationHeaderProps) {
                 const chapterNumWidth = chapterNum.length * avgCharWidth;
                 const subsectionLabelWidth = subsectionLabel.length * avgCharWidth;
                 const ellipsisWidth = 3 * avgCharWidth;
-                const availableForBookName = availableWidth - chapterNumWidth - subsectionLabelWidth - ellipsisWidth;
+                const availableForBookName =
+                    availableWidth - chapterNumWidth - subsectionLabelWidth - ellipsisWidth;
                 const maxBookNameChars = Math.floor(availableForBookName / avgCharWidth);
 
                 if (maxBookNameChars > 0) {
@@ -276,7 +294,13 @@ ChapterNavigationHeaderProps) {
                 setTruncatedBookName((prev) => (prev !== null ? null : prev));
             }
         });
-    }, [getDisplayTitle, isVerySmallScreen, shouldShowHamburger, subsections, currentSubsectionIndex]);
+    }, [
+        getDisplayTitle,
+        isVerySmallScreen,
+        shouldShowHamburger,
+        subsections,
+        currentSubsectionIndex,
+    ]);
 
     // Unified resize handling with RAF throttling
     useEffect(() => {
@@ -306,8 +330,8 @@ ChapterNavigationHeaderProps) {
 
         // Initial run
         onResize();
-        window.addEventListener('resize', onResize);
-        return () => window.removeEventListener('resize', onResize);
+        window.addEventListener("resize", onResize);
+        return () => window.removeEventListener("resize", onResize);
     }, [measureAndTruncateTitle, shouldShowHamburger, isVerySmallScreen]);
 
     // Observe container size changes that may affect title truncation
@@ -359,10 +383,9 @@ ChapterNavigationHeaderProps) {
             debouncedResizeHandler(handleBreakpointResize);
         };
 
-        window.addEventListener('resize', debouncedBreakpointHandler);
-        return () => window.removeEventListener('resize', debouncedBreakpointHandler);
+        window.addEventListener("resize", debouncedBreakpointHandler);
+        return () => window.removeEventListener("resize", debouncedBreakpointHandler);
     }, [shouldShowHamburger, isVerySmallScreen, debouncedResizeHandler]);
-
 
     // Dynamic title truncation based on available space - now universal (not screen-size dependent)
     useEffect(() => {
@@ -372,10 +395,11 @@ ChapterNavigationHeaderProps) {
 
             const fullTitle = getDisplayTitle();
             const lastSpaceIndex = Math.max(
-                fullTitle.lastIndexOf('\u00A0'),
-                fullTitle.lastIndexOf(' ')
+                fullTitle.lastIndexOf("\u00A0"),
+                fullTitle.lastIndexOf(" ")
             );
-            const bookName = lastSpaceIndex > 0 ? fullTitle.substring(0, lastSpaceIndex) : fullTitle;
+            const bookName =
+                lastSpaceIndex > 0 ? fullTitle.substring(0, lastSpaceIndex) : fullTitle;
             const chapterNum = lastSpaceIndex > 0 ? fullTitle.substring(lastSpaceIndex + 1) : "";
 
             // Use requestAnimationFrame to ensure DOM has updated
@@ -387,17 +411,23 @@ ChapterNavigationHeaderProps) {
                 // Calculate available width based on responsive states
                 const availableWidth = Math.min(
                     parentRect.width,
-                    isVerySmallScreen ? window.innerWidth * 0.5 : // On very small screens, limit to 50%
-                    shouldShowHamburger ? window.innerWidth * 0.6 : // On mobile layout, limit to 60%
-                    window.innerWidth * 0.4 // On larger screens, limit to 40%
+                    isVerySmallScreen
+                        ? window.innerWidth * 0.5 // On very small screens, limit to 50%
+                        : shouldShowHamburger
+                        ? window.innerWidth * 0.6 // On mobile layout, limit to 60%
+                        : window.innerWidth * 0.4 // On larger screens, limit to 40%
                 );
 
                 // Create temporary element to measure text width including subsection label
-                const temp = document.createElement('span');
-                temp.style.visibility = 'hidden';
-                temp.style.position = 'absolute';
-                temp.style.fontSize = window.getComputedStyle(container.querySelector('h1') || container).fontSize;
-                temp.style.fontFamily = window.getComputedStyle(container.querySelector('h1') || container).fontFamily;
+                const temp = document.createElement("span");
+                temp.style.visibility = "hidden";
+                temp.style.position = "absolute";
+                temp.style.fontSize = window.getComputedStyle(
+                    container.querySelector("h1") || container
+                ).fontSize;
+                temp.style.fontFamily = window.getComputedStyle(
+                    container.querySelector("h1") || container
+                ).fontFamily;
 
                 // Account for subsection label like "(1-50)" only when it should be visible
                 const subsectionLabel =
@@ -420,7 +450,8 @@ ChapterNavigationHeaderProps) {
                     const chapterNumWidth = chapterNum.length * avgCharWidth;
                     const subsectionLabelWidth = subsectionLabel.length * avgCharWidth;
                     const ellipsisWidth = 3 * avgCharWidth; // "..." width
-                    const availableForBookName = availableWidth - chapterNumWidth - subsectionLabelWidth - ellipsisWidth;
+                    const availableForBookName =
+                        availableWidth - chapterNumWidth - subsectionLabelWidth - ellipsisWidth;
                     const maxBookNameChars = Math.floor(availableForBookName / avgCharWidth);
 
                     if (maxBookNameChars > 0) {
@@ -451,15 +482,23 @@ ChapterNavigationHeaderProps) {
         }
 
         // Add window resize listener as fallback
-        window.addEventListener('resize', debouncedTitleHandler);
+        window.addEventListener("resize", debouncedTitleHandler);
 
         return () => {
             if (resizeObserver) {
                 resizeObserver.disconnect();
             }
-            window.removeEventListener('resize', debouncedTitleHandler);
+            window.removeEventListener("resize", debouncedTitleHandler);
         };
-    }, [getDisplayTitle, translationUnitsForSection, subsections, currentSubsectionIndex, shouldShowHamburger, isVerySmallScreen, debouncedResizeHandler]);
+    }, [
+        getDisplayTitle,
+        translationUnitsForSection,
+        subsections,
+        currentSubsectionIndex,
+        shouldShowHamburger,
+        isVerySmallScreen,
+        debouncedResizeHandler,
+    ]);
 
     // Common handler for stopping any kind of translation
     const handleStopTranslation = () => {
@@ -544,7 +583,6 @@ ChapterNavigationHeaderProps) {
         }
     };
 
-
     const handleTogglePrimarySidebar = () => {
         if (vscode) {
             vscode.postMessage({ command: "togglePrimarySidebar" });
@@ -594,7 +632,10 @@ ChapterNavigationHeaderProps) {
     const shouldHideNavButtons = isVerySmallScreen; // Hide nav buttons on very small screens
 
     // Calculate progress for each subsection/page
-    const calculateSubsectionProgress = (subsection: Subsection, forSourceText: boolean = isSourceText) => {
+    const calculateSubsectionProgress = (
+        subsection: Subsection,
+        forSourceText: boolean = isSourceText
+    ) => {
         // Use allCellsForChapter if available, otherwise fall back to translationUnitsForSection
         const allChapterCells = allCellsForChapter || translationUnitsForSection;
 
@@ -613,7 +654,8 @@ ChapterNavigationHeaderProps) {
 
         // Check if all cells have content (translated for target, existing for source)
         const completedCells = validCells.filter((cell) => {
-            const hasContent = cell.cellContent &&
+            const hasContent =
+                cell.cellContent &&
                 cell.cellContent.trim().length > 0 &&
                 cell.cellContent !== "<span></span>";
 
@@ -635,9 +677,12 @@ ChapterNavigationHeaderProps) {
                 if (forSourceText) {
                     // For source text, validation might not apply the same way
                     // Check if there's any validation history at all
-                    const hasAnyValidation = cell.editHistory &&
-                        cell.editHistory.some(edit =>
-                            edit.validatedBy && edit.validatedBy.filter(v => !v.isDeleted).length > 0
+                    const hasAnyValidation =
+                        cell.editHistory &&
+                        cell.editHistory.some(
+                            (edit) =>
+                                edit.validatedBy &&
+                                edit.validatedBy.filter((v) => !v.isDeleted).length > 0
                         );
                     return hasAnyValidation;
                 } else {
@@ -651,7 +696,9 @@ ChapterNavigationHeaderProps) {
                                     EditMapUtils.isValue(edit.editMap) &&
                                     edit.value === cell.cellContent
                             )?.validatedBy || [];
-                    return validatedBy.filter((v) => !v.isDeleted).length >= minimumValidationsRequired;
+                    return (
+                        validatedBy.filter((v) => !v.isDeleted).length >= minimumValidationsRequired
+                    );
                 }
             });
             isFullyValidated = validatedCells.length === validCells.length;
@@ -662,7 +709,9 @@ ChapterNavigationHeaderProps) {
 
     return (
         <div
-            className={`relative flex flex-row ${shouldUseMinimalLayout ? "p-1" : "p-2"} max-w-full items-center transition-all duration-200 ease-in-out`}
+            className={`relative flex flex-row ${
+                shouldUseMinimalLayout ? "p-1" : "p-2"
+            } max-w-full items-center transition-all duration-200 ease-in-out`}
             ref={headerContainerRef}
         >
             {/* Hamburger menu positioned on the left when space is insufficient */}
@@ -711,7 +760,10 @@ ChapterNavigationHeaderProps) {
                         onToggleAutoDownloadAudio={(val) => {
                             setAutoDownloadAudioOnOpenState(!!val);
                             try {
-                                vscode.postMessage({ command: "setAutoDownloadAudioOnOpen", content: { value: !!val } });
+                                vscode.postMessage({
+                                    command: "setAutoDownloadAudioOnOpen",
+                                    content: { value: !!val },
+                                });
                             } catch (error) {
                                 console.error("Error setting auto download audio on open", error);
                             }
@@ -722,7 +774,9 @@ ChapterNavigationHeaderProps) {
 
             {/* Desktop left controls - hidden when hamburger is active */}
             <div
-                className={`${shouldShowHamburger ? "hidden" : "flex"} items-center justify-start flex-shrink-0 transition-all duration-200 ease-in-out`}
+                className={`${
+                    shouldShowHamburger ? "hidden" : "flex"
+                } items-center justify-start flex-shrink-0 transition-all duration-200 ease-in-out`}
             >
                 {isSourceText ? (
                     <>
@@ -760,50 +814,51 @@ ChapterNavigationHeaderProps) {
                 {/* Navigation arrows - hidden on very small screens */}
                 {!shouldHideNavButtons && (
                     <Button
-                    className="inline-flex transition-all duration-200 ease-in-out"
-                    variant="outline"
-                    size="default"
-                    onClick={() => {
-                        if (!unsavedChanges) {
-                            // Check if we're on the first page of the current chapter
-                            if (currentSubsectionIndex > 0) {
-                                // Move to previous page within the same chapter
-                                setCurrentSubsectionIndex(currentSubsectionIndex - 1);
-                            } else {
-                                // Move to previous chapter
-                                const newChapter =
-                                    chapterNumber === 1 ? totalChapters : chapterNumber - 1;
-                                jumpToChapter(newChapter);
+                        className="inline-flex transition-all duration-200 ease-in-out"
+                        variant="outline"
+                        size="default"
+                        onClick={() => {
+                            if (!unsavedChanges) {
+                                // Check if we're on the first page of the current chapter
+                                if (currentSubsectionIndex > 0) {
+                                    // Move to previous page within the same chapter
+                                    setCurrentSubsectionIndex(currentSubsectionIndex - 1);
+                                } else {
+                                    // Move to previous chapter
+                                    const newChapter =
+                                        chapterNumber === 1 ? totalChapters : chapterNumber - 1;
+                                    jumpToChapter(newChapter);
 
-                                // When jumping to a new chapter, check if it has subsections
-                                // and if so, jump to the last page
-                                const newChapterSubsections = getSubsectionsForChapter(newChapter);
-                                if (newChapterSubsections.length > 0) {
-                                    setCurrentSubsectionIndex(newChapterSubsections.length - 1);
+                                    // When jumping to a new chapter, check if it has subsections
+                                    // and if so, jump to the last page
+                                    const newChapterSubsections =
+                                        getSubsectionsForChapter(newChapter);
+                                    if (newChapterSubsections.length > 0) {
+                                        setCurrentSubsectionIndex(newChapterSubsections.length - 1);
+                                    }
                                 }
+                            } else {
+                                // Show warning when there are unsaved changes
+                                setShowUnsavedWarning(true);
+                                setTimeout(() => setShowUnsavedWarning(false), 3000);
                             }
-                        } else {
-                            // Show warning when there are unsaved changes
-                            setShowUnsavedWarning(true);
-                            setTimeout(() => setShowUnsavedWarning(false), 3000);
+                        }}
+                        title={
+                            unsavedChanges
+                                ? "Save changes first to change chapter"
+                                : currentSubsectionIndex > 0
+                                ? "Previous Page"
+                                : "Previous Chapter"
                         }
-                    }}
-                    title={
-                        unsavedChanges
-                            ? "Save changes first to change chapter"
-                            : currentSubsectionIndex > 0
-                            ? "Previous Page"
-                            : "Previous Chapter"
-                    }
-                >
-                    <i
-                        className={`codicon ${
-                            textDirection === "rtl"
-                                ? "codicon-chevron-right"
-                                : "codicon-chevron-left"
-                        }`}
-                    />
-                </Button>
+                    >
+                        <i
+                            className={`codicon ${
+                                textDirection === "rtl"
+                                    ? "codicon-chevron-right"
+                                    : "codicon-chevron-left"
+                            }`}
+                        />
+                    </Button>
                 )}
 
                 <div
@@ -820,8 +875,18 @@ ChapterNavigationHeaderProps) {
                         }
                     }}
                 >
-                    <h1 className={`${shouldUseMinimalLayout ? "text-sm" : "text-2xl"} flex items-center m-0 min-w-0 transition-all duration-200 ease-in-out`}>
-                        <span className={`${shouldUseMinimalLayout || truncatedBookName !== null ? "truncate" : "whitespace-nowrap"} transition-all duration-200 ease-in-out`}>
+                    <h1
+                        className={`${
+                            shouldUseMinimalLayout ? "text-sm" : "text-2xl"
+                        } flex items-center m-0 min-w-0 transition-all duration-200 ease-in-out`}
+                    >
+                        <span
+                            className={`${
+                                shouldUseMinimalLayout || truncatedBookName !== null
+                                    ? "truncate"
+                                    : "whitespace-nowrap"
+                            } transition-all duration-200 ease-in-out`}
+                        >
                             {(() => {
                                 if (truncatedBookName !== null) {
                                     return truncatedBookName + "...";
@@ -850,7 +915,11 @@ ChapterNavigationHeaderProps) {
                         </span>
                         {/* Show page info - hide when using hamburger menu to prevent collisions */}
                         {subsections.length > 0 && !shouldShowHamburger && (
-                            <span className={`flex-shrink-0 ml-1 ${shouldUseMinimalLayout ? "text-xs" : "text-sm"} inline transition-opacity duration-200 ease-in-out`}>
+                            <span
+                                className={`flex-shrink-0 ml-1 ${
+                                    shouldUseMinimalLayout ? "text-xs" : "text-sm"
+                                } inline transition-opacity duration-200 ease-in-out`}
+                            >
                                 ({subsections[currentSubsectionIndex]?.label || ""})
                             </span>
                         )}
@@ -867,45 +936,45 @@ ChapterNavigationHeaderProps) {
                         className="inline-flex transition-all duration-200 ease-in-out"
                         variant="outline"
                         size="default"
-                    onClick={() => {
-                        if (!unsavedChanges) {
-                            // Check if we're on the last page of the current chapter
-                            if (
-                                subsections.length > 0 &&
-                                currentSubsectionIndex < subsections.length - 1
-                            ) {
-                                // Move to next page within the same chapter
-                                setCurrentSubsectionIndex(currentSubsectionIndex + 1);
+                        onClick={() => {
+                            if (!unsavedChanges) {
+                                // Check if we're on the last page of the current chapter
+                                if (
+                                    subsections.length > 0 &&
+                                    currentSubsectionIndex < subsections.length - 1
+                                ) {
+                                    // Move to next page within the same chapter
+                                    setCurrentSubsectionIndex(currentSubsectionIndex + 1);
+                                } else {
+                                    // Move to next chapter and reset to first page
+                                    const newChapter =
+                                        chapterNumber === totalChapters ? 1 : chapterNumber + 1;
+                                    jumpToChapter(newChapter);
+                                    setCurrentSubsectionIndex(0);
+                                }
                             } else {
-                                // Move to next chapter and reset to first page
-                                const newChapter =
-                                    chapterNumber === totalChapters ? 1 : chapterNumber + 1;
-                                jumpToChapter(newChapter);
-                                setCurrentSubsectionIndex(0);
+                                // Show warning when there are unsaved changes
+                                setShowUnsavedWarning(true);
+                                setTimeout(() => setShowUnsavedWarning(false), 3000);
                             }
-                        } else {
-                            // Show warning when there are unsaved changes
-                            setShowUnsavedWarning(true);
-                            setTimeout(() => setShowUnsavedWarning(false), 3000);
+                        }}
+                        title={
+                            unsavedChanges
+                                ? "Save changes first to change chapter"
+                                : subsections.length > 0 &&
+                                  currentSubsectionIndex < subsections.length - 1
+                                ? "Next Page"
+                                : "Next Chapter"
                         }
-                    }}
-                    title={
-                        unsavedChanges
-                            ? "Save changes first to change chapter"
-                            : subsections.length > 0 &&
-                              currentSubsectionIndex < subsections.length - 1
-                            ? "Next Page"
-                            : "Next Chapter"
-                    }
-                >
-                    <i
-                        className={`codicon ${
-                            textDirection === "rtl"
-                                ? "codicon-chevron-left"
-                                : "codicon-chevron-right"
-                        }`}
-                    />
-                </Button>
+                    >
+                        <i
+                            className={`codicon ${
+                                textDirection === "rtl"
+                                    ? "codicon-chevron-left"
+                                    : "codicon-chevron-right"
+                            }`}
+                        />
+                    </Button>
                 )}
 
                 {/* Page selector - shown when not using hamburger menu */}
@@ -921,14 +990,13 @@ ChapterNavigationHeaderProps) {
                                 >
                                     {(() => {
                                         const currentSection = subsections[currentSubsectionIndex];
-                                        const progress =
-                                            calculateSubsectionProgress(currentSection, isSourceText);
+                                        const progress = calculateSubsectionProgress(
+                                            currentSection,
+                                            isSourceText
+                                        );
                                         return (
                                             <>
-                                                <span
-                                                >
-                                                    {currentSection?.label || ""}
-                                                </span>
+                                                <span>{currentSection?.label || ""}</span>
                                                 {progress.isFullyValidated && (
                                                     <div
                                                         className="w-2 h-2 rounded-full"
@@ -962,7 +1030,10 @@ ChapterNavigationHeaderProps) {
                                 style={{ zIndex: 99999 }}
                             >
                                 {subsections.map((section, index) => {
-                                    const progress = calculateSubsectionProgress(section, isSourceText);
+                                    const progress = calculateSubsectionProgress(
+                                        section,
+                                        isSourceText
+                                    );
                                     const isActive = currentSubsectionIndex === index;
                                     return (
                                         <MemoDropdownRow
@@ -983,7 +1054,9 @@ ChapterNavigationHeaderProps) {
 
             {/* Desktop right controls - hidden when hamburger is active */}
             <div
-                className={`${shouldShowHamburger ? "hidden" : "flex"} items-center justify-end ml-auto space-x-2`}
+                className={`${
+                    shouldShowHamburger ? "hidden" : "flex"
+                } items-center justify-end ml-auto space-x-2`}
             >
                 {/* {getFileStatusButton()} // FIXME: we want to show the file status, but it needs to load immediately, and it needs to be more reliable. - test this and also think through UX */}
                 {/* Show left sidebar toggle only when editor is not leftmost
@@ -1084,16 +1157,25 @@ ChapterNavigationHeaderProps) {
                             onClick={() => {
                                 const next = !autoDownloadAudioOnOpen;
                                 setAutoDownloadAudioOnOpenState(next);
-                                try { 
-                                    vscode.postMessage({ command: "setAutoDownloadAudioOnOpen", content: { value: next } }); 
+                                try {
+                                    vscode.postMessage({
+                                        command: "setAutoDownloadAudioOnOpen",
+                                        content: { value: next },
+                                    });
                                 } catch (error) {
-                                    console.error("Error setting auto download audio on open", error);
+                                    console.error(
+                                        "Error setting auto download audio on open",
+                                        error
+                                    );
                                 }
                                 try {
                                     (window as any).__autoDownloadAudioOnOpen = next;
                                     (window as any).__autoDownloadAudioOnOpenInitialized = true;
                                 } catch (error) {
-                                    console.error("Error setting auto download audio on open", error);
+                                    console.error(
+                                        "Error setting auto download audio on open",
+                                        error
+                                    );
                                 }
                             }}
                             className="cursor-pointer"
@@ -1244,7 +1326,8 @@ ChapterNavigationHeaderProps) {
                     <Alert variant="destructive" className="bg-red-50 border-red-200 shadow-lg">
                         <i className="codicon codicon-warning h-4 w-4" />
                         <AlertDescription className="text-red-800">
-                            Please close the editor or save your changes before navigating away from this section.
+                            Please close the editor or save your changes before navigating away from
+                            this section.
                         </AlertDescription>
                     </Alert>
                 </div>

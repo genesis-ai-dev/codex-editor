@@ -37,66 +37,41 @@ export function ChapterSelectorModal({
     const [columns, setColumns] = useState(10);
     const [arrowPosition, setArrowPosition] = useState<"top" | "bottom">("top");
 
-    // Helper function to get chapter background color based on progress
-    const getChapterColor = (chapter: number): ChapterColor => {
-        let audioBackgroundColor = "text-gray-300";
-        let textBackgroundColor = "text-gray-300";
+    const getProgressColor = (validatedPercent: number, completedPercent: number): string => {
+        if (validatedPercent >= 100) return "text-editor-warning-foreground";
+        if (completedPercent >= 100) return "text-charts-blue";
+        if (validatedPercent > 0 && validatedPercent < 100) return "text-muted-foreground/80";
+        return "text-muted-foreground/25";
+    };
 
+    const getChapterColor = (chapter: number): ChapterColor => {
         if (!chapterProgress || !chapterProgress[chapter]) {
-            // Default styling when no progress data
             return {
-                audioBackgroundColor: audioBackgroundColor,
-                textBackgroundColor: textBackgroundColor,
+                audioBackgroundColor: "text-muted-foreground/25",
+                textBackgroundColor: "text-muted-foreground/25",
             };
         }
 
-        const progress = chapterProgress[chapter];
         const {
             percentAudioValidatedTranslations,
             percentTextValidatedTranslations,
             percentTranslationsCompleted,
             percentAudioTranslationsCompleted,
-        } = progress;
-        console.log("percentTranslationsCompleted", percentTranslationsCompleted);
+        } = chapterProgress[chapter];
 
-        console.log("percentAudioValidatedTranslations", percentAudioValidatedTranslations);
-        console.log("percentTextValidatedTranslations", percentTextValidatedTranslations);
-
-        if (percentTextValidatedTranslations > 0 && percentTextValidatedTranslations < 100) {
-            textBackgroundColor = "text-gray-500";
-        }
-
-        if (percentAudioValidatedTranslations > 0 && percentAudioValidatedTranslations < 100) {
-            audioBackgroundColor = "text-gray-500";
-        }
-
-        if (percentTranslationsCompleted >= 100) {
-            textBackgroundColor = "text-blue-600";
-        }
-
-        if (percentAudioTranslationsCompleted >= 100) {
-            audioBackgroundColor = "text-blue-600";
-        }
-
-        if (percentTextValidatedTranslations >= 100) {
-            textBackgroundColor = "text-yellow-500";
-        }
-
-        if (percentAudioValidatedTranslations >= 100) {
-            audioBackgroundColor = "text-yellow-500";
-        }
+        const textBackgroundColor = getProgressColor(
+            percentTextValidatedTranslations,
+            percentTranslationsCompleted
+        );
+        const audioBackgroundColor = getProgressColor(
+            percentAudioValidatedTranslations,
+            percentAudioTranslationsCompleted
+        );
 
         return {
             audioBackgroundColor: audioBackgroundColor,
             textBackgroundColor: textBackgroundColor,
         };
-    };
-
-    const getIsFullyTranslated = (chapter: number) => {
-        if (!chapterProgress || !chapterProgress[chapter]) {
-            return false;
-        }
-        return chapterProgress[chapter].percentTranslationsCompleted >= 100;
     };
 
     // Calculate position and dimensions
@@ -297,7 +272,6 @@ export function ChapterSelectorModal({
             >
                 {Array.from({ length: totalChapters }, (_, i) => i + 1).map((chapter) => {
                     const isSelected = currentChapter === chapter;
-                    const isFullyTranslated = getIsFullyTranslated(chapter);
                     const { textBackgroundColor, audioBackgroundColor } = getChapterColor(chapter);
 
                     return (
@@ -309,7 +283,7 @@ export function ChapterSelectorModal({
                                     onClose();
                                 }
                             }}
-                            className={`aspect-square flex items-center justify-center rounded cursor-pointer transition-all relative overflow-hidden min-w-[32px] min-h-[32px] bg-gray-50 ${
+                            className={`aspect-[3/4] flex items-center justify-center rounded cursor-pointer transition-all relative overflow-hidden min-w-[40px] min-h-[40px] bg-gray-50 ${
                                 unsavedChanges ? "opacity-60 cursor-not-allowed" : ""
                             } ${isSelected ? "font-semibold" : ""}`}
                             style={{
@@ -324,10 +298,10 @@ export function ChapterSelectorModal({
                             }}
                         >
                             <div className="flex flex-col items-center justify-center w-full h-full">
-                                <div className="flex w-full h-full justify-center items-center bg-white shadow-sm">
+                                <div className="flex w-full h-full justify-center items-center bg-[var(--background)] shadow-sm">
                                     {chapter}
                                 </div>
-                                <div className="flex w-full items-center justify-center p-[2px] border-t border-[var(--vscode-widget-border)]">
+                                <div className="flex w-full items-center justify-center p-[4px] border-t border-[var(--vscode-widget-border)]">
                                     <div
                                         className={`flex w-full justify-center items-center ${audioBackgroundColor}`}
                                     >
@@ -351,7 +325,6 @@ export function ChapterSelectorModal({
                                     </div>
                                     <div
                                         className={`flex w-full justify-center items-center ${textBackgroundColor}`}
-                                        // style={{ color: backgroundColor }}
                                     >
                                         <svg
                                             viewBox="0 0 512 512"
