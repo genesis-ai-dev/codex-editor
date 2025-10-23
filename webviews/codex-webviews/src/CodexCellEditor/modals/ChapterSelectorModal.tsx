@@ -200,7 +200,7 @@ export function ChapterSelectorModal({
     return (
         <div
             ref={modalRef}
-            className="chapter-selector-dropdown"
+            className="chapter-selector-dropdown focus-visible:outline-none"
             tabIndex={-1}
             style={{
                 position: "absolute",
@@ -220,48 +220,14 @@ export function ChapterSelectorModal({
                 transformOrigin: arrowPosition === "top" ? "top center" : "bottom center",
             }}
         >
-            {/* Dropdown arrow */}
-            {arrowPosition === "top" && (
-                <div
-                    style={{
-                        position: "absolute",
-                        top: "-8px",
-                        left: `${arrowLeftPercent}%`,
-                        transform: "translateX(-50%) rotate(45deg)",
-                        width: "16px",
-                        height: "16px",
-                        backgroundColor: "var(--vscode-editor-background)",
-                        border: "1px solid var(--vscode-widget-border)",
-                        borderBottom: "none",
-                        borderRight: "none",
-                        zIndex: 9998,
-                    }}
-                />
-            )}
-
-            {arrowPosition === "bottom" && (
-                <div
-                    style={{
-                        position: "absolute",
-                        bottom: "-8px",
-                        left: `${arrowLeftPercent}%`,
-                        transform: "translateX(-50%) rotate(45deg)",
-                        width: "16px",
-                        height: "16px",
-                        backgroundColor: "var(--vscode-editor-background)",
-                        border: "1px solid var(--vscode-widget-border)",
-                        borderTop: "none",
-                        borderLeft: "none",
-                        zIndex: 9998,
-                    }}
-                />
-            )}
-
             <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold m-0">{bookTitle}</h2>
-                <Button onClick={onClose}>
+                <div
+                    className="flex items-center cursor-pointer hover:bg-secondary rounded-md p-1"
+                    onClick={onClose}
+                >
                     <i className="codicon codicon-close" />
-                </Button>
+                </div>
             </div>
 
             <div

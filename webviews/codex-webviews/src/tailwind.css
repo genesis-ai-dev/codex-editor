@@ -304,6 +304,12 @@
         --waveform-progress-color: var(--primary);
         --waveform-cursor-color: var(--foreground);
     }
+
+    /* Rounded scrollbar for Chapter Selector dropdown */
+    .chapter-selector-dropdown {
+        scrollbar-width: thin;
+        scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
+    }
 }
 
 @theme inline {
