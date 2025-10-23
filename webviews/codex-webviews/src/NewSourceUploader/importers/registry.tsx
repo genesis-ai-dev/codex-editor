@@ -27,8 +27,8 @@ import { spreadsheetImporterPlugin } from "./spreadsheet/index.tsx";
 import { audioImporterPlugin } from "./audio/index.tsx";
 import { audioImporter2Plugin } from "./audio2/index.tsx";
 import { biblicaImporterPlugin } from "./biblica/index.tsx";
-// import { tmsImporterPlugin } from "./tms/index.tsx";
-// import { rtfImporterPlugin } from "./rtf/index.tsx";
+import { tmsImporterPlugin } from "./tms/index.tsx";
+// import { rtfImporterPlugin } from "./rtf/index.tsx"; // RTF is still in development
 import { pdfImporterPlugin } from "./pdf/index.tsx";
 import { indesignImporterPlugin } from "./indesign/index.tsx";
 
@@ -92,17 +92,18 @@ export const importerPlugins: ImporterPlugin[] = [
         description: "Excel and Google Sheets",
         tags: [...(spreadsheetImporterPlugin.tags || []), "Essential", "Spreadsheet", "Excel"],
     },
-    // {
-    //     ...tmsImporterPlugin,
-    //     name: "TMS Files",
-    //     description: "Translation memory and localization files",
-    //     tags: [...(tmsImporterPlugin.tags || []), "Translation", "Localization", "Bible"],
-    // },
+    {
+        ...tmsImporterPlugin,
+        name: "TMS Files",
+        description: "Translation memory and localization files with round-trip export support",
+        tags: [...(tmsImporterPlugin.tags || []), "Translation", "Localization", "Bible", "Round-trip"],
+    },
+    // RTF is still in development - commented out for now
     // {
     //     ...rtfImporterPlugin,
     //     name: "RTF Documents",
-    //     description: "Rich Text Format files with Bible verses, chapters, and books",
-    //     tags: [...(rtfImporterPlugin.tags || []), "Essential", "Documents"],
+    //     description: "Rich Text Format files with round-trip export support",
+    //     tags: [...(rtfImporterPlugin.tags || []), "Essential", "Documents", "Round-trip"],
     // },
     {
         ...pdfImporterPlugin,
@@ -157,8 +158,8 @@ export const importerPlugins: ImporterPlugin[] = [
     {
         ...obsImporterPlugin,
         name: "Bible Stories",
-        description: "Open Bible Stories format",
-        tags: [...(obsImporterPlugin.tags || []), "Specialized", "Bible", "Stories"],
+        description: "Open Bible Stories format with round-trip export support",
+        tags: [...(obsImporterPlugin.tags || []), "Specialized", "Bible", "Stories", "Round-trip"],
     },
 ];
 

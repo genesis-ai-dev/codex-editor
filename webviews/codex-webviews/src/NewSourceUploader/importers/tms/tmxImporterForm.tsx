@@ -4,7 +4,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../..
 import { Alert, AlertDescription } from '../../../components/ui/alert';
 import { Progress } from '../../../components/ui/progress';
 import { Badge } from '../../../components/ui/badge';
-import { Checkbox } from '../../../components/ui/checkbox';
 import { FileCode, Upload, CheckCircle, AlertCircle, Info, ArrowLeft } from 'lucide-react';
 import { ImporterComponentProps } from '../../types/plugin';
 import { validateFile, parseFile } from './index';
@@ -47,11 +46,6 @@ export const TmxImporterForm: React.FC<ImporterComponentProps> = ({
         result: null,
         error: null,
     });
-    
-    // Bible-specific options
-    const [isBible, setIsBible] = useState<boolean>(false);
-    const [includeOldTestament, setIncludeOldTestament] = useState<boolean>(true);
-    const [includeNewTestament, setIncludeNewTestament] = useState<boolean>(true);
 
     // Determine if this is a target import
     const isTargetImport = wizardContext?.intent === "target";
@@ -80,14 +74,14 @@ export const TmxImporterForm: React.FC<ImporterComponentProps> = ({
         setImportState({ isImporting: true, progress: 0, stage: 'Starting import...', result: null, error: null });
 
         try {
-            console.log(`🎯 Form calling parseFile with: isTargetImport=${isTargetImport}, isBible=${isBible}, includeOldTestament=${includeOldTestament}, includeNewTestament=${includeNewTestament}`);
+            console.log(`🎯 Form calling parseFile with: isTargetImport=${isTargetImport}`);
             const result = await parseFile(selectedFile, (progress) => {
                 setImportState(prev => ({
                     ...prev,
                     progress: progress.progress || 0,
                     stage: progress.stage,
                 }));
-            }, isTargetImport, isBible, includeOldTestament, includeNewTestament);
+            }, isTargetImport, false, false, false); // Pass false for Bible options (not used anymore)
 
             setImportState(prev => ({
                 ...prev,
@@ -137,7 +131,7 @@ export const TmxImporterForm: React.FC<ImporterComponentProps> = ({
                 error: error instanceof Error ? error.message : 'Import failed',
             });
         }
-    }, [selectedFile, validationState.result, onComplete, onTranslationComplete, alignContent, isTargetImport, selectedSource?.path, wizardContext?.selectedSourceDetails?.path, isBible, includeOldTestament, includeNewTestament]);
+    }, [selectedFile, validationState.result, onComplete, onTranslationComplete, alignContent, isTargetImport, selectedSource?.path, wizardContext?.selectedSourceDetails?.path]);
 
     const getFileTypeInfo = (fileName: string) => {
         const extension = fileName.split('.').pop()?.toLowerCase();
@@ -231,58 +225,6 @@ export const TmxImporterForm: React.FC<ImporterComponentProps> = ({
                                 </div>
                             </div>
                         </label>
-                    </div>
-
-                    {/* Bible Options */}
-                    <div className="space-y-4">
-                        <div className="flex items-center space-x-2 p-3 bg-yellow-100 border border-yellow-300 rounded-lg">
-                            <Checkbox
-                                id="is-bible"
-                                checked={isBible}
-                                onCheckedChange={(checked) => setIsBible(checked as boolean)}
-                                disabled={validationState.isValidating || importState.isImporting}
-                            />
-                            <label htmlFor="is-bible" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-yellow-800">
-                                This is a Bible translation file
-                            </label>
-                        </div>
-                        
-                        {isBible && (
-                            <div className="ml-6 space-y-3 p-4 bg-muted/50 rounded-lg">
-                                <div className="text-sm font-medium text-muted-foreground">
-                                    Select which testaments are part of your file: (It needs to be a complete Bible translation file, complete Old testament or complete New testament.)
-                                </div>
-                                <div className="space-y-2">
-                                    <div className="flex items-center space-x-2">
-                                        <Checkbox
-                                            id="old-testament"
-                                            checked={includeOldTestament}
-                                            onCheckedChange={(checked) => setIncludeOldTestament(checked as boolean)}
-                                            disabled={validationState.isValidating || importState.isImporting}
-                                        />
-                                        <label htmlFor="old-testament" className="text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                                            Old Testament (39 books)
-                                        </label>
-                                    </div>
-                                    <div className="flex items-center space-x-2">
-                                        <Checkbox
-                                            id="new-testament"
-                                            checked={includeNewTestament}
-                                            onCheckedChange={(checked) => setIncludeNewTestament(checked as boolean)}
-                                            disabled={validationState.isValidating || importState.isImporting}
-                                        />
-                                        <label htmlFor="new-testament" className="text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                                            New Testament (27 books)
-                                        </label>
-                                    </div>
-                                </div>
-                                {!includeOldTestament && !includeNewTestament && (
-                                    <div className="text-sm text-amber-600">
-                                        Please select at least one testament to import.
-                                    </div>
-                                )}
-                            </div>
-                        )}
                     </div>
 
                     {selectedFile && (
@@ -395,7 +337,7 @@ export const TmxImporterForm: React.FC<ImporterComponentProps> = ({
                     <div className="flex gap-2">
                         <Button
                             onClick={handleImport}
-                            disabled={!selectedFile || !validationState.result?.isValid || importState.isImporting || (isBible && !includeOldTestament && !includeNewTestament)}
+                            disabled={!selectedFile || !validationState.result?.isValid || importState.isImporting}
                             className="flex-1"
                         >
                             <Upload className="h-4 w-4 mr-2" />

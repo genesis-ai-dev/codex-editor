@@ -462,6 +462,17 @@ export const parseFile = async (
 
         const text = await file.text();
 
+        // Store original file data for round-trip export
+        const arrayBuffer = await file.arrayBuffer();
+
+        // Determine file type for corpusMarker
+        const fileName = file.name.toLowerCase();
+        let fileType: 'tmx' | 'xliff' = 'tmx';
+        if (fileName.endsWith('.xliff') || fileName.endsWith('.xlf')) {
+            fileType = 'xliff';
+        }
+        const corpusMarker = fileType === 'tmx' ? 'tms-tmx' : 'tms-xliff';
+
         // Parse the translation content
         const translationUnits = parseTranslationContent(text);
 
@@ -552,18 +563,20 @@ export const parseFile = async (
                     metadata: {
                         id: `translation-source-${bookAbbrev}-${Date.now()}`,
                         originalFileName: file.name,
+                        originalFileData: arrayBuffer, // Store original file for round-trip export
+                        corpusMarker: corpusMarker, // tms-tmx or tms-xliff for round-trip
                         importerType: 'translation',
                         createdAt: new Date().toISOString(),
                         bookName: book.name,
                         bookCode: bookAbbrev,
                         testament: book.testament,
                         testamentName: testamentName,
-                        corpusMarker: corpusMarker,
                         bookNumber: book.number,
                         chapters: book.chapters,
                         verses: book.verses,
                         verseCount: cells.length,
                         chapterCount: book.chapters,
+                        fileType: fileType, // Store file type for export
                     },
                 };
 
@@ -574,6 +587,8 @@ export const parseFile = async (
                     metadata: {
                         ...sourceNotebook.metadata,
                         id: `translation-codex-${bookAbbrev}-${Date.now()}`,
+                        // Don't duplicate the original file data in codex
+                        originalFileData: undefined,
                     },
                 };
 
@@ -625,12 +640,15 @@ export const parseFile = async (
                 metadata: {
                     id: `translation-source-${Date.now()}`,
                     originalFileName: file.name,
-                    importerType: '',
-                    corpusMarker: '', // Set corpusMarker to indicate non-biblical content
+                    originalFileData: arrayBuffer, // Store original file for round-trip export
+                    corpusMarker: 'tms', // Use 'tms' for UI grouping, fileType stores the specific format
+                    importerType: 'tms', // Set to 'tms' for consistent grouping
                     createdAt: new Date().toISOString(),
                     translationUnitCount: translationUnits.length,
                     sourceLanguage: translationUnits[0]?.sourceLanguage || '',
                     targetLanguage: translationUnits[0]?.targetLanguage || '',
+                    fileType: fileType, // Store file type for export (tmx or xliff)
+                    fileFormat: corpusMarker, // Store original corpus marker for round-trip (tms-tmx or tms-xliff)
                 },
             };
 
@@ -641,6 +659,8 @@ export const parseFile = async (
                 metadata: {
                     ...sourceNotebook.metadata,
                     id: `translation-codex-${Date.now()}`,
+                    // Don't duplicate the original file data in codex
+                    originalFileData: undefined,
                 },
             };
 
