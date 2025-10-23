@@ -950,6 +950,31 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                             {lineNumber}
                                         </div>
                                     )}
+                                    {audioAttachments &&
+                                        audioAttachments[cellIds[0]] !== undefined &&
+                                        (() => {
+                                            const showForSource =
+                                                isSourceText &&
+                                                (audioState === "available" ||
+                                                    audioState === "available-local" ||
+                                                    audioState === "available-pointer" ||
+                                                    audioState === "missing");
+                                            const showForTarget = !isSourceText;
+                                            if (!(showForSource || showForTarget)) return null;
+                                            return (
+                                                <AudioPlayButton
+                                                    cellId={cellIds[0]}
+                                                    vscode={vscode}
+                                                    state={audioState}
+                                                    onOpenCell={(id) => {
+                                                        const open =
+                                                            (window as any).openCellByIdForce ||
+                                                            (window as any).openCellById;
+                                                        if (typeof open === "function") open(id);
+                                                    }}
+                                                />
+                                            );
+                                        })()}
                                     {!isSourceText &&
                                         SHOW_VALIDATION_BUTTON &&
                                         !isInTranslationProcess && (
@@ -976,46 +1001,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                                 : undefined
                                                         }
                                                     />
-                                                    {/* Audio Play Button */}
-                                                    {audioAttachments &&
-                                                        audioAttachments[cellIds[0]] !==
-                                                            undefined &&
-                                                        (() => {
-                                                            // For source text: show the button for available or missing; hide when none/deletedOnly
-                                                            if (
-                                                                isSourceText &&
-                                                                !(
-                                                                    audioState === "available" ||
-                                                                    audioState ===
-                                                                        "available-local" ||
-                                                                    audioState ===
-                                                                        "available-pointer" ||
-                                                                    audioState === "missing"
-                                                                )
-                                                            )
-                                                                return null;
-
-                                                            return (
-                                                                <AudioPlayButton
-                                                                    cellId={cellIds[0]}
-                                                                    vscode={vscode}
-                                                                    state={audioState}
-                                                                    onOpenCell={(id) => {
-                                                                        // Use force variant to ensure editor opens even with unsaved state
-                                                                        const open =
-                                                                            (window as any)
-                                                                                .openCellByIdForce ||
-                                                                            (window as any)
-                                                                                .openCellById;
-                                                                        if (
-                                                                            typeof open ===
-                                                                            "function"
-                                                                        )
-                                                                            open(id);
-                                                                    }}
-                                                                />
-                                                            );
-                                                        })()}
                                                 </div>
                                                 <div className="flex flex-col items-center justify-center">
                                                     <ValidationButton
