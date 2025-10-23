@@ -31,8 +31,11 @@ export class WhisperTranscriptionClient {
         return new Promise((resolve, reject) => {
             try {
                 // Create WebSocket connection with auth token if available
-                const wsUrl = this.authToken ? `${this.url}?token=${this.authToken}` : this.url;
-                this.ws = new WebSocket(wsUrl);
+                const url = new URL(this.url);
+                if (this.authToken) {
+                    url.searchParams.set('token', this.authToken);
+                }
+                this.ws = new WebSocket(url.toString());
 
                 this.ws.onopen = () => {
                     console.log('WebSocket connection opened for transcription');
