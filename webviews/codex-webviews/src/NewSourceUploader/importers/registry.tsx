@@ -28,7 +28,7 @@ import { audioImporterPlugin } from "./audio/index.tsx";
 import { audioImporter2Plugin } from "./audio2/index.tsx";
 import { biblicaImporterPlugin } from "./biblica/index.tsx";
 import { tmsImporterPlugin } from "./tms/index.tsx";
-// import { rtfImporterPlugin } from "./rtf/index.tsx"; // RTF is still in development
+// import { rtfImporterPlugin } from "./rtf/index.tsx";
 import { pdfImporterPlugin } from "./pdf/index.tsx";
 import { indesignImporterPlugin } from "./indesign/index.tsx";
 
@@ -95,10 +95,9 @@ export const importerPlugins: ImporterPlugin[] = [
     {
         ...tmsImporterPlugin,
         name: "TMS Files",
-        description: "Translation memory and localization files with round-trip export support",
-        tags: [...(tmsImporterPlugin.tags || []), "Translation", "Localization", "Bible", "Round-trip"],
+        description: "Translation memory and localization files (TMX/XLIFF)",
+        tags: [...(tmsImporterPlugin.tags || []), "Essential", "Translation", "Localization"],
     },
-    // RTF is still in development - commented out for now
     // {
     //     ...rtfImporterPlugin,
     //     name: "RTF Documents",

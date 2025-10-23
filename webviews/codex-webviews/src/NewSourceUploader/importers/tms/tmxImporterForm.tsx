@@ -9,8 +9,6 @@ import { ImporterComponentProps } from '../../types/plugin';
 import { validateFile, parseFile } from './index';
 import { FileValidationResult, ImportResult } from '../../types/common';
 
-console.log('Form loaded parseFile function:', typeof parseFile);
-
 interface ValidationState {
     isValidating: boolean;
     result: FileValidationResult | null;
@@ -93,7 +91,7 @@ export const TmxImporterForm: React.FC<ImporterComponentProps> = ({
             if (result.success) {
                 if (isTargetImport && onTranslationComplete && alignContent) {
                     // Handle target import - convert to ImportedContent and align
-                    const notebookPair = result.notebookPair || (result.notebookPairs && result.notebookPairs[0]);
+                    const notebookPair = result.notebookPair;
                     const importedContent = notebookPair?.source.cells.map(cell => ({
                         id: cell.id,
                         content: cell.content.replace(/<[^>]*>/g, ''), // Remove HTML tags
@@ -101,7 +99,7 @@ export const TmxImporterForm: React.FC<ImporterComponentProps> = ({
                     })) || [];
 
                     try {
-                        // Pass the source file path from wizard context instead of the TMX filename
+                        // Pass the source file path from wizard context
                         const sourceFilePath = wizardContext?.selectedSourceDetails?.path || selectedSource?.path || '';
                         const alignedContent = await alignContent(importedContent, sourceFilePath);
                         onTranslationComplete(alignedContent, sourceFilePath);
@@ -111,15 +109,9 @@ export const TmxImporterForm: React.FC<ImporterComponentProps> = ({
                             error: `Alignment failed: ${alignError instanceof Error ? alignError.message : 'Unknown error'}`,
                         }));
                     }
-                } else if (onComplete) {
-                    // Handle source import - complete with multiple notebooks (one per book)
-                    if (result.notebookPairs && result.notebookPairs.length > 0) {
-                        // Multiple notebooks (one per Bible book) - pass as array like RTF importer
-                        onComplete(result.notebookPairs);
-                    } else if (result.notebookPair) {
-                        // Fallback to single notebook
-                        onComplete(result.notebookPair);
-                    }
+                } else if (onComplete && result.notebookPair) {
+                    // Handle source import
+                    onComplete(result.notebookPair);
                 }
             }
         } catch (error) {
@@ -184,14 +176,15 @@ export const TmxImporterForm: React.FC<ImporterComponentProps> = ({
                     <CardDescription>
                         {isTargetImport ? (
                             <>
-                                Import target translation from translation file for: <strong>{selectedSource?.name}</strong>
+                                Import target translation from TMX/XLIFF file for: <strong>{selectedSource?.name}</strong>
                                 <br />
-                                This will extract the target language text from the TMX/XLIFF file and align it with the source.
+                                This will extract the target language text and align it with the source.
                             </>
                         ) : (
                             <>
-                                Import source translation from translation file.
-                                This will extract the source language text from the TMX/XLIFF file.
+                                Import source text from TMX/XLIFF translation memory file.
+                                <br />
+                                Translation units will be converted to editable codex cells.
                             </>
                         )}
                     </CardDescription>
@@ -219,9 +212,9 @@ export const TmxImporterForm: React.FC<ImporterComponentProps> = ({
                         >
                             <Upload className="h-12 w-12 text-muted-foreground" />
                             <div className="space-y-2">
-                                <div className="text-lg font-medium">Choose your TMX file</div>
+                                <div className="text-lg font-medium">Choose your translation file</div>
                                 <div className="text-sm text-muted-foreground">
-                                    Click to select a .tmx file up to 50MB
+                                    Click to select a TMX or XLIFF file (up to 50MB)
                                 </div>
                             </div>
                         </label>
@@ -327,7 +320,7 @@ export const TmxImporterForm: React.FC<ImporterComponentProps> = ({
                                 <Alert>
                                     <CheckCircle className="h-4 w-4" />
                                     <AlertDescription>
-                                        Import completed successfully! Created {importState.result.metadata?.booksCreated || 0} Bible books with {importState.result.metadata?.translationUnitCount || 0} translation units.
+                                        Import completed successfully! Created {importState.result.metadata?.translationUnitCount || 0} translation units.
                                     </AlertDescription>
                                 </Alert>
                             )}
@@ -348,14 +341,7 @@ export const TmxImporterForm: React.FC<ImporterComponentProps> = ({
                             onClick={onCancel}
                             disabled={importState.isImporting}
                         >
-                            Back
-                        </Button>
-                        <Button
-                            variant="outline"
-                            onClick={onCancelImport}
-                            disabled={importState.isImporting}
-                        >
-                            Cancel Import
+                            Cancel
                         </Button>
                     </div>
                 </CardContent>
