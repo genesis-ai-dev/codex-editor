@@ -39,6 +39,14 @@ export interface CustomNotebookMetadata {
     fontSize?: number;
 }
 
+export interface ProgressPercentages {
+    percentTranslationsCompleted: number;
+    percentAudioTranslationsCompleted: number;
+    percentFullyValidatedTranslations: number;
+    percentAudioValidatedTranslations: number;
+    percentTextValidatedTranslations: number;
+}
+
 export interface Subsection {
     id: string;
     label: string;

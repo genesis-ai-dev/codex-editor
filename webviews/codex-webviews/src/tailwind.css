@@ -35,6 +35,8 @@
         --input: var(--vscode-input-background, #ffffff);
         --ring: var(--vscode-focusBorder, #0078d4);
         --radius: 0.5rem;
+        --editor-warning-foreground: var(--vscode-editorWarning-foreground, #bf8803);
+        --charts-blue: var(--vscode-charts-blue, #1a85ff);
 
         /* Additional VSCode-specific colors - More subtle */
         --tab-active-background: var(--vscode-editor-background, #ffffff);
@@ -302,6 +304,12 @@
         --waveform-progress-color: var(--primary);
         --waveform-cursor-color: var(--foreground);
     }
+
+    /* Rounded scrollbar for Chapter Selector dropdown */
+    .chapter-selector-dropdown {
+        scrollbar-width: thin;
+        scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
+    }
 }
 
 @theme inline {
@@ -327,6 +335,8 @@
     --color-border: var(--border);
     --color-input: var(--input);
     --color-ring: var(--ring);
+    --color-editor-warning-foreground: var(--editor-warning-foreground);
+    --color-charts-blue: var(--charts-blue);
 }
 
 /* Dark theme adjustments for better VSCode integration */
