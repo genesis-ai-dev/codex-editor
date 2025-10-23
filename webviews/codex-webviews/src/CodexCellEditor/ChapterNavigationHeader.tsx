@@ -7,6 +7,7 @@ import { ChapterSelectorModal } from "./modals/ChapterSelectorModal";
 import { MobileHeaderMenu } from "./components/MobileHeaderMenu";
 import { type QuillCellContent, type CustomNotebookMetadata } from "../../../../types";
 import { EditMapUtils } from "../../../../src/utils/editMapUtils";
+import { getCellValueData } from "@sharedUtils";
 import {
     type FileStatus,
     type EditorPosition,
@@ -648,8 +649,17 @@ ChapterNavigationHeaderProps) {
             return cellId && !cellId.startsWith("paratext-") && !cell.merged;
         });
 
-        if (validCells.length === 0) {
-            return { isFullyTranslated: false, isFullyValidated: false };
+        const totalCells = validCells.length;
+        if (totalCells === 0) {
+            return {
+                isFullyTranslated: false,
+                isFullyValidated: false,
+                percentTranslationsCompleted: 0,
+                percentAudioTranslationsCompleted: 0,
+                percentFullyValidatedTranslations: 0,
+                percentAudioValidatedTranslations: 0,
+                percentTextValidatedTranslations: 0,
+            };
         }
 
         // Check if all cells have content (translated for target, existing for source)
@@ -667,44 +677,69 @@ ChapterNavigationHeaderProps) {
                 return hasContent;
             }
         });
-        const isFullyTranslated = completedCells.length === validCells.length;
+        const isFullyTranslated = completedCells.length === totalCells;
+
+        // Calculate audio presence for subsection (mirrors chapter calculation)
+        const cellsWithAudioValues = validCells.filter(
+            (cell) =>
+                cell.attachments &&
+                Object.keys(cell.attachments).length > 0 &&
+                cell.attachments[Object.keys(cell.attachments)[0]].type === "audio" &&
+                cell.attachments[Object.keys(cell.attachments)[0]].isDeleted === false
+        ).length;
 
         // Check if all cells are validated
         let isFullyValidated = false;
+        // Use the same validation thresholds as CodexCellEditor when available
+        const minimumValidationsRequired = (window as any)?.initialData?.validationCount ?? 1;
+        const minimumAudioValidationsRequired =
+            (window as any)?.initialData?.validationCountAudio ?? 1;
+
+        // Calculate validation data using shared utils
+        const cellWithValidatedData = validCells.map((cell) => getCellValueData(cell));
+
+        const fullyValidatedCells = cellWithValidatedData.filter((cell) => {
+            const validatedBy =
+                cell.validatedBy?.filter((v) => !v.isDeleted).length >= minimumValidationsRequired;
+            const audioValidatedBy =
+                cell.audioValidatedBy?.filter((v) => !v.isDeleted).length >=
+                minimumAudioValidationsRequired;
+            return validatedBy && audioValidatedBy;
+        }).length;
+
+        const validatedCells = cellWithValidatedData.filter((cell) => {
+            return (
+                cell.validatedBy?.filter((v) => !v.isDeleted).length >= minimumValidationsRequired
+            );
+        }).length;
+
+        const audioValidatedCells = cellWithValidatedData.filter((cell) => {
+            return (
+                cell.audioValidatedBy?.filter((v) => !v.isDeleted).length >=
+                minimumAudioValidationsRequired
+            );
+        }).length;
+
+        const percentTranslationsCompleted = (completedCells.length / totalCells) * 100;
+        const percentAudioTranslationsCompleted = (cellsWithAudioValues / totalCells) * 100;
+        const percentAudioValidatedTranslations = (audioValidatedCells / totalCells) * 100;
+        const percentTextValidatedTranslations = (validatedCells / totalCells) * 100;
+        const percentFullyValidatedTranslations = (fullyValidatedCells / totalCells) * 100;
+
         if (isFullyTranslated) {
-            const minimumValidationsRequired = 1; // Can be made configurable later
-            const validatedCells = validCells.filter((cell) => {
-                if (forSourceText) {
-                    // For source text, validation might not apply the same way
-                    // Check if there's any validation history at all
-                    const hasAnyValidation =
-                        cell.editHistory &&
-                        cell.editHistory.some(
-                            (edit) =>
-                                edit.validatedBy &&
-                                edit.validatedBy.filter((v) => !v.isDeleted).length > 0
-                        );
-                    return hasAnyValidation;
-                } else {
-                    // For target text, use existing validation logic
-                    const validatedBy =
-                        cell.editHistory
-                            ?.slice()
-                            .reverse()
-                            .find(
-                                (edit) =>
-                                    EditMapUtils.isValue(edit.editMap) &&
-                                    edit.value === cell.cellContent
-                            )?.validatedBy || [];
-                    return (
-                        validatedBy.filter((v) => !v.isDeleted).length >= minimumValidationsRequired
-                    );
-                }
-            });
-            isFullyValidated = validatedCells.length === validCells.length;
+            // Maintain existing gating for the boolean display in this header
+            isFullyValidated = fullyValidatedCells === totalCells;
         }
 
-        return { isFullyTranslated, isFullyValidated };
+        return {
+            isFullyTranslated,
+            isFullyValidated,
+            percentTranslationsCompleted,
+            percentAudioTranslationsCompleted,
+            percentFullyValidatedTranslations,
+            percentAudioValidatedTranslations,
+            percentTextValidatedTranslations,
+        };
     };
 
     return (

@@ -14,6 +14,7 @@ import { CELL_DISPLAY_MODES } from "../CodexCellEditor";
 import { type CustomNotebookMetadata, type QuillCellContent } from "../../../../../types";
 import { type Subsection } from "../../lib/types";
 import { DropdownMenuCheckboxItem } from "../../components/ui/dropdown-menu";
+import { getProgressColor } from "../utils/progressUtils";
 
 interface MobileHeaderMenuProps {
     // Translation controls
@@ -47,7 +48,6 @@ interface MobileHeaderMenuProps {
     currentSubsectionIndex: number;
     setCurrentSubsectionIndex: React.Dispatch<React.SetStateAction<number>>;
 
-
     // Left section controls (source text functionality)
     toggleScrollSync?: () => void;
     scrollSyncEnabled?: boolean;
@@ -68,7 +68,17 @@ interface MobileHeaderMenuProps {
     getSubsectionsForChapter?: (chapterNum: number) => Subsection[];
     shouldHideNavButtons?: boolean;
     allCellsForChapter?: QuillCellContent[];
-    calculateSubsectionProgress?: (subsection: Subsection, forSourceText?: boolean) => { isFullyTranslated: boolean; isFullyValidated: boolean };
+    calculateSubsectionProgress?: (
+        subsection: Subsection,
+        forSourceText?: boolean
+    ) => {
+        isFullyTranslated: boolean;
+        isFullyValidated: boolean;
+        percentTranslationsCompleted?: number;
+        percentTextValidatedTranslations?: number;
+        percentAudioTranslationsCompleted?: number;
+        percentAudioValidatedTranslations?: number;
+    };
 }
 
 export function MobileHeaderMenu({
@@ -115,11 +125,7 @@ export function MobileHeaderMenu({
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <Button
-                    variant="outline"
-                    title="Menu"
-                    className="inline-flex"
-                >
+                <Button variant="outline" title="Menu" className="inline-flex">
                     <i className="codicon codicon-menu" />
                 </Button>
             </DropdownMenuTrigger>
@@ -130,82 +136,94 @@ export function MobileHeaderMenu({
                 className="w-64"
                 style={{ zIndex: 99999 }}
             >
-
                 {/* Chapter Navigation Controls - only shown when nav buttons are hidden (very small screens) */}
-                {shouldHideNavButtons && chapterNumber && totalChapters && jumpToChapter && getSubsectionsForChapter && (
-                    <>
-                        <DropdownMenuItem
-                            onClick={() => {
-                                if (!unsavedChanges) {
-                                    // Check if we're on the first page of the current chapter
-                                    if (currentSubsectionIndex > 0) {
-                                        // Move to previous page within the same chapter
-                                        setCurrentSubsectionIndex(currentSubsectionIndex - 1);
-                                    } else {
-                                        // Move to previous chapter
-                                        const newChapter = chapterNumber === 1 ? totalChapters : chapterNumber - 1;
-                                        jumpToChapter(newChapter);
+                {shouldHideNavButtons &&
+                    chapterNumber &&
+                    totalChapters &&
+                    jumpToChapter &&
+                    getSubsectionsForChapter && (
+                        <>
+                            <DropdownMenuItem
+                                onClick={() => {
+                                    if (!unsavedChanges) {
+                                        // Check if we're on the first page of the current chapter
+                                        if (currentSubsectionIndex > 0) {
+                                            // Move to previous page within the same chapter
+                                            setCurrentSubsectionIndex(currentSubsectionIndex - 1);
+                                        } else {
+                                            // Move to previous chapter
+                                            const newChapter =
+                                                chapterNumber === 1
+                                                    ? totalChapters
+                                                    : chapterNumber - 1;
+                                            jumpToChapter(newChapter);
 
-                                        // When jumping to a new chapter, check if it has subsections
-                                        // and if so, jump to the last page
-                                        const newChapterSubsections = getSubsectionsForChapter(newChapter);
-                                        if (newChapterSubsections.length > 0) {
-                                            setCurrentSubsectionIndex(newChapterSubsections.length - 1);
+                                            // When jumping to a new chapter, check if it has subsections
+                                            // and if so, jump to the last page
+                                            const newChapterSubsections =
+                                                getSubsectionsForChapter(newChapter);
+                                            if (newChapterSubsections.length > 0) {
+                                                setCurrentSubsectionIndex(
+                                                    newChapterSubsections.length - 1
+                                                );
+                                            }
                                         }
+                                    } else if (showUnsavedWarning) {
+                                        showUnsavedWarning();
                                     }
-                                } else if (showUnsavedWarning) {
-                                    showUnsavedWarning();
-                                }
-                            }}
-                            className="cursor-pointer"
-                        >
-                            <i className="codicon codicon-chevron-left mr-2 h-4 w-4" />
-                            <span>
-                                {currentSubsectionIndex > 0 ? "Previous Page" : "Previous Chapter"}
-                            </span>
-                        </DropdownMenuItem>
+                                }}
+                                className="cursor-pointer"
+                            >
+                                <i className="codicon codicon-chevron-left mr-2 h-4 w-4" />
+                                <span>
+                                    {currentSubsectionIndex > 0
+                                        ? "Previous Page"
+                                        : "Previous Chapter"}
+                                </span>
+                            </DropdownMenuItem>
 
-                        <DropdownMenuItem
-                            onClick={() => {
-                                if (!unsavedChanges) {
-                                    // Check if we're on the last page of the current chapter
-                                    if (
-                                        subsections.length > 0 &&
-                                        currentSubsectionIndex < subsections.length - 1
-                                    ) {
-                                        // Move to next page within the same chapter
-                                        setCurrentSubsectionIndex(currentSubsectionIndex + 1);
-                                    } else {
-                                        // Move to next chapter and reset to first page
-                                        const newChapter = chapterNumber === totalChapters ? 1 : chapterNumber + 1;
-                                        jumpToChapter(newChapter);
-                                        setCurrentSubsectionIndex(0);
+                            <DropdownMenuItem
+                                onClick={() => {
+                                    if (!unsavedChanges) {
+                                        // Check if we're on the last page of the current chapter
+                                        if (
+                                            subsections.length > 0 &&
+                                            currentSubsectionIndex < subsections.length - 1
+                                        ) {
+                                            // Move to next page within the same chapter
+                                            setCurrentSubsectionIndex(currentSubsectionIndex + 1);
+                                        } else {
+                                            // Move to next chapter and reset to first page
+                                            const newChapter =
+                                                chapterNumber === totalChapters
+                                                    ? 1
+                                                    : chapterNumber + 1;
+                                            jumpToChapter(newChapter);
+                                            setCurrentSubsectionIndex(0);
+                                        }
+                                    } else if (showUnsavedWarning) {
+                                        showUnsavedWarning();
                                     }
-                                } else if (showUnsavedWarning) {
-                                    showUnsavedWarning();
-                                }
-                            }}
-                            className="cursor-pointer"
-                        >
-                            <i className="codicon codicon-chevron-right mr-2 h-4 w-4" />
-                            <span>
-                                {subsections.length > 0 && currentSubsectionIndex < subsections.length - 1
-                                    ? "Next Page"
-                                    : "Next Chapter"}
-                            </span>
-                        </DropdownMenuItem>
+                                }}
+                                className="cursor-pointer"
+                            >
+                                <i className="codicon codicon-chevron-right mr-2 h-4 w-4" />
+                                <span>
+                                    {subsections.length > 0 &&
+                                    currentSubsectionIndex < subsections.length - 1
+                                        ? "Next Page"
+                                        : "Next Chapter"}
+                                </span>
+                            </DropdownMenuItem>
 
-                        <DropdownMenuSeparator />
-                    </>
-                )}
+                            <DropdownMenuSeparator />
+                        </>
+                    )}
 
                 {/* Left Section Controls (Source Text Functionality) */}
                 {isSourceText && toggleScrollSync && (
                     <>
-                        <DropdownMenuItem
-                            onClick={toggleScrollSync}
-                            className="cursor-pointer"
-                        >
+                        <DropdownMenuItem onClick={toggleScrollSync} className="cursor-pointer">
                             <i
                                 className={`codicon ${
                                     scrollSyncEnabled ? "codicon-lock" : "codicon-unlock"
@@ -247,7 +265,9 @@ export function MobileHeaderMenu({
                             >
                                 <i className="codicon codicon-circle-slash mr-2 h-4 w-4" />
                                 <span>
-                                    {isAutocompletingChapter ? "Stop Autocomplete" : "Stop Translation"}
+                                    {isAutocompletingChapter
+                                        ? "Stop Autocomplete"
+                                        : "Stop Translation"}
                                 </span>
                             </DropdownMenuItem>
                         ) : (
@@ -298,7 +318,8 @@ export function MobileHeaderMenu({
                         } mr-2 h-4 w-4`}
                     />
                     <span>
-                        Display Mode ({cellDisplayMode === CELL_DISPLAY_MODES.INLINE ? "Inline" : "One Line"})
+                        Display Mode (
+                        {cellDisplayMode === CELL_DISPLAY_MODES.INLINE ? "Inline" : "One Line"})
                     </span>
                 </DropdownMenuItem>
 
@@ -308,26 +329,86 @@ export function MobileHeaderMenu({
                 {subsections.length > 0 && (
                     <>
                         <div className="px-3 py-1">
-                            <span className="text-sm text-muted-foreground">Current Page: {subsections[currentSubsectionIndex]?.label || ""}</span>
+                            <span className="text-sm text-muted-foreground">
+                                Current Page: {subsections[currentSubsectionIndex]?.label || ""}
+                            </span>
                         </div>
                         {subsections.map((section, index) => {
-                            const progress = calculateSubsectionProgress ? calculateSubsectionProgress(section, isSourceText) : { isFullyTranslated: false, isFullyValidated: false };
+                            const progress = calculateSubsectionProgress
+                                ? calculateSubsectionProgress(section, isSourceText)
+                                : { isFullyTranslated: false, isFullyValidated: false };
                             const isActive = currentSubsectionIndex === index;
+                            const textValidatedPercent =
+                                (progress as any).percentTextValidatedTranslations !== undefined
+                                    ? (progress as any).percentTextValidatedTranslations
+                                    : progress.isFullyValidated
+                                    ? 100
+                                    : 0;
+                            const textCompletedPercent =
+                                (progress as any).percentTranslationsCompleted !== undefined
+                                    ? (progress as any).percentTranslationsCompleted
+                                    : progress.isFullyTranslated
+                                    ? 100
+                                    : 0;
+                            const audioValidatedPercent =
+                                (progress as any).percentAudioValidatedTranslations !== undefined
+                                    ? (progress as any).percentAudioValidatedTranslations
+                                    : 0;
+                            const audioCompletedPercent =
+                                (progress as any).percentAudioTranslationsCompleted !== undefined
+                                    ? (progress as any).percentAudioTranslationsCompleted
+                                    : 0;
+                            const audioColorClass = getProgressColor(
+                                audioValidatedPercent,
+                                audioCompletedPercent
+                            );
+                            const textColorClass = getProgressColor(
+                                textValidatedPercent,
+                                textCompletedPercent
+                            );
                             return (
                                 <DropdownMenuItem
                                     key={section.id}
                                     onClick={() => setCurrentSubsectionIndex(index)}
-                                    className={`cursor-pointer ${isActive ? 'bg-accent text-accent-foreground font-semibold' : ''}`}
+                                    className={`cursor-pointer ${
+                                        isActive
+                                            ? "bg-accent text-accent-foreground font-semibold"
+                                            : ""
+                                    }`}
                                 >
                                     <i className="codicon codicon-location mr-2 h-4 w-4" />
                                     <span>Go to {section.label}</span>
                                     <div className="flex items-center gap-1 ml-auto">
-                                        {progress.isFullyValidated && (
-                                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--vscode-editorWarning-foreground)" }} title="Page fully validated" />
-                                        )}
-                                        {!progress.isFullyValidated && progress.isFullyTranslated && (
-                                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--vscode-charts-blue)" }} title="Page fully translated" />
-                                        )}
+                                        <div
+                                            className={`w-2 h-2 rounded-full ${audioColorClass}`}
+                                            style={{ backgroundColor: "currentColor" }}
+                                            title={
+                                                audioValidatedPercent >= 100
+                                                    ? "Audio fully validated"
+                                                    : audioCompletedPercent >= 100
+                                                    ? "Audio fully translated"
+                                                    : audioValidatedPercent > 0
+                                                    ? "Audio partially validated"
+                                                    : audioCompletedPercent > 0
+                                                    ? "Audio present"
+                                                    : "No audio progress"
+                                            }
+                                        />
+                                        <div
+                                            className={`w-2 h-2 rounded-full ${textColorClass}`}
+                                            style={{ backgroundColor: "currentColor" }}
+                                            title={
+                                                textValidatedPercent >= 100
+                                                    ? "Text fully validated"
+                                                    : textCompletedPercent >= 100
+                                                    ? "Text fully translated"
+                                                    : textValidatedPercent > 0
+                                                    ? "Text partially validated"
+                                                    : textCompletedPercent > 0
+                                                    ? "Text present"
+                                                    : "No text progress"
+                                            }
+                                        />
                                     </div>
                                 </DropdownMenuItem>
                             );
@@ -364,7 +445,9 @@ export function MobileHeaderMenu({
                         } mr-2 h-4 w-4`}
                     />
                     <span>
-                        {metadata?.lineNumbersEnabled ?? true ? "Hide Line Numbers" : "Show Line Numbers"}
+                        {metadata?.lineNumbersEnabled ?? true
+                            ? "Hide Line Numbers"
+                            : "Show Line Numbers"}
                     </span>
                 </DropdownMenuItem>
 
@@ -399,7 +482,10 @@ export function MobileHeaderMenu({
                 {/* Auto-download audio toggle */}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                    onClick={() => onToggleAutoDownloadAudio && onToggleAutoDownloadAudio(!autoDownloadAudioOnOpen)}
+                    onClick={() =>
+                        onToggleAutoDownloadAudio &&
+                        onToggleAutoDownloadAudio(!autoDownloadAudioOnOpen)
+                    }
                     className="cursor-pointer"
                 >
                     <i className="codicon codicon-cloud-download mr-2 h-4 w-4" />

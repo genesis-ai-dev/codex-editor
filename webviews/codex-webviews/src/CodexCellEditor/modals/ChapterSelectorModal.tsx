@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Button } from "../../components/ui/button";
 import { ProgressPercentages } from "../../lib/types";
+import { getProgressColor } from "../utils/progressUtils";
 
 interface ChapterSelectorModalProps {
     isOpen: boolean;
@@ -36,13 +36,6 @@ export function ChapterSelectorModal({
     const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
     const [columns, setColumns] = useState(10);
     const [arrowPosition, setArrowPosition] = useState<"top" | "bottom">("top");
-
-    const getProgressColor = (validatedPercent: number, completedPercent: number): string => {
-        if (validatedPercent >= 100) return "text-editor-warning-foreground";
-        if (completedPercent >= 100) return "text-charts-blue";
-        if (validatedPercent > 0 && validatedPercent < 100) return "text-muted-foreground/80";
-        return "text-muted-foreground/25";
-    };
 
     const getChapterColor = (chapter: number): ChapterColor => {
         if (!chapterProgress || !chapterProgress[chapter]) {
