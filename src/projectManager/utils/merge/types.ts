@@ -8,13 +8,13 @@ export enum ConflictResolutionStrategy {
     SPECIAL = "special", // Merge based on timestamps/rules
     CODEX_CUSTOM_MERGE = "codex", // Special merge process for cell arrays
     JSONL = "jsonl", // Combine and deduplicate JSONL files
-    // FIXME: Add a new strategy for merging .vscode/settings.json
+    JSON_MERGE_3WAY = "json-merge-3way", // 3-way merge for JSON settings with chatSystemMessage tie-breaker
 }
 
 export interface SmartEdit {
     cellId: string;
     lastCellValue: string;
-    suggestions: Array<{ oldString: string; newString: string }>;
+    suggestions: Array<{ oldString: string; newString: string; }>;
     lastUpdatedDate: string;
 }
 

@@ -13,7 +13,8 @@ import {
 } from "lucide-react";
 
 // Import the actual plugin definitions
-import { docxImporterPlugin } from "./docx/index.tsx";
+// import { docxImporterPlugin } from "./docx/index.tsx"; // Old mammoth.js importer
+import { docxRoundtripImporterPlugin as docxImporterPlugin } from "./docx/experiment/index.tsx"; // New round-trip importer
 import { markdownImporterPlugin } from "./markdown/index.tsx";
 import { usfmImporterPlugin } from "./usfm/index.tsx";
 import { ebibleDownloadImporterPlugin } from "./ebibleCorpus/index.tsx";
@@ -24,6 +25,11 @@ import { smartSegmenterPlugin } from "./recursiveTextSplitter/index.tsx";
 import { paratextImporterPlugin } from "./paratext/index.tsx";
 import { spreadsheetImporterPlugin } from "./spreadsheet/index.tsx";
 import { audioImporterPlugin } from "./audio/index.tsx";
+import { biblicaImporterPlugin } from "./biblica/index.tsx";
+// import { tmsImporterPlugin } from "./tms/index.tsx";
+// import { rtfImporterPlugin } from "./rtf/index.tsx";
+import { pdfImporterPlugin } from "./pdf/index.tsx";
+import { indesignImporterPlugin } from "./indesign/index.tsx";
 
 // Import placeholder components - these will be created for each importer
 // For now, we'll create a temporary placeholder component
@@ -58,7 +64,7 @@ export const importerPlugins: ImporterPlugin[] = [
     {
         ...docxImporterPlugin,
         name: "Word Documents",
-        description: "Microsoft Word files with images",
+        description: "Microsoft Word files with round-trip export support",
         tags: [...(docxImporterPlugin.tags || []), "Essential", "Documents", "Microsoft"],
     },
     {
@@ -78,6 +84,31 @@ export const importerPlugins: ImporterPlugin[] = [
         name: "Spreadsheets",
         description: "Excel and Google Sheets",
         tags: [...(spreadsheetImporterPlugin.tags || []), "Essential", "Spreadsheet", "Excel"],
+    },
+    // {
+    //     ...tmsImporterPlugin,
+    //     name: "TMS Files",
+    //     description: "Translation memory and localization files",
+    //     tags: [...(tmsImporterPlugin.tags || []), "Translation", "Localization", "Bible"],
+    // },
+    // {
+    //     ...rtfImporterPlugin,
+    //     name: "RTF Documents",
+    //     description: "Rich Text Format files with Bible verses, chapters, and books",
+    //     tags: [...(rtfImporterPlugin.tags || []), "Essential", "Documents"],
+    // },
+    {
+        ...pdfImporterPlugin,
+        name: "PDF Documents",
+        description: "Portable Document Format files with Bible text",
+        icon: FileText,
+        tags: ["Essential", "Documents", "PDF"],
+    },
+    {
+        ...indesignImporterPlugin,
+        name: "InDesign Files",
+        description: "Adobe InDesign IDML files with round-trip loss-free editing",
+        tags: [...(indesignImporterPlugin.tags || []), "Essential", "Documents", "Adobe", "Professional", "Bible"],
     },
 
     // Specialized Tools - Domain-specific importers for Bible translation
@@ -109,6 +140,12 @@ export const importerPlugins: ImporterPlugin[] = [
             "Bible",
             "Original Languages",
         ],
+    },
+    {
+        ...biblicaImporterPlugin,
+        name: "Biblica Files",
+        description: "Biblica IDML files",
+        tags: [...(biblicaImporterPlugin.tags || []), "Specialized", "Bible", "Biblica"],
     },
     {
         ...obsImporterPlugin,

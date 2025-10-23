@@ -212,7 +212,12 @@ export interface FrontierAPI {
             owner: string;
         }>
     >;
-    cloneRepository: (repositoryUrl: string, cloneToPath?: string, openWorkspace?: boolean) => Promise<boolean>;
+    cloneRepository: (
+        repositoryUrl: string,
+        cloneToPath?: string,
+        openWorkspace?: boolean,
+        mediaStrategy?: string
+    ) => Promise<boolean>;
     publishWorkspace: (options?: {
         name: string;
         description?: string;
@@ -224,6 +229,7 @@ export interface FrontierAPI {
         username: string;
     }>;
     getLlmEndpoint: () => Promise<string | undefined>;
+    getAsrEndpoint: () => Promise<string | undefined>;
     syncChanges: (options?: { commitMessage?: string; }) => Promise<{
         hasConflicts: boolean;
         conflicts?: Array<ConflictFile>;
@@ -262,4 +268,10 @@ export interface FrontierAPI {
             stage: string;
         }>;
     }>;
+
+    downloadLFSFile: (
+        projectPath: string,
+        oid: string,
+        size: number
+    ) => Promise<Buffer>;
 }

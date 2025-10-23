@@ -19,6 +19,7 @@ import http from "isomorphic-git/http/web";
 import { resolveConflictFiles } from "./resolvers";
 import { getAuthApi } from "../../../extension";
 import { ConflictFile } from "./types";
+import { getFrontierVersionStatus } from "../../utils/versionChecks";
 
 const DEBUG_MODE = false;
 function debug(...args: any[]): void {
@@ -57,6 +58,26 @@ export async function stageAndCommitAllAndSync(
 
     // Save all files before syncing
     await vscode.workspace.saveAll();
+    // Enforce Frontier version requirement for sync operations (Git LFS safety gate)
+    // Note: Check before constructing syncResult to avoid using before declaration
+    const versionStatus = await getFrontierVersionStatus();
+    if (!versionStatus.ok) {
+        debug("Frontier version requirement not met. Blocking sync operation.");
+        const details = versionStatus.installedVersion
+            ? `Frontier Authentication ${versionStatus.installedVersion} detected. Version ${versionStatus.requiredVersion} or newer is required to sync.`
+            : `Frontier Authentication not found. Version ${versionStatus.requiredVersion} or newer is required to sync.`;
+        await vscode.window.showWarningMessage(details, { modal: true });
+        return {
+            success: false,
+            changedFiles: [],
+            conflictFiles: [],
+            newFiles: [],
+            deletedFiles: [],
+            totalChanges: 0,
+            offline: false
+        };
+    }
+
 
     const authApi = getAuthApi();
     if (!authApi) {

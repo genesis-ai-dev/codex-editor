@@ -1,4 +1,4 @@
-import { QuillCellContent } from "../types";
+import { QuillCellContent, ValidationEntry } from "../types";
 import { EditMapUtils } from "../src/utils/editMapUtils";
 
 export const removeHtmlTags = (content: string) => {
@@ -57,11 +57,44 @@ export const getCellValueData = (cell: QuillCellContent) => {
         .reverse()
         .find((edit) => EditMapUtils.isValue(edit.editMap) && edit.value === cell.cellContent);
 
+    // Get audio validation from attachments instead of edits
+    let audioValidatedBy: ValidationEntry[] = [];
+    if (cell.attachments) {
+        const audioAttachments = Object.entries(cell.attachments).filter(([, attachment]: [string, any]) =>
+            attachment && attachment.type === "audio" && !attachment.isDeleted
+        );
+
+        if (audioAttachments.length > 0) {
+            // Prefer the explicitly selected audio attachment when available
+            let currentAudioAttachmentEntry: [string, any] | null = null;
+
+            const selectedAudioId = cell.metadata?.selectedAudioId;
+            if (selectedAudioId) {
+                currentAudioAttachmentEntry =
+                    audioAttachments.find(([attachmentId]) => attachmentId === selectedAudioId) ?? null;
+            }
+
+            // Fall back to the most recently updated audio attachment
+            if (!currentAudioAttachmentEntry) {
+                currentAudioAttachmentEntry = audioAttachments
+                    .sort(([, a]: [string, any], [, b]: [string, any]) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+            }
+
+            if (currentAudioAttachmentEntry) {
+                const [, currentAudioAttachment] = currentAudioAttachmentEntry;
+                if (currentAudioAttachment?.validatedBy) {
+                    audioValidatedBy = currentAudioAttachment.validatedBy;
+                }
+            }
+        }
+    }
+
     return {
         cellId: cell.cellMarkers?.[0] || "",
         cellContent: cell.cellContent || "",
         cellType: cell.cellType,
         validatedBy: latestEditThatMatchesCellValue?.validatedBy || [],
+        audioValidatedBy: audioValidatedBy,
         editType: latestEditThatMatchesCellValue?.type || "user-edit",
         author: latestEditThatMatchesCellValue?.author || "",
         timestamp: latestEditThatMatchesCellValue?.timestamp || Date.now(),
@@ -75,7 +108,23 @@ export type AudioAvailabilityState = boolean | "available" | "deletedOnly" | "no
 export const hasTextContent = (htmlContent: string | undefined | null): boolean => {
     if (!htmlContent) return false;
     const text = removeHtmlTags(htmlContent);
-    return text.length > 0;
+    if (text.length === 0) {
+        return false;
+    }
+
+    // eslint-disable-next-line no-misleading-character-class
+    const normalized = text.replace(/[\u200B\u200C\u200D\u200E\u200F\u202F\u2060\uFEFF]/g, "");
+    const trimmed = normalized.trim().toLowerCase();
+
+    if (trimmed.length === 0) {
+        return false;
+    }
+
+    if (trimmed === "click to translate" || trimmed === "no text") {
+        return false;
+    }
+
+    return true;
 };
 
 export const hasAudioAvailable = (state: AudioAvailabilityState): boolean => {
@@ -87,8 +136,5 @@ export const shouldDisableValidation = (
     htmlContent: string | undefined | null,
     audioState: AudioAvailabilityState
 ): boolean => {
-    const textPresent = hasTextContent(htmlContent);
-    const audioPresent = hasAudioAvailable(audioState);
-    // Disabled only if neither text nor audio is present
-    return !(textPresent || audioPresent);
+    return !hasTextContent(htmlContent);
 };

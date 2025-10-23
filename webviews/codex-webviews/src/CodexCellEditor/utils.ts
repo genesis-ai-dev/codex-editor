@@ -37,3 +37,7 @@ export const HACKY_removeContiguousSpans = (html: string) => {
         return html;
     }
 };
+
+export const sanitizeQuillHtml = (originalHTML: string) => {
+    return originalHTML.replace(/<div>/g, "<span>").replace(/<\/div>/g, "</span>");
+}

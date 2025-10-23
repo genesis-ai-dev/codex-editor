@@ -44,6 +44,19 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
     const [hoveredSegment, setHoveredSegment] = useState<number | null>(null);
     const [isDragging, setIsDragging] = useState(false);
     const [draggedSplit, setDraggedSplit] = useState<number | null>(null);
+    const [currentlyPlayingIndex, setCurrentlyPlayingIndex] = useState<number | null>(null);
+
+    // Local slider state to control detection params
+    const [thresholdDb, setThresholdDb] = useState(silenceThreshold);
+    const [minSilenceSec, setMinSilenceSec] = useState(minSilenceDuration);
+
+    useEffect(() => {
+        setThresholdDb(silenceThreshold);
+    }, [silenceThreshold]);
+
+    useEffect(() => {
+        setMinSilenceSec(minSilenceDuration);
+    }, [minSilenceDuration]);
 
     // Detect silence in audio buffer
     const detectSilence = useCallback(
@@ -51,8 +64,8 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
             const channelData = buffer.getChannelData(0);
             const sampleRate = buffer.sampleRate;
             const windowSize = Math.floor(sampleRate * 0.05); // 50ms windows
-            const threshold = Math.pow(10, silenceThreshold / 20); // Convert dB to linear
-            const minSilenceSamples = Math.floor(minSilenceDuration * sampleRate);
+            const threshold = Math.pow(10, thresholdDb / 20); // Convert dB to linear
+            const minSilenceSamples = Math.floor(minSilenceSec * sampleRate);
 
             const silenceRegions: Array<{ start: number; end: number }> = [];
             let inSilence = false;
@@ -133,7 +146,7 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
 
             onSegmentsChange(newSegments);
         },
-        [silenceThreshold, minSilenceDuration, onSegmentsChange]
+        [thresholdDb, minSilenceSec, onSegmentsChange]
     );
 
     // Load and decode audio file
@@ -293,7 +306,7 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
 
     // Play a specific segment
     const playSegment = useCallback(
-        async (segment: AudioSegment) => {
+        async (segment: AudioSegment, index: number) => {
             if (!audioBuffer) return;
 
             // Stop current playback
@@ -311,10 +324,12 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
 
             setPlaybackSource(source);
             setIsPlaying(true);
+            setCurrentlyPlayingIndex(index);
 
             source.onended = () => {
                 setIsPlaying(false);
                 setPlaybackSource(null);
+                setCurrentlyPlayingIndex(null);
             };
         },
         [audioBuffer, audioContext, playbackSource]
@@ -326,8 +341,21 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
             playbackSource.stop();
             setPlaybackSource(null);
             setIsPlaying(false);
+            setCurrentlyPlayingIndex(null);
         }
     }, [playbackSource]);
+
+    // Stop playback on unmount or when file changes
+    useEffect(() => {
+        return () => {
+            try {
+                if (playbackSource) playbackSource.stop();
+            } catch (e) {
+                // ignore
+            }
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [file]);
 
     return (
         <div className="space-y-4">
@@ -336,8 +364,11 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
                 <div className="flex-1 space-y-2">
                     <Label>Silence Threshold (dB)</Label>
                     <Slider
-                        value={[silenceThreshold]}
-                        onValueChange={([val]) => detectSilence(audioBuffer!)}
+                        value={[thresholdDb]}
+                        onValueChange={([val]) => {
+                            setThresholdDb(val);
+                            if (audioBuffer) detectSilence(audioBuffer);
+                        }}
                         min={-60}
                         max={-20}
                         step={1}
@@ -347,8 +378,11 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
                 <div className="flex-1 space-y-2">
                     <Label>Min Silence Duration (s)</Label>
                     <Slider
-                        value={[minSilenceDuration]}
-                        onValueChange={([val]) => detectSilence(audioBuffer!)}
+                        value={[minSilenceSec]}
+                        onValueChange={([val]) => {
+                            setMinSilenceSec(val);
+                            if (audioBuffer) detectSilence(audioBuffer);
+                        }}
                         min={0.1}
                         max={2}
                         step={0.1}
@@ -396,8 +430,16 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
                         <span className="text-xs text-muted-foreground">
                             ({(segment.endSec - segment.startSec).toFixed(2)}s)
                         </span>
-                        <Button size="sm" variant="ghost" onClick={() => playSegment(segment)}>
-                            {isPlaying ? (
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                                currentlyPlayingIndex === index && isPlaying
+                                    ? stopPlayback()
+                                    : playSegment(segment, index)
+                            }
+                        >
+                            {currentlyPlayingIndex === index && isPlaying ? (
                                 <Pause className="h-3 w-3" />
                             ) : (
                                 <Play className="h-3 w-3" />
@@ -405,12 +447,13 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
                         </Button>
                         {segments.length > 1 && (
                             <Button
-                                size="sm"
-                                variant="ghost"
+                                size="icon"
+                                variant="destructive"
                                 onClick={() => removeSplit(index)}
-                                className="text-destructive hover:text-destructive"
+                                className="h-8 w-8 rounded-full"
+                                title="Remove segment"
                             >
-                                <X className="h-3 w-3" />
+                                <X className="h-5 w-5" />
                             </Button>
                         )}
                     </div>

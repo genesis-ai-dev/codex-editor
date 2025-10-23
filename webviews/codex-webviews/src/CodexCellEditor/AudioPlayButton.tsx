@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
+import { getCachedAudioDataUrl, setCachedAudioDataUrl } from "../lib/audioCache";
 import type { WebviewApi } from "vscode-webview";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 
-type AudioState = "available" | "deletedOnly" | "none";
+type AudioState = "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
 
 interface AudioPlayButtonProps {
     cellId: string;
@@ -11,63 +12,79 @@ interface AudioPlayButtonProps {
     onOpenCell?: (cellId: string) => void;
 }
 
-const AudioPlayButton: React.FC<AudioPlayButtonProps> = ({ cellId, vscode, state = "available", onOpenCell }) => {
+const AudioPlayButton: React.FC<AudioPlayButtonProps> = ({
+    cellId,
+    vscode,
+    state = "available",
+    onOpenCell,
+}) => {
     const [isPlaying, setIsPlaying] = useState(false);
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const pendingPlayRef = useRef(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
 
-    useMessageHandler("audioPlayButton", (event: MessageEvent) => {
-        const message = event.data;
+    useMessageHandler(
+        "audioPlayButton",
+        (event: MessageEvent) => {
+            const message = event.data;
 
-        if (message.type === "providerSendsAudioAttachments") {
-            if (audioUrl && audioUrl.startsWith("blob:")) {
-                URL.revokeObjectURL(audioUrl);
-            }
-            setAudioUrl(null);
-            setIsLoading(false);
-        }
-
-        if (message.type === "providerSendsAudioData" && message.content.cellId === cellId) {
-            if (message.content.audioData) {
-                if (audioUrl && audioUrl.startsWith("blob:")) {
-                    URL.revokeObjectURL(audioUrl);
+            if (message.type === "providerSendsAudioAttachments") {
+                // Only clear cached URL if this cell's availability actually changed to a different state
+                const attachments = message.attachments || {};
+                const newState = attachments[cellId];
+                if (typeof newState !== "undefined") {
+                    // If we previously had no audio URL and still don't, no-op; avoid churn
+                    if (audioUrl && audioUrl.startsWith("blob:")) {
+                        URL.revokeObjectURL(audioUrl);
+                    }
+                    setAudioUrl(null);
+                    setIsLoading(false);
                 }
-
-                fetch(message.content.audioData)
-                    .then((res) => res.blob())
-                    .then((blob) => {
-                        const blobUrl = URL.createObjectURL(blob);
-                        setAudioUrl(blobUrl);
-                        setIsLoading(false);
-                        if (pendingPlayRef.current) {
-                            try {
-                                if (!audioRef.current) {
-                                    audioRef.current = new Audio();
-                                    audioRef.current.onended = () => setIsPlaying(false);
-                                    audioRef.current.onerror = () => {
-                                        console.error("Error playing audio for cell:", cellId);
-                                        setIsPlaying(false);
-                                    };
-                                }
-                                audioRef.current.src = blobUrl;
-                                audioRef.current
-                                    .play()
-                                    .then(() => setIsPlaying(true))
-                                    .catch(() => setIsPlaying(false));
-                            } finally {
-                                pendingPlayRef.current = false;
-                            }
-                        }
-                    })
-                    .catch(() => setIsLoading(false));
-            } else {
-                setAudioUrl(null);
-                setIsLoading(false);
             }
-        }
-    }, [audioUrl, cellId, vscode]);
+
+            if (message.type === "providerSendsAudioData" && message.content.cellId === cellId) {
+                if (message.content.audioData) {
+                    if (audioUrl && audioUrl.startsWith("blob:")) {
+                        URL.revokeObjectURL(audioUrl);
+                    }
+
+                    fetch(message.content.audioData)
+                        .then((res) => res.blob())
+                        .then((blob) => {
+                            const blobUrl = URL.createObjectURL(blob);
+                            try { setCachedAudioDataUrl(cellId, message.content.audioData); } catch {}
+                            setAudioUrl(blobUrl);
+                            setIsLoading(false);
+                            if (pendingPlayRef.current) {
+                                try {
+                                    if (!audioRef.current) {
+                                        audioRef.current = new Audio();
+                                        audioRef.current.onended = () => setIsPlaying(false);
+                                        audioRef.current.onerror = () => {
+                                            console.error("Error playing audio for cell:", cellId);
+                                            setIsPlaying(false);
+                                        };
+                                    }
+                                    audioRef.current.src = blobUrl;
+                                    audioRef.current
+                                        .play()
+                                        .then(() => setIsPlaying(true))
+                                        .catch(() => setIsPlaying(false));
+                                } finally {
+                                    pendingPlayRef.current = false;
+                                }
+                            }
+                        })
+                        .catch(() => setIsLoading(false));
+                } else {
+                    setAudioUrl(null);
+                    setIsLoading(false);
+                }
+            }
+        },
+        [audioUrl, cellId, vscode]
+    );
 
     useEffect(() => {
         return () => {
@@ -83,9 +100,14 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = ({ cellId, vscode, state
     const handlePlayAudio = async () => {
         try {
             if (state !== "available") {
-                try {
-                    sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");
-                } catch {}
+                // For missing audio, just open the editor without auto-starting recording
+                if (state !== "missing") {
+                    try {
+                        sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");
+                    } catch {
+                        // no-op
+                    }
+                }
                 vscode.postMessage({
                     command: "setPreferredEditorTab",
                     content: { tab: "audio" },
@@ -128,10 +150,29 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = ({ cellId, vscode, state
     };
 
     const { iconClass, color } = (() => {
-        if (state === "available") {
+        // If we already have an audio URL, always show Play (post-stream or cache)
+        if (audioUrl) {
             return {
                 iconClass: isPlaying ? "codicon-debug-stop" : "codicon-play",
                 color: "var(--vscode-charts-blue)",
+            } as const;
+        }
+        if (state === "available" || state === "available-local") {
+            return {
+                iconClass: isPlaying ? "codicon-debug-stop" : "codicon-play",
+                color: "var(--vscode-charts-blue)",
+            } as const;
+        }
+        if (state === "available-pointer") {
+            return {
+                iconClass: isPlaying ? "codicon-debug-stop" : "codicon-cloud-download",
+                color: "var(--vscode-charts-blue)",
+            } as const;
+        }
+        if (state === "missing") {
+            return {
+                iconClass: "codicon-warning",
+                color: "var(--vscode-errorForeground)",
             } as const;
         }
         return { iconClass: "codicon-mic", color: "var(--vscode-foreground)" } as const;
@@ -141,7 +182,17 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = ({ cellId, vscode, state
         <button
             onClick={handlePlayAudio}
             className="audio-play-button p-[1px]"
-            title={isLoading ? "Preparing audio..." : state === "available" ? "Play" : "Record"}
+            title={
+                isLoading
+                    ? "Preparing audio..."
+                    : state === "available" || state === "available-local"
+                    ? "Play"
+                    : state === "available-pointer"
+                    ? "Download"
+                    : state === "missing"
+                    ? "Missing audio"
+                    : "Record"
+            }
             disabled={false}
             style={{
                 background: "none",
@@ -158,11 +209,12 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = ({ cellId, vscode, state
             onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
             onMouseLeave={(e) => (e.currentTarget.style.opacity = isPlaying ? "1" : "0.8")}
         >
-            <i className={`codicon ${iconClass}`} style={{ fontSize: "16px", position: "relative" }} />
+            <i
+                className={`codicon ${iconClass}`}
+                style={{ fontSize: "16px", position: "relative" }}
+            />
         </button>
     );
 };
 
 export default React.memo(AudioPlayButton);
-
-

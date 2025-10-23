@@ -16,10 +16,57 @@ function debug(message: string, ...args: any[]): void {
     }
 }
 
+// Pre-initialize pdf-parse module to work around test file bug
+// The library has a known issue where it tries to access a test file on first require()
+let pdfParseModule: any = null;
+let pdfParseInitialized = false;
+
+async function initializePdfParse(): Promise<void> {
+    if (pdfParseInitialized) {
+        return;
+    }
+
+    try {
+        console.log('[PDF] Initializing pdf-parse module...');
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        pdfParseModule = require('pdf-parse');
+        console.log('[PDF] Module loaded successfully');
+        pdfParseInitialized = true;
+    } catch (err: any) {
+        // Known bug: first require() may throw ENOENT for test file
+        const msg = String(err?.message || '');
+        const isKnownBug = /ENOENT/.test(msg) && /05-versions-space\.pdf/.test(msg);
+
+        if (isKnownBug) {
+            console.log('[PDF] Known test file error during initialization, retrying...');
+            // Wait a bit and try again
+            await new Promise(resolve => setTimeout(resolve, 100));
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                pdfParseModule = require('pdf-parse');
+                console.log('[PDF] Module loaded successfully on retry');
+                pdfParseInitialized = true;
+            } catch (retryErr) {
+                console.error('[PDF] Failed to initialize pdf-parse after retry:', retryErr);
+                // Mark as initialized anyway to prevent repeated attempts
+                pdfParseInitialized = true;
+            }
+        } else {
+            console.error('[PDF] Unexpected error initializing pdf-parse:', err);
+            pdfParseInitialized = true;
+        }
+    }
+}
+
 export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvider {
     public static readonly viewType = "newSourceUploaderProvider";
 
-    constructor(private readonly context: vscode.ExtensionContext) { }
+    constructor(private readonly context: vscode.ExtensionContext) {
+        // Initialize pdf-parse module early to trigger and handle the test file bug
+        initializePdfParse().catch(err => {
+            console.error('[PDF] Module initialization failed:', err);
+        });
+    }
 
     async openCustomDocument(
         uri: vscode.Uri,
@@ -136,6 +183,63 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 } else if (message.command === "downloadResource") {
                     // Handle generic plugin download requests
                     await this.handleDownloadResource(message, webviewPanel);
+                } else if (message.command === "extractPdfText") {
+                    const { requestId, dataBase64 } = message as { requestId: string; dataBase64: string; fileName?: string; };
+                    try {
+                        // Ensure pdf-parse is initialized
+                        await initializePdfParse();
+
+                        if (!pdfParseModule) {
+                            throw new Error('PDF parser module failed to initialize');
+                        }
+
+                        const base64 = (dataBase64 || '').includes(',') ? (dataBase64 || '').split(',').pop() || '' : (dataBase64 || '');
+                        const buffer = Buffer.from(base64, 'base64');
+                        if (!buffer.length) {
+                            throw new Error('Empty PDF payload from webview');
+                        }
+
+                        // Use the pre-initialized module
+                        const pdfParse = pdfParseModule as (data: Buffer | { data: Buffer; }) => Promise<{ text: string; }>;
+
+                        console.log(`[PDF] Parsing PDF with buffer size: ${buffer.length} bytes`);
+
+                        // Try both data formats
+                        let text = '';
+                        try {
+                            // Try wrapper format first
+                            const result = await pdfParse({ data: buffer });
+                            text = result?.text || '';
+                            console.log(`[PDF] ✓ Successfully extracted ${text.length} characters (wrapper format)`);
+                        } catch (e1: any) {
+                            console.log(`[PDF] Wrapper format failed, trying raw buffer format`);
+                            try {
+                                // Try raw buffer format
+                                const result = await pdfParse(buffer);
+                                text = result?.text || '';
+                                console.log(`[PDF] ✓ Successfully extracted ${text.length} characters (raw format)`);
+                            } catch (e2: any) {
+                                const msg = String(e2?.message || e1?.message || '');
+                                console.error('[PDF] All parsing attempts failed:', { e1: e1?.message, e2: e2?.message });
+                                throw new Error(`PDF parsing failed: ${msg}`);
+                            }
+                        }
+
+                        webviewPanel.webview.postMessage({
+                            command: 'extractPdfTextResult',
+                            requestId,
+                            success: true,
+                            text
+                        });
+                    } catch (err) {
+                        console.error('[NEW SOURCE UPLOADER] PDF extraction failed:', err);
+                        webviewPanel.webview.postMessage({
+                            command: 'extractPdfTextResult',
+                            requestId,
+                            success: false,
+                            error: err instanceof Error ? err.message : 'Unknown error'
+                        });
+                    }
                 } else if (message.command === "fetchTargetFile") {
                     // Fetch target file content for translation imports
                     const { sourceFilePath } = message;
@@ -205,12 +309,13 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             metadata: {
                 id: processedCell.id,
                 type: CodexCellTypes.TEXT,
-                data: processedCell.metadata?.data || processedCell.metadata || {},
                 edits: [],
-                // Spread any additional metadata from the processed cell
+                // Spread all metadata from the processed cell first, preserving our enhanced structure
                 ...(processedCell.metadata && typeof processedCell.metadata === 'object'
                     ? processedCell.metadata
-                    : {})
+                    : {}),
+                // Then override with standard data field if it exists
+                data: processedCell.metadata?.data || {}
             }
         }));
 
@@ -236,6 +341,13 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             }),
             ...(processedNotebook.metadata.mammothMessages && {
                 mammothMessages: processedNotebook.metadata.mammothMessages
+            }),
+            // Preserve DOCX round-trip structure
+            ...((processedNotebook.metadata as any)?.docxDocument && {
+                docxDocument: (processedNotebook.metadata as any).docxDocument
+            }),
+            ...((processedNotebook.metadata as any)?.originalHash && {
+                originalHash: (processedNotebook.metadata as any).originalHash
             }),
         } as any; // Cast to any to allow custom fields
 
@@ -442,6 +554,94 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             await vscode.window.withProgress(progressOptions, async (progress) => {
                 progress.report({ increment: 0, message: "Preparing media attachments..." });
 
+                // Helper to download a remote file into a Buffer (uses fetch when available, falls back to https)
+                const downloadRemoteToBuffer = async (url: string): Promise<{ buffer: Buffer; mime: string; fileNameHint?: string; }> => {
+                    try {
+                        const anyGlobal: any = globalThis as any;
+                        if (anyGlobal.fetch) {
+                            const res = await anyGlobal.fetch(url);
+                            if (!res.ok) {
+                                throw new Error(`HTTP ${res.status} ${res.statusText}`);
+                            }
+                            const arrayBuffer = await res.arrayBuffer();
+                            const mime = (res.headers?.get && res.headers.get('content-type')) || '';
+                            const cd = (res.headers?.get && res.headers.get('content-disposition')) || '';
+                            const cdMatch = cd.match(/filename\*?=(?:UTF-8''|")?([^";\r\n]+)/i);
+                            const fileNameHint = cdMatch ? decodeURIComponent(cdMatch[1].replace(/"/g, '')) : undefined;
+                            return { buffer: Buffer.from(arrayBuffer), mime, fileNameHint };
+                        }
+                    } catch (e) {
+                        // fall through to https fallback
+                    }
+
+                    const { request } = await import('node:https');
+                    const { parse } = await import('node:url');
+                    const urlObj = parse(url);
+                    const isHttps = true;
+                    const maxRedirects = 5;
+                    const fetchWithRedirects = (currentUrl: string, redirectsLeft: number): Promise<{ buffer: Buffer; mime: string; fileNameHint?: string; }> => {
+                        return new Promise((resolve, reject) => {
+                            const req = request(currentUrl, (res) => {
+                                if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                                    if (redirectsLeft <= 0) return reject(new Error('Too many redirects'));
+                                    const nextUrl = res.headers.location.startsWith('http') ? res.headers.location : new URL(res.headers.location, currentUrl).toString();
+                                    res.resume();
+                                    return resolve(fetchWithRedirects(nextUrl, redirectsLeft - 1));
+                                }
+                                if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+                                    return reject(new Error(`HTTP ${res.statusCode}`));
+                                }
+                                const chunks: Buffer[] = [];
+                                res.on('data', (d) => chunks.push(Buffer.isBuffer(d) ? d : Buffer.from(d)));
+                                res.on('end', () => {
+                                    const buffer = Buffer.concat(chunks);
+                                    const mime = (res.headers['content-type'] as string) || '';
+                                    const cd = (res.headers['content-disposition'] as string) || '';
+                                    const cdMatch = cd.match(/filename\*?=(?:UTF-8''|")?([^";\r\n]+)/i);
+                                    const fileNameHint = cdMatch ? decodeURIComponent(cdMatch[1].replace(/"/g, '')) : undefined;
+                                    resolve({ buffer, mime, fileNameHint });
+                                });
+                                res.on('error', reject);
+                            });
+                            req.on('error', reject);
+                            req.end();
+                        });
+                    };
+
+                    return await fetchWithRedirects(url, maxRedirects);
+                };
+
+                // Helper to normalize audio file extensions (remove x- prefix, handle aliases)
+                const normalizeExtension = (ext: string): string => {
+                    if (!ext) return 'webm';
+                    ext = ext.toLowerCase().trim();
+
+                    // Remove codec parameters (e.g., "webm;codecs=opus" -> "webm")
+                    ext = ext.split(';')[0];
+
+                    // Normalize non-standard MIME types (e.g., "x-m4a" -> "m4a")
+                    if (ext.startsWith('x-')) {
+                        ext = ext.substring(2);
+                    }
+
+                    // Handle MIME type aliases
+                    if (ext === 'mp4' || ext === 'mpeg') {
+                        return 'm4a';
+                    }
+
+                    // Validate against allowed extensions
+                    const allowedExtensions = new Set(['webm', 'wav', 'mp3', 'm4a', 'ogg', 'aac', 'flac']);
+                    return allowedExtensions.has(ext) ? ext : 'webm';
+                };
+
+                // Helper to normalize filename extension
+                const normalizeFileName = (fileName: string): string => {
+                    const match = fileName.match(/^(.+)\.([^.]+)$/);
+                    if (!match) return fileName;
+                    const [, baseName, ext] = match;
+                    return `${baseName}.${normalizeExtension(ext)}`;
+                };
+
                 // Process attachments in smaller batches to avoid blocking
                 const batchSize = 3;
                 for (let i = 0; i < message.attachments.length; i += batchSize) {
@@ -449,7 +649,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
                     // Process batch in parallel
                     await Promise.all(batch.map(async (attachment) => {
-                        const { cellId, attachmentId, fileName, dataBase64, sourceFileId, isFromVideo } = attachment as any;
+                        const { cellId, attachmentId, fileName, dataBase64, sourceFileId, isFromVideo, remoteUrl } = attachment as any;
                         const docSegment = (cellId || "").split(" ")[0] || "UNKNOWN";
                         const filesDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "attachments", "files", docSegment);
                         const pointersDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "attachments", "pointers", docSegment);
@@ -457,6 +657,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         await vscode.workspace.fs.createDirectory(pointersDir);
 
                         let audioBuffer: Buffer;
+                        let effectiveFileName = normalizeFileName(fileName as string);
 
                         // Handle segments with actual data
                         if (dataBase64) {
@@ -476,8 +677,25 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             audioBuffer = await processMediaAttachment(attachment, isFromVideo || false);
 
                             // Write the audio file
-                            const filesPath = vscode.Uri.joinPath(filesDir, fileName);
-                            const pointersPath = vscode.Uri.joinPath(pointersDir, fileName);
+                            const filesPath = vscode.Uri.joinPath(filesDir, effectiveFileName);
+                            const pointersPath = vscode.Uri.joinPath(pointersDir, effectiveFileName);
+                            await vscode.workspace.fs.writeFile(filesPath, audioBuffer);
+                            await vscode.workspace.fs.writeFile(pointersPath, audioBuffer);
+                        } else if (remoteUrl) {
+                            // Download remotely (bypasses webview CORS)
+                            const { buffer, mime, fileNameHint } = await downloadRemoteToBuffer(remoteUrl);
+                            audioBuffer = buffer;
+                            // If no extension on provided fileName, infer from mime or hint
+                            if (!/\.[a-z0-9]+$/i.test(effectiveFileName)) {
+                                const extFromMime = mime && mime.includes('/')
+                                    ? normalizeExtension(mime.split('/').pop() || 'mp3')
+                                    : 'mp3';
+                                effectiveFileName = fileNameHint
+                                    ? normalizeFileName(fileNameHint)
+                                    : `${attachmentId}.${extFromMime}`;
+                            }
+                            const filesPath = vscode.Uri.joinPath(filesDir, effectiveFileName);
+                            const pointersPath = vscode.Uri.joinPath(pointersDir, effectiveFileName);
                             await vscode.workspace.fs.writeFile(filesPath, audioBuffer);
                             await vscode.workspace.fs.writeFile(pointersPath, audioBuffer);
                         } else if (sourceFileId) {
@@ -494,8 +712,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                                 };
                                 // Extract the specific time range from the video
                                 const processedAudio = await processMediaAttachment(tempAttachment, true);
-                                const filesPath = vscode.Uri.joinPath(filesDir, fileName);
-                                const pointersPath = vscode.Uri.joinPath(pointersDir, fileName);
+                                const filesPath = vscode.Uri.joinPath(filesDir, effectiveFileName);
+                                const pointersPath = vscode.Uri.joinPath(pointersDir, effectiveFileName);
                                 await vscode.workspace.fs.writeFile(filesPath, processedAudio);
                                 await vscode.workspace.fs.writeFile(pointersPath, processedAudio);
                             } else {

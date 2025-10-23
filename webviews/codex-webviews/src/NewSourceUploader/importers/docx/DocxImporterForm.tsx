@@ -12,7 +12,7 @@ import {
 import { Progress } from "../../../components/ui/progress";
 import { Alert, AlertDescription } from "../../../components/ui/alert";
 import { Upload, FileText, CheckCircle, XCircle, ArrowLeft, Info } from "lucide-react";
-import { validateFile, parseFile } from "./index";
+import { validateFile, parseFile } from "./experiment/index";
 import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
 import { AlignmentPreview } from "../../components/AlignmentPreview";
 import { AlignedCell, CellAligner, sequentialCellAligner } from "../../types/plugin";
@@ -42,6 +42,16 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
     const [importedContent, setImportedContent] = useState<any[]>([]);
     const [targetCells, setTargetCells] = useState<any[]>([]);
 
+    // Debug console state (like Biblica importer)
+    const [debugLogs, setDebugLogs] = useState<string[]>([]);
+    const [showCompleteButton, setShowCompleteButton] = useState(false);
+
+    const addDebugLog = useCallback((message: string) => {
+        const timestamp = new Date().toLocaleTimeString();
+        const logMessage = `[${timestamp}] ${message}`;
+        setDebugLogs(prev => [...prev, logMessage]);
+    }, []);
+
     const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(e.target.files || []);
         if (files.length > 0) {
@@ -59,10 +69,15 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
         setIsProcessing(true);
         setError(null);
         setProgress([]);
+        setDebugLogs([]);
+        setShowCompleteButton(false);
 
         try {
+            addDebugLog('Starting DOCX import...');
+            
             // Progress callback
             const onProgress = (progress: ImportProgress) => {
+                addDebugLog(`[${progress.stage}] ${progress.message}`);
                 setProgress((prev) => [
                     ...prev.filter((p) => p.stage !== progress.stage),
                     progress,
@@ -74,6 +89,7 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
 
             for (let i = 0; i < selectedFiles.length; i++) {
                 const file = selectedFiles[i];
+                addDebugLog(`Processing file ${i + 1}/${selectedFiles.length}: ${file.name}`);
 
                 // Validate file
                 onProgress({
@@ -86,6 +102,7 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                 if (!validation.isValid) {
                     throw new Error(`${file.name}: ${validation.errors.join(", ")}`);
                 }
+                addDebugLog(`Validation passed for ${file.name}`);
 
                 // Parse file
                 const importResult = await parseFile(file, onProgress);
@@ -94,12 +111,16 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                     throw new Error(importResult.error || `Failed to parse ${file.name}`);
                 }
 
+                addDebugLog(`Successfully parsed ${file.name}`);
                 results.push(importResult.notebookPair);
             }
 
             const finalResult = results.length === 1 ? results[0] : results;
             setResult(finalResult);
             setIsDirty(false);
+            
+            addDebugLog(`Import complete! Processed ${results.length} file(s)`);
+            addDebugLog('Click "Complete Import" to finish.');
 
             if (isTranslationImport) {
                 // For translation imports, use first file only (multi-file translation imports need special UI)
@@ -133,24 +154,22 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                     );
                 }
             } else {
-                // For source imports, complete normally
-                setTimeout(() => {
-                    try {
-                        if (onComplete) {
-                            console.log("[DOCX IMPORTER] Calling onComplete with notebook pair");
-                            onComplete(finalResult);
-                        } else {
-                            throw new Error("onComplete callback not provided for source import");
-                        }
-                    } catch (err) {
-                        setError(err instanceof Error ? err.message : "Failed to complete import");
-                    }
-                }, 1500);
+                // For source imports, show Complete Import button
+                setShowCompleteButton(true);
+                addDebugLog('Review logs above, then click "Complete Import" to finish.');
             }
         } catch (err) {
+            addDebugLog(`ERROR: ${err instanceof Error ? err.message : 'Unknown error'}`);
             setError(err instanceof Error ? err.message : "Unknown error occurred");
         } finally {
             setIsProcessing(false);
+        }
+    };
+
+    const handleCompleteImport = () => {
+        if (result && onComplete) {
+            addDebugLog('Completing import...');
+            onComplete(result);
         }
     };
 
@@ -350,6 +369,42 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                     )}
                 </CardContent>
             </Card>
+
+            {/* Debug Console (like Biblica importer) */}
+            {debugLogs.length > 0 && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Import Console</CardTitle>
+                        <CardDescription>
+                            Review the import process details below
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="bg-black text-green-400 p-4 rounded-lg font-mono text-xs max-h-64 overflow-y-auto">
+                            {debugLogs.map((log, index) => (
+                                <div key={index} className="mb-1">
+                                    {log}
+                                </div>
+                            ))}
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Complete Import Button */}
+            {showCompleteButton && result && (
+                <div className="flex justify-center">
+                    <Button
+                        onClick={handleCompleteImport}
+                        variant="default"
+                        size="lg"
+                        className="flex items-center gap-2"
+                    >
+                        <FileText className="h-4 w-4" />
+                        Complete Import
+                    </Button>
+                </div>
+            )}
         </div>
     );
 };

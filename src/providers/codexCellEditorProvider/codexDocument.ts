@@ -311,7 +311,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             cellToUpdate.metadata.edits.push({
                 editMap: EditMapUtils.value(),
                 value: previousValue,
-                timestamp: currentTimestamp,
+                timestamp: currentTimestamp - 1000,
                 type: EditType.INITIAL_IMPORT,
                 author: this._author,
                 validatedBy: [],
@@ -344,8 +344,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
             author: this._author,
             validatedBy,
         });
-
-        console.log("trace 124 cellToUpdate.metadata.edits", cellToUpdate.metadata.edits);
 
         // Record the edit 
         // not being used ???
@@ -611,6 +609,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             editHistory: cell.metadata.edits || [],
             timestamps: cell.metadata.data,
             cellLabel: cell.metadata.cellLabel,
+            attachments: cell.metadata.attachments || {},
         };
     }
 
@@ -648,7 +647,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 cellToUpdate.metadata.edits.push({
                     editMap: EditMapUtils.dataStartTime(),
                     value: previousStartTime,
-                    timestamp: currentTimestamp,
+                    timestamp: currentTimestamp - 1000,
                     type: EditType.INITIAL_IMPORT,
                     author: this._author,
                     validatedBy: [],
@@ -682,7 +681,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 cellToUpdate.metadata.edits.push({
                     editMap: EditMapUtils.dataEndTime(),
                     value: previousEndTime,
-                    timestamp: currentTimestamp,
+                    timestamp: currentTimestamp - 1000,
                     type: EditType.INITIAL_IMPORT,
                     author: this._author,
                     validatedBy: [],
@@ -727,25 +726,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     public deleteCell(cellId: string) {
-        const indexOfCellToDelete = this._documentData.cells.findIndex(
-            (cell) => cell.metadata?.id === cellId
-        );
-
-        if (indexOfCellToDelete === -1) {
-            throw new Error("Could not find cell to delete");
-        }
-        this._documentData.cells.splice(indexOfCellToDelete, 1);
-
-        // Record the edit
-        this._edits.push({
-            type: "deleteCell",
-            cellId,
-        });
-
-        this._isDirty = true;
-        this._onDidChangeForVsCodeAndWebview.fire({
-            edits: [{ cellId }],
-        });
+        // Backward-compat: hard deletes are no longer allowed. Perform a soft delete instead.
+        this.softDeleteCell(cellId);
     }
 
     /**
@@ -778,6 +760,27 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set deleted flag
         (cellToSoftDelete.metadata.data).deleted = true;
+
+        // Ensure edits array exists and record a deletion edit for merge/audit trails
+        if (!cellToSoftDelete.metadata.edits) {
+            cellToSoftDelete.metadata.edits = [];
+        }
+        const currentTimestamp = Date.now();
+        cellToSoftDelete.metadata.edits.push({
+            editMap: EditMapUtils.dataDeleted(),
+            value: true,
+            timestamp: currentTimestamp,
+            type: EditType.USER_EDIT,
+            author: this._author,
+            validatedBy: [
+                {
+                    username: this._author,
+                    creationTimestamp: currentTimestamp,
+                    updatedTimestamp: currentTimestamp,
+                    isDeleted: false,
+                },
+            ],
+        });
 
         // Record the edit
         this._edits.push({
@@ -945,7 +948,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         if (!cellToUpdate.metadata.edits || cellToUpdate.metadata.edits.length === 0) {
             console.warn("No edits found for cell to validate");
-            // repair the edit history by adding an llm generation wit hauthor unknown, and then a user edit with validation
+            // repair the edit history by adding an llm generation with author unknown, and then a user edit with validation
             cellToUpdate.metadata.edits = [
                 {
                     editMap: EditMapUtils.value(),
@@ -998,7 +1001,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const latestEdit = cellToUpdate.metadata.edits[targetEditIndex];
 
-        // Initialize validatedBy array if it doesn't exist
+        // Initialize validation arrays if they don't exist
         if (!latestEdit.validatedBy) {
             latestEdit.validatedBy = [];
         }
@@ -1076,6 +1079,106 @@ export class CodexCellDocument implements vscode.CustomDocument {
             validationCount: latestEdit.validatedBy.filter(entry => this.isValidValidationEntry(entry) && !entry.isDeleted).length,
             cellHasContent: !!(cellToUpdate.value && cellToUpdate.value.trim()),
             editsCount: cellToUpdate.metadata.edits.length
+        });
+
+        // Database update will happen automatically when document is saved
+    }
+
+    // Method to validate a cell's audio by a user
+    public async validateCellAudio(cellId: string, validate: boolean = true) {
+        const indexOfCellToUpdate = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error("Could not find cell to validate audio");
+        }
+
+        const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
+
+        // Get the current audio attachment for this cell
+        const currentAttachment = this.getCurrentAttachment(cellId, "audio");
+        if (!currentAttachment) {
+            throw new Error("No audio attachment found for cell to validate");
+        }
+
+        const { attachmentId, attachment } = currentAttachment;
+
+        // Initialize validation array if it doesn't exist
+        if (!attachment.validatedBy) {
+            attachment.validatedBy = [];
+        }
+
+        // FIXME: we shouldn't be doing this constantly every time we validate a cell!
+        // we should just get the current user once at the top level of the codexCellEditorProvider
+        let username = "anonymous";
+        const currentTimestamp = Date.now();
+        try {
+            const authApi = await getAuthApi();
+            const userInfo = await authApi?.getUserInfo();
+            username = userInfo?.username || "anonymous";
+        } catch (e) {
+            console.error("Could not get user info in validateCellAudio", e);
+        }
+
+        // Find existing audio validation entry for this user
+        const existingEntryIndex = attachment.validatedBy.findIndex(
+            (entry: ValidationEntry) =>
+                this.isValidValidationEntry(entry) && entry.username === username
+        );
+
+        if (validate) {
+            if (existingEntryIndex === -1) {
+                // User is not in the array, add a new entry
+                const newValidationEntry: ValidationEntry = {
+                    username,
+                    creationTimestamp: currentTimestamp,
+                    updatedTimestamp: currentTimestamp,
+                    isDeleted: false,
+                };
+                attachment.validatedBy.push(newValidationEntry);
+            } else {
+                // User already has an entry, update it
+                attachment.validatedBy[existingEntryIndex].updatedTimestamp = currentTimestamp;
+                attachment.validatedBy[existingEntryIndex].isDeleted = false;
+            }
+        } else {
+            if (existingEntryIndex !== -1) {
+                // User is in the array, mark as deleted
+                attachment.validatedBy[existingEntryIndex].updatedTimestamp = currentTimestamp;
+                attachment.validatedBy[existingEntryIndex].isDeleted = true;
+            }
+            // If user is not in the array, do nothing when unvalidating
+        }
+
+        // Final check: ensure the validatedBy array only contains valid ValidationEntry objects
+        attachment.validatedBy = attachment.validatedBy.filter((entry: any) =>
+            this.isValidValidationEntry(entry)
+        );
+
+        // Update the attachment in the cell metadata
+        if (!cellToUpdate.metadata.attachments) {
+            cellToUpdate.metadata.attachments = {};
+        }
+        cellToUpdate.metadata.attachments[attachmentId] = attachment;
+
+        // Mark document as dirty
+        this._isDirty = true;
+
+        // Notify listeners that the document has changed
+        this._onDidChangeForVsCodeAndWebview.fire({
+            content: JSON.stringify({
+                cellId,
+                type: "audioValidation",
+                validatedBy: attachment.validatedBy,
+            }),
+            edits: [
+                {
+                    cellId,
+                    type: "audioValidation",
+                    validatedBy: attachment.validatedBy,
+                },
+            ],
         });
 
         // Database update will happen automatically when document is saved
@@ -1315,6 +1418,18 @@ export class CodexCellDocument implements vscode.CustomDocument {
         return latestEdit.validatedBy.filter((entry) => this.isValidValidationEntry(entry));
     }
 
+    public getCellAudioValidatedBy(cellId: string): ValidationEntry[] {
+        const currentAttachment = this.getCurrentAttachment(cellId, "audio");
+
+        if (!currentAttachment || !Array.isArray(currentAttachment.attachment?.validatedBy)) {
+            return [];
+        }
+
+        return currentAttachment.attachment.validatedBy.filter((entry: any) =>
+            this.isValidValidationEntry(entry)
+        );
+    }
+
     /**
      * Returns all cell IDs in the document
      * @returns An array of cell IDs
@@ -1509,11 +1624,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
             attachmentId,
         });
 
-        // Mark as dirty and notify listeners
+        // Mark as dirty and notify both VS Code and webview so the change is persisted
         this._isDirty = true;
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
+
+        // Audio attachment changes don't affect AI learning (only text content and validation data matter)
     }
 
     /**
@@ -1633,11 +1750,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
             attachmentId,
         });
 
-        // Mark as dirty and notify listeners
+        // Mark as dirty and notify VS Code (so the file is persisted) and the webview
         this._isDirty = true;
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
+
+        // Audio attachment changes don't affect AI learning (only text content and validation data matter)
     }
 
     /**
@@ -1681,11 +1800,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
             audioId,
         });
 
-        // Mark as dirty and notify listeners
+        // Mark as dirty and notify VS Code (so the file is persisted) and the webview
         this._isDirty = true;
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
+
+        // Audio attachment changes don't affect AI learning (only text content and validation data matter)
     }
 
     /**
@@ -1825,11 +1946,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
         return uriString.includes(".source") ? "source" : "target";
     }
 
+
     // Add method to sync all cells to database without modifying content
     private async syncAllCellsToDatabase(): Promise<void> {
         try {
-            console.log(`[CodexDocument] AI learning from your updates...`);
-
             if (!this._indexManager) {
                 this._indexManager = getSQLiteIndexManager();
                 if (!this._indexManager) {
@@ -1852,22 +1972,46 @@ export class CodexCellDocument implements vscode.CustomDocument {
             let syncedCells = 0;
             let syncedValidations = 0;
 
-            // Process each cell that has content
+            // Process each cell, including those with audio-only validations
             for (const cell of this._documentData.cells!) {
-                if (cell.value && cell.value.trim() !== '') {
-                    // Get cell ID outside try block so it's accessible in catch block
-                    const cellId = cell.metadata?.id;
+                const cellId = cell.metadata?.id;
 
-                    // Skip cells without valid metadata or IDs
-                    if (!cellId || !this._documentData.cells) {
-                        console.warn(`[CodexDocument] Skipping cell without valid ID or cells array`);
-                        continue;
-                    }
+                if (!cellId || !this._documentData.cells) {
+                    console.warn(`[CodexDocument] Skipping cell without valid ID or cells array`);
+                    continue;
+                }
 
-                    try {
-                        // Calculate logical line position
-                        let logicalLinePosition: number | null = null;
-                        const cellIndex = this._documentData.cells!.findIndex(c => c.metadata?.id === cellId);
+                const hasContent = !!(cell.value && cell.value.trim() !== '');
+
+                const activeAudioValidators = (cell.metadata?.attachments &&
+                    Object.values(cell.metadata.attachments).flatMap((attachment: any) => {
+                        if (
+                            !attachment ||
+                            attachment.type !== "audio" ||
+                            attachment.isDeleted ||
+                            !Array.isArray(attachment.validatedBy)
+                        ) {
+                            return [];
+                        }
+                        return attachment.validatedBy.filter((entry: any) =>
+                            entry &&
+                            !entry.isDeleted &&
+                            typeof entry.username === "string" &&
+                            entry.username.trim().length > 0
+                        );
+                    })) || [];
+
+                const hasAudioValidation = activeAudioValidators.length > 0;
+
+                if (!hasContent && !hasAudioValidation) {
+                    continue;
+                }
+
+                try {
+                    // Calculate logical line position only when we have textual content
+                    let logicalLinePosition: number | null = null;
+                    if (hasContent) {
+                        const cellIndex = this._documentData.cells!.findIndex((c) => c.metadata?.id === cellId);
 
                         if (cellIndex >= 0) {
                             const isCurrentCellParatext = cell.metadata?.type === "paratext";
@@ -1885,46 +2029,54 @@ export class CodexCellDocument implements vscode.CustomDocument {
                                 logicalLinePosition = logicalPosition;
                             }
                         }
-
-                        // Prepare metadata for database - this will handle validation extraction
-                        const cellMetadata = {
-                            edits: cell.metadata?.edits || [],
-                            type: "ai_learning",
-                            lastUpdated: Date.now()
-                        };
-
-
-
-                        // Check if this cell has validation data for logging
-                        const edits = cell.metadata?.edits;
-                        const lastEdit = edits && edits.length > 0 ? edits[edits.length - 1] : null;
-                        const hasValidationData = lastEdit?.validatedBy && lastEdit.validatedBy.length > 0;
-
-                        if (hasValidationData && lastEdit?.validatedBy) {
-                            const activeValidations = lastEdit.validatedBy.filter((v: any) => v && !v.isDeleted);
-                            console.log(`[CodexDocument] 🔄 AI learning validation data for cell ${cellId}: ${activeValidations.length} validators`);
-                            syncedValidations++;
-                        }
-
-                        // Sanitize content for search
-                        const sanitizedContent = this.sanitizeContent(cell.value);
-
-                        // Update database with current cell state (this will extract and update validation metadata)
-                        await this._indexManager.upsertCellWithFTSSync(
-                            cellId || '',
-                            fileId,
-                            this.getContentType(),
-                            sanitizedContent,
-                            logicalLinePosition ?? undefined,
-                            cellMetadata,
-                            cell.value // raw content with HTML
-                        );
-
-                        syncedCells++;
-
-                    } catch (error) {
-                        console.error(`[CodexDocument] Error during AI learning for cell ${cellId}:`, error);
                     }
+
+                    // Prepare metadata for database - this will handle validation extraction
+                    const cellMetadata = {
+                        edits: cell.metadata?.edits || [],
+                        attachments: cell.metadata?.attachments || {},
+                        selectedAudioId: cell.metadata?.selectedAudioId,
+                        selectionTimestamp: cell.metadata?.selectionTimestamp,
+                        type: "ai_learning",
+                        lastUpdated: Date.now(),
+                    };
+
+                    // Check if this cell has text validation data for logging
+                    const edits = cell.metadata?.edits;
+                    const lastEdit = edits && edits.length > 0 ? edits[edits.length - 1] : null;
+                    const hasTextValidation = lastEdit?.validatedBy && lastEdit.validatedBy.length > 0;
+
+                    if (hasTextValidation && lastEdit?.validatedBy) {
+                        syncedValidations++;
+                    }
+
+                    if (hasAudioValidation) {
+                        syncedValidations++;
+                    }
+
+                    // Sanitize content for search
+                    const sanitizedContent = hasContent ? this.sanitizeContent(cell.value) : "";
+
+                    const rawContentForSync = hasContent
+                        ? cell.value ?? ""
+                        : JSON.stringify({
+                            audioOnlyValidation: true,
+                            attachments: cell.metadata?.attachments ?? {},
+                        });
+
+                    await this._indexManager.upsertCellWithFTSSync(
+                        cellId,
+                        fileId,
+                        this.getContentType(),
+                        sanitizedContent,
+                        hasContent ? logicalLinePosition ?? undefined : undefined,
+                        cellMetadata,
+                        rawContentForSync
+                    );
+
+                    syncedCells++;
+                } catch (error) {
+                    console.error(`[CodexDocument] Error during AI learning for cell ${cellId}:`, error);
                 }
             }
 

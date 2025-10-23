@@ -847,7 +847,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             ref={containerRef}
         >
             {/* Canvas */}
-            <div className="relative mb-4 pl-12">
+            <div className="relative mb-4 pl-12 pb-5">
                 {/* No spinner overlay to avoid flicker; keep UI calm */}
                 {error && !isLoading && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--vscode-errorForeground)]/10 rounded z-10 p-4">
@@ -868,7 +868,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                             disabled={!!error || isLoading}
                             title={
                                 isLoading && hasLoadedRef.current
-                                    ? "Loading audio..."
+                                    ? "Downloading audio..."
                                     : isPlaying
                                         ? "Pause (Space)"
                                         : "Play (Space)"
@@ -880,7 +880,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                 )}
                 {/* Overlay time text at bottom-right of waveform */}
                 {!error && (
-                    <div className="absolute bottom-1 right-2 z-20 pointer-events-none text-xs sm:text-sm text-[var(--vscode-foreground)] font-mono whitespace-nowrap tabular-nums">
+                    <div className="absolute bottom-0 right-2 z-20 pointer-events-none text-xs sm:text-sm text-[var(--vscode-foreground)] font-mono whitespace-nowrap tabular-nums">
                         {formatTime(currentTime)} / {formatTime(duration)}
                     </div>
                 )}

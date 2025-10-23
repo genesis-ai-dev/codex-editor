@@ -36,7 +36,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                 boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
             }}
         >
-            <CardHeader className="pb-4 mb-3">
+            <CardHeader className="pb-4 mb-3 rounded-t-lg">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                     <CardTitle
                         className="text-base font-semibold flex items-center gap-2"

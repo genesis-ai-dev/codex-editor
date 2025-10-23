@@ -36,6 +36,20 @@ sup.footnote-marker {
     padding: 4px 6px;
 }
 
+/* When toolbar is visible, round its bottom corners and keep bottom border hidden */
+.toolbar-visible .ql-toolbar.ql-snow {
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    border-bottom: 0;
+}
+
+/* When toolbar is visible, square off container's top corners to meet toolbar cleanly */
+.toolbar-visible .ql-container.ql-snow {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+    border-top: 0;
+}
+
 /* Editor area rounding (bottom corners) */
 .quill-editor-container .ql-container.ql-snow,
 .quill-editor .ql-container.ql-snow {
@@ -51,6 +65,10 @@ sup.footnote-marker {
 .quill-editor .ql-toolbar.ql-snow,
 .quill-editor .ql-container.ql-snow {
     border-color: var(--vscode-widget-border);
+}
+
+.ql-container.ql-snow {
+    border: 1px solid var(--vscode-widget-border);
 }
 
 /* Toolbar content layout */
@@ -163,4 +181,8 @@ sup.footnote-marker {
     color: var(--vscode-input-foreground);
     border: 1px solid var(--vscode-input-border);
     border-radius: 4px;
+}
+
+.ql-toolbar.ql-snow + .ql-container.ql-snow {
+    border-top: 1px solid var(--vscode-widget-border);
 }

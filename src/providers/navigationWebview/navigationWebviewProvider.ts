@@ -176,6 +176,21 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                                     { viewColumn: vscode.ViewColumn.One }
                                 );
 
+                                // Wait for source webview to be ready before opening target
+                                try {
+                                    const { CodexCellEditorProvider } = await import("../codexCellEditorProvider/codexCellEditorProvider");
+                                    const provider = CodexCellEditorProvider.getInstance();
+                                    if (provider) {
+                                        await provider.waitForWebviewReady(sourceUri.toString(), 3000);
+                                    } else {
+                                        // Fallback: small delay if provider not yet initialized
+                                        await new Promise(resolve => setTimeout(resolve, 100));
+                                    }
+                                } catch (e) {
+                                    // Fallback: small delay on error
+                                    await new Promise(resolve => setTimeout(resolve, 100));
+                                }
+
                                 // Open the codex file in the right-most group (ViewColumn.Two)
                                 await vscode.commands.executeCommand(
                                     "vscode.openWith",
@@ -327,6 +342,15 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 } catch (error) {
                     console.error("Error opening source upload:", error);
                     vscode.window.showErrorMessage(`Failed to open source upload: ${error}`);
+                }
+                break;
+            }
+            case "openExportView": {
+                try {
+                    await vscode.commands.executeCommand("codex-project-manager.openExportView");
+                } catch (error) {
+                    console.error("Error opening export view:", error);
+                    vscode.window.showErrorMessage(`Failed to open export view: ${error}`);
                 }
                 break;
             }

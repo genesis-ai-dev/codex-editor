@@ -18,6 +18,7 @@ import { registerSyncCommands } from "../../projectManager/syncManager";
 import { MainMenuProvider } from "../../providers/mainMenu/mainMenuProvider";
 import { getSQLiteIndexManager } from "./contentIndexes/indexes/sqliteIndexManager";
 import { testProjectLoadingPerformance } from "../../test-project-loading";
+import { migrateXM4aFiles, showMigrationResults } from "../../utils/audioMigration";
 
 export async function registerCommands(context: vscode.ExtensionContext) {
     // Register the centralized sync commands
@@ -332,6 +333,31 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
+    // Audio migration command to rename .x-m4a files to .m4a
+    const migrateAudioFilesCommand = vscode.commands.registerCommand(
+        "codex-editor.migrateAudioFiles",
+        async () => {
+            try {
+                const choice = await vscode.window.showWarningMessage(
+                    'This will rename all .x-m4a audio files to .m4a format. This operation cannot be undone. Continue?',
+                    { modal: true },
+                    'Yes, Migrate',
+                    'Cancel'
+                );
+
+                if (choice !== 'Yes, Migrate') {
+                    return;
+                }
+
+                const result = await migrateXM4aFiles();
+                showMigrationResults(result);
+            } catch (error) {
+                console.error("Error migrating audio files:", error);
+                vscode.window.showErrorMessage(`Failed to migrate audio files: ${error}`);
+            }
+        }
+    );
+
     context.subscriptions.push(
         notebookSerializer,
         codexKernel,
@@ -354,6 +380,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
 
         deduplicateSourceCellsCommand,
         testProjectLoadingPerformanceCommand,
+        migrateAudioFilesCommand,
 
     );
 }

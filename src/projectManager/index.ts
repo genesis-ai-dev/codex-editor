@@ -193,6 +193,79 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         })
     );
 
+    const setValidationCountAudioCommand = vscode.commands.registerCommand(
+        "codex-project-manager.setValidationCountAudio",
+        executeWithRedirecting(async () => {
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            const currentCount = config.get("validationCountAudio", 1);
+
+            // Create array of numbers from 1 to 15
+            const validationCounts = Array.from({ length: 15 }, (_, i) => i + 1);
+
+            const countItems = validationCounts.map((count) => ({
+                label: count.toString(),
+                description: count === 1 ? "validation" : "validations",
+                picked: count === currentCount,
+            }));
+
+            const selectedCount = await vscode.window.showQuickPick(countItems, {
+                placeHolder: "Select number of audio validations required",
+            });
+
+            if (selectedCount !== undefined) {
+                const count = parseInt(selectedCount.label);
+
+                // Temporarily disable syncing from metadata to prevent race condition
+                disableSyncTemporarily();
+
+                // Update configuration
+                await config.update("validationCountAudio", count, vscode.ConfigurationTarget.Workspace);
+
+                // Directly update the metadata file to ensure it happens
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
+                if (workspaceFolder) {
+                    const projectFilePath = vscode.Uri.joinPath(
+                        vscode.Uri.file(workspaceFolder),
+                        "metadata.json"
+                    );
+                    try {
+                        // Read existing metadata
+                        const projectFileData = await vscode.workspace.fs.readFile(projectFilePath);
+                        const project = JSON.parse(projectFileData.toString());
+
+                        // Update validation count audio
+                        project.meta = project.meta || {};
+                        project.meta.validationCountAudio = count;
+
+                        // Write back to metadata file
+                        const updatedProjectFileData = Buffer.from(
+                            JSON.stringify(project, null, 4),
+                            "utf8"
+                        );
+                        await vscode.workspace.fs.writeFile(
+                            projectFilePath,
+                            updatedProjectFileData
+                        );
+
+                        console.log("Metadata file directly updated with validation count audio:", count);
+
+                        // Configuration change listener will automatically handle validation count updates
+                    } catch (error) {
+                        console.error("Error updating metadata file directly:", error);
+
+                        // Fall back to using the command
+                        vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
+                    }
+                } else {
+                    // Fall back to using the command if no workspace folder
+                    vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
+                }
+
+                vscode.window.showInformationMessage(`Required audio validations set to ${count}.`);
+            }
+        })
+    );
+
     const setEditorFontToTargetLanguageCommand = vscode.commands.registerCommand(
         "codex-project-manager.setEditorFontToTargetLanguage",
         await setTargetFont
@@ -585,11 +658,25 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         }
     });
 
+    // Register event listener for Frontier Authentication extension changes
+    const onDidChangeExtensionsListener = vscode.extensions.onDidChange(() => {
+        // Check if Frontier Authentication extension changed and update git config files
+        const frontierExt = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
+        if (frontierExt && vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+            ensureGitConfigsAreUpToDate().then(() => {
+                console.log("[ProjectManager] Git configuration files updated after Frontier extension change");
+            }).catch(error => {
+                console.error("[ProjectManager] Error updating git config files after Frontier change:", error);
+            });
+        }
+    });
+
     // Register commands and event listeners
     context.subscriptions.push(
         openAutoSaveSettingsCommand,
         editAbbreviationCommand,
         setValidationCountCommand,
+        setValidationCountAudioCommand,
         setEditorFontToTargetLanguageCommand,
         changeTargetLanguageCommand,
         changeSourceLanguageCommand,
@@ -611,6 +698,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         updateGitignoreCommand,
         changeUserEmailCommand,
         onDidChangeConfigurationListener,
+        onDidChangeExtensionsListener,
         toggleSpellcheckCommand
     );
 

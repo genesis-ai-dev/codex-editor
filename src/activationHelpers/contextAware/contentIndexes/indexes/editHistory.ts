@@ -2,11 +2,13 @@ import * as vscode from "vscode";
 import { FileData } from "./fileReaders";
 import { getTargetFilesContent } from "./fileReaders";
 import { EditType } from "../../../../../types/enums";
+import { EditMapUtils } from "../../../../utils/editMapUtils";
 interface Edit {
-    cellValue: string;
+    value: string;
     timestamp: number;
     type: EditType;
     author?: string;
+    editMap?: readonly string[];
 }
 
 interface EditPair {
@@ -20,7 +22,7 @@ interface TimeSnapshot {
     period: string;
     averageDistance: number;
     numberOfEdits: number;
-    timeRange: { start: number; end: number };
+    timeRange: { start: number; end: number; };
 }
 
 /**
@@ -39,7 +41,7 @@ function stripHtmlTags(str: string): string {
         .replace(/&quot;/g, '"')
         .replace(/&#39;/g, "'")
         .replace(/&nbsp;/g, ' ');
-    
+
     // Then remove all HTML tags using a comprehensive regex
     // This regex matches any HTML tag (opening or closing) including attributes
     return decodedStr.replace(/<[^>]*>/g, '').trim();
@@ -86,25 +88,35 @@ function calculateMeteorScore(llmText: string, userText: string): number {
     // Strip HTML tags before calculating METEOR score
     const cleanLlmText = stripHtmlTags(llmText);
     const cleanUserText = stripHtmlTags(userText);
-    
+
+    // Handle empty strings
+    if (!cleanLlmText.trim() || !cleanUserText.trim()) {
+        return 0;
+    }
+
     // Simple METEOR implementation focusing on exact matches and word order
-    const llmWords = cleanLlmText.toLowerCase().split(/\s+/);
-    const userWords = cleanUserText.toLowerCase().split(/\s+/);
-    
-    // Calculate exact matches
+    const llmWords = cleanLlmText.toLowerCase().split(/\s+/).filter(word => word.length > 0);
+    const userWords = cleanUserText.toLowerCase().split(/\s+/).filter(word => word.length > 0);
+
+    // Handle case where filtering results in empty arrays
+    if (llmWords.length === 0 || userWords.length === 0) {
+        return 0;
+    }
+
+    // Calculate exact matches (position-based as in original METEOR)
     const matches = llmWords.filter((word, i) => word === userWords[i]);
-    
+
     // Calculate precision and recall
     const precision = matches.length / llmWords.length;
     const recall = matches.length / userWords.length;
-    
+
     // Calculate F-mean with recall weighted 9 times more than precision
-    const fMean = precision && recall ? 
+    const fMean = precision && recall ?
         (10 * precision * recall) / (recall + 9 * precision) : 0;
-    
+
     // Penalty for differences in word order (simplified)
     const orderPenalty = 1 - (Math.abs(llmWords.length - userWords.length) / Math.max(llmWords.length, userWords.length));
-    
+
     // Final METEOR score
     return fMean * orderPenalty;
 }
@@ -146,7 +158,7 @@ function calculateMeteorScore(llmText: string, userText: string): number {
  * }>} Analysis results showing edit distances and their progression over the sequence
  */
 export async function analyzeEditHistory(): Promise<{
-    editDistances: Array<{ sequenceNumber: number; distance: number }>;
+    editDistances: Array<{ sequenceNumber: number; distance: number; }>;
     averageEditDistance: number;
     timeSnapshots: TimeSnapshot[];
     rawDistances: Array<{
@@ -178,8 +190,13 @@ export async function analyzeEditHistory(): Promise<{
             let currentLLMTimestamp: number | null = null;
 
             for (const edit of cell.metadata.edits as Edit[]) {
+                // Only process edits that affect the cell value (editMap: ["value"])
+                if (edit.editMap && !EditMapUtils.isValue(edit.editMap)) {
+                    continue;
+                }
+
                 if (edit.type === "llm-generation") {
-                    currentLLM = edit.cellValue;
+                    currentLLM = edit.value;
                     currentLLMTimestamp = edit.timestamp;
                     continue;
                 }
@@ -213,7 +230,7 @@ export async function analyzeEditHistory(): Promise<{
 
         // Strip HTML tags from both LLM generation and user edit
         const strippedLlmGeneration = stripHtmlTags(current.llmGeneration);
-        const strippedUserEdit = stripHtmlTags(current.edit.cellValue);
+        const strippedUserEdit = stripHtmlTags(current.edit.value);
 
         // If the stripped texts are identical, skip this edit pair
         if (strippedLlmGeneration === strippedUserEdit) continue;
@@ -225,7 +242,7 @@ export async function analyzeEditHistory(): Promise<{
                 const lastEdit = currentEdits[currentEdits.length - 1];
                 const strippedLastLlm = stripHtmlTags(lastEdit.llmText);
                 const strippedLastUser = stripHtmlTags(lastEdit.userEdit);
-                
+
                 if (strippedLastLlm !== strippedLastUser) {
                     editPairs.push({
                         llmGeneration: lastEdit.llmText,
@@ -242,7 +259,7 @@ export async function analyzeEditHistory(): Promise<{
         // Update current cell tracking
         currentCellId = current.cellId;
         currentEdits.push({
-            userEdit: current.edit.cellValue,
+            userEdit: current.edit.value,
             llmText: current.llmGeneration,
             llmTimestamp: current.llmTimestamp,
         });
@@ -252,7 +269,7 @@ export async function analyzeEditHistory(): Promise<{
             const lastEdit = currentEdits[currentEdits.length - 1];
             const strippedLastLlm = stripHtmlTags(lastEdit.llmText);
             const strippedLastUser = stripHtmlTags(lastEdit.userEdit);
-            
+
             if (strippedLastLlm !== strippedLastUser) {
                 editPairs.push({
                     llmGeneration: lastEdit.llmText,
@@ -329,10 +346,10 @@ export async function analyzeEditHistory(): Promise<{
     });
 
     // Calculate METEOR score
-    const meteorScores = editPairs.map(pair => 
+    const meteorScores = editPairs.map(pair =>
         calculateMeteorScore(pair.llmGeneration, pair.userEdit)
     );
-    const meteorScore = meteorScores.length > 0 ? 
+    const meteorScore = meteorScores.length > 0 ?
         meteorScores.reduce((sum, score) => sum + score, 0) / meteorScores.length : 0;
 
     return {

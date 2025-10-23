@@ -1,14 +1,13 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
-import { Badge } from "../components/ui/badge";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
-import { Separator } from "../components/ui/separator";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { SyncSettings } from "../components/SyncSettings";
-import { TextDisplaySettingsModal, type TextDisplaySettings } from "../components/TextDisplaySettingsModal";
-import { cn } from "../lib/utils";
+import {
+    TextDisplaySettingsModal,
+    type TextDisplaySettings,
+} from "../components/TextDisplaySettingsModal";
 import "../tailwind.css";
 
 const SHOULD_SHOW_RELEASE_NOTES_LINK = true;
@@ -17,20 +16,6 @@ const RELEASE_NOTES_URL = "https://docs.codexeditor.app/docs/releases/latest/";
 // Declare the acquireVsCodeApi function and acquire the VS Code API
 declare function acquireVsCodeApi(): any;
 const vscode = acquireVsCodeApi();
-
-interface MenuButton {
-    id: string;
-    label: string;
-    icon: string;
-    viewId?: string;
-    command?: string;
-    description?: string;
-}
-
-interface MenuSection {
-    title: string;
-    buttons: MenuButton[];
-}
 
 interface ProjectManagerState {
     projectOverview: any | null;
@@ -459,12 +444,12 @@ function MainMenu() {
                                     backgroundColor: "var(--card)",
                                 }}
                             >
-                                <CardHeader className="pb-4">
-                                    <CardTitle 
+                                <CardHeader className="pb-4 rounded-t-lg">
+                                    <CardTitle
                                         className="text-lg font-semibold flex items-center gap-2"
                                         style={{ color: "var(--foreground)" }}
                                     >
-                                        <i 
+                                        <i
                                             className="codicon codicon-folder-opened text-xl"
                                             style={{ color: "var(--ring)" }}
                                         />
@@ -494,8 +479,9 @@ function MainMenu() {
                                                                 .sourceLanguage
                                                         )
                                                     }
+                                                    className="w-9"
                                                 >
-                                                    <i className="codicon codicon-edit h-3 w-3" />
+                                                    <i className="codicon codicon-edit" />
                                                 </Button>
                                             </div>
                                         </div>
@@ -520,8 +506,9 @@ function MainMenu() {
                                                                 .targetLanguage
                                                         )
                                                     }
+                                                    className="w-9"
                                                 >
-                                                    <i className="codicon codicon-edit h-3 w-3" />
+                                                    <i className="codicon codicon-edit" />
                                                 </Button>
                                             </div>
                                         </div>
@@ -532,6 +519,7 @@ function MainMenu() {
                                             </label>
                                             <div className="flex items-center justify-between">
                                                 <span className="text-sm">
+                                                    Text:{" "}
                                                     {String(
                                                         projectState.projectOverview
                                                             .validationCount || 1
@@ -543,8 +531,30 @@ function MainMenu() {
                                                     onClick={() =>
                                                         handleProjectAction("setValidationCount")
                                                     }
+                                                    className="w-9"
                                                 >
-                                                    <i className="codicon codicon-edit h-3 w-3" />
+                                                    <i className="codicon codicon-edit" />
+                                                </Button>
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-sm">
+                                                    Audio:{" "}
+                                                    {String(
+                                                        projectState.projectOverview
+                                                            .validationCountAudio || 1
+                                                    )}
+                                                </span>
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() =>
+                                                        handleProjectAction(
+                                                            "setValidationCountAudio"
+                                                        )
+                                                    }
+                                                    className="w-9"
+                                                >
+                                                    <i className="codicon codicon-edit" />
                                                 </Button>
                                             </div>
                                         </div>
@@ -565,14 +575,15 @@ function MainMenu() {
                                                     onClick={() =>
                                                         handleProjectAction("openSourceUpload")
                                                     }
+                                                    className="w-9"
                                                 >
-                                                    <i className="codicon codicon-add h-3 w-3" />
+                                                    <i className="codicon codicon-add" />
                                                 </Button>
                                             </div>
                                         </div>
                                     </div>
 
-                                    <Separator />
+                                    {/* <Separator /> // TODO: Put this back in when we reinsert spell check*/}
 
                                     <div
                                         className="flex items-center justify-between p-3 rounded-lg border"
@@ -661,7 +672,7 @@ function MainMenu() {
                                         backgroundColor: "var(--card)",
                                     }}
                                 >
-                                    <CardHeader className="pb-4">
+                                    <CardHeader className="pb-4 rounded-t-lg">
                                         <CardTitle
                                             className="flex items-center gap-3 text-lg font-bold"
                                             style={{ color: "var(--foreground)" }}
@@ -730,7 +741,7 @@ function MainMenu() {
                                     backgroundColor: "var(--card)",
                                 }}
                             >
-                                <CardHeader className="pb-4">
+                                <CardHeader className="pb-4 rounded-t-lg">
                                     <CardTitle
                                         className="text-lg font-semibold flex items-center gap-2"
                                         style={{ color: "var(--foreground)" }}
@@ -1003,11 +1014,10 @@ function MainMenu() {
 
             {/* Speech to Text settings moved to Copilot Settings */}
 
-            <div className="mt-auto pt-6 text-center border-t border-border">
-                <Badge variant="secondary" className="text-xs opacity-70">
-                    Codex Translation Editor - Patch Version:{" "}
-                    {projectState.appVersion ? `v${projectState.appVersion}` : "unknown"}
-                </Badge>
+            <div className="flex flex-col items-center pt-6 text-center text-xs opacity-70">
+                Codex Translation Editor
+                <br />
+                Patch Version: {projectState.appVersion ? `${projectState.appVersion}` : "unknown"}
             </div>
 
             {/* Text Display Settings Modal */}

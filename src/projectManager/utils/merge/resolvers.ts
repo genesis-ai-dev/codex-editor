@@ -60,6 +60,63 @@ function isValidValidationEntry(value: any): value is ValidationEntry {
 }
 
 /**
+ * Merges two validatedBy arrays into a single list, deduplicated by username and
+ * selecting the most recent entry per user. If one side has a string username,
+ * it is converted to a ValidationEntry with current timestamps.
+ */
+function mergeValidatedByLists(
+    existing?: any[] | undefined,
+    incoming?: any[] | undefined
+): ValidationEntry[] | undefined {
+    const toEntry = (v: any): ValidationEntry | undefined => {
+        if (isValidValidationEntry(v)) return v;
+        if (typeof v === "string") {
+            const now = Date.now();
+            return {
+                username: v,
+                creationTimestamp: now,
+                updatedTimestamp: now,
+                isDeleted: false,
+            };
+        }
+        return undefined;
+    };
+
+    const existingEntries = (existing || [])
+        .map(toEntry)
+        .filter((e): e is ValidationEntry => !!e);
+    const incomingEntries = (incoming || [])
+        .map(toEntry)
+        .filter((e): e is ValidationEntry => !!e);
+
+    if (existingEntries.length === 0 && incomingEntries.length === 0) {
+        return undefined;
+    }
+
+    const byUser = new Map<string, ValidationEntry>();
+    const consider = (e: ValidationEntry) => {
+        const prev = byUser.get(e.username);
+        if (!prev) {
+            byUser.set(e.username, e);
+            return;
+        }
+        // Prefer the entry with the latest updatedTimestamp; preserve original creationTimestamp
+        if (e.updatedTimestamp > prev.updatedTimestamp) {
+            byUser.set(e.username, {
+                ...e,
+                creationTimestamp: prev.creationTimestamp,
+            });
+        }
+    };
+
+    existingEntries.forEach(consider);
+    incomingEntries.forEach(consider);
+
+    // Return stable order by username to minimize diffs
+    return Array.from(byUser.values()).sort((a, b) => a.username.localeCompare(b.username));
+}
+
+/**
  * Type guard to check if a conflict object is valid
  */
 function isValidConflict(conflict: any): conflict is ConflictFile {
@@ -264,6 +321,14 @@ export async function resolveConflictFile(
                 break;
             }
 
+            // JSON_MERGE_3WAY = "json-merge-3way", // 3-way merge for JSON settings
+            case ConflictResolutionStrategy.JSON_MERGE_3WAY: {
+                debugLog("Resolving JSON 3-way merge for:", conflict.filepath);
+                resolvedContent = await resolveSettingsJsonConflict(conflict);
+                debugLog("Successfully merged settings.json with 3-way merge");
+                break;
+            }
+
             default:
                 resolvedContent = conflict.ours; // Default to our version
         }
@@ -341,7 +406,19 @@ function resolveMetadataConflictsUsingEditHistory(
         if (edits.length === 0) continue;
 
         // Find the most recent edit for this path, ignoring preview-only edits
-        const sorted = edits.sort((a, b) => b.timestamp - a.timestamp);
+        // Tie-breaker: when timestamps are equal, prefer USER_EDIT over INITIAL_IMPORT
+        const sorted = edits.sort((a, b) => {
+            const timeDiff = b.timestamp - a.timestamp;
+            if (timeDiff !== 0) return timeDiff;
+            // Same timestamp: prefer USER_EDIT over INITIAL_IMPORT
+            const aIsUser = a.type === EditType.USER_EDIT;
+            const bIsUser = b.type === EditType.USER_EDIT;
+            const aIsInitial = a.type === EditType.INITIAL_IMPORT;
+            const bIsInitial = b.type === EditType.INITIAL_IMPORT;
+            if (aIsUser !== bIsUser) return bIsUser ? 1 : -1; // b is USER_EDIT comes first
+            if (aIsInitial !== bIsInitial) return aIsInitial ? 1 : -1; // push INITIAL_IMPORT later
+            return 0;
+        });
         let mostRecentEdit = sorted.find((e) => !e.preview);
         const allWerePreviews = !mostRecentEdit;
         if (!mostRecentEdit) {
@@ -592,6 +669,9 @@ export async function resolveCodexCustomMerge(
         `Processing ${ourCells.length} cells from our version and ${theirCells.length} cells from their version`
     );
 
+    // Determine merge author (env override for tests, else best-effort lookup)
+    const mergeAuthor = process.env.CODEX_MERGE_USER || await getCurrentUserName();
+
     // Map to track cells by ID for quick lookup
     const theirCellsMap = new Map<string, CustomNotebookCellData>(); // FIXME: this causes unknown cells to show up at the end of the notebook because we are making a mpa not array
     theirCells.forEach((cell) => {
@@ -614,6 +694,9 @@ export async function resolveCodexCustomMerge(
         const theirCell = theirCellsMap.get(cellId);
         if (theirCell) {
             debugLog(`Found matching cell ${cellId} - merging content`);
+
+            // Note: even if both sides soft-delete a cell, we keep it in the merged output
+            // so that deletion history and audit information are preserved.
 
             // Use the new metadata conflict resolution function
             const mergedCell = resolveMetadataConflictsUsingEditHistory(ourCell, theirCell);
@@ -654,6 +737,8 @@ export async function resolveCodexCustomMerge(
                 };
             }
             mergedCell.metadata.edits = uniqueEdits;
+
+            // Do not stamp MERGE edits here; resolver should only merge histories
 
             // Merge attachments intelligently
             const mergedAttachments = mergeAttachments(
@@ -1051,7 +1136,7 @@ export async function resolveCommentThreadsConflict(
  * @param theirAttachments Their version of attachments  
  * @returns Merged attachments object
  */
-function mergeAttachments(
+export function mergeAttachments(
     ourAttachments?: { [key: string]: any; },
     theirAttachments?: { [key: string]: any; }
 ): { [key: string]: any; } | undefined {
@@ -1086,17 +1171,26 @@ function mergeAttachments(
                 // Conflict: same attachment ID exists in both versions
                 const ourAttachment = merged[id];
 
-                // Use the version with the later updatedAt timestamp
-                if (theirAttachment.updatedAt > ourAttachment.updatedAt) {
-                    const normalized = { ...theirAttachment };
-                    if (typeof normalized.url === "string") {
-                        normalized.url = normalizeAttachmentUrl(normalized.url);
-                    }
-                    merged[id] = normalized;
-                    debugLog(`Using their version of attachment ${id} (newer timestamp)`);
-                } else {
-                    debugLog(`Keeping our version of attachment ${id} (newer timestamp)`);
+                // Decide base attachment by updatedAt, but merge validatedBy arrays from both sides
+                const baseIsTheirs = (theirAttachment?.updatedAt || 0) > (ourAttachment?.updatedAt || 0);
+                const base = baseIsTheirs ? { ...theirAttachment } : { ...ourAttachment };
+                if (typeof base.url === "string") {
+                    base.url = normalizeAttachmentUrl(base.url);
                 }
+
+                // Merge validatedBy arrays for audio attachments
+                const mergedValidatedBy = mergeValidatedByLists(
+                    Array.isArray(ourAttachment?.validatedBy) ? ourAttachment.validatedBy : undefined,
+                    Array.isArray(theirAttachment?.validatedBy) ? theirAttachment.validatedBy : undefined
+                );
+                if (mergedValidatedBy) {
+                    base.validatedBy = mergedValidatedBy;
+                } else {
+                    delete base.validatedBy; // normalize empty
+                }
+
+                merged[id] = base;
+                debugLog(`Merged attachment ${id} (preserved validatedBy from both sides)`);
             }
         });
     }
@@ -1249,6 +1343,254 @@ async function resolveSmartEditsConflict(
         console.error("Error resolving smart_edits.json conflict:", error);
         return "{}"; // Return empty object if parsing fails
     }
+}
+
+/**
+ * Resolves conflicts in .vscode/settings.json using intelligent 3-way merge
+ * with chatSystemMessage as a tie-breaker signal
+ */
+async function resolveSettingsJsonConflict(conflict: ConflictFile): Promise<string> {
+    // Parse JSON with error handling
+    let base: Record<string, any>, ours: Record<string, any>, theirs: Record<string, any>;
+    try {
+        base = JSON.parse(conflict.base || '{}');
+        ours = JSON.parse(conflict.ours || '{}');
+        theirs = JSON.parse(conflict.theirs || '{}');
+    } catch (error) {
+        console.error('[Settings Merge] Invalid JSON detected in conflict:', error);
+        console.error('  Base:', conflict.base?.substring(0, 100));
+        console.error('  Ours:', conflict.ours?.substring(0, 100));
+        console.error('  Theirs:', conflict.theirs?.substring(0, 100));
+
+        // Try to recover by using ours if it's valid
+        try {
+            ours = JSON.parse(conflict.ours || '{}');
+            ours["git.enabled"] = false;
+            vscode.window.showErrorMessage(
+                'Settings merge failed due to invalid JSON. Using local version.',
+                'Show Settings'
+            ).then(choice => {
+                if (choice === 'Show Settings') {
+                    vscode.commands.executeCommand('workbench.action.openWorkspaceSettingsFile');
+                }
+            });
+            return JSON.stringify(ours, null, 4);
+        } catch {
+            // Last resort: return minimal valid JSON
+            console.error('[Settings Merge] All JSON versions invalid, returning minimal settings');
+            return JSON.stringify({ "git.enabled": false }, null, 4);
+        }
+    }
+
+    // STAGE 1: FILE-LEVEL CHECK
+    // If only one side changed the file, use that side entirely (fast path)
+    const weChangedFile = JSON.stringify(base) !== JSON.stringify(ours);
+    const theyChangedFile = JSON.stringify(base) !== JSON.stringify(theirs);
+
+    // Helper function to clean up settings before returning
+    const cleanupSettings = (settings: Record<string, any>) => {
+        settings["git.enabled"] = false;
+
+        // Remove legacy key if new key exists
+        const newKey = "codex-editor-extension.chatSystemMessage";
+        const legacyKey = "translators-copilot.chatSystemMessage";
+        if (settings[newKey] !== undefined && settings[legacyKey] !== undefined) {
+            debugLog('[Settings Merge] Removing deprecated translators-copilot.chatSystemMessage');
+            delete settings[legacyKey];
+        }
+
+        return settings;
+    };
+
+    if (!weChangedFile && !theyChangedFile) {
+        // Neither changed - use base (shouldn't happen in conflicts)
+        debugLog('[Settings Merge] No changes detected, using base');
+        return JSON.stringify(cleanupSettings(base), null, 4);
+    }
+
+    if (weChangedFile && !theyChangedFile) {
+        // Only we changed the file
+        debugLog('[Settings Merge] Only local changes, using ours entirely');
+        return JSON.stringify(cleanupSettings(ours), null, 4);
+    }
+
+    if (!weChangedFile && theyChangedFile) {
+        // Only they changed the file
+        debugLog('[Settings Merge] Only remote changes, using theirs entirely');
+        return JSON.stringify(cleanupSettings(theirs), null, 4);
+    }
+
+    // STAGE 2: BOTH CHANGED FILE - Complex per-key merge
+    debugLog('[Settings Merge] Both sides changed file, performing key-level merge');
+
+    // Check chatSystemMessage as tie-breaker signal (use new key, fallback to legacy)
+    const newChatSystemMessageKey = "codex-editor-extension.chatSystemMessage";
+    const legacyChatSystemMessageKey = "translators-copilot.chatSystemMessage";
+
+    // Determine which key to use (prefer new, fallback to legacy)
+    const chatSystemMessageKey = (base[newChatSystemMessageKey] !== undefined ||
+        ours[newChatSystemMessageKey] !== undefined ||
+        theirs[newChatSystemMessageKey] !== undefined)
+        ? newChatSystemMessageKey
+        : legacyChatSystemMessageKey;
+
+    const baseChatMsg = base[chatSystemMessageKey];
+    const ourChatMsg = ours[chatSystemMessageKey];
+    const theirChatMsg = theirs[chatSystemMessageKey];
+
+    // Compare each to BASE (common ancestor)
+    const ourChatMsgChanged = JSON.stringify(ourChatMsg) !== JSON.stringify(baseChatMsg);
+    const theirChatMsgChanged = JSON.stringify(theirChatMsg) !== JSON.stringify(baseChatMsg);
+
+    // Determine conflict resolution bias based on who changed chatSystemMessage from base
+    let conflictBias: 'ours' | 'theirs';
+    if (ourChatMsgChanged && !theirChatMsgChanged) {
+        // Only we changed chatSystemMessage from base
+        conflictBias = 'ours';
+        debugLog('[Settings Merge] Using LOCAL bias (we changed chatSystemMessage from base)');
+    } else if (!ourChatMsgChanged && theirChatMsgChanged) {
+        // Only they changed chatSystemMessage from base
+        conflictBias = 'theirs';
+        debugLog('[Settings Merge] Using REMOTE bias (they changed chatSystemMessage from base)');
+    } else if (ourChatMsgChanged && theirChatMsgChanged) {
+        // Both changed chatSystemMessage from base - we're syncing last, we win
+        conflictBias = 'ours';
+        debugLog('[Settings Merge] Using LOCAL bias (both changed chatSystemMessage, last write wins)');
+    } else {
+        // Neither changed chatSystemMessage from base - default to remote
+        conflictBias = 'theirs';
+        debugLog('[Settings Merge] Using REMOTE bias (neither changed chatSystemMessage from base)');
+    }
+
+    // Merge all keys using 3-way merge logic + bias
+    const result: Record<string, any> = {};
+    const conflicts: Array<{ key: string, resolution: string; }> = [];
+
+    const allKeys = new Set([
+        ...Object.keys(base),
+        ...Object.keys(ours),
+        ...Object.keys(theirs)
+    ]);
+
+    for (const key of allKeys) {
+        // Special case: git.enabled always false
+        if (key === "git.enabled") {
+            result[key] = false;
+            continue;
+        }
+
+        const baseValue = base[key];
+        const ourValue = ours[key];
+        const theirValue = theirs[key];
+
+        // Determine if each side changed from base
+        const ourChanged = JSON.stringify(ourValue) !== JSON.stringify(baseValue);
+        const theirChanged = JSON.stringify(theirValue) !== JSON.stringify(baseValue);
+
+        // Apply 3-way merge decision logic
+        if (ourValue === undefined && theirValue === undefined) {
+            // Key only in base (both deleted) - skip
+            continue;
+        }
+        else if (ourValue !== undefined && theirValue === undefined && baseValue === undefined) {
+            // We added it
+            result[key] = ourValue;
+        }
+        else if (theirValue !== undefined && ourValue === undefined && baseValue === undefined) {
+            // They added it
+            result[key] = theirValue;
+        }
+        else if (baseValue !== undefined && ourValue === undefined && theirValue !== undefined) {
+            // We deleted, they kept/changed - respect our deletion
+            continue;
+        }
+        else if (baseValue !== undefined && theirValue === undefined && ourValue !== undefined) {
+            // They deleted, we kept/changed - respect their deletion
+            continue;
+        }
+        else if (!ourChanged && !theirChanged) {
+            // Neither changed from base
+            result[key] = ourValue !== undefined ? ourValue : theirValue;
+        }
+        else if (ourChanged && !theirChanged) {
+            // Only we changed from base
+            result[key] = ourValue;
+        }
+        else if (!ourChanged && theirChanged) {
+            // Only they changed from base
+            result[key] = theirValue;
+        }
+        else {
+            // BOTH CHANGED from base - Apply chatSystemMessage bias
+            let chosenValue: any;
+            let resolution: string;
+
+            if (conflictBias === 'ours') {
+                chosenValue = ourValue;
+                resolution = 'local (based on chatSystemMessage analysis)';
+            } else {
+                chosenValue = theirValue;
+                resolution = 'remote (based on chatSystemMessage analysis)';
+            }
+
+            result[key] = chosenValue;
+            conflicts.push({ key, resolution });
+
+            // Special warning for chatSystemMessage itself
+            if (key === chatSystemMessageKey) {
+                console.warn(
+                    `[Settings Merge] CRITICAL: chatSystemMessage conflict resolved - using ${resolution}`
+                );
+            }
+        }
+    }
+
+    // Report conflicts to user
+    if (conflicts.length > 0) {
+        const criticalConflict = conflicts.some(c => c.key === chatSystemMessageKey);
+
+        console.warn(
+            `[Settings Merge] Resolved ${conflicts.length} conflict(s):`,
+            conflicts
+        );
+
+        if (criticalConflict) {
+            // High-priority warning for chatSystemMessage
+            const conflictKey = conflicts.find(c => c.key === chatSystemMessageKey)?.key || chatSystemMessageKey;
+            vscode.window.showWarningMessage(
+                `⚠️ IMPORTANT: Translation prompt (${conflictKey}) was changed by both you and remote. ` +
+                `Using ${conflicts.find(c => c.key === chatSystemMessageKey)?.resolution} version. ` +
+                `Please verify your prompt is correct.`,
+                'Show Settings',
+                'Dismiss'
+            ).then(choice => {
+                if (choice === 'Show Settings') {
+                    vscode.commands.executeCommand('workbench.action.openWorkspaceSettingsFile');
+                }
+            });
+        } else {
+            // Standard conflict notification
+            const conflictKeys = conflicts.map(c => c.key).join(', ');
+            vscode.window.showInformationMessage(
+                `Settings merge: ${conflicts.length} conflict(s) resolved (${conflictKeys}). ` +
+                `Check settings if needed.`,
+                'Show Settings'
+            ).then(choice => {
+                if (choice === 'Show Settings') {
+                    vscode.commands.executeCommand('workbench.action.openWorkspaceSettingsFile');
+                }
+            });
+        }
+    }
+
+    // CLEANUP: Always ensure git.enabled is false and remove legacy key if new key exists
+    result["git.enabled"] = false;
+    if (result[newChatSystemMessageKey] !== undefined && result[legacyChatSystemMessageKey] !== undefined) {
+        debugLog('[Settings Merge] Removing deprecated translators-copilot.chatSystemMessage from merged result');
+        delete result[legacyChatSystemMessageKey];
+    }
+
+    return JSON.stringify(result, null, 4);
 }
 
 /**

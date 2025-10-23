@@ -285,6 +285,55 @@ suite("CodexCellEditorProvider Test Suite", () => {
         assert.strictEqual(afterCell.value, newValue, "Cell value should be updated to new value");
     });
 
+    test("saving cell with pre-existing content creates INITIAL_IMPORT and retains USER_EDIT as value", async () => {
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        // Select a target cell that has content but no prior edits
+        const cellId = "sample 1:cue-89.256-91.633";
+        const beforeDoc = JSON.parse(document.getText());
+        const targetCellBefore = beforeDoc.cells.find((c: any) => c.metadata.id === cellId);
+        assert.ok(targetCellBefore, "Target cell should exist");
+        assert.ok(
+            !targetCellBefore.metadata.edits || targetCellBefore.metadata.edits.length === 0,
+            "Cell should have no prior edits"
+        );
+
+        const previousValue = targetCellBefore.value;
+        const newValue = previousValue + " <b>user updated</b>";
+
+        // Perform a USER_EDIT which should also add an INITIAL_IMPORT first
+        await (document as any).updateCellContent(cellId, newValue, EditType.USER_EDIT);
+
+        // Save the document to persist changes
+        await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+
+        // Read file content from disk to verify persisted state
+        const fileBytes = await vscode.workspace.fs.readFile(tempUri);
+        const persisted = JSON.parse(new TextDecoder().decode(fileBytes));
+        const cellAfter = persisted.cells.find((c: any) => c.metadata.id === cellId);
+        assert.ok(cellAfter, "Cell should still exist after save");
+
+        // Assert value reflects the USER_EDIT (not the INITIAL_IMPORT)
+        assert.strictEqual(cellAfter.value, newValue, "Cell value should be updated to the user edit value");
+
+        // Assert edits include INITIAL_IMPORT followed by USER_EDIT, with timestamp ordering
+        const edits = cellAfter.metadata.edits || [];
+        assert.ok(edits.length >= 2, "Should have at least INITIAL_IMPORT and USER_EDIT edits");
+        const initialImport = edits.find((e: any) => e.type === EditType.INITIAL_IMPORT);
+        const userEdit = edits.reverse().find((e: any) => e.type === EditType.USER_EDIT); // last occurrence
+        assert.ok(initialImport, "INITIAL_IMPORT should be present");
+        assert.ok(userEdit, "USER_EDIT should be present");
+        assert.strictEqual(initialImport.value, previousValue, "INITIAL_IMPORT should capture original value");
+        assert.ok(
+            initialImport.timestamp < userEdit.timestamp,
+            "INITIAL_IMPORT timestamp should be earlier than USER_EDIT timestamp"
+        );
+    });
+
     test("updateCellTimestamps updates the cell timestamps", async () => {
         const document = await provider.openCustomDocument(
             tempUri,
@@ -311,7 +360,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         );
     });
 
-    test("deleteCell deletes the cell", async () => {
+    test("deleteCell performs a soft delete (cell retained with deleted flag)", async () => {
         const document = await provider.openCustomDocument(
             tempUri,
             { backupId: undefined },
@@ -320,18 +369,10 @@ suite("CodexCellEditorProvider Test Suite", () => {
         const cellId = codexSubtitleContent.cells[0].metadata.id;
         document.deleteCell(cellId);
         const updatedContent = await document.getText();
-        const cells = JSON.parse(updatedContent).cells;
-        // cells should not contain the deleted cell
-        assert.strictEqual(
-            cells.length,
-            codexSubtitleContent.cells.length - 1,
-            "Cells should be one less"
-        );
-        assert.strictEqual(
-            cells.find((c: any) => c.metadata.id === cellId),
-            undefined,
-            "Deleted cell should not be in the cells"
-        );
+        const parsed = JSON.parse(updatedContent);
+        const cell = parsed.cells.find((c: any) => c.metadata.id === cellId);
+        assert.ok(cell, "Cell should still exist after deleteCell (soft delete)");
+        assert.strictEqual(!!cell.metadata?.data?.deleted, true, "Deleted flag should be set to true");
     });
 
     test("addCell adds a new cell", async () => {
@@ -741,17 +782,16 @@ suite("CodexCellEditorProvider Test Suite", () => {
         vscode.commands.executeCommand = originalExecuteCommand2;
     });
 
-    test("validation enablement uses text OR audio (disabled only if neither)", () => {
-        // Text only
+    test("validation button requires text even if audio exists", () => {
+        // Text present ⇒ validation enabled
         assert.strictEqual(shouldDisableValidation("<p>hello</p>", "none"), false);
         assert.strictEqual(shouldDisableValidation("Some text", undefined), false);
 
-        // Audio only (string state path)
-        assert.strictEqual(shouldDisableValidation("", "available"), false);
-        // Audio only (boolean path)
-        assert.strictEqual(shouldDisableValidation(undefined as any, true), false);
+        // Audio only ⇒ still disabled
+        assert.strictEqual(shouldDisableValidation("", "available"), true);
+        assert.strictEqual(shouldDisableValidation(undefined as any, true), true);
 
-        // Neither text nor audio
+        // Neither text nor audio ⇒ disabled
         assert.strictEqual(shouldDisableValidation("", "none"), true);
         assert.strictEqual(shouldDisableValidation("   &nbsp;   ", undefined), true);
 

@@ -25,11 +25,11 @@ import TimelineEditor from "./TimelineEditor";
 import VideoTimelineEditor from "./VideoTimelineEditor";
 
 import { getCellValueData } from "@sharedUtils";
-import { isValidValidationEntry } from "./ValidationButton";
+import { isValidValidationEntry } from "./validationUtils";
 import "./TranslationAnimations.css";
 import { CellTranslationState } from "./CellTranslationStyles";
 import { getVSCodeAPI } from "../shared/vscodeApi";
-import { Subsection } from "../lib/types";
+import { Subsection, ProgressPercentages } from "../lib/types";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { WhisperTranscriptionClient, type AsrMeta } from "./WhisperTranscriptionClient";
@@ -187,7 +187,13 @@ const CodexCellEditor: React.FC = () => {
     // Add a state for tracking validation application in progress
     const [isApplyingValidations, setIsApplyingValidations] = useState(false);
     // Validation configuration (required validations) – requested once and derived for children
-    const [requiredValidations, setRequiredValidations] = useState<number | null>(null);
+    const [requiredValidations, setRequiredValidations] = useState<number | null>(
+        (window as any)?.initialData?.validationCount ?? null
+    );
+
+    const [requiredAudioValidations, setRequiredAudioValidations] = useState<number | null>(
+        (window as any)?.initialData?.validationCountAudio ?? null
+    );
 
     // Track cells currently transcribing audio (to show the same loading effect as translations)
     const [transcribingCells, setTranscribingCells] = useState<Set<string>>(new Set());
@@ -216,7 +222,13 @@ const CodexCellEditor: React.FC = () => {
 
     // Add audio attachments state
     const [audioAttachments, setAudioAttachments] = useState<{
-        [cellId: string]: "available" | "deletedOnly" | "none";
+        [cellId: string]:
+            | "available"
+            | "available-local"
+            | "available-pointer"
+            | "deletedOnly"
+            | "none"
+            | "missing";
     }>({});
 
     // Add cells per page configuration
@@ -259,7 +271,8 @@ const CodexCellEditor: React.FC = () => {
                         model: string;
                         language: string;
                         phonetic: boolean;
-                    }>((resolve) => {
+                        authToken?: string;
+                    }>((resolve, reject) => {
                         let resolved = false;
                         const onMsg = (ev: MessageEvent) => {
                             if (ev.data?.type === "asrConfig") {
@@ -273,16 +286,14 @@ const CodexCellEditor: React.FC = () => {
                         setTimeout(() => {
                             if (!resolved) {
                                 window.removeEventListener("message", onMsg);
-                                resolve({
-                                    endpoint:
-                                        "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe",
-                                    provider: "mms",
-                                    model: "facebook/mms-1b-all",
-                                    language: "eng",
-                                    phonetic: false,
-                                });
+                                // Reject instead of using hardcoded fallback - let backend provide endpoint
+                                reject(
+                                    new Error(
+                                        "Timeout waiting for ASR config from backend. Please check your ASR settings."
+                                    )
+                                );
                             }
-                        }, 2000);
+                        }, 5000);
                     });
 
                     const toIso3 = (code?: string) => {
@@ -376,7 +387,10 @@ const CodexCellEditor: React.FC = () => {
                         }
 
                         // Transcribe
-                        const client = new WhisperTranscriptionClient(wsEndpoint);
+                        const client = new WhisperTranscriptionClient(
+                            wsEndpoint,
+                            asrConfig.authToken
+                        );
                         try {
                             // Mark cell as transcribing for UI feedback
                             setTranscribingCells((prev) => {
@@ -643,6 +657,9 @@ const CodexCellEditor: React.FC = () => {
             const message = event.data;
             if (message?.type === "validationCount") {
                 setRequiredValidations(message.content);
+            }
+            if (message?.type === "validationCountAudio") {
+                setRequiredAudioValidations(message.content);
             }
             if (message?.type === "configurationChanged") {
                 // Configuration changes now send validationCount directly, no need to re-request
@@ -1188,7 +1205,7 @@ const CodexCellEditor: React.FC = () => {
 
     // Calculate progress for each chapter based on translation and validation status
     const calculateChapterProgress = useCallback(
-        (chapterNum: number) => {
+        (chapterNum: number): ProgressPercentages => {
             // Filter cells for the specific chapter (excluding paratext and merged cells)
             const cellsForChapter = translationUnits.filter((cell) => {
                 const cellId = cell?.cellMarkers?.[0];
@@ -1202,7 +1219,13 @@ const CodexCellEditor: React.FC = () => {
 
             const totalCells = cellsForChapter.length;
             if (totalCells === 0) {
-                return { percentTranslationsCompleted: 0, percentFullyValidatedTranslations: 0 };
+                return {
+                    percentTranslationsCompleted: 0,
+                    percentAudioTranslationsCompleted: 0,
+                    percentFullyValidatedTranslations: 0,
+                    percentAudioValidatedTranslations: 0,
+                    percentTextValidatedTranslations: 0,
+                };
             }
 
             // Count cells with content (translated)
@@ -1213,39 +1236,83 @@ const CodexCellEditor: React.FC = () => {
                     cell.cellContent !== "<span></span>"
             ).length;
 
+            const cellsWithAudioValues = cellsForChapter.filter((cell) => {
+                const atts = (cell as any).attachments as Record<string, any> | undefined;
+                if (!atts || Object.keys(atts).length === 0) return false;
+
+                const selectedId = (cell as any).metadata?.selectedAudioId;
+                if (selectedId && atts[selectedId]) {
+                    const att = atts[selectedId];
+                    return (
+                        att &&
+                        att.type === "audio" &&
+                        att.isDeleted === false &&
+                        att.isMissing !== true
+                    );
+                }
+
+                // Fallback: any non-deleted, non-missing audio attachment
+                return Object.values(atts).some(
+                    (att: any) =>
+                        att &&
+                        att.type === "audio" &&
+                        att.isDeleted === false &&
+                        att.isMissing !== true
+                );
+            }).length;
+
             // Calculate validation data using the same logic as navigation provider
             const cellWithValidatedData = cellsForChapter.map((cell) => {
-                return getCellValueData({
-                    cellContent: cell.cellContent,
-                    cellMarkers: cell.cellMarkers,
-                    cellType: cell.cellType,
-                    cellLabel: cell.cellLabel,
-                    editHistory: cell.editHistory,
-                });
+                return getCellValueData(cell);
             });
 
-            // Get minimum validations required from config (default 1)
-            const minimumValidationsRequired = 1; // Can be made configurable later
-            const fullyValidatedCells = cellWithValidatedData.filter(
-                (cell) =>
+            const minimumValidationsRequired = requiredValidations ?? 1;
+            const minimumAudioValidationsRequired = requiredAudioValidations ?? 1;
+
+            const fullyValidatedCells = cellWithValidatedData.filter((cell) => {
+                const validatedBy =
+                    cell.validatedBy?.filter((v) => !v.isDeleted).length >=
+                    minimumValidationsRequired;
+                const audioValidatedBy =
+                    cell.audioValidatedBy?.filter((v) => !v.isDeleted).length >=
+                    minimumAudioValidationsRequired;
+                return validatedBy && audioValidatedBy;
+            }).length;
+
+            const validatedCells = cellWithValidatedData.filter((cell) => {
+                return (
                     cell.validatedBy?.filter((v) => !v.isDeleted).length >=
                     minimumValidationsRequired
-            ).length;
+                );
+            }).length;
+
+            const audioValidatedCells = cellWithValidatedData.filter((cell) => {
+                return (
+                    cell.audioValidatedBy?.filter((v) => !v.isDeleted).length >=
+                    minimumAudioValidationsRequired
+                );
+            }).length;
 
             const percentTranslationsCompleted = (cellsWithValues / totalCells) * 100;
+            const percentAudioTranslationsCompleted = (cellsWithAudioValues / totalCells) * 100;
+            const percentAudioValidatedTranslations = (audioValidatedCells / totalCells) * 100;
+            const percentTextValidatedTranslations = (validatedCells / totalCells) * 100;
             const percentFullyValidatedTranslations = (fullyValidatedCells / totalCells) * 100;
 
-            return { percentTranslationsCompleted, percentFullyValidatedTranslations };
+            return {
+                percentTranslationsCompleted,
+                percentAudioTranslationsCompleted,
+                percentFullyValidatedTranslations,
+                percentAudioValidatedTranslations,
+                percentTextValidatedTranslations,
+            };
         },
-        [translationUnits]
+        [translationUnits, requiredValidations, requiredAudioValidations]
     );
 
     // Calculate progress for all chapters
     const allChapterProgress = useMemo(() => {
-        const progress: Record<
-            number,
-            { percentTranslationsCompleted: number; percentFullyValidatedTranslations: number }
-        > = {};
+        const progress: Record<number, ProgressPercentages> = {};
         for (let i = 1; i <= totalChapters; i++) {
             progress[i] = calculateChapterProgress(i);
         }
@@ -1310,7 +1377,11 @@ const CodexCellEditor: React.FC = () => {
     };
 
     const handleSaveHtml = () => {
-        const content = contentBeingUpdated;
+        // Avoid sending a stale/mismatched uri from contentBeingUpdated.
+        // Not doing this causes a warning in the console when saving timestamps
+        // or cell labels.
+        const { uri, ...rest } = contentBeingUpdated;
+        const content = rest as EditorCellContent;
         const cellId = content.cellMarkers?.[0];
         const isRetry = saveError;
         const currentRetryCount = isRetry ? saveRetryCount : 0;
@@ -1407,6 +1478,9 @@ const CodexCellEditor: React.FC = () => {
                 }
                 if (event.data.validationCount !== undefined) {
                     setRequiredValidations(event.data.validationCount);
+                }
+                if (event.data.validationCountAudio !== undefined) {
+                    setRequiredAudioValidations(event.data.validationCountAudio);
                 }
             }
         },
@@ -2333,6 +2407,7 @@ const CodexCellEditor: React.FC = () => {
                             lineNumbersEnabled={metadata?.lineNumbersEnabled ?? true}
                             currentUsername={username}
                             requiredValidations={requiredValidations ?? undefined}
+                            requiredAudioValidations={requiredAudioValidations ?? undefined}
                             transcribingCells={transcribingCells}
                         />
                     </div>

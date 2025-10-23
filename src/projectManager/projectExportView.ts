@@ -103,6 +103,14 @@ function getWebviewContent(
 ) {
     const hasLanguages = sourceLanguage?.refName && targetLanguage?.refName;
 
+    // Middle-truncate longer file names
+    const middleTruncateLongerFileNames = (fileName: string) => {
+        if (fileName.length > 20) {
+            fileName = fileName.slice(0, 10) + "..." + fileName.slice(-10);
+        }
+        return fileName;
+    };
+
     return `<!DOCTYPE html>
     <html>
         <head>
@@ -279,7 +287,7 @@ function getWebviewContent(
             ? `
                     <h3>Select Export Format</h3>
                     <div style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem;">
-                        <!-- Standard Export Formats -->
+                        <!-- Standard Export Formats - Row 1: Plaintext | USFM -->
                         <div style="display: flex; gap: 1rem;">
                             <div class="format-option" data-format="plaintext" style="flex: 1;">
                                 <i class="codicon codicon-file-text"></i>
@@ -295,6 +303,10 @@ function getWebviewContent(
                                     <p>Export in Universal Standard Format Markers</p>
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- Standard Export Formats - Row 2: HTML | XLIFF -->
+                        <div style="display: flex; gap: 1rem;">
                             <div class="format-option" data-format="html" style="flex: 1;">
                                 <i class="codicon codicon-browser"></i>
                                 <div>
@@ -302,16 +314,44 @@ function getWebviewContent(
                                     <p>Export as web pages with chapter navigation</p>
                                 </div>
                             </div>
-                        </div>
-
-                        <!-- Translation Export Options -->
-                        <div style="display: flex; gap: 1rem; margin-top: 1rem;">
                             <div class="format-option" data-format="xliff" style="flex: 1;">
                                 <i class="codicon codicon-symbol-interface"></i>
                                 <div>
                                     <strong>XLIFF</strong>
                                     <p>Export in XML Localization Interchange File Format (XLIFF) for translation workflows</p>
                                     <span class="format-tag">Translation Ready</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Rebuild Export - Full Width -->
+                        <div style="display: flex; gap: 1rem;">
+                            <div class="format-option" data-format="rebuild-export" style="flex: 1;">
+                                <i class="codicon codicon-refresh"></i>
+                                <div>
+                                    <strong>Rebuild Export</strong>
+                                    <p>Intelligently detects file type and exports back to original format (DOCX, IDML, Biblica, PDF)</p>
+                                    <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem; flex-wrap: wrap;">
+                                        <span class="format-tag" style="background-color: var(--vscode-charts-green);">DOCX</span>
+                                        <span class="format-tag" style="background-color: var(--vscode-charts-green);">IDML</span>
+                                        <span class="format-tag" style="background-color: var(--vscode-charts-green);">Biblica</span>
+                                        <span class="format-tag" style="background-color: var(--vscode-charts-green);">PDF</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Audio Export - Full Width -->
+                        <div style="display: flex; gap: 1rem;">
+                            <div class="format-option" data-format="audio" style="flex: 1;">
+                                <i class="codicon codicon-mic"></i>
+                                <div>
+                                    <strong>Audio</strong>
+                                    <p>Export per-cell audio attachments to a folder</p>
+                                    <div style="margin-top: 6px; display: flex; align-items: center; gap: 6px;">
+                                        <input type="checkbox" id="audioIncludeTimestamps" />
+                                        <label for="audioIncludeTimestamps">Embed timestamps in audio metadata (WAV, WebM, M4A)</label>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -387,14 +427,19 @@ function getWebviewContent(
                 .map(
                     (file, index) => `
                                 <div class="file-item">
-                                    <input type="checkbox" 
-                                           id="file-${index}" 
-                                           value="${file.path}"
-                                           ${file.selected ? "checked" : ""}
-                                           onchange="updateFileSelection()">
-                                    <label for="file-${index}">
+                                    <input 
+                                        type="checkbox" 
+                                        id="file-${index}" 
+                                        value="${file.path}"
+                                        ${file.selected ? "checked" : ""}
+                                        onchange="updateFileSelection()"
+                                    >
+                                    <label 
+                                        for="file-${index}"
+                                        title="${file.name}"
+                                    >
                                         <i class="codicon codicon-file"></i>
-                                        ${file.name}
+                                        ${middleTruncateLongerFileNames(file.name)}
                                     </label>
                                 </div>
                             `
@@ -548,6 +593,10 @@ function getWebviewContent(
                     // Add USFM-specific options
                     if (selectedFormat === 'usfm') {
                         options.skipValidation = document.getElementById('skipValidation').checked;
+                    }
+                    // Add Audio-specific options
+                    if (selectedFormat === 'audio') {
+                        options.includeTimestamps = document.getElementById('audioIncludeTimestamps').checked;
                     }
                     
                     vscode.postMessage({

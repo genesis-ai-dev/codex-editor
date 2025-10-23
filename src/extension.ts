@@ -37,6 +37,7 @@ import {
     showWelcomeViewIfNeeded,
 } from "./providers/WelcomeView/register";
 import { SyncManager } from "./projectManager/syncManager";
+import { MetadataManager } from "./utils/metadataManager";
 import {
     registerSplashScreenProvider,
     showSplashScreen,
@@ -53,6 +54,9 @@ import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 import { migrateAudioAttachments } from "./utils/audioAttachmentsMigrationUtils";
 import { registerTestingCommands } from "./evaluation/testingCommands";
 import { initializeABTesting } from "./utils/abTestingSetup";
+import { migration_addValidationsForUserEdits, migration_moveTimestampsToMetadataData, migration_promoteCellTypeToTopLevel } from "./projectManager/utils/migrationUtils";
+import * as fs from "fs";
+import * as os from "os";
 
 const DEBUG_MODE = false;
 function debug(...args: any[]): void {
@@ -195,28 +199,76 @@ async function saveTabLayout(context: vscode.ExtensionContext) {
 // Helper to restore tab layout from globalState
 async function restoreTabLayout(context: vscode.ExtensionContext) {
     const layout = context.globalState.get<any[]>(TAB_LAYOUT_KEY) || [];
+    // Collect tabs: open non-codex editors first, then codex editors sequentially
+    const nonCodexOps: Array<() => Promise<void>> = [];
+    const codexTabs: Array<{ uri: string; groupIndex: number; viewType: string; }> = [];
+
     for (const group of layout) {
         for (const tab of group.tabs) {
-            if (tab.uri) {
-                try {
-                    if (tab.viewType && tab.viewType !== "default") {
-                        await vscode.commands.executeCommand(
-                            "vscode.openWith",
-                            vscode.Uri.parse(tab.uri),
-                            tab.viewType,
-                            { viewColumn: tab.groupIndex + 1 }
-                        );
-                    } else {
-                        const doc = await vscode.workspace.openTextDocument(
-                            vscode.Uri.parse(tab.uri)
-                        );
-                        await vscode.window.showTextDocument(doc, tab.groupIndex + 1);
+            if (!tab.uri) continue;
+            const uriStr = tab.uri as string;
+            const viewType = tab.viewType as string | undefined;
+            const groupIndex = tab.groupIndex as number;
+
+            if (viewType === "codex.cellEditor") {
+                codexTabs.push({ uri: uriStr, groupIndex, viewType });
+            } else {
+                nonCodexOps.push(async () => {
+                    try {
+                        if (viewType && viewType !== "default") {
+                            await vscode.commands.executeCommand(
+                                "vscode.openWith",
+                                vscode.Uri.parse(uriStr),
+                                viewType,
+                                { viewColumn: groupIndex + 1 }
+                            );
+                        } else {
+                            const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(uriStr));
+                            await vscode.window.showTextDocument(doc, groupIndex + 1);
+                        }
+                    } catch {
+                        // Ignore missing files
                     }
-                } catch (e) {
-                    // File may not exist, ignore
-                }
+                });
             }
         }
+    }
+
+    // Open all non-codex editors in parallel
+    for (const op of nonCodexOps) {
+        await op();
+    }
+
+    // Sort codex tabs so .source files open before .codex for the same basename
+    codexTabs.sort((a, b) => {
+        const aPath = a.uri.toLowerCase();
+        const bPath = b.uri.toLowerCase();
+        const aIsSource = aPath.endsWith(".source");
+        const bIsSource = bPath.endsWith(".source");
+        if (aIsSource !== bIsSource) return aIsSource ? -1 : 1;
+        return aPath.localeCompare(bPath);
+    });
+
+    // Sequentially open Codex editors and wait for readiness
+    const provider = CodexCellEditorProvider.getInstance();
+    for (const tab of codexTabs) {
+        try {
+            await vscode.commands.executeCommand(
+                "vscode.openWith",
+                vscode.Uri.parse(tab.uri),
+                tab.viewType,
+                { viewColumn: tab.groupIndex + 1 }
+            );
+
+            if (provider) {
+                // Wait for the specific webview to be ready (with timeout)
+                await provider.waitForWebviewReady(tab.uri, 4000);
+            }
+        } catch {
+            // Ignore missing files
+        }
+        // Yield to allow controllerchange to settle between openings
+        await new Promise((r) => setTimeout(r, 10));
     }
     // Optionally, focus the previously active tab/group
     // Clear the saved layout after restore
@@ -225,6 +277,15 @@ async function restoreTabLayout(context: vscode.ExtensionContext) {
 
 export async function activate(context: vscode.ExtensionContext) {
     const activationStart = globalThis.performance.now();
+
+    // Ensure OS temp directory exists in test/web environments (mock FS may not have /tmp)
+    try {
+        const tmp = os.tmpdir();
+        const tmpUri = vscode.Uri.file(tmp);
+        await vscode.workspace.fs.createDirectory(tmpUri);
+    } catch (e) {
+        console.warn("[Extension] Could not ensure temp directory exists:", e);
+    }
 
     // Save tab layout and close all editors before showing splash screen
     try {
@@ -304,6 +365,30 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         stepStart = trackTiming("Connecting Authentication Service", authStart);
 
+        // Update git configuration files after Frontier auth is connected
+        // This ensures .gitignore and .gitattributes are current when extension starts
+        const gitConfigStart = globalThis.performance.now();
+        if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+            try {
+                // Import and run git config update (only if we have a workspace)
+                const { ensureGitConfigsAreUpToDate } = await import("./projectManager/utils/projectUtils");
+                await ensureGitConfigsAreUpToDate();
+                console.log("[Extension] Git configuration files updated on startup");
+            } catch (error) {
+                console.error("[Extension] Error updating git config files on startup:", error);
+                // Don't fail startup due to git config update errors
+            }
+
+            // Auto-migrate legacy .x-m4a audio files silently (non-blocking)
+            // Similar to database corruption repair - runs automatically without user notification
+            import("./utils/audioFileValidation")
+                .then(({ autoMigrateLegacyAudioFiles }) => autoMigrateLegacyAudioFiles())
+                .catch(error => {
+                    console.error("[Extension] Error auto-migrating legacy audio files:", error);
+                });
+        }
+        stepStart = trackTiming("Updating Git Configuration", gitConfigStart);
+
         // Run independent initialization steps in parallel (excluding auth which is needed by startup flow)
         const parallelInitStart = globalThis.performance.now();
         await Promise.all([
@@ -373,6 +458,19 @@ export async function activate(context: vscode.ExtensionContext) {
                 // DEBUGGING: Here is where the splash screen disappears - it was visible up till now
                 await vscode.workspace.fs.stat(metadataUri);
                 metadataExists = true;
+
+                // Update extension version requirements for conflict-free metadata management
+                try {
+                    const currentVersion = MetadataManager.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");
+                    const updateResult = await MetadataManager.updateExtensionVersions(workspaceFolders[0].uri, {
+                        codexEditor: currentVersion
+                    });
+                    if (!updateResult.success) {
+                        console.warn("[Extension] Failed to update extension version in metadata:", updateResult.error);
+                    }
+                } catch (error) {
+                    console.warn("[Extension] Error updating extension version requirements:", error);
+                }
             } catch {
                 metadataExists = false;
             }
@@ -381,6 +479,24 @@ export async function activate(context: vscode.ExtensionContext) {
 
             // Always initialize extension to ensure language server is available before webviews
             await initializeExtension(context, metadataExists);
+
+            // Ensure local project settings exist when a Codex project is open
+            try {
+                if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+                    // Only ensure settings once a repo is fully initialized (avoid during clone checkout)
+                    try {
+                        const projectUri = vscode.workspace.workspaceFolders[0].uri;
+                        const gitDir = vscode.Uri.joinPath(projectUri, ".git");
+                        await vscode.workspace.fs.stat(gitDir);
+                        const { afterProjectDetectedEnsureLocalSettings } = await import("./projectManager/utils/projectUtils");
+                        await afterProjectDetectedEnsureLocalSettings(projectUri);
+                    } catch {
+                        // No .git yet; skip until project is fully initialized/opened
+                    }
+                }
+            } catch (e) {
+                console.warn("[Extension] Failed to ensure local project settings exist:", e);
+            }
 
             if (!metadataExists) {
                 const watchStart = globalThis.performance.now();
@@ -439,11 +555,13 @@ export async function activate(context: vscode.ExtensionContext) {
         // Execute post-activation tasks
         const postActivationStart = globalThis.performance.now();
         await executeCommandsAfter(context);
-        await migration_chatSystemMessageSetting();
+        // NOTE: migration_chatSystemMessageSetting() now runs BEFORE sync (see line ~768)
         await temporaryMigrationScript_checkMatthewNotebook();
         await migration_changeDraftFolderToFilesFolder();
         await migrateSourceFiles();
         await migration_lineNumbersSettings(context);
+        await migration_moveTimestampsToMetadataData(context);
+        await migration_promoteCellTypeToTopLevel(context);
         await migration_editHistoryFormat(context);
         trackTiming("Running Post-activation Tasks", postActivationStart);
 
@@ -469,12 +587,38 @@ export async function activate(context: vscode.ExtensionContext) {
         )
     );
 
+    // Command: Migrate validations for user edits across project
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.migrateValidationsForUserEdits",
+            async () => {
+                await migration_addValidationsForUserEdits();
+            }
+        )
+    );
+
     // Comments-related commands
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor-extension.focusCommentsView", () => {
             vscode.commands.executeCommand("comments-sidebar.focus");
         })
     );
+
+    // Ensure sync commands exist in all environments (including tests)
+    try {
+        const cmds = await vscode.commands.getCommands(true);
+        if (!cmds.includes("extension.scheduleSync")) {
+            const { SyncManager } = await import("./projectManager/syncManager");
+            context.subscriptions.push(
+                vscode.commands.registerCommand("extension.scheduleSync", (message: string) => {
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.scheduleSyncOperation(message);
+                })
+            );
+        }
+    } catch (err) {
+        console.warn("Failed to ensure scheduleSync registration", err);
+    }
 
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor-extension.navigateToCellInComments", (cellId: string) => {
@@ -705,6 +849,18 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
 
         // First check if there's actually a Codex project open
         const hasCodexProject = await checkIfMetadataAndGitIsInitialized();
+
+        // CRITICAL: Run migrations and disable VS Code's Git BEFORE first sync
+        // This must happen after checking project exists but BEFORE any Git operations
+        if (hasCodexProject) {
+            // Run chatSystemMessage migration FIRST to ensure correct key is synced
+            await migration_chatSystemMessageSetting();
+            debug("✅ [PRE-SYNC] Completed chatSystemMessage migration");
+
+            const { ensureGitDisabledInSettings } = await import("./projectManager/utils/projectUtils");
+            await ensureGitDisabledInSettings();
+            debug("✅ [PRE-SYNC] Disabled VS Code Git before sync operations");
+        }
         if (!hasCodexProject) {
             debug("⏭️ [POST-WORKSPACE] No Codex project open, skipping post-workspace sync");
         } else if (authApi) {

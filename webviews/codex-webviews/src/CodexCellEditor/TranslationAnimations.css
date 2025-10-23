@@ -1,34 +1,69 @@
 /* Translation process animations */
 @keyframes pulseBorder {
-  0% {
-    border-color: rgba(255, 193, 77, 0.5);
-  }
-  50% {
-    border-color: #ffc14d;
-  }
-  100% {
-    border-color: rgba(255, 193, 77, 0.5);
-  }
+    0% {
+        border-color: rgba(255, 193, 77, 0.5);
+    }
+    50% {
+        border-color: #ffc14d;
+    }
+    100% {
+        border-color: rgba(255, 193, 77, 0.5);
+    }
 }
 
 /* Animation for cells using background color */
 @keyframes pulseBackground {
-  0% {
-    background-color: rgba(255, 193, 77, 0.05);
-  }
-  50% {
-    background-color: rgba(255, 193, 77, 0.2);
-  }
-  100% {
-    background-color: rgba(255, 193, 77, 0.05);
-  }
+    0% {
+        background-color: rgba(255, 193, 77, 0.05);
+    }
+    50% {
+        background-color: rgba(255, 193, 77, 0.2);
+    }
+    100% {
+        background-color: rgba(255, 193, 77, 0.05);
+    }
+}
+
+/* Animation for cells using background color */
+@keyframes pulseValidationBackground {
+    0% {
+        background-color: rgba(49, 130, 244, 0.05);
+    }
+    50% {
+        background-color: rgba(49, 130, 244, 0.2);
+    }
+    100% {
+        background-color: rgba(49, 130, 244, 0.05);
+    }
 }
 
 /* These classes will be applied via JS */
 .cell-translation-animation-processing {
-  animation: pulseBorder 1.5s infinite ease-in-out;
+    animation: pulseBorder 1.5s infinite ease-in-out;
 }
 
 .cell-translation-animation-processing-background {
-  animation: pulseBackground 1.5s infinite ease-in-out;
-} 
+    animation: pulseBackground 1.5s infinite ease-in-out;
+}
+
+/* Hover-linked pulse animations using pulseValidationBackground */
+.cell-content-display .audio-play-button {
+    transition: background-color 120ms ease, box-shadow 120ms ease;
+    border-radius: 4px;
+}
+.cell-content-display .cell-content {
+    transition: background-color 120ms ease, box-shadow 120ms ease;
+    border-radius: 3px;
+}
+
+/* Pulse the AudioPlayButton while hovering the audio validation button (only if enabled) */
+.cell-content-display:has(.audio-validation-button-container:hover vscode-button:not([disabled]))
+    .audio-play-button {
+    animation: pulseValidationBackground 1.2s ease-in-out infinite;
+}
+
+/* Pulse the content area while hovering the text validation button (only if enabled) */
+.cell-content-display:has(.validation-button-container:hover vscode-button:not([disabled]))
+    .cell-content {
+    animation: pulseValidationBackground 1.2s ease-in-out infinite;
+}

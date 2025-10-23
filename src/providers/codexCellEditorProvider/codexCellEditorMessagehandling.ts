@@ -28,6 +28,7 @@ import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-l
 import { getCommentsFromFile } from "../../utils/fileUtils";
 import { getUnresolvedCommentsCountForCell } from "../../utils/commentsUtils";
 import { toPosixPath } from "../../utils/pathUtils";
+import { revalidateCellMissingFlags } from "../../utils/audioMissingUtils";
 // Comment out problematic imports
 // import { getAddWordToSpellcheckApi } from "../../extension";
 // import { getSimilarCellIds } from "@/utils/semanticSearch";
@@ -43,6 +44,11 @@ function debug(...args: any[]): void {
         console.log("[CodexCellEditorMessageHandling]", ...args);
     }
 }
+
+// Debounce container for broadcasting auto-download flag updates
+let autoDownloadBroadcastTimer: NodeJS.Timeout | undefined;
+let pendingAutoDownloadValue: boolean | undefined;
+
 
 // Helper to use VS Code FS API
 async function pathExists(filePath: string): Promise<boolean> {
@@ -89,18 +95,69 @@ interface MessageHandlerContext {
 // Individual message handlers
 const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<void> | void> = {
     webviewReady: () => { /* no-op */ },
+    setAutoDownloadAudioOnOpen: async ({ event, document, webviewPanel, provider }) => {
+        try {
+            const typed = event as any;
+            const value = !!typed?.content?.value;
+            const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+            const { setAutoDownloadAudioOnOpen } = await import("../../utils/localProjectSettings");
+            await setAutoDownloadAudioOnOpen(value, ws?.uri);
+            // Debounce broadcast so rapid toggles coalesce
+            pendingAutoDownloadValue = value;
+            if (autoDownloadBroadcastTimer) {
+                clearTimeout(autoDownloadBroadcastTimer);
+            }
+            autoDownloadBroadcastTimer = setTimeout(() => {
+                try {
+                    const panels = provider.getWebviewPanels();
+                    panels.forEach((panel) => {
+                        provider.postMessageToWebview(panel, {
+                            type: "providerUpdatesNotebookMetadataForWebview",
+                            content: { autoDownloadAudioOnOpen: pendingAutoDownloadValue },
+                        } as any);
+                    });
+                } catch (broadcastErr) {
+                    console.warn("Failed to broadcast autoDownloadAudioOnOpen", broadcastErr);
+                } finally {
+                    autoDownloadBroadcastTimer = undefined;
+                }
+            }, 150);
+        } catch (e) {
+            console.warn("Failed to set autoDownloadAudioOnOpen", e);
+        }
+    },
     getAsrConfig: async ({ webviewPanel }) => {
         try {
             const config = vscode.workspace.getConfiguration("codex-editor-extension");
-            const endpoint = config.get<string>("asrEndpoint", "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe");
+            let endpoint = config.get<string>("asrEndpoint", "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe");
             const provider = config.get<string>("asrProvider", "mms");
             const model = config.get<string>("asrModel", "facebook/mms-1b-all");
             const language = config.get<string>("asrLanguage", "eng");
             const phonetic = config.get<boolean>("asrPhonetic", false);
 
+            let authToken: string | undefined;
+
+            // Try to get authenticated endpoint from FrontierAPI
+            try {
+                const frontierApi = getAuthApi();
+                if (frontierApi) {
+                    const authStatus = frontierApi.getAuthStatus();
+                    if (authStatus.isAuthenticated) {
+                        const asrEndpoint = await frontierApi.getAsrEndpoint();
+                        if (asrEndpoint) {
+                            endpoint = asrEndpoint;
+                        }
+                        // Get auth token for authenticated requests
+                        authToken = await frontierApi.authProvider.getToken();
+                    }
+                }
+            } catch (error) {
+                console.debug("Could not get ASR endpoint from auth API:", error);
+            }
+
             safePostMessageToPanel(webviewPanel, {
                 type: "asrConfig",
-                content: { endpoint, provider, model, language, phonetic }
+                content: { endpoint, provider, model, language, phonetic, authToken }
             });
         } catch (error) {
             console.error("Error sending ASR config:", error);
@@ -130,40 +187,75 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             await document.updateCellAttachment(cellId, attachmentId, updated);
 
             // Notify webview(s) of updated audio attachments status
-            const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
-            const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {} as any;
+            await scanForAudioAttachments(document, webviewPanel);
+            // Recompute availability with pointer detection so UI shows correct icon
             try {
+                const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
                 const notebookData = JSON.parse(document.getText());
-                if (Array.isArray(notebookData?.cells)) {
-                    for (const cell of notebookData.cells) {
-                        if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
-                    }
-                }
-            } catch (err) {
-                console.warn("Failed to parse notebook data when initializing audioCells", err);
-            }
-            for (const cid of Object.keys(updatedAudioAttachments)) {
-                audioCells[cid] = "available";
-            }
-            try {
-                const notebookData = JSON.parse(document.getText());
-                if (Array.isArray(notebookData?.cells)) {
+                const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
+                if (Array.isArray(notebookData?.cells) && workspaceFolder) {
                     for (const cell of notebookData.cells) {
                         const id = cell?.metadata?.id;
                         if (!id) continue;
-                        if (audioCells[id] === "available") continue;
-                        const attachments = cell?.metadata?.attachments || {};
-                        const hasDeletedAudio = Object.values(attachments).some((att: any) => att?.type === "audio" && att?.isDeleted === true);
-                        if (hasDeletedAudio) audioCells[id] = "deletedOnly";
+                        let hasAvailable = false;
+                        let hasAvailablePointer = false;
+                        let hasMissing = false;
+                        let hasDeleted = false;
+                        const atts = cell?.metadata?.attachments || {};
+                        for (const key of Object.keys(atts)) {
+                            const att: any = (atts as any)[key];
+                            if (att && att.type === "audio") {
+                                if (att.isDeleted) {
+                                    hasDeleted = true;
+                                } else if (att.isMissing) {
+                                    hasMissing = true;
+                                } else {
+                                    try {
+                                        const url = String(att.url || "");
+                                        if (url) {
+                                            const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+                                            const abs = path.join(workspaceFolder.uri.fsPath, filesRel);
+                                            const { isPointerFile } = await import("../../utils/lfsHelpers");
+                                            const isPtr = await isPointerFile(abs).catch(() => false);
+                                            if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
+                                        } else {
+                                            hasAvailable = true;
+                                        }
+                                    } catch { hasAvailable = true; }
+                                }
+                            }
+                        }
+
+                        let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+                        if (hasAvailable) state = "available-local";
+                        else if (hasAvailablePointer) state = "available-pointer";
+                        else if (hasMissing) state = "missing";
+                        else if (hasDeleted) state = "deletedOnly";
+                        else state = "none";
+
+                        // Apply installed-version gate (no modal) to avoid showing Play when blocked
+                        if (state !== "available-local") {
+                            try {
+                                const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
+                                const status = await getFrontierVersionStatus();
+                                if (!status.ok) {
+                                    if (state !== "missing" && state !== "deletedOnly" && state !== "none") {
+                                        state = "available-pointer";
+                                    }
+                                }
+                            } catch { /* ignore */ }
+                        }
+
+                        availability[id] = state as any;
                     }
                 }
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "providerSendsAudioAttachments",
+                    attachments: availability,
+                });
             } catch (err) {
-                console.warn("Failed to parse notebook data when computing deleted-only audio cells", err);
+                console.warn("Failed to compute audio availability after transcription", err);
             }
-            provider.postMessageToWebview(webviewPanel, {
-                type: "providerSendsAudioAttachments",
-                attachments: audioCells as any,
-            });
         } catch (error) {
             console.error("Failed to update transcription for cell:", cellId, error);
         }
@@ -439,96 +531,130 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const cellId = typedEvent.content.currentLineId;
         const addContentToValue = typedEvent.content.addContentToValue;
 
+        // Always preflight: if source text is empty, try to transcribe first, then only attempt LLM
+        // In test environments the command may be unregistered; skip gracefully in that case.
+        let contentIsEmpty = false;
         try {
-            const isAudioOnly = Boolean((document as any)._documentData?.metadata?.audioOnly);
-            if (isAudioOnly) {
-                const sourceCell = await vscode.commands.executeCommand(
-                    "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
-                    cellId
-                ) as { cellId: string; content: string; } | null;
-                const contentIsEmpty = !sourceCell || !sourceCell.content || (sourceCell.content.replace(/<[^>]*>/g, "").trim() === "");
-
-                if (contentIsEmpty) {
-                    try {
-                        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-                        if (workspaceFolder) {
-                            const normalizedPath = document.uri.fsPath.replace(/\\/g, "/");
-                            const baseFileName = path.basename(normalizedPath);
-                            const sourceFileName = baseFileName.endsWith(".codex")
-                                ? baseFileName.replace(".codex", ".source")
-                                : baseFileName;
-                            const sourcePath = vscode.Uri.joinPath(
-                                workspaceFolder.uri,
-                                ".project",
-                                "sourceTexts",
-                                sourceFileName
-                            );
-
-                            await vscode.commands.executeCommand(
-                                "vscode.openWith",
-                                sourcePath,
-                                "codex.cellEditor",
-                                { viewColumn: vscode.ViewColumn.One }
-                            );
-
-                            const sourcePanel = provider.getWebviewPanels().get(sourcePath.toString());
-                            if (sourcePanel) {
-                                const NUMBER_OF_CELLS_TO_TRANSCRIBE_AHEAD = 1;
-                                await vscode.window.withProgress(
-                                    {
-                                        location: vscode.ProgressLocation.Notification,
-                                        title: "Transcribing source audio…",
-                                        cancellable: false,
-                                    },
-                                    async (progress) => {
-                                        // Start transcription for the specific cell only
-                                        safePostMessageToPanel(sourcePanel, {
-                                            type: "startBatchTranscription",
-                                            content: { count: NUMBER_OF_CELLS_TO_TRANSCRIBE_AHEAD, cellId }
-                                        } as any);
-
-                                        // Mock progress while polling for source content availability
-                                        let progressValue = 0;
-                                        const timer = setInterval(() => {
-                                            progressValue = Math.min(progressValue + 3, 95);
-                                            progress.report({ increment: 3 });
-                                        }, 500);
-
-                                        try {
-                                            const timeoutMs = 30000;
-                                            const start = Date.now();
-                                            for (; ;) {
-                                                const src = await vscode.commands.executeCommand(
-                                                    "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
-                                                    cellId
-                                                ) as { cellId: string; content: string; } | null;
-                                                const hasText = !!src && !!src.content && src.content.replace(/<[^>]*>/g, "").trim() !== "";
-                                                if (hasText) break;
-                                                if (Date.now() - start > timeoutMs) break;
-                                                await new Promise((r) => setTimeout(r, 400));
-                                            }
-                                        } finally {
-                                            clearInterval(timer);
-                                            progress.report({ increment: 100 - progressValue });
-                                        }
-                                    }
-                                );
-
-                                // After transcription completes (or timeout), proceed with LLM completion automatically
-                                await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
-                                return;
-                            }
-                        }
-                    } catch (e) {
-                        console.warn("Failed to initialize transcription before LLM completion", e);
-                    }
-                }
-            }
+            const sourceCell = await vscode.commands.executeCommand(
+                "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+                cellId
+            ) as { cellId: string; content: string; } | null;
+            contentIsEmpty = !sourceCell || !sourceCell.content || (sourceCell.content.replace(/<[^>]*>/g, "").trim() === "");
         } catch (e) {
-            console.warn("Audio-only preflight failed; proceeding with normal completion", e);
+            console.warn("getSourceCellByCellIdFromAllSourceCells unavailable; skipping transcription preflight");
+            contentIsEmpty = false;
         }
 
-        // Default: enqueue translation now
+        if (contentIsEmpty) {
+            try {
+                const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (!workspaceFolder) return;
+
+                const normalizedPath = document.uri.fsPath.replace(/\\/g, "/");
+                const baseFileName = path.basename(normalizedPath);
+                const sourceFileName = baseFileName.endsWith(".codex")
+                    ? baseFileName.replace(".codex", ".source")
+                    : baseFileName;
+                const sourcePath = vscode.Uri.joinPath(
+                    workspaceFolder.uri,
+                    ".project",
+                    "sourceTexts",
+                    sourceFileName
+                );
+
+                await vscode.commands.executeCommand(
+                    "vscode.openWith",
+                    sourcePath,
+                    "codex.cellEditor",
+                    { viewColumn: vscode.ViewColumn.One }
+                );
+
+                // Wait for source webview to be ready
+                await provider.waitForWebviewReady(sourcePath.toString(), 3000);
+
+                // Wait briefly for the source panel to register
+                let sourcePanel = provider.getWebviewPanels().get(sourcePath.toString());
+                if (!sourcePanel) {
+                    const waitStart = Date.now();
+                    while (!sourcePanel && Date.now() - waitStart < 1500) {
+                        await new Promise((r) => setTimeout(r, 100));
+                        sourcePanel = provider.getWebviewPanels().get(sourcePath.toString());
+                    }
+                }
+
+                if (!sourcePanel) {
+                    vscode.window.showWarningMessage("Could not open source for transcription. Please try again.");
+                    return;
+                }
+
+                await vscode.window.withProgress(
+                    {
+                        location: vscode.ProgressLocation.Notification,
+                        title: "Transcribing source audio…",
+                        cancellable: false,
+                    },
+                    async (progress) => {
+                        // Start transcription for the specific cell only
+                        safePostMessageToPanel(sourcePanel!, {
+                            type: "startBatchTranscription",
+                            content: { count: 1, cellId }
+                        } as any);
+
+                        // Mock progress while polling for source content availability
+                        let progressValue = 0;
+                        const timer = setInterval(() => {
+                            progressValue = Math.min(progressValue + 3, 95);
+                            progress.report({ increment: 3 });
+                        }, 500);
+
+                        try {
+                            const timeoutMs = 40000;
+                            const start = Date.now();
+                            for (; ;) {
+                                let src: { cellId: string; content: string; } | null = null;
+                                try {
+                                    src = await vscode.commands.executeCommand(
+                                        "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+                                        cellId
+                                    ) as { cellId: string; content: string; } | null;
+                                } catch {
+                                    // Command not available; abort polling
+                                    break;
+                                }
+                                const hasText = !!src && !!src.content && src.content.replace(/<[^>]*>/g, "").trim() !== "";
+                                if (hasText) break;
+                                if (Date.now() - start > timeoutMs) break;
+                                await new Promise((r) => setTimeout(r, 400));
+                            }
+                        } finally {
+                            clearInterval(timer);
+                            progress.report({ increment: 100 - progressValue });
+                        }
+                    }
+                );
+
+                // After transcription completes (or timeout), only then try LLM
+                const ready = await provider.isLLMReady().catch(() => true);
+                if (!ready) {
+                    vscode.window.showWarningMessage(
+                        "Transcription complete, but LLM is not configured. Set an API key or sign in to generate predictions."
+                    );
+                }
+                await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
+                return;
+            } catch (e) {
+                console.warn("Transcription preflight failed; not attempting LLM", e);
+                return; // Do not proceed to LLM on preflight error
+            }
+        }
+
+        // If source already has text, proceed only if LLM is ready
+        const ready = await provider.isLLMReady().catch(() => true);
+        if (!ready) {
+            vscode.window.showWarningMessage(
+                "LLM is not configured. Set an API key or sign in to generate predictions."
+            );
+        }
         await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
     },
 
@@ -873,6 +999,17 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
+    validateAudioCell: async ({ event, document, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "validateAudioCell"; }>;
+        if (typedEvent.content?.cellId) {
+            await provider.enqueueAudioValidation(
+                typedEvent.content.cellId,
+                document,
+                typedEvent.content.validate
+            );
+        }
+    },
+
     getValidationCount: async ({ webviewPanel, provider }) => {
         // Validation count is now bundled with initial content; only send on explicit request
         const config = vscode.workspace.getConfiguration("codex-project-manager");
@@ -880,6 +1017,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         provider.postMessageToWebview(webviewPanel, {
             type: "validationCount",
             content: validationCount,
+        });
+    },
+
+    getValidationCountAudio: async ({ webviewPanel, provider }) => {
+        // Audio validation count is now bundled with initial content; only send on explicit request
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        const validationCountAudio = config.get("validationCountAudio", 1);
+        provider.postMessageToWebview(webviewPanel, {
+            type: "validationCountAudio",
+            content: validationCountAudio,
         });
     },
 
@@ -1074,6 +1221,34 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 merged: false
             });
 
+            // Record an edit on the (now unmerged) current cell to reflect the merged flag change to false
+            try {
+                const currentCellForEdits = document.getCell(cellId);
+                if (currentCellForEdits) {
+                    if (!currentCellForEdits.metadata.edits) {
+                        currentCellForEdits.metadata.edits = [] as any;
+                    }
+                    const ts = Date.now();
+                    // Best-effort user lookup (anonymous fallback)
+                    let user = "anonymous";
+                    try {
+                        const authApi = await provider.getAuthApi();
+                        const userInfo = await authApi?.getUserInfo();
+                        user = userInfo?.username || "anonymous";
+                    } catch { /* ignore */ }
+                    (currentCellForEdits.metadata.edits as any[]).push({
+                        editMap: EditMapUtils.metadataNested("data", "merged"),
+                        value: false,
+                        timestamp: ts,
+                        type: EditType.USER_EDIT,
+                        author: user,
+                        validatedBy: []
+                    });
+                }
+            } catch (e) {
+                console.warn("Failed to record unmerge edit entry on source cell", e);
+            }
+
             // Save the current document
             await document.save(new vscode.CancellationTokenSource().token);
 
@@ -1145,14 +1320,120 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     ? attachmentPath
                     : path.join(workspaceFolder.uri.fsPath, attachmentPath);
 
-                if (await pathExists(fullPath)) {
+                // Check if the file exists and get its stats to ensure we're serving the latest version
+                let fileExists = false;
+                let fileStats: vscode.FileStat | undefined;
+
+                try {
+                    fileStats = await vscode.workspace.fs.stat(vscode.Uri.file(fullPath));
+                    fileExists = true;
+                } catch {
+                    fileExists = false;
+                }
+
+                if (fileExists && fileStats) {
                     const ext = path.extname(fullPath).toLowerCase();
                     const mimeType = ext === ".webm" ? "audio/webm" :
                         ext === ".mp3" ? "audio/mp3" :
                             ext === ".m4a" ? "audio/mp4" :
                                 ext === ".ogg" ? "audio/ogg" : "audio/wav";
 
-                    const fileData = await vscode.workspace.fs.readFile(vscode.Uri.file(fullPath));
+                    let fileData: Uint8Array;
+
+                    try {
+                        // ========== LFS STREAMING LOGIC ==========
+                        // Import LFS helpers
+                        const { isPointerFile, parsePointerFile, replaceFileWithPointer } = await import("../../utils/lfsHelpers");
+                        const { getMediaFilesStrategy: getStrategy } = await import("../../utils/localProjectSettings");
+
+                        // Check if file is an LFS pointer
+                        const isPointer = await isPointerFile(fullPath);
+
+                        if (isPointer) {
+                            // File is an LFS pointer - need to stream from LFS
+                            debug("File is LFS pointer, streaming from server:", fullPath);
+
+                            // Get media strategy
+                            const mediaStrategy = await getStrategy(workspaceFolder.uri);
+
+                            if (mediaStrategy === "auto-download") {
+                                // This shouldn't happen in auto-download mode
+                                throw new Error("File should have been downloaded in auto-download mode");
+                            }
+
+                            // Enforce version gates (Frontier required version + project metadata versions)
+                            const { ensureAllVersionGatesForMedia } = await import("../../utils/versionGate");
+                            const allowed = await ensureAllVersionGatesForMedia(true);
+                            if (!allowed) {
+                                throw new Error("Media operation blocked due to version requirements.");
+                            }
+
+                            // Parse pointer to get OID and size
+                            const pointer = await parsePointerFile(fullPath);
+                            if (!pointer) {
+                                throw new Error("Invalid LFS pointer file format");
+                            }
+
+                            // Get frontier API
+                            const { getAuthApi } = await import("../../extension");
+                            const frontierApi = getAuthApi();
+                            if (!frontierApi) {
+                                throw new Error("Frontier authentication extension not available. Please ensure it's installed and active.");
+                            }
+
+                            // Download from LFS
+                            debug(`Downloading LFS file: OID=${pointer.oid.substring(0, 8)}..., size=${pointer.size}`);
+                            const lfsData = await frontierApi.downloadLFSFile(
+                                workspaceFolder.uri.fsPath,
+                                pointer.oid,
+                                pointer.size
+                            );
+
+                            fileData = lfsData;
+                            debug("Successfully streamed file from LFS");
+
+                            // If strategy is "stream-and-save", replace pointer with actual file
+                            if (mediaStrategy === "stream-and-save") {
+                                try {
+                                    await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), fileData);
+                                    debug("Saved streamed file to disk (stream-and-save mode)");
+                                    // Immediately inform webview this cell now has a local file
+                                    try {
+                                        safePostMessageToPanel(webviewPanel, {
+                                            type: "providerSendsAudioAttachments",
+                                            attachments: { [cellId]: "available-local" as const }
+                                        });
+                                    } catch { /* non-fatal */ }
+                                } catch (saveError) {
+                                    console.warn("Failed to save streamed file:", saveError);
+                                    // Don't fail the whole operation if save fails
+                                }
+                            }
+                        } else {
+                            // File is actual audio data - read normally
+                            fileData = await vscode.workspace.fs.readFile(vscode.Uri.file(fullPath));
+                            debug("Read audio file from disk:", fullPath);
+                        }
+                    } catch (lfsError) {
+                        // LFS streaming failed - send error to webview
+                        console.error("Error streaming audio file:", lfsError);
+                        const errorMessage = lfsError instanceof Error ? lfsError.message : "Failed to load audio file";
+
+                        safePostMessageToPanel(webviewPanel, {
+                            type: "providerSendsAudioData",
+                            content: {
+                                cellId: cellId,
+                                audioId: targetAttachmentId,
+                                audioData: null,
+                                error: errorMessage,
+                                transcription: targetAttachment.transcription || null
+                            }
+                        });
+
+                        return;
+                    }
+
+                    // Convert to base64 and send to webview
                     const base64Data = `data:${mimeType};base64,${Buffer.from(fileData).toString('base64')}`;
 
                     safePostMessageToPanel(webviewPanel, {
@@ -1161,14 +1442,114 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             cellId: cellId,
                             audioId: targetAttachmentId,
                             audioData: base64Data,
-                            transcription: targetAttachment.transcription || null // Include transcription if available
+                            transcription: targetAttachment.transcription || null,
+                            fileModified: fileStats.mtime
                         }
                     });
 
-                    debug("Sent audio data for cell:", cellId, "audioId:", targetAttachmentId);
+                    debug("Sent audio data for cell:", cellId, "audioId:", targetAttachmentId, "modified:", fileStats.mtime);
                     return;
                 } else {
-                    debug("Audio file not found:", fullPath);
+                    debug("Audio file not found in files/ path:", fullPath);
+
+                    // Attempt fallback: look for pointer under attachments/pointers and stream from LFS
+                    try {
+                        const filesPosix = toPosixPath(fullPath);
+                        const pointerFullPath = filesPosix.includes("/.project/attachments/files/")
+                            ? filesPosix.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
+                            : filesPosix.replace(".project/attachments/files/", ".project/attachments/pointers/");
+
+                        // Check if pointer exists
+                        let pointerStats: vscode.FileStat | undefined;
+                        try {
+                            pointerStats = await vscode.workspace.fs.stat(vscode.Uri.file(pointerFullPath));
+                        } catch { /* no-op */ }
+
+                        if (pointerStats) {
+                            // Enforce version gates prior to fallback streaming
+                            const { ensureAllVersionGatesForMedia } = await import("../../utils/versionGate");
+                            const allowed = await ensureAllVersionGatesForMedia(true);
+                            if (!allowed) {
+                                throw new Error("Media operation blocked due to version requirements.");
+                            }
+
+                            // Parse pointer
+                            const { parsePointerFile, replaceFileWithPointer } = await import("../../utils/lfsHelpers");
+                            const pointer = await parsePointerFile(pointerFullPath);
+                            if (!pointer) {
+                                throw new Error("Invalid LFS pointer file format (fallback)");
+                            }
+
+                            // Get media strategy
+                            const { getMediaFilesStrategy: getStrategy } = await import("../../utils/localProjectSettings");
+                            const mediaStrategy = await getStrategy(workspaceFolder.uri);
+
+                            // Download from LFS via Frontier API
+                            const { getAuthApi } = await import("../../extension");
+                            const frontierApi = getAuthApi();
+                            if (!frontierApi) {
+                                throw new Error("Frontier authentication extension not available");
+                            }
+
+                            const lfsData = await frontierApi.downloadLFSFile(
+                                workspaceFolder.uri.fsPath,
+                                pointer.oid,
+                                pointer.size
+                            );
+
+                            // If stream-and-save, write file bytes to files path
+                            if (mediaStrategy === "stream-and-save") {
+                                try {
+                                    await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(fullPath)));
+                                    await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), lfsData);
+                                    // Targeted availability update for this cell
+                                    try {
+                                        safePostMessageToPanel(webviewPanel, {
+                                            type: "providerSendsAudioAttachments",
+                                            attachments: { [cellId]: "available-local" as const }
+                                        });
+                                    } catch { /* non-fatal */ }
+                                } catch (e) {
+                                    console.warn("Failed to save streamed file in fallback:", e);
+                                }
+                            } else if (mediaStrategy === "stream-only") {
+                                // Ensure files/ contains pointer for consistency (avoid repeated "not found")
+                                try {
+                                    // Derive relative path under pointers/
+                                    const relFromPointers = pointerFullPath.split("/.project/attachments/pointers/").pop() ||
+                                        pointerFullPath.split(".project/attachments/pointers/").pop();
+                                    if (relFromPointers) {
+                                        await replaceFileWithPointer(workspaceFolder.uri.fsPath, relFromPointers);
+                                    }
+                                } catch (e) {
+                                    // Non-fatal
+                                }
+                            }
+
+                            // Send to webview
+                            const ext = path.extname(fullPath).toLowerCase();
+                            const mimeType = ext === ".webm" ? "audio/webm" :
+                                ext === ".mp3" ? "audio/mp3" :
+                                    ext === ".m4a" ? "audio/mp4" :
+                                        ext === ".ogg" ? "audio/ogg" : "audio/wav";
+                            const base64Data = `data:${mimeType};base64,${Buffer.from(lfsData).toString('base64')}`;
+
+                            safePostMessageToPanel(webviewPanel, {
+                                type: "providerSendsAudioData",
+                                content: {
+                                    cellId: cellId,
+                                    audioId: targetAttachmentId,
+                                    audioData: base64Data,
+                                    transcription: targetAttachment.transcription || null,
+                                    fileModified: pointerStats.mtime,
+                                }
+                            });
+
+                            return;
+                        }
+                    } catch (fallbackErr) {
+                        console.error("Fallback pointer streaming failed:", fallbackErr);
+                    }
                 }
             }
 
@@ -1244,6 +1625,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
 
         debug("No audio attachment found for cell:", cellId);
+
+        // Always send a response, even if no audio is found
+        safePostMessageToPanel(webviewPanel, {
+            type: "providerSendsAudioData",
+            content: {
+                cellId: cellId,
+                audioId: audioId || null,
+                audioData: null
+            }
+        });
     },
 
     saveAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
@@ -1253,67 +1644,235 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             audioId: typedEvent.content.audioId,
             fileExtension: typedEvent.content.fileExtension
         });
-
-        const documentSegment = typedEvent.content.cellId.split(' ')[0];
-        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-        if (!workspaceFolder) {
-            throw new Error("No workspace folder found");
-        }
-
-        const pointersDir = path.join(
-            workspaceFolder.uri.fsPath,
-            ".project",
-            "attachments",
-            "pointers",
-            documentSegment
-        );
-        const filesDir = path.join(
-            workspaceFolder.uri.fsPath,
-            ".project",
-            "attachments",
-            "files",
-            documentSegment
-        );
-
-        await vscode.workspace.fs.createDirectory(vscode.Uri.file(pointersDir));
-        await vscode.workspace.fs.createDirectory(vscode.Uri.file(filesDir));
-
-        const fileName = `${typedEvent.content.audioId}.${typedEvent.content.fileExtension}`;
-        const pointersPath = path.join(pointersDir, fileName);
-        const filesPath = path.join(filesDir, fileName);
-
-        const base64Data = typedEvent.content.audioData.split(',')[1] || typedEvent.content.audioData;
-        const buffer = Buffer.from(base64Data, 'base64');
-
-        // Write to both locations. Sync will later replace the 'pointers' blob with a Git LFS pointer
-        await vscode.workspace.fs.writeFile(vscode.Uri.file(pointersPath), buffer);
-        await vscode.workspace.fs.writeFile(vscode.Uri.file(filesPath), buffer);
-
-        // Store the files path in metadata (not the pointer path) so we can directly read the actual file
-        const relativePath = toPosixPath(path.relative(workspaceFolder.uri.fsPath, filesPath));
-        await document.updateCellAttachment(typedEvent.content.cellId, typedEvent.content.audioId, {
-            url: relativePath,
-            type: "audio",
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-            isDeleted: false,
-            // Persist optional metadata if provided by client
-            ...(typedEvent.content.metadata ? { metadata: typedEvent.content.metadata } : {}),
-        } as any);
-
-        provider.postMessageToWebview(webviewPanel, {
-            type: "audioAttachmentSaved",
-            content: {
-                cellId: typedEvent.content.cellId,
-                audioId: typedEvent.content.audioId,
-                success: true
+        try {
+            const documentSegment = typedEvent.content.cellId.split(' ')[0];
+            const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+            if (!workspaceFolder) {
+                throw new Error("No workspace folder found");
             }
-        });
 
-        // Refresh full content; webview derives attachment availability from content
-        provider.refreshWebview(webviewPanel, document);
+            // Basic input validation and normalization
+            const allowedExtensions = new Set(["webm", "wav", "mp3", "m4a", "ogg"]);
+            const sanitizedAudioId = String(typedEvent.content.audioId).replace(/[^a-zA-Z0-9._-]/g, "-");
+            const ext = (typedEvent.content.fileExtension || "webm").toLowerCase();
+            const safeExt = allowedExtensions.has(ext) ? ext : "webm";
 
-        debug("Audio attachment saved successfully:", { pointersPath, filesPath });
+            const base64Data = typedEvent.content.audioData.split(',')[1] || typedEvent.content.audioData;
+            const buffer = Buffer.from(base64Data, 'base64');
+
+            if (!buffer || buffer.length === 0) {
+                throw new Error("Decoded audio is empty");
+            }
+            // Enforce a reasonable max size (e.g., 50 MB) to avoid runaway writes
+            const MAX_BYTES = 50 * 1024 * 1024;
+            if (buffer.length > MAX_BYTES) {
+                throw new Error("Audio exceeds maximum allowed size (50 MB)");
+            }
+
+            const pointersDir = path.join(
+                workspaceFolder.uri.fsPath,
+                ".project",
+                "attachments",
+                "pointers",
+                documentSegment
+            );
+            const filesDir = path.join(
+                workspaceFolder.uri.fsPath,
+                ".project",
+                "attachments",
+                "files",
+                documentSegment
+            );
+
+            await vscode.workspace.fs.createDirectory(vscode.Uri.file(pointersDir));
+            await vscode.workspace.fs.createDirectory(vscode.Uri.file(filesDir));
+
+            const fileName = `${sanitizedAudioId}.${safeExt}`;
+            const pointersPath = path.join(pointersDir, fileName);
+            const filesPath = path.join(filesDir, fileName);
+
+            // Atomic write helper (write to temp then rename)
+            const writeFileAtomically = async (finalFsPath: string, data: Uint8Array): Promise<void> => {
+                const tmpPath = `${finalFsPath}.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                const tmpUri = vscode.Uri.file(tmpPath);
+                const finalUri = vscode.Uri.file(finalFsPath);
+                await vscode.workspace.fs.writeFile(tmpUri, data);
+                await vscode.workspace.fs.rename(tmpUri, finalUri, { overwrite: true });
+                // Optional sanity check to ensure size matches
+                try {
+                    const stat = await vscode.workspace.fs.stat(finalUri);
+                    if (typeof stat.size === 'number' && stat.size !== data.length) {
+                        console.warn("Size mismatch after write for", finalFsPath, { expected: data.length, actual: stat.size });
+                    }
+                } catch {
+                    // ignore stat issues
+                }
+            };
+
+            // Write actual file (primary). Pointer write is best-effort.
+            await writeFileAtomically(filesPath, buffer);
+            try {
+                await writeFileAtomically(pointersPath, buffer);
+            } catch (pointerErr) {
+                console.warn("Pointer write failed; proceeding with saved file only", pointerErr);
+            }
+
+            // Store the files path in metadata (not the pointer path) so we can directly read the actual file
+            const relativePath = toPosixPath(path.relative(workspaceFolder.uri.fsPath, filesPath));
+            await document.updateCellAttachment(typedEvent.content.cellId, sanitizedAudioId, {
+                url: relativePath,
+                type: "audio",
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                isDeleted: false,
+                // Persist optional metadata if provided by client
+                ...(typedEvent.content.metadata ? { metadata: typedEvent.content.metadata } : {}),
+            } as any);
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "audioAttachmentSaved",
+                content: {
+                    cellId: typedEvent.content.cellId,
+                    audioId: sanitizedAudioId,
+                    success: true
+                }
+            });
+
+            // Send targeted audio attachment update instead of full refresh to preserve tab state
+            const documentText = document.getText();
+            let notebookData: any = {};
+            if (documentText.trim().length > 0) {
+                try {
+                    notebookData = JSON.parse(documentText);
+                } catch {
+                    debug("Could not parse document as JSON for audio attachment update");
+                    notebookData = {};
+                }
+            }
+            const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
+            const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {} as any;
+
+            for (const cell of cells) {
+                const cellId = cell?.metadata?.id;
+                if (!cellId) continue;
+                let hasAvailable = false;
+                let hasAvailablePointer = false;
+                let hasMissing = false;
+                let hasDeleted = false;
+                const atts = cell?.metadata?.attachments || {};
+                for (const key of Object.keys(atts)) {
+                    const att: any = (atts as any)[key];
+                    if (att && att.type === "audio") {
+                        if (att.isDeleted) {
+                            hasDeleted = true;
+                        } else if (att.isMissing) {
+                            hasMissing = true;
+                        } else {
+                            try {
+                                const url = String(att.url || "");
+                                if (url) {
+                                    const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+                                    const filesAbs = path.join(workspaceFolder.uri.fsPath, filesRel);
+                                    try {
+                                        await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
+                                        const { isPointerFile } = await import("../../utils/lfsHelpers");
+                                        const isPtr = await isPointerFile(filesAbs).catch(() => false);
+                                        if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
+                                    } catch {
+                                        const pointerAbs = filesAbs.includes("/.project/attachments/files/")
+                                            ? filesAbs.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
+                                            : filesAbs.replace(".project/attachments/files/", ".project/attachments/pointers/");
+                                        try {
+                                            await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
+                                            hasAvailablePointer = true;
+                                        } catch {
+                                            hasMissing = true;
+                                        }
+                                    }
+                                } else {
+                                    hasMissing = true;
+                                }
+                            } catch { hasMissing = true; }
+                        }
+                    }
+                }
+                // Provisional state
+                let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+                if (hasAvailable) state = "available-local";
+                else if (hasAvailablePointer) state = "available-pointer";
+                else if (hasMissing) state = "missing";
+                else if (hasDeleted) state = "deletedOnly";
+                else state = "none";
+
+                if (state !== "available-local") {
+                    try {
+                        const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
+                        const status = await getFrontierVersionStatus();
+                        if (!status.ok) {
+                            if (state !== "missing" && state !== "deletedOnly" && state !== "none") {
+                                state = "available-pointer";
+                            }
+                        }
+                    } catch { /* ignore */ }
+                }
+
+                availability[cellId] = state as any;
+            }
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsAudioAttachments",
+                attachments: availability as any,
+            });
+
+            debug("Audio attachment saved successfully:", { pointersPath, filesPath });
+
+            // Proactively send the audio data so the editor waveform loads immediately after save
+            // If immediate disk read fails (e.g., Windows rename latency), fall back to in-memory buffer
+            {
+                const absPath = path.isAbsolute(filesPath) ? filesPath : path.join(workspaceFolder.uri.fsPath, filesPath);
+                const extNow = path.extname(absPath).toLowerCase();
+                const mimeNow = extNow === ".webm" ? "audio/webm" :
+                    extNow === ".mp3" ? "audio/mp3" :
+                        extNow === ".m4a" ? "audio/mp4" :
+                            extNow === ".ogg" ? "audio/ogg" : "audio/wav";
+
+                let base64Now: string | null = null;
+                try {
+                    const bytesNow = await vscode.workspace.fs.readFile(vscode.Uri.file(absPath));
+                    base64Now = `data:${mimeNow};base64,${Buffer.from(bytesNow).toString('base64')}`;
+                } catch (e) {
+                    console.warn("Failed to read freshly saved audio from disk; falling back to buffer", e);
+                    try {
+                        base64Now = `data:${mimeNow};base64,${Buffer.from(buffer).toString('base64')}`;
+                    } catch (fallbackErr) {
+                        console.warn("Fallback to in-memory buffer failed", fallbackErr);
+                    }
+                }
+
+                if (typeof base64Now === 'string') {
+                    safePostMessageToPanel(webviewPanel, {
+                        type: "providerSendsAudioData",
+                        content: {
+                            cellId: typedEvent.content.cellId,
+                            audioId: sanitizedAudioId,
+                            audioData: base64Now,
+                            fileModified: Date.now()
+                        }
+                    } as any);
+                }
+            }
+        } catch (error) {
+            console.error("Error saving audio attachment:", error);
+            provider.postMessageToWebview(webviewPanel, {
+                type: "audioAttachmentSaved",
+                content: {
+                    cellId: typedEvent.content.cellId,
+                    audioId: typedEvent.content.audioId,
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error)
+                }
+            });
+        }
     },
 
     deleteAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
@@ -1332,17 +1891,14 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
         });
 
-        // Refresh full content; webview derives attachment availability from content
-        provider.refreshWebview(webviewPanel, document);
+        // The modal will handle refreshing its own history, and the main UI will 
+        // update when the user navigates away and back or when the document is saved
 
         debug("Audio attachment soft deleted successfully");
     },
 
     getAudioHistory: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "getAudioHistory"; }>;
-        console.log("getAudioHistory message received", {
-            cellId: typedEvent.content.cellId
-        });
 
         // Clean up any invalid audio selections (safe to do now that document is loaded)
         document.cleanupInvalidAudioSelections();
@@ -1387,8 +1943,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
         });
 
-        // Refresh content so client recomputes availability
-        provider.refreshWebview(webviewPanel, document);
+        // The modal will handle refreshing its own history, and the main UI will 
+        // update when the user navigates away and back or when the document is saved
 
         debug("Audio attachment restored successfully");
     },
@@ -1413,8 +1969,92 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             });
 
-            // Refresh content so client recomputes availability/selection state
-            provider.refreshWebview(webviewPanel, document);
+            // Send targeted audio attachment update instead of full refresh to preserve tab state
+            const documentText = document.getText();
+            let notebookData: any = {};
+            if (documentText.trim().length > 0) {
+                try {
+                    notebookData = JSON.parse(documentText);
+                } catch {
+                    debug("Could not parse document as JSON for audio attachment update");
+                    notebookData = {};
+                }
+            }
+            const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
+            const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {} as any;
+            let validatedByArray: ValidationEntry[] = [];
+
+            for (const cell of cells) {
+                const cellId = cell?.metadata?.id;
+                if (!cellId) continue;
+                let hasAvailable = false;
+                let hasAvailablePointer = false;
+                let hasMissing = false;
+                let hasDeleted = false;
+                const atts = cell?.metadata?.attachments || {};
+
+                for (const key of Object.keys(atts)) {
+                    const att: any = (atts as any)[key];
+                    if (att && att.type === "audio") {
+                        if (att.isDeleted) {
+                            hasDeleted = true;
+                        } else if (att.isMissing) {
+                            hasMissing = true;
+                        } else {
+                            // Differentiate pointer vs real file by inspecting attachments/files path
+                            try {
+                                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                                const url = String(att.url || "");
+                                if (ws && url) {
+                                    const filesPath = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+                                    const abs = path.join(ws.uri.fsPath, filesPath);
+                                    const { isPointerFile } = await import("../../utils/lfsHelpers");
+                                    const isPtr = await isPointerFile(abs).catch(() => false);
+                                    if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
+                                } else {
+                                    hasAvailable = true;
+                                }
+                            } catch {
+                                hasAvailable = true;
+                            }
+                        }
+                    }
+
+                    if (cellId === typedEvent.content.cellId && key === cell?.metadata?.selectedAudioId) {
+                        const validatedBy = Array.isArray(att?.validatedBy) ? att.validatedBy : [];
+                        validatedByArray = [...validatedBy];
+                    }
+                }
+                availability[cellId] = hasAvailable
+                    ? "available-local"
+                    : hasAvailablePointer
+                        ? "available-pointer"
+                        : hasMissing
+                            ? "missing"
+                            : hasDeleted
+                                ? "deletedOnly"
+                                : "none";
+            }
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsAudioAttachments",
+                attachments: availability as any,
+            });
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerUpdatesAudioValidationState",
+                content: {
+                    cellId: typedEvent.content.cellId,
+                    selectedAudioId: typedEvent.content.audioId,
+                    validatedBy: validatedByArray
+                },
+            });
+
+
+
+            // Save the changes to the document
+
+            await document.save(new vscode.CancellationTokenSource().token);
 
             debug("Audio attachment selected successfully");
         } catch (error) {
@@ -1555,7 +2195,19 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // Get existing edit history or create new one
             const existingEdits = previousCell.metadata?.edits || [];
 
-            // 1. Concatenate content and create second edit
+            // Ensure an INITIAL_IMPORT exists for previous cell value if missing
+            if (existingEdits.length === 0 && previousCell.value) {
+                existingEdits.push({
+                    editMap: EditMapUtils.value(),
+                    value: previousCell.value,
+                    timestamp: timestamp,
+                    type: EditType.INITIAL_IMPORT,
+                    author: currentUser,
+                    validatedBy: []
+                } as any);
+            }
+
+            // 1. Concatenate content and create merged edit
             const mergedContent = previousContent + "<span>&nbsp;</span>" + currentContent;
             const mergeEdit: EditHistory = {
                 editMap: EditMapUtils.value(),
@@ -1636,6 +2288,22 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 merged: true
             });
 
+            // Record an edit on the merged (current) cell to reflect the merged flag change
+            const currentCellForEdits = document.getCell(currentCellId);
+            if (currentCellForEdits) {
+                if (!currentCellForEdits.metadata.edits) {
+                    currentCellForEdits.metadata.edits = [] as any;
+                }
+                (currentCellForEdits.metadata.edits as any[]).push({
+                    editMap: EditMapUtils.metadataNested("data", "merged"),
+                    value: true,
+                    timestamp: timestamp + 2,
+                    type: EditType.USER_EDIT,
+                    author: currentUser,
+                    validatedBy: []
+                });
+            }
+
             // Save the document
             await document.save(new vscode.CancellationTokenSource().token);
 
@@ -1647,6 +2315,95 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         } catch (error) {
             console.error("Error merging cells:", error);
             vscode.window.showErrorMessage(`Failed to merge cells: ${error}`);
+        }
+    },
+
+    revalidateMissingForCell: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as any;
+        const cellId = typedEvent?.content?.cellId as string;
+        if (!cellId) return;
+        try {
+            const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+            if (!workspaceFolder) return;
+            const changed = await revalidateCellMissingFlags(document, workspaceFolder, cellId);
+
+            // If anything changed, persist and send updated history and availability
+            if (changed) {
+                await document.save(new vscode.CancellationTokenSource().token);
+
+                // Send updated history
+                const audioHistory = document.getAttachmentHistory(cellId, "audio") || [];
+                const currentAttachment = document.getCurrentAttachment(cellId, "audio");
+                const explicitSelection = document.getExplicitAudioSelection(cellId);
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "audioHistoryReceived",
+                    content: {
+                        cellId,
+                        audioHistory,
+                        currentAttachmentId: currentAttachment?.attachmentId ?? null,
+                        hasExplicitSelection: explicitSelection !== null
+                    }
+                });
+
+                // Send updated availability for this cell
+                try {
+                    const documentText = document.getText();
+                    const notebookData = JSON.parse(documentText);
+                    const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
+                    const availability: { [k: string]: "available" | "missing" | "deletedOnly" | "none"; } = {} as any;
+                    const cell = cells.find((c: any) => c?.metadata?.id === cellId);
+                    if (cell) {
+                        let hasAvailable = false; let hasAvailablePointer = false; let hasMissing = false; let hasDeleted = false;
+                        const atts = cell?.metadata?.attachments || {};
+                        for (const key of Object.keys(atts)) {
+                            const att: any = atts[key];
+                            if (att && att.type === "audio") {
+                                if (att.isDeleted) hasDeleted = true;
+                                else if (att.isMissing) hasMissing = true;
+                                else {
+                                    try {
+                                        const url = String(att.url || "");
+                                        if (url) {
+                                            const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+                                            const abs = path.join(workspaceFolder.uri.fsPath, filesRel);
+                                            const { isPointerFile } = await import("../../utils/lfsHelpers");
+                                            const isPtr = await isPointerFile(abs).catch(() => false);
+                                            if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
+                                        } else {
+                                            hasAvailable = true;
+                                        }
+                                    } catch { hasAvailable = true; }
+                                }
+                            }
+                        }
+                        // Provisional state
+                        let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+                        if (hasAvailable) state = "available-local";
+                        else if (hasAvailablePointer) state = "available-pointer";
+                        else if (hasMissing) state = "missing";
+                        else if (hasDeleted) state = "deletedOnly";
+                        else state = "none";
+
+                        // Apply installed-version gate to avoid Play icon when blocked
+                        if (state !== "available-local") {
+                            try {
+                                const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
+                                const status = await getFrontierVersionStatus();
+                                if (!status.ok) {
+                                    if (state !== "missing" && state !== "deletedOnly" && state !== "none") {
+                                        state = "available-pointer";
+                                    }
+                                }
+                            } catch { /* ignore */ }
+                        }
+
+                        availability[cellId] = state as any;
+                        safePostMessageToPanel(webviewPanel, { type: "providerSendsAudioAttachments", attachments: availability });
+                    }
+                } catch { /* ignore */ }
+            }
+        } catch (err) {
+            console.error("Failed to revalidate missing for cell", { cellId, err });
         }
     },
 };

@@ -400,7 +400,6 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
             }
 
             let sectionIndex = 0;
-            let anyTextProvided = false;
             for (const row of rows) {
                 sectionIndex++;
 
@@ -432,7 +431,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                     console.warn(
                         `No valid segments for file ${row.name}, creating default segment`
                     );
-                    validSegs.push({ startSec: 0, endSec: Number.NaN });
+                    validSegs.push({ startSec: 0, endSec: Number.NaN, text: undefined });
                 }
 
                 const segs = validSegs;
@@ -592,7 +591,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                         `No valid segments for file ${row.name}, creating default segment`
                     );
                     // Create a default segment for the entire file
-                    validSegs.push({ startSec: 0, endSec: Number.NaN });
+                    validSegs.push({ startSec: 0, endSec: Number.NaN, text: undefined });
                 }
 
                 const earliestStart = Math.min(...validSegs.map((s) => s.startSec));

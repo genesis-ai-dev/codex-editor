@@ -9,12 +9,8 @@ import {
     ProjectManagerMessageFromWebview,
     ProjectManagerMessageToWebview,
     ProjectManagerState,
-    MenuSection,
-    MenuButton,
-    MainMenuMessages
 } from "../../../types";
 import { createNewWorkspaceAndProject, openProject, createNewProject } from "../../utils/projectCreationUtils/projectCreationUtils";
-import { FrontierAPI } from "webviews/codex-webviews/src/StartupFlow/types";
 import git from "isomorphic-git";
 // Note: avoid top-level http(s) imports to keep test bundling simple
 import * as fs from "fs";
@@ -23,7 +19,7 @@ import { SyncManager } from "../../projectManager/syncManager";
 import { manualUpdateCheck } from "../../utils/updateChecker";
 import { CommentsMigrator } from "../../utils/commentsMigrationUtils";
 import * as path from "path";
-
+import { PublishProjectView } from "../publishProjectView/PublishProjectView";
 const DEBUG_MODE = false; // Set to true to enable debug logging
 
 function debugLog(...args: any[]): void {
@@ -544,6 +540,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "changeSourceLanguage":
             case "changeTargetLanguage":
             case "setValidationCount":
+            case "setValidationCountAudio":
             case "downloadSourceText":
             case "openAISettings":
             case "openSourceUpload":
@@ -614,12 +611,34 @@ export class MainMenuProvider extends BaseWebviewProvider {
             }
             case "getAsrSettings": {
                 const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                let endpoint = config.get<string>("asrEndpoint", "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe");
+                let authToken: string | undefined;
+
+                // Try to get authenticated endpoint from FrontierAPI
+                try {
+                    const frontierApi = getAuthApi();
+                    if (frontierApi) {
+                        const authStatus = frontierApi.getAuthStatus();
+                        if (authStatus.isAuthenticated) {
+                            const asrEndpoint = await frontierApi.getAsrEndpoint();
+                            if (asrEndpoint) {
+                                endpoint = asrEndpoint;
+                            }
+                            // Get auth token for authenticated requests
+                            authToken = await frontierApi.authProvider.getToken();
+                        }
+                    }
+                } catch (error) {
+                    console.debug("Could not get ASR endpoint from auth API:", error);
+                }
+
                 const settings = {
-                    endpoint: config.get<string>("asrEndpoint", "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe"),
+                    endpoint,
                     provider: config.get<string>("asrProvider", "mms"),
                     model: config.get<string>("asrModel", "facebook/mms-1b-all"),
                     language: config.get<string>("asrLanguage", "eng"),
                     phonetic: config.get<boolean>("asrPhonetic", false),
+                    authToken,
                 };
                 if (this._view) {
                     safePostMessageToView(this._view, { command: "asrSettings", data: settings }, "MainMenu");
@@ -859,46 +878,11 @@ export class MainMenuProvider extends BaseWebviewProvider {
     }
 
     private async publishProject(): Promise<void> {
-        // Set publishing in progress
-        this.sendPublishStatusUpdate(true, "Preparing to publish...");
-
         try {
-            const projectOverview = await getProjectOverview();
-            const projectName = projectOverview?.projectName || "";
-            const projectId = projectOverview?.projectId || "";
-
-            if (!projectName) {
-                this.sendPublishStatusUpdate(false, "");
-                vscode.window.showErrorMessage("No project name found");
-                return;
-            }
-
-            this.sendPublishStatusUpdate(true, "Validating project data...");
-
-            const sanitizedName = `${projectName}-${projectId}`
-                .toLowerCase()
-                .replace(/[^a-z0-9._-]/g, "-")
-                .replace(/^-+|-+$/g, "")
-                .replace(/\.git$/i, "");
-
-            this.sendPublishStatusUpdate(true, "Publishing to cloud...");
-
-            await this.frontierApi?.publishWorkspace({
-                name: sanitizedName,
-                visibility: "private",
-            });
-
-            this.sendPublishStatusUpdate(true, "Finalizing...");
-
-            // Refresh state after publishing to update UI
-            await this.store.refreshState();
-
-            this.sendPublishStatusUpdate(false, "");
-            vscode.window.showInformationMessage("Project published successfully!");
+            PublishProjectView.createOrShow(this._context);
         } catch (error) {
-            this.sendPublishStatusUpdate(false, "");
-            console.error("Error publishing project:", error);
-            vscode.window.showErrorMessage(`Failed to publish project: ${(error as Error).message}`);
+            console.error("Error opening publish project view:", error);
+            vscode.window.showErrorMessage(`Failed to open publish view: ${(error as Error).message}`);
         }
     }
 

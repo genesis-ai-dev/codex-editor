@@ -13,10 +13,10 @@ import { WebviewApi } from "vscode-webview";
 import { Button } from "../components/ui/button";
 import { CodexCellTypes } from "../../../../types/enums";
 import { getEmptyCellTranslationStyle, CellTranslationState } from "./CellTranslationStyles";
-import AnimatedReveal from "../components/AnimatedReveal";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import CommentsBadge from "./CommentsBadge";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
+import { sanitizeQuillHtml } from "./utils";
 
 export interface CellListProps {
     spellCheckResponse: SpellCheckResponse | null;
@@ -39,7 +39,15 @@ export interface CellListProps {
     currentProcessingCellId?: string; // Currently processing cell ID
     cellsInAutocompleteQueue?: string[]; // Cells queued for autocompletion
     successfulCompletions?: Set<string>; // Cells that completed successfully
-    audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" }; // Cells that have audio attachments
+    audioAttachments?: {
+        [cellId: string]:
+            | "available"
+            | "available-local"
+            | "available-pointer"
+            | "deletedOnly"
+            | "none"
+            | "missing";
+    }; // Cells that have audio attachments
     isSaving?: boolean;
     saveError?: boolean; // Whether there was a save error/timeout
     saveRetryCount?: number; // Number of save retry attempts
@@ -49,6 +57,7 @@ export interface CellListProps {
     // Derived, shared state to avoid per-cell auth/validation lookups
     currentUsername?: string | null;
     requiredValidations?: number;
+    requiredAudioValidations?: number;
     // Cells currently undergoing audio transcription
     transcribingCells?: Set<string>;
     isAudioOnly?: boolean;
@@ -91,6 +100,7 @@ const CellList: React.FC<CellListProps> = ({
     lineNumbersEnabled = true,
     currentUsername,
     requiredValidations,
+    requiredAudioValidations,
     transcribingCells,
     isAudioOnly = false,
 }) => {
@@ -263,7 +273,14 @@ const CellList: React.FC<CellListProps> = ({
             // Default: no translation state
             return null;
         },
-        [currentProcessingCellId, successfulCompletions, translationQueueSet, autocompleteQueueSet, isSourceText, transcribingCells]
+        [
+            currentProcessingCellId,
+            successfulCompletions,
+            translationQueueSet,
+            autocompleteQueueSet,
+            isSourceText,
+            transcribingCells,
+        ]
     );
 
     // Handle sparkle button click with throttling
@@ -378,9 +395,9 @@ const CellList: React.FC<CellListProps> = ({
         }
     }, [cellsInAutocompleteQueue, currentProcessingCellId]);
 
-    // Helper function to generate appropriate cell label using global line numbers
-    // Helper function to get the global visible cell number (skipping paratext cells)
-    const getGlobalVisibleCellNumber = useCallback(
+    // Helper function to generate appropriate cell label using chapter-based verse numbers
+    // Helper function to get the chapter-based verse number (skipping paratext cells)
+    const getChapterBasedVerseNumber = useCallback(
         (cell: QuillCellContent, allCells: QuillCellContent[]): number => {
             const cellIndex = allCells.findIndex(
                 (unit) => unit.cellMarkers[0] === cell.cellMarkers[0]
@@ -388,14 +405,26 @@ const CellList: React.FC<CellListProps> = ({
 
             if (cellIndex === -1) return 1; // Fallback if not found
 
-            // Count non-paratext cells up to and including this one
+            // FIXME: THIS BROKE LINE NUMBERS WHEN UPLOADING SUBTITLES. NEED TO FIX.
+            // // Extract chapter information from the current cell
+            // const currentCellMarker = cell.cellMarkers[0];
+            // const currentCellParts = currentCellMarker.split(":");
+            // if (currentCellParts.length < 2) return 1; // Invalid cell marker format
+            
+            // const currentChapterId = currentCellParts[0]; // e.g., "GEN 1"
+            // const currentVerseNumber = parseInt(currentCellParts[1]); // e.g., 1 from "GEN 1:1"
+            
+            // if (isNaN(currentVerseNumber)) return 1; // Invalid verse number
+
+            // Count non-paratext cells within the same chapter up to and including this one
             let visibleCellCount = 0;
             for (let i = 0; i <= cellIndex; i++) {
                 const cellIdParts = allCells[i].cellMarkers[0].split(":");
                 if (
                     allCells[i].cellType !== CodexCellTypes.PARATEXT &&
-                    cellIdParts.length < 3 &&
-                    !allCells[i].merged
+                    cellIdParts.length >= 2 &&
+                    !allCells[i].merged /* && FIXME: THIS BROKE LINE NUMBERS WHEN UPLOADING SUBTITLES. NEED TO FIX.
+                    cellIdParts[0] === currentChapterId // Only count cells from the same chapter */
                 ) {
                     visibleCellCount++;
                 }
@@ -436,11 +465,11 @@ const CellList: React.FC<CellListProps> = ({
                 );
 
                 if (parentCell) {
-                    // Get parent's label using global line numbers
+                    // Get parent's label using chapter-based verse numbers
                     const parentLabel =
                         parentCell.cellLabel ||
                         (parentCell.cellType !== CodexCellTypes.PARATEXT
-                            ? getGlobalVisibleCellNumber(parentCell, fullDocumentTranslationUnits)
+                            ? getChapterBasedVerseNumber(parentCell, fullDocumentTranslationUnits)
                             : "");
 
                     // Find all siblings (cells with the same parent)
@@ -466,10 +495,10 @@ const CellList: React.FC<CellListProps> = ({
                 }
             }
 
-            // Get global visible cell number (skipping paratext cells)
-            return getGlobalVisibleCellNumber(cell, fullDocumentTranslationUnits).toString();
+            // Get chapter-based verse number (skipping paratext cells)
+            return getChapterBasedVerseNumber(cell, fullDocumentTranslationUnits).toString();
         },
-        [fullDocumentTranslationUnits, getGlobalVisibleCellNumber]
+        [fullDocumentTranslationUnits, getChapterBasedVerseNumber]
     );
 
     // Helper function to determine if cell content is effectively empty
@@ -500,8 +529,6 @@ const CellList: React.FC<CellListProps> = ({
                 toggleFlashingBorder();
                 return;
             }
-            const documentUri =
-                (vscode.getState() as any)?.documentUri || window.location.search.substring(1);
 
             if (cellToOpen) {
                 debug("openCellById", { cellToOpen, text: cellToOpen.cellContent });
@@ -511,7 +538,6 @@ const CellList: React.FC<CellListProps> = ({
                     cellChanged: true,
                     cellLabel: cellToOpen.cellLabel,
                     timestamps: cellToOpen.timestamps,
-                    uri: documentUri,
                 } as EditorCellContent);
                 vscode.postMessage({
                     command: "setCurrentIdToGlobalState",
@@ -557,16 +583,12 @@ const CellList: React.FC<CellListProps> = ({
                 }
             }
 
-            const documentUri =
-                (vscode.getState() as any)?.documentUri || window.location.search.substring(1);
-
             setContentBeingUpdated({
                 cellMarkers: cellToOpen.cellMarkers,
                 cellContent: cellToOpen.cellContent,
                 cellChanged: true,
                 cellLabel: cellToOpen.cellLabel,
                 timestamps: cellToOpen.timestamps,
-                uri: documentUri,
             } as EditorCellContent);
 
             vscode.postMessage({
@@ -640,6 +662,7 @@ const CellList: React.FC<CellListProps> = ({
                                 unresolvedCommentsCount={cellCommentsCount.get(cellMarkers[0]) || 0}
                                 currentUsername={currentUsername || undefined}
                                 requiredValidations={requiredValidations}
+                                requiredAudioValidations={requiredAudioValidations}
                                 isAudioOnly={isAudioOnly}
                             />
                         </span>
@@ -669,6 +692,8 @@ const CellList: React.FC<CellListProps> = ({
             openCellById,
             currentUsername,
             requiredValidations,
+            requiredAudioValidations,
+            isAudioOnly,
             lineNumbersEnabled,
         ]
     );
@@ -726,10 +751,10 @@ const CellList: React.FC<CellListProps> = ({
                             spellCheckResponse={spellCheckResponse}
                             cellIsChild={cellIsChild}
                             cellMarkers={cellMarkers}
-                            cellContent={cellContent}
+                            cellContent={sanitizeQuillHtml(cellContent)}
                             cellIndex={i}
                             cellType={cellType}
-                            cellLabel={cellLabel || generatedCellLabel}
+                            cellLabel={cellLabel ?? generatedCellLabel}
                             cellTimestamps={timestamps}
                             prevEndTime={workingTranslationUnits[i - 1]?.timestamps?.endTime}
                             nextStartTime={workingTranslationUnits[i + 1]?.timestamps?.startTime}
@@ -743,6 +768,12 @@ const CellList: React.FC<CellListProps> = ({
                             saveError={saveError}
                             saveRetryCount={saveRetryCount}
                             footnoteOffset={calculateFootnoteOffset(i) + 1}
+                            audioAttachments={audioAttachments}
+                            requiredValidations={requiredValidations}
+                            requiredAudioValidations={requiredAudioValidations}
+                            currentUsername={currentUsername || undefined}
+                            vscode={vscode}
+                            isSourceText={isSourceText}
                         />
                     </span>
                 );
@@ -805,6 +836,7 @@ const CellList: React.FC<CellListProps> = ({
                                 unresolvedCommentsCount={cellCommentsCount.get(cellMarkers[0]) || 0}
                                 currentUsername={currentUsername || undefined}
                                 requiredValidations={requiredValidations}
+                                requiredAudioValidations={requiredAudioValidations}
                                 isAudioOnly={isAudioOnly}
                             />
                         </span>
@@ -853,6 +885,8 @@ const CellList: React.FC<CellListProps> = ({
         cellCommentsCount,
         currentUsername,
         requiredValidations,
+        requiredAudioValidations,
+        isAudioOnly,
     ]);
 
     // Fetch comments count for all visible cells (batched)
@@ -947,7 +981,8 @@ const CellList: React.FC<CellListProps> = ({
                 maxWidth: "100%",
                 padding: "0 1rem",
                 boxSizing: "border-box",
-                paddingTop: "1rem",
+                // Keep minimal breathing room above the first cell to match prior layout
+                paddingTop: "0.25rem",
                 paddingBottom: "4rem",
             }}
         >

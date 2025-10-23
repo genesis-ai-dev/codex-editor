@@ -4,7 +4,7 @@ export async function getCodexCells(filePath: string): Promise<string[]> {
     const fileContent = await fs.readFile(filePath, "utf-8");
     const cells = JSON.parse(fileContent).cells;
     return cells
-        .filter((cell: any) => cell.kind === 2 && cell.language === "scripture")
+        .filter((cell: any) => (cell.kind === 2 || cell.kind === 1) && cell.language === "scripture") //haven't tested this additional cell.kind === 1 but in theory it should make life easier if we have any more files that want to use markdown and not code.
         .map((cell: any) => cell.value);
 }
 

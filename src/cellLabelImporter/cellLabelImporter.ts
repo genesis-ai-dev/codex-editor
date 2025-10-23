@@ -31,6 +31,7 @@ interface CellLabelData {
     newLabel: string;
     currentLabel?: string;
     matched: boolean;
+    sourceFileUri?: string; // Track which file this label belongs to
 }
 
 // Interface for the imported Excel/CSV format
@@ -302,7 +303,8 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
             case "processLabels":
                 try {
                     safePostMessageToPanel(panel, { command: "setLoading", isLoading: true });
-                    const { data, selectedColumn, selectedColumns, excludedFilePaths } = message; // URI no longer expected from webview
+                    const { data, selectedColumn, selectedColumns, selectedTargetFilePath } = message;
+
                     if (!data || (!selectedColumn && (!selectedColumns || selectedColumns.length === 0))) {
                         vscode.window.showErrorMessage(
                             "Missing data or selected column(s) for processing."
@@ -312,33 +314,52 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                             error: "Missing data or selected column(s).",
                         });
                         // No return here, finally block will still execute for cleanup & setLoading
+                    } else if (!selectedTargetFilePath) {
+                        vscode.window.showErrorMessage(
+                            "Please select a target file to import labels into."
+                        );
+                        safePostMessageToPanel(panel, {
+                            command: "showError",
+                            error: "No target file selected.",
+                        });
                     } else {
                         const { sourceFiles, targetFiles } = await loadSourceAndTargetFiles();
-                        let filesToProcess = [...sourceFiles];
-                        if (excludedFilePaths && excludedFilePaths.length > 0) {
-                            filesToProcess = filesToProcess.filter(
-                                (file) => !excludedFilePaths.includes(file.uri.fsPath)
-                            );
-                        }
 
-                        const labelSelector = selectedColumn || selectedColumns;
-                        const matchedLabels = await matchCellLabels(
-                            data, // Data already has normalized headers from importFile
-                            filesToProcess,
-                            targetFiles,
-                            labelSelector as any // string or string[]
+                        // Filter to only the selected file
+                        const selectedFile = sourceFiles.find(
+                            (file) => file.uri.fsPath === selectedTargetFilePath
                         );
 
-                        safePostMessageToPanel(panel, {
-                            command: "displayLabels",
-                            labels: matchedLabels,
-                            importSource: currentImportSourceNames.join(", "), // Use session import names
-                            availableSourceFiles: sourceFiles.map((f) => ({
-                                path: f.uri.fsPath,
-                                id: f.id,
-                                name: path.basename(f.uri.fsPath),
-                            })),
-                        });
+                        if (!selectedFile) {
+                            vscode.window.showErrorMessage(
+                                `Selected file not found: ${selectedTargetFilePath}`
+                            );
+                            safePostMessageToPanel(panel, {
+                                command: "showError",
+                                error: "Selected file not found.",
+                            });
+                        } else {
+                            const filesToProcess = [selectedFile];
+
+                            const labelSelector = selectedColumn || selectedColumns;
+                            const matchedLabels = await matchCellLabels(
+                                data, // Data already has normalized headers from importFile
+                                filesToProcess,
+                                targetFiles,
+                                labelSelector as any // string or string[]
+                            );
+
+                            safePostMessageToPanel(panel, {
+                                command: "displayLabels",
+                                labels: matchedLabels,
+                                importSource: currentImportSourceNames.join(", "), // Use session import names
+                                availableSourceFiles: sourceFiles.map((f) => ({
+                                    path: f.uri.fsPath,
+                                    id: f.id,
+                                    name: path.basename(f.uri.fsPath),
+                                })),
+                            });
+                        }
                     }
                 } catch (error: any) {
                     console.error("Error during processLabels:", error);

@@ -442,6 +442,12 @@ function NavigationView() {
         });
     };
 
+    const handleOpenExport = () => {
+        vscode.postMessage({
+            command: "openExportView",
+        });
+    };
+
     const handleEditBookName = (item: CodexItem) => {
         vscode.postMessage({
             command: "editBookName",
@@ -804,7 +810,7 @@ function NavigationView() {
                 })()}
             </div>
 
-            <div className="mt-auto pt-4 border-t-2 border-vscode-sideBarSectionHeader-border flex flex-col gap-3 bg-vscode-sideBar-background relative">
+            <div className="mt-auto pt-4 flex flex-col gap-3 bg-vscode-sideBar-background relative">
                 {/* Add Files Button */}
                 <Button
                     variant="default"
@@ -815,6 +821,17 @@ function NavigationView() {
                     <i className="codicon codicon-add text-base" />
                     <i className="codicon codicon-file-text text-base" />
                     Add Files
+                </Button>
+
+                {/* Export Files Button */}
+                <Button
+                    variant="secondary"
+                    onClick={handleOpenExport}
+                    title="Export files"
+                    className="w-full py-3 px-5 text-sm font-semibold shadow-sm hover:-translate-y-[1px] hover:shadow-md active:translate-y-0 active:shadow-sm transition-all flex items-center justify-center gap-2.5"
+                >
+                    <i className="codicon codicon-cloud-upload" />
+                    Export Files
                 </Button>
 
                 {/* Project Dictionary */}

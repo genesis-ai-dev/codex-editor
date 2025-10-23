@@ -178,16 +178,19 @@ const serverConfig = {
 
 const testConfig = {
     name: "test",
-    target: "webworker",
+    target: "node", // VS Code extension tests run in Node.js context
     mode: "none",
     entry: "./src/test/suite/index.ts",
     output: {
         path: path.resolve(__dirname, "out", "test", "suite"),
         filename: "index.js",
         libraryTarget: "commonjs2",
+        publicPath: '', // Disable automatic publicPath for extension host compatibility
     },
     externals: {
         vscode: "commonjs vscode",
+        child_process: "commonjs child_process", // Required for audioMigration utility
+        util: "commonjs util", // Required for promisify
     },
     resolve: {
         extensions: [".ts", ".js"],
@@ -198,6 +201,12 @@ const testConfig = {
             // Map Node.js scheme imports to browser polyfills for the test bundle
             "node:http": require.resolve("stream-http"),
             "node:https": require.resolve("https-browserify"),
+            "node:url": require.resolve("url/"),
+            "node:buffer": require.resolve("buffer/"),
+            "node:events": require.resolve("events/"),
+            "node:path": require.resolve("path-browserify"),
+            "node:stream": require.resolve("stream-browserify"),
+            "node:util": require.resolve("util/"),
         },
         fallback: {
             assert: require.resolve("assert/"),
@@ -251,6 +260,24 @@ const testConfig = {
         }),
         new webpack.DefinePlugin({
             "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV || "development"),
+        }),
+        new webpack.NormalModuleReplacementPlugin(/^node:/, (resource) => {
+            const module = resource.request.replace(/^node:/, "");
+            // Map specific node modules to their browserify equivalents
+            const moduleMap = {
+                buffer: "buffer/",
+                events: "events/",
+                path: "path-browserify",
+                stream: "stream-browserify",
+                util: "util/",
+                http: "stream-http",
+                https: "https-browserify",
+                url: "url/",
+            };
+            const mappedModule = moduleMap[module];
+            if (mappedModule) {
+                resource.request = require.resolve(mappedModule);
+            }
         }),
         // ... other plugins if necessary
     ],

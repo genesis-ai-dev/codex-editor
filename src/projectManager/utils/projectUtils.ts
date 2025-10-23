@@ -15,6 +15,7 @@ import http from "isomorphic-git/http/web";
 import { getAuthApi } from "../../extension";
 import { stageAndCommitAllAndSync } from "./merge";
 import { SyncManager } from "../syncManager";
+import { MetadataManager } from "../../utils/metadataManager";
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[ProjectUtils]", ...args) : () => { };
@@ -22,6 +23,8 @@ const debug = DEBUG ? (...args: any[]) => console.log("[ProjectUtils]", ...args)
 // Flag to temporarily disable metadata to config sync during direct updates
 let syncDisabled = false;
 const SYNC_DISABLE_TIMEOUT = 2000; // 2 seconds
+
+// (Frontier version check moved to utils/versionChecks and enforced at sync time)
 
 /**
  * Temporarily disables synchronization from metadata to config
@@ -354,25 +357,48 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
     }
 
     const projectFilePath = vscode.Uri.joinPath(WORKSPACE_FOLDER.uri, "metadata.json");
-    const projectFileData = Buffer.from(JSON.stringify(newProject, null, 4), "utf8");
 
     try {
-        await vscode.workspace.fs.stat(projectFilePath);
-        // File exists, ask for confirmation to overwrite
-        const overwrite = await vscode.window.showWarningMessage(
-            "Project file already exists. Do you want to overwrite it?",
-            "Yes",
-            "No"
+        try {
+            await vscode.workspace.fs.stat(projectFilePath);
+            // File exists, ask for confirmation to overwrite
+            const overwrite = await vscode.window.showWarningMessage(
+                "Project file already exists. Do you want to overwrite it?",
+                "Yes",
+                "No"
+            );
+            if (overwrite !== "Yes") {
+                vscode.window.showInformationMessage("Project creation cancelled.");
+                return;
+            }
+        } catch (error) {
+            // File doesn't exist, we can proceed with creation
+        }
+
+        // Use MetadataManager to safely create the project metadata
+        const createResult = await MetadataManager.safeUpdateMetadata(
+            WORKSPACE_FOLDER.uri,
+            () => {
+                // Add extension version requirements to the new project
+                const projectWithVersions = {
+                    ...newProject,
+                    meta: {
+                        ...newProject.meta,
+                        requiredExtensions: {
+                            codexEditor: MetadataManager.getCurrentExtensionVersion("project-accelerate.codex-editor-extension")
+                        }
+                    }
+                };
+                return projectWithVersions;
+            }
         );
-        if (overwrite !== "Yes") {
-            vscode.window.showInformationMessage("Project creation cancelled.");
+
+        if (!createResult.success) {
+            console.error("Failed to create project metadata:", createResult.error);
+            vscode.window.showErrorMessage("Failed to create project metadata. Check the output panel for details.");
             return;
         }
-    } catch (error) {
-        // File doesn't exist, we can proceed with creation
-    }
-    try {
-        await vscode.workspace.fs.writeFile(projectFilePath, projectFileData);
+
         vscode.window.showInformationMessage(`Project created at ${projectFilePath.fsPath}`);
 
         // Check if git is already initialized
@@ -399,6 +425,9 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
 
                 // Ensure git configuration files are present and up-to-date
                 await ensureGitConfigsAreUpToDate();
+
+                // Disable VS Code's built-in Git integration
+                await ensureGitDisabledInSettings();
 
                 // Add files to git
                 await git.add({
@@ -468,73 +497,67 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
 }
 
 export async function updateMetadataFile() {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
 
     if (!workspaceFolder) {
         console.error("No workspace folder found.");
         return;
     }
 
-    const projectFilePath = vscode.Uri.joinPath(vscode.Uri.file(workspaceFolder), "metadata.json");
-
-    let project;
-    try {
-        // Force read from disk to avoid cache issues
-        const projectFileData = await vscode.workspace.fs.readFile(projectFilePath);
-        project = JSON.parse(projectFileData.toString());
-        debug("Read existing metadata.json file");
-    } catch (error) {
-        console.warn("Metadata file does not exist, creating a new one.");
-        project = {}; // Initialize an empty project object if the file does not exist
-    }
-
     const projectSettings = vscode.workspace.getConfiguration("codex-project-manager");
 
-    // Preserving existing validation count if it exists
-    const existingValidationCount = project.meta?.validationCount;
-    const configValidationCount = projectSettings.get("validationCount", 1);
+    const result = await MetadataManager.safeUpdateMetadata(
+        workspaceFolder,
+        (project: any) => {
+            // Preserving existing validation count if it exists
+            const existingValidationCount = project.meta?.validationCount;
+            const configValidationCount = projectSettings.get("validationCount", 1);
 
-    debug(
-        `Updating metadata file - existing validation count: ${existingValidationCount}, config validation count: ${configValidationCount}`
+            debug(
+                `Updating metadata file - existing validation count: ${existingValidationCount}, config validation count: ${configValidationCount}`
+            );
+
+            // Check if we're in a sync disabled state (meaning a direct update is occurring)
+            if (syncDisabled) {
+                debug("Direct update in progress - using config value for validation count");
+            }
+
+            // Update project properties
+            project.projectName = projectSettings.get("projectName", "");
+            project.meta = project.meta || {}; // Ensure meta object exists
+
+            // Explicitly update validation count
+            project.meta.validationCount = configValidationCount;
+
+            project.meta.generator = project.meta.generator || {}; // Ensure generator object exists
+            project.meta.generator.userName = projectSettings.get("userName", "");
+            project.meta.generator.userEmail = projectSettings.get("userEmail", "");
+            project.languages = project.languages || [null, null];
+            project.languages[0] = projectSettings.get("sourceLanguage", project.languages[0] || "");
+            project.languages[1] = projectSettings.get("targetLanguage", project.languages[1] || "");
+            project.meta.abbreviation = projectSettings.get("abbreviation", "");
+            project.spellcheckIsEnabled = projectSettings.get("spellcheckIsEnabled", false);
+
+            debug("Project settings loaded, preparing to write to metadata.json");
+            return project;
+        }
     );
 
-    // Check if we're in a sync disabled state (meaning a direct update is occurring)
-    if (syncDisabled) {
-        debug("Direct update in progress - using config value for validation count");
-    }
-
-    // Update project properties
-    project.projectName = projectSettings.get("projectName", "");
-    project.meta = project.meta || {}; // Ensure meta object exists
-
-    // Explicitly update validation count
-    project.meta.validationCount = configValidationCount;
-
-    project.meta.generator = project.meta.generator || {}; // Ensure generator object exists
-    project.meta.generator.userName = projectSettings.get("userName", "");
-    project.meta.generator.userEmail = projectSettings.get("userEmail", "");
-    project.languages = project.languages || [null, null];
-    project.languages[0] = projectSettings.get("sourceLanguage", project.languages[0] || "");
-    project.languages[1] = projectSettings.get("targetLanguage", project.languages[1] || "");
-    project.meta.abbreviation = projectSettings.get("abbreviation", "");
-    project.spellcheckIsEnabled = projectSettings.get("spellcheckIsEnabled", false);
-
-    // Update other fields as needed
-    debug("Project settings loaded, preparing to write to metadata.json");
-
-    try {
-        const updatedProjectFileData = Buffer.from(JSON.stringify(project, null, 4), "utf8");
-        await vscode.workspace.fs.writeFile(projectFilePath, updatedProjectFileData);
-        debug(
-            "Successfully wrote metadata.json with validation count:",
-            project.meta.validationCount
+    if (!result.success) {
+        console.error("Failed to update metadata:", result.error);
+        vscode.window.showErrorMessage(
+            'Failed to update project metadata. Check the output panel for details.'
         );
-
-        // Small delay to ensure file system operations complete before further operations
-        await new Promise((resolve) => setTimeout(resolve, 100));
-    } catch (error) {
-        console.error("Error writing metadata.json:", error);
+        return;
     }
+
+    debug(
+        "Successfully wrote metadata.json with validation count:",
+        result.metadata?.meta?.validationCount
+    );
+
+    // Small delay to ensure file system operations complete before further operations
+    await new Promise((resolve) => setTimeout(resolve, 100));
 }
 
 export const projectFileExists = async () => {
@@ -613,6 +636,7 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
             projectStatus: metadata.projectStatus || "Unknown Status",
             category: metadata.meta?.category || "Uncategorized",
             validationCount: metadata.meta?.validationCount || 1,
+            validationCountAudio: metadata.meta?.validationCountAudio || 1,
             userName: userInfo?.username || "Anonymous",
             userEmail: userInfo?.email || "",
             meta: {
@@ -620,6 +644,7 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
                 // FIXME: the codex-types library is out of date. Thus we have mismatched and/or duplicate values being defined
                 category: metadata.meta?.category || "Uncategorized",
                 validationCount: metadata.meta?.validationCount || 1,
+                validationCountAudio: metadata.meta?.validationCountAudio || 1,
                 generator: {
                     softwareName: metadata.meta?.generator?.softwareName || "Unknown Software",
                     softwareVersion: metadata.meta?.generator?.softwareVersion || "0.0.1",
@@ -737,6 +762,51 @@ export async function syncMetadataToConfiguration() {
             debug("No valid validationCount found in metadata");
         }
 
+        // Sync validationCount from metadata to config
+        if (
+            metadata.meta &&
+            "validationCountAudio" in metadata.meta &&
+            typeof metadata.meta.validationCountAudio === "number"
+        ) {
+            debug(
+                `Syncing validationCountAudio from metadata (${metadata.meta.validationCountAudio}) to configuration`
+            );
+
+            const currentConfigValue = config.get("validationCountAudio", 1);
+            if (currentConfigValue !== metadata.meta.validationCountAudio) {
+                debug(
+                    `Current config value (${currentConfigValue}) differs from metadata (${metadata.meta.validationCountAudio}), updating...`
+                );
+
+                await config.update(
+                    "validationCountAudio",
+                    metadata.meta.validationCountAudio,
+                    vscode.ConfigurationTarget.Workspace
+                );
+
+                debug(
+                    `Configuration updated to match metadata validationCountAudio: ${metadata.meta.validationCountAudio}`
+                );
+
+                // Schedule a sync operation to ensure the changes are committed (only if auto-sync is enabled)
+                const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
+
+                if (autoSyncEnabled) {
+                    SyncManager.getInstance().scheduleSyncOperation(
+                        "Update project configuration from metadata"
+                    );
+                } else {
+                    debug("Auto-sync is disabled, skipping scheduled sync for metadata configuration update");
+                }
+            } else {
+                debug(
+                    `Configuration already matches metadata validationCountAudio: ${metadata.meta.validationCountAudio}`
+                );
+            }
+        } else {
+            debug("No valid validationCountAudio found in metadata");
+        }
+
         // Add other metadata properties sync here as needed
     } catch (error) {
         console.error("Error syncing metadata to configuration:", error);
@@ -778,6 +848,8 @@ export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
         // If both metadata and git exist, ensure git configuration files are up-to-date
         if (metadataExists) {
             await ensureGitConfigsAreUpToDate();
+            // NOTE: ensureGitDisabledInSettings() is now called AFTER sync in extension.ts
+            // to avoid creating a dirty working directory before sync operations
         }
     } catch {
         debug("Git repository not initialized yet"); // Changed to log since this is expected for new projects
@@ -804,16 +876,15 @@ export async function accessMetadataFile(): Promise<ProjectMetadata | undefined>
         return;
     }
     const workspaceFolder = workspaceFolders[0];
-    const metadataFilePath = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
-    try {
-        const fileData = await vscode.workspace.fs.readFile(metadataFilePath);
-        const metadata = JSON.parse(fileData.toString());
-        return metadata;
-    } catch (error) {
-        // File doesn't exist or can't be read, which is expected for a new project
-        debug("Metadata file not found or cannot be read. This is normal for a new project.");
+
+    const result = await MetadataManager.safeReadMetadata<ProjectMetadata>(workspaceFolder.uri);
+
+    if (!result.success) {
+        debug("Error reading metadata file:", result.error);
         return;
     }
+
+    return result.metadata;
 }
 export async function reopenWalkthrough() {
     await vscode.commands.executeCommand("workbench.action.closeAllGroups");
@@ -1012,12 +1083,13 @@ async function processProjectDirectory(
     const projectPath = path.join(folder, name);
 
     try {
-        // Run project validation, metadata reading, git operations, and stats in parallel
-        const [projectStatus, projectName, gitOriginUrl, stats] = await Promise.allSettled([
+        // Run project validation, metadata reading, git operations, stats, and local settings in parallel
+        const [projectStatus, projectName, gitOriginUrl, stats, mediaStrategy] = await Promise.allSettled([
             isValidCodexProject(projectPath),
             getProjectNameFromMetadata(projectPath, name),
             getGitOriginUrl(projectPath),
-            vscode.workspace.fs.stat(vscode.Uri.file(projectPath))
+            vscode.workspace.fs.stat(vscode.Uri.file(projectPath)),
+            getMediaFilesStrategyForProject(projectPath)
         ]);
 
         // Check if project is valid
@@ -1030,6 +1102,7 @@ async function processProjectDirectory(
         const nameResult = projectName.status === 'fulfilled' ? projectName.value : name;
         const gitResult = gitOriginUrl.status === 'fulfilled' ? gitOriginUrl.value : undefined;
         const statsResult = stats.status === 'fulfilled' ? stats.value : null;
+        const mediaStrategyResult = mediaStrategy.status === 'fulfilled' ? mediaStrategy.value : undefined;
 
         if (!statsResult) {
             debug(`Could not get stats for ${projectPath}`);
@@ -1047,6 +1120,7 @@ async function processProjectDirectory(
             hasVersionMismatch: statusResult.hasVersionMismatch,
             gitOriginUrl: gitResult,
             description: "...",
+            mediaStrategy: mediaStrategyResult,
         };
     } catch (error) {
         debug(`Error processing project directory ${projectPath}:`, error);
@@ -1090,28 +1164,30 @@ async function getGitOriginUrl(projectPath: string): Promise<string | undefined>
     }
 }
 
+/**
+ * Get media files strategy for a project
+ */
+async function getMediaFilesStrategyForProject(projectPath: string): Promise<"auto-download" | "stream-and-save" | "stream-only" | undefined> {
+    try {
+        const { getMediaFilesStrategyForPath } = await import("../../utils/localProjectSettings");
+        const strategy = await getMediaFilesStrategyForPath(projectPath);
+        // Ensure the strategy is one of the valid types
+        if (strategy === "auto-download" || strategy === "stream-and-save" || strategy === "stream-only") {
+            return strategy;
+        }
+        return undefined;
+    } catch (error) {
+        debug(`Could not read media strategy for ${projectPath}:`, error);
+        return undefined;
+    }
+}
+
 export { stageAndCommitAllAndSync };
 
 /**
- * Ensures that the project has an up-to-date .gitignore file
- * Rewrites the .gitignore file if it doesn't match the standard content exactly
+ * Internal helper to update .gitignore file without version checking
  */
-export async function ensureGitignoreIsUpToDate(skipVersionCheck: boolean = false): Promise<void> {
-    // Verify Frontier Authentication extension version before proceeding (unless skipped by caller)
-    if (!skipVersionCheck) {
-        const requiredFrontierVersion = "0.4.13";
-        const frontierExt = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
-        const installedVersion: string | undefined = (frontierExt as any)?.packageJSON?.version;
-        if (!installedVersion || !semver.gte(installedVersion, requiredFrontierVersion)) {
-            const msg = installedVersion
-                ? `Frontier Authentication extension ${installedVersion} detected. Version ${requiredFrontierVersion} or newer is required before updating .gitignore.`
-                : `Frontier Authentication extension not found. Version ${requiredFrontierVersion} or newer is required before updating .gitignore.`;
-            console.warn(msg);
-            vscode.window.showWarningMessage(msg);
-            return;
-        }
-    }
-
+async function updateGitignoreFile(): Promise<void> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
         console.error("No workspace folder found.");
@@ -1133,6 +1209,7 @@ export async function ensureGitignoreIsUpToDate(skipVersionCheck: boolean = fals
         "",
         "# Don't sync user-specific files",
         ".project/complete_drafts.txt",
+        ".project/localProjectSettings.json",
         "copilot-messages.log",
         "",
         "# Archive formats",
@@ -1171,7 +1248,7 @@ export async function ensureGitignoreIsUpToDate(skipVersionCheck: boolean = fals
         ".DS_Store",
         ".project/attachments/files/**",
     ].join("\n");
-    // NOTE: we are ignoring the files dir in attachments because we also have a  pointers folder in the attachments dir. 
+    // NOTE: we are ignoring the files dir in attachments because we also have a  pointers folder in the attachments dir.
     // the pointers folder will be used to store the pointers to the files in the files dir.
 
     let existingContent = "";
@@ -1208,26 +1285,15 @@ export async function ensureGitignoreIsUpToDate(skipVersionCheck: boolean = fals
     }
 }
 
-/**
- * Ensures that the project has an up-to-date .gitattributes file
- * Rewrites the .gitattributes file if it doesn't match the standard content exactly
- */
-export async function ensureGitattributesIsUpToDate(skipVersionCheck: boolean = false): Promise<void> {
-    // Verify Frontier Authentication extension version before proceeding (unless skipped by caller)
-    if (!skipVersionCheck) {
-        const requiredFrontierVersion = "0.4.13";
-        const frontierExt = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
-        const installedVersion: string | undefined = (frontierExt as any)?.packageJSON?.version;
-        if (!installedVersion || !semver.gte(installedVersion, requiredFrontierVersion)) {
-            const msg = installedVersion
-                ? `Frontier Authentication extension ${installedVersion} detected. Version ${requiredFrontierVersion} or newer is required before updating .gitattributes.`
-                : `Frontier Authentication extension not found. Version ${requiredFrontierVersion} or newer is required before updating .gitattributes.`;
-            console.warn(msg);
-            vscode.window.showWarningMessage(msg);
-            return;
-        }
-    }
+export async function ensureGitignoreIsUpToDate(): Promise<void> {
+    // .gitignore is part of codebase - always allow updates
+    await updateGitignoreFile();
+}
 
+/**
+ * Internal helper to update .gitattributes file without version checking
+ */
+async function updateGitattributesFile(): Promise<void> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
         console.error("No workspace folder found.");
@@ -1290,23 +1356,63 @@ export async function ensureGitattributesIsUpToDate(skipVersionCheck: boolean = 
     }
 }
 
+export async function ensureGitattributesIsUpToDate(): Promise<void> {
+    // .gitattributes is part of codebase - always allow updates
+    await updateGitattributesFile();
+}
+
 /**
  * Ensures both .gitignore and .gitattributes are present and up-to-date
- * Performs a single version check and then updates both files
+ * Git configuration files are always updated regardless of extension version
  */
 export async function ensureGitConfigsAreUpToDate(): Promise<void> {
-    const requiredFrontierVersion = "0.4.13";
-    const frontierExt = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
-    const installedVersion: string | undefined = (frontierExt as any)?.packageJSON?.version;
-    if (!installedVersion || !semver.gte(installedVersion, requiredFrontierVersion)) {
-        const msg = installedVersion
-            ? `Frontier Authentication extension ${installedVersion} detected. Version ${requiredFrontierVersion} or newer is required before updating git configuration files.`
-            : `Frontier Authentication extension not found. Version ${requiredFrontierVersion} or newer is required before updating git configuration files.`;
-        console.warn(msg);
-        vscode.window.showWarningMessage(msg);
+    // Git config files are part of codebase - always allow updates
+    await updateGitignoreFile();
+    await updateGitattributesFile();
+}
+
+export async function afterProjectDetectedEnsureLocalSettings(projectUri: vscode.Uri): Promise<void> {
+    try {
+        // Guard: only create settings after repo exists (avoid during clone checkout)
+        try {
+            const gitDir = vscode.Uri.joinPath(projectUri, ".git");
+            await vscode.workspace.fs.stat(gitDir);
+        } catch {
+            return;
+        }
+        const { ensureLocalProjectSettingsExists } = await import("../../utils/localProjectSettings");
+        await ensureLocalProjectSettingsExists(projectUri);
+    } catch (e) {
+        // best-effort
+    }
+}
+
+/**
+ * Ensures git.enabled is set to false in workspace settings
+ * This disables VS Code's built-in Git integration for the project
+ */
+export async function ensureGitDisabledInSettings(): Promise<void> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+        console.error("No workspace folder found.");
         return;
     }
 
-    await ensureGitignoreIsUpToDate(true);
-    await ensureGitattributesIsUpToDate(true);
+    try {
+        const gitConfig = vscode.workspace.getConfiguration("git");
+        const currentValue = gitConfig.inspect<boolean>("enabled");
+
+        // Check if git.enabled is already set to false at workspace level
+        if (currentValue?.workspaceValue === false) {
+            debug("git.enabled is already set to false in workspace settings");
+            return;
+        }
+
+        // Set git.enabled to false at workspace level
+        await gitConfig.update("enabled", false, vscode.ConfigurationTarget.Workspace);
+        debug("Set git.enabled to false in workspace settings");
+        console.log("Disabled VS Code's built-in Git integration for this project");
+    } catch (error) {
+        console.error("Failed to update git.enabled setting:", error);
+    }
 }

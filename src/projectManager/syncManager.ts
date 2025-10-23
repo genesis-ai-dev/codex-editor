@@ -8,6 +8,7 @@ import { updateSplashScreenSync } from "../providers/SplashScreen/register";
 import git from "isomorphic-git";
 import fs from "fs";
 import http from "isomorphic-git/http/web";
+import { getFrontierVersionStatus } from "./utils/versionChecks";
 import { BookCompletionData } from "../progressReporting/progressReportingService";
 import { ProgressReportingService, registerProgressReportingCommands } from "../progressReporting/progressReportingService";
 import { CommentsMigrator } from "../utils/commentsMigrationUtils";
@@ -245,7 +246,16 @@ export class SyncManager {
             return;
         }
 
-        // Proceed without extension version checks against metadata
+        // Enforce Frontier version requirement for sync operations (Git LFS safety gate)
+        const versionStatus = await getFrontierVersionStatus();
+        if (!versionStatus.ok) { // ${versionStatus.installedVersion}
+            debug("Frontier version requirement not met. Blocking sync operation.");
+            const details = versionStatus.installedVersion
+                ? `Frontier Authentication version ${versionStatus.requiredVersion} or newer is required to sync.`
+                : `Frontier Authentication not found. Version ${versionStatus.requiredVersion} or newer is required to sync.`;
+            await vscode.window.showWarningMessage(details, { modal: true });
+            return;
+        }
 
         // Set sync in progress flag and show immediate feedback
         this.clearPendingSync();
@@ -374,6 +384,34 @@ export class SyncManager {
                         // Don't fail sync completion due to migration errors
                     }
                 }
+            }
+
+            // Refresh audio attachments in all open codex editors after sync
+            try {
+                const { GlobalProvider } = await import("../globalProvider");
+                const provider = GlobalProvider.getInstance().getProvider("codex-cell-editor") as any;
+                if (provider && typeof provider.refreshAudioAttachmentsAfterSync === 'function') {
+                    debug("[SyncManager] Refreshing audio attachments after sync");
+                    await provider.refreshAudioAttachmentsAfterSync();
+                } else {
+                    debug("[SyncManager] Codex cell editor provider not available or missing refresh method");
+                }
+            } catch (error) {
+                console.error("[SyncManager] Error refreshing audio attachments after sync:", error);
+                // Don't fail sync completion due to audio refresh errors
+            }
+
+            // Post-sync cleanup for media files (stream-only mode)
+            try {
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                if (workspaceFolder) {
+                    const { postSyncCleanup } = await import("../utils/mediaStrategyManager");
+                    await postSyncCleanup(workspaceFolder.uri);
+                    debug("[SyncManager] Post-sync media cleanup completed");
+                }
+            } catch (error) {
+                console.error("[SyncManager] Error in post-sync media cleanup:", error);
+                // Don't fail sync completion due to cleanup errors
             }
 
             // Update sync stage and splash screen
