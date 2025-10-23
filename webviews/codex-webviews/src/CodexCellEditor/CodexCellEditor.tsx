@@ -1236,13 +1236,30 @@ const CodexCellEditor: React.FC = () => {
                     cell.cellContent !== "<span></span>"
             ).length;
 
-            const cellsWithAudioValues = cellsForChapter.filter(
-                (cell) => 
-                    cell.attachments 
-                    && Object.keys(cell.attachments).length > 0
-                    && cell.attachments[Object.keys(cell.attachments)[0]].type === "audio"
-                    && cell.attachments[Object.keys(cell.attachments)[0]].isDeleted === false
-            ).length;
+            const cellsWithAudioValues = cellsForChapter.filter((cell) => {
+                const atts = (cell as any).attachments as Record<string, any> | undefined;
+                if (!atts || Object.keys(atts).length === 0) return false;
+
+                const selectedId = (cell as any).metadata?.selectedAudioId;
+                if (selectedId && atts[selectedId]) {
+                    const att = atts[selectedId];
+                    return (
+                        att &&
+                        att.type === "audio" &&
+                        att.isDeleted === false &&
+                        att.isMissing !== true
+                    );
+                }
+
+                // Fallback: any non-deleted, non-missing audio attachment
+                return Object.values(atts).some(
+                    (att: any) =>
+                        att &&
+                        att.type === "audio" &&
+                        att.isDeleted === false &&
+                        att.isMissing !== true
+                );
+            }).length;
 
             // Calculate validation data using the same logic as navigation provider
             const cellWithValidatedData = cellsForChapter.map((cell) => {

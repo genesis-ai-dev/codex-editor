@@ -232,6 +232,19 @@ export function ChapterSelectorModal({
                 {Array.from({ length: totalChapters }, (_, i) => i + 1).map((chapter) => {
                     const isSelected = currentChapter === chapter;
                     const { textBackgroundColor, audioBackgroundColor } = getChapterColor(chapter);
+                    const cp = chapterProgress?.[chapter];
+                    const audioCompletedPercent = Math.round(
+                        cp?.percentAudioTranslationsCompleted ?? 0
+                    );
+                    const audioValidatedPercent = Math.round(
+                        cp?.percentAudioValidatedTranslations ?? 0
+                    );
+                    const textCompletedPercent = Math.round(cp?.percentTranslationsCompleted ?? 0);
+                    const textValidatedPercent = Math.round(
+                        cp?.percentTextValidatedTranslations ?? 0
+                    );
+                    const audioTitle = `Audio: ${audioCompletedPercent}% completed, ${audioValidatedPercent}% validated`;
+                    const textTitle = `Text: ${textCompletedPercent}% completed, ${textValidatedPercent}% validated`;
 
                     return (
                         <div
@@ -263,6 +276,7 @@ export function ChapterSelectorModal({
                                 <div className="flex w-full items-center justify-center p-[4px] border-t border-[var(--vscode-widget-border)]">
                                     <div
                                         className={`flex w-full justify-center items-center ${audioBackgroundColor}`}
+                                        title={audioTitle}
                                     >
                                         <svg
                                             viewBox="0 0 64 64"
@@ -284,6 +298,7 @@ export function ChapterSelectorModal({
                                     </div>
                                     <div
                                         className={`flex w-full justify-center items-center ${textBackgroundColor}`}
+                                        title={textTitle}
                                     >
                                         <svg
                                             viewBox="0 0 512 512"

@@ -680,13 +680,24 @@ ChapterNavigationHeaderProps) {
         const isFullyTranslated = completedCells.length === totalCells;
 
         // Calculate audio presence for subsection (mirrors chapter calculation)
-        const cellsWithAudioValues = validCells.filter(
-            (cell) =>
-                cell.attachments &&
-                Object.keys(cell.attachments).length > 0 &&
-                cell.attachments[Object.keys(cell.attachments)[0]].type === "audio" &&
-                cell.attachments[Object.keys(cell.attachments)[0]].isDeleted === false
-        ).length;
+        const cellsWithAudioValues = validCells.filter((cell) => {
+            const atts = (cell as any).attachments as Record<string, any> | undefined;
+            if (!atts || Object.keys(atts).length === 0) return false;
+
+            const selectedId = (cell as any).metadata?.selectedAudioId;
+            if (selectedId && atts[selectedId]) {
+                const att = atts[selectedId];
+                return (
+                    att && att.type === "audio" && att.isDeleted === false && att.isMissing !== true
+                );
+            }
+
+            // Fallback: any non-deleted, non-missing audio attachment
+            return Object.values(atts).some(
+                (att: any) =>
+                    att && att.type === "audio" && att.isDeleted === false && att.isMissing !== true
+            );
+        }).length;
 
         // Check if all cells are validated
         let isFullyValidated = false;
