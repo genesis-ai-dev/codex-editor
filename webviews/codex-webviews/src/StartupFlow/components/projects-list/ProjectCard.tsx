@@ -61,6 +61,15 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     const isChangingStrategy = isProjectLocal && pendingStrategy !== null;
     const disableControls = isAnyOperationApplying || isChangingStrategy;
 
+    // Keep local strategy in sync with upstream project props when they change
+    React.useEffect(() => {
+        const incoming = project.mediaStrategy || "auto-download";
+        if (pendingStrategy === null && mediaStrategy !== incoming) {
+            setMediaStrategy(incoming);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [project.mediaStrategy, project.name]);
+
     const getStrategyLabel = (strategy: MediaFilesStrategy): string => {
         switch (strategy) {
             case "auto-download":

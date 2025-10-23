@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { ProjectWithSyncStatus, ProjectSyncStatus } from "types";
 import { Badge } from "../../components/ui/badge";
 import { Card, CardContent, CardHeader } from "../../components/ui/card";
@@ -253,7 +253,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         };
     };
 
-    const { hierarchy, ungrouped: ungroupedProjects } = useMemo(() => {
+    const { hierarchy, ungrouped: ungroupedProjects } = React.useMemo(() => {
         const groupProjectsByHierarchy = (projects: ProjectWithSyncStatus[]) => {
             const hierarchy: Record<string, ProjectGroup> = {};
             const ungrouped: ProjectWithSyncStatus[] = [];
@@ -344,6 +344,8 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         });
     };
 
+    // No list-level memoization; we pass shallow copies at usage sites where needed
+
     const filteredUngroupedProjects = filterProjects(ungroupedProjects || []);
 
     return (
@@ -384,7 +386,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                         group ? (
                             <GroupSection
                                 key={groupName}
-                                group={group}
+                                group={{ ...group, projects: [...group.projects] }}
                                 depth={0}
                                 filter={filter}
                                 searchQuery={searchQuery}

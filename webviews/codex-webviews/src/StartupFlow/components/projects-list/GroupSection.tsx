@@ -161,10 +161,10 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                     <CardContent className="p-0">
                         {filteredProjects.length > 0 && (
                             <div className="border-t border-muted">
-                                {filteredProjects.map((project) => (
+                        {filteredProjects.map((project) => (
                                     <ProjectCard
                                         key={`${project.name}-${project.gitOriginUrl || 'no-url'}`}
-                                        project={project}
+                                project={{ ...project }}
                                         onCloneProject={onCloneProject}
                                         onOpenProject={onOpenProject}
                                         onDeleteProject={onDeleteProject}
