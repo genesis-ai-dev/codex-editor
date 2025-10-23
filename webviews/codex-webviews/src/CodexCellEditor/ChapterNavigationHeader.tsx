@@ -24,6 +24,8 @@ import {
 } from "../components/ui/dropdown-menu";
 import { Slider } from "../components/ui/slider";
 import { Alert, AlertDescription } from "../components/ui/alert";
+import { deriveSubsectionPercentages } from "./utils/progressUtils";
+import { ProgressDots } from "./components/ProgressDots";
 
 interface ChapterNavigationHeaderProps {
     chapterNumber: number;
@@ -171,16 +173,22 @@ ChapterNavigationHeaderProps) {
         ({
             label,
             isActive,
-            isValidated,
-            isTranslated,
+            progress,
             onClick,
         }: {
             label: string;
             isActive: boolean;
-            isValidated: boolean;
-            isTranslated: boolean;
+            progress: {
+                isFullyTranslated: boolean;
+                isFullyValidated: boolean;
+                percentTranslationsCompleted?: number;
+                percentTextValidatedTranslations?: number;
+                percentAudioTranslationsCompleted?: number;
+                percentAudioValidatedTranslations?: number;
+            };
             onClick: () => void;
         }) => {
+            const progressPercentages = deriveSubsectionPercentages(progress);
             return (
                 <DropdownMenuItem
                     onClick={onClick}
@@ -190,24 +198,16 @@ ChapterNavigationHeaderProps) {
                     role="menuitem"
                 >
                     <span>{label}</span>
-                    <div className="flex items-center gap-1">
-                        {isValidated && (
-                            <div
-                                className="w-2 h-2 rounded-full"
-                                style={{
-                                    backgroundColor: "var(--vscode-editorWarning-foreground)",
-                                }}
-                                title="Page fully validated"
-                            />
-                        )}
-                        {!isValidated && isTranslated && (
-                            <div
-                                className="w-2 h-2 rounded-full"
-                                style={{ backgroundColor: "var(--vscode-charts-blue)" }}
-                                title="Page fully translated"
-                            />
-                        )}
-                    </div>
+                    <ProgressDots
+                        audio={{
+                            validatedPercent: progressPercentages.audioValidatedPercent,
+                            completedPercent: progressPercentages.audioCompletedPercent,
+                        }}
+                        text={{
+                            validatedPercent: progressPercentages.textValidatedPercent,
+                            completedPercent: progressPercentages.textCompletedPercent,
+                        }}
+                    />
                 </DropdownMenuItem>
             );
         },
@@ -1075,8 +1075,7 @@ ChapterNavigationHeaderProps) {
                                             key={section.id}
                                             label={section.label}
                                             isActive={isActive}
-                                            isValidated={progress.isFullyValidated}
-                                            isTranslated={progress.isFullyTranslated}
+                                            progress={progress}
                                             onClick={() => setCurrentSubsectionIndex(index)}
                                         />
                                     );

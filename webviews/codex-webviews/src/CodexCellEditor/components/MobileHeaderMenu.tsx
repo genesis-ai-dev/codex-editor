@@ -14,7 +14,8 @@ import { CELL_DISPLAY_MODES } from "../CodexCellEditor";
 import { type CustomNotebookMetadata, type QuillCellContent } from "../../../../../types";
 import { type Subsection } from "../../lib/types";
 import { DropdownMenuCheckboxItem } from "../../components/ui/dropdown-menu";
-import { getProgressColor } from "../utils/progressUtils";
+import { deriveSubsectionPercentages } from "../utils/progressUtils";
+import { ProgressDots } from "./ProgressDots";
 
 interface MobileHeaderMenuProps {
     // Translation controls
@@ -338,34 +339,12 @@ export function MobileHeaderMenu({
                                 ? calculateSubsectionProgress(section, isSourceText)
                                 : { isFullyTranslated: false, isFullyValidated: false };
                             const isActive = currentSubsectionIndex === index;
-                            const textValidatedPercent =
-                                (progress as any).percentTextValidatedTranslations !== undefined
-                                    ? (progress as any).percentTextValidatedTranslations
-                                    : progress.isFullyValidated
-                                    ? 100
-                                    : 0;
-                            const textCompletedPercent =
-                                (progress as any).percentTranslationsCompleted !== undefined
-                                    ? (progress as any).percentTranslationsCompleted
-                                    : progress.isFullyTranslated
-                                    ? 100
-                                    : 0;
-                            const audioValidatedPercent =
-                                (progress as any).percentAudioValidatedTranslations !== undefined
-                                    ? (progress as any).percentAudioValidatedTranslations
-                                    : 0;
-                            const audioCompletedPercent =
-                                (progress as any).percentAudioTranslationsCompleted !== undefined
-                                    ? (progress as any).percentAudioTranslationsCompleted
-                                    : 0;
-                            const audioColorClass = getProgressColor(
-                                audioValidatedPercent,
-                                audioCompletedPercent
-                            );
-                            const textColorClass = getProgressColor(
+                            const {
                                 textValidatedPercent,
-                                textCompletedPercent
-                            );
+                                textCompletedPercent,
+                                audioValidatedPercent,
+                                audioCompletedPercent,
+                            } = deriveSubsectionPercentages(progress);
                             return (
                                 <DropdownMenuItem
                                     key={section.id}
@@ -378,38 +357,17 @@ export function MobileHeaderMenu({
                                 >
                                     <i className="codicon codicon-location mr-2 h-4 w-4" />
                                     <span>Go to {section.label}</span>
-                                    <div className="flex items-center gap-1 ml-auto">
-                                        <div
-                                            className={`w-2 h-2 rounded-full ${audioColorClass}`}
-                                            style={{ backgroundColor: "currentColor" }}
-                                            title={
-                                                audioValidatedPercent >= 100
-                                                    ? "Audio fully validated"
-                                                    : audioCompletedPercent >= 100
-                                                    ? "Audio fully translated"
-                                                    : audioValidatedPercent > 0
-                                                    ? "Audio partially validated"
-                                                    : audioCompletedPercent > 0
-                                                    ? "Audio present"
-                                                    : "No audio progress"
-                                            }
-                                        />
-                                        <div
-                                            className={`w-2 h-2 rounded-full ${textColorClass}`}
-                                            style={{ backgroundColor: "currentColor" }}
-                                            title={
-                                                textValidatedPercent >= 100
-                                                    ? "Text fully validated"
-                                                    : textCompletedPercent >= 100
-                                                    ? "Text fully translated"
-                                                    : textValidatedPercent > 0
-                                                    ? "Text partially validated"
-                                                    : textCompletedPercent > 0
-                                                    ? "Text present"
-                                                    : "No text progress"
-                                            }
-                                        />
-                                    </div>
+                                    <ProgressDots
+                                        className="ml-auto"
+                                        audio={{
+                                            validatedPercent: audioValidatedPercent,
+                                            completedPercent: audioCompletedPercent,
+                                        }}
+                                        text={{
+                                            validatedPercent: textValidatedPercent,
+                                            completedPercent: textCompletedPercent,
+                                        }}
+                                    />
                                 </DropdownMenuItem>
                             );
                         })}
