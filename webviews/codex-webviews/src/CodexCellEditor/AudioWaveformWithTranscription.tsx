@@ -158,7 +158,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                 <Button
                     variant="outline"
                     size="sm"
-                    className="static"
+                    className="static h-6 px-2 rounded-full text-sm bg-[var(--vscode-badge-background)] text-[var(--vscode-badge-foreground)] border border-[var(--vscode-panel-border)]/40 hover:opacity-90"
                     onClick={handleValidation}
                     onMouseEnter={handleAudioValidationMouseEnter}
                     onMouseLeave={handleAudioValidationMouseLeave}
@@ -166,11 +166,11 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     <i
                         className="codicon codicon-circle-outline"
                         style={{
-                            fontSize: "12px",
+                            fontSize: "14px",
                             color: "var(--vscode-descriptionForeground)",
                         }}
                     ></i>
-                    <span className="ml-1 text-sm font-light">Validate</span>
+                    <span className="ml-1">Validate</span>
                 </Button>
             );
         }
@@ -180,7 +180,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                 <Button
                     variant="outline"
                     size="sm"
-                    className="static"
+                    className="static h-6 px-2 rounded-full text-sm bg-[var(--vscode-badge-background)] text-[var(--vscode-badge-foreground)] border border-[var(--vscode-panel-border)]/40 hover:opacity-90"
                     onClick={handleValidation}
                     onMouseEnter={handleAudioValidationMouseEnter}
                     onMouseLeave={handleAudioValidationMouseLeave}
@@ -188,11 +188,11 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     <i
                         className="codicon codicon-circle-filled"
                         style={{
-                            fontSize: "12px",
+                            fontSize: "14px",
                             color: "var(--vscode-descriptionForeground)",
                         }}
                     ></i>
-                    {<span className="ml-1 text-sm font-light">Validated by other user(s)</span>}
+                    {<span className="ml-1">Validated by other user(s)</span>}
                 </Button>
             );
         }
@@ -201,7 +201,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
             <Button
                 variant="outline"
                 size="sm"
-                className="static hover:bg-transparent"
+                className="static h-6 px-2 rounded-full text-sm bg-[var(--vscode-badge-background)] text-[var(--vscode-badge-foreground)] border border-[var(--vscode-panel-border)]/40 hover:opacity-90"
                 onMouseEnter={handleAudioValidationMouseEnter}
                 onMouseLeave={handleAudioValidationMouseLeave}
             >
@@ -211,7 +211,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     };
 
     return (
-        <div className="bg-[var(--vscode-editor-background)] flex flex-col gap-y-3 p-3 sm:p-4 rounded-md shadow w-full">
+        <div className="bg-[var(--vscode-editor-background)] flex flex-col gap-y-3 p-3 sm:p-4 rounded-md shadow w-full relative">
             {/* Transcription Section */}
             <>
                 {isTranscribing ? (
@@ -276,12 +276,35 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                 )}
             </div>
 
+            {/* Validate badge overlay in the top-right corner of the card */}
             {validationStatusProps && (
                 <div
-                    className="relative flex w-full items-center justify-end"
+                    className="absolute -top-2 -right-2 z-50"
                     ref={validationContainerRef}
+                    onMouseEnter={(e) => {
+                        e.stopPropagation();
+                        cancelCloseTimer();
+                        setShowValidatorsPopover(true);
+                        audioPopoverTracker.setActivePopover(uniqueId.current);
+                    }}
+                    onMouseLeave={(e) => {
+                        e.stopPropagation();
+                        scheduleCloseTimer(() => {
+                            setShowValidatorsPopover(false);
+                            if (audioPopoverTracker.getActivePopover() === uniqueId.current) {
+                                audioPopoverTracker.setActivePopover(null);
+                            }
+                        }, 100);
+                    }}
                 >
-                    {renderValidationButton()}
+                    <div
+                        className="relative inline-flex items-center justify-center"
+                        style={{
+                            filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.15))",
+                        }}
+                    >
+                        {renderValidationButton()}
+                    </div>
                     {showValidatorsPopover &&
                         audioValidationPopoverProps &&
                         uniqueValidationUsers.length > 0 && (
@@ -339,28 +362,26 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     <Trash2 className="h-3 w-3" />
                     <span className="ml-1">Remove</span>
                 </Button>
-                <div className="relative inline-block">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 px-2 text-xs"
-                        onClick={() => onShowHistory?.()}
-                        title="Audio History"
-                    >
-                        <History className="h-3 w-3" />
-                        <span className="ml-1">History</span>
-                    </Button>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-2 text-xs"
+                    onClick={() => onShowHistory?.()}
+                    title="Audio History"
+                >
+                    <History className="h-3 w-3" />
+                    <span className="ml-1">History</span>
                     {typeof (historyCount as any) === "number" && (historyCount as any) > 0 && (
                         <span
-                            className="absolute -top-2 -right-2 inline-flex items-center justify-center rounded-full"
+                            className="ml-2 inline-flex items-center justify-center rounded-full"
                             style={{
-                                minWidth: "1.25rem",
-                                height: "1.1rem",
+                                minWidth: "1.5rem",
+                                height: "1.25rem",
                                 padding: "0 6px",
                                 backgroundColor: "var(--vscode-badge-background)",
                                 color: "var(--vscode-badge-foreground)",
                                 border: "1px solid var(--vscode-panel-border)",
-                                fontSize: "0.7rem",
+                                fontSize: "0.75rem",
                                 fontWeight: 700,
                                 lineHeight: 1,
                             }}
@@ -368,7 +389,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                             {historyCount as any}
                         </span>
                     )}
-                </div>
+                </Button>
                 <Button
                     variant="outline"
                     size="sm"

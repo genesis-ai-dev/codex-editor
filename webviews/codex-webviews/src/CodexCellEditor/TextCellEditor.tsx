@@ -1326,10 +1326,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
             } catch {
                 /* ignore */
             }
-            // Create transcription client using configured endpoint (fallback to legacy)
-            const wsEndpoint =
-                asrConfig?.endpoint ||
-                "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe";
+            // Create transcription client using configured endpoint from backend
+            const wsEndpoint = asrConfig?.endpoint;
+            if (!wsEndpoint) {
+                throw new Error("ASR endpoint not configured. Please check your ASR settings.");
+            }
             const client = new WhisperTranscriptionClient(wsEndpoint, asrConfig?.authToken);
             transcriptionClientRef.current = client;
 
@@ -2547,14 +2548,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             <div className="content-section space-y-6">
                                 <h3 className="text-lg font-medium">Audio Recording</h3>
 
-                                {isAudioLoading || audioFetchPending ? (
-                                    <div className="bg-[var(--vscode-editor-background)] p-3 rounded-md border border-[var(--vscode-panel-border)] text-center text-[var(--vscode-descriptionForeground)]">
-                                        {audioAttachments && (
-                                            (audioAttachments[cellMarkers[0]] === "available" ||
-                                                audioAttachments[cellMarkers[0]] === "available-pointer")
-                                        ) ? "Downloading audio..." : "Loading audio..."}
-                                    </div>
-                                ) : showRecorder ||
+                                {showRecorder ||
                                   !audioUrl ||
                                   !(
                                       audioUrl.startsWith("blob:") ||
@@ -2570,24 +2564,38 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         audioAttachments[cellMarkers[0]] === "available-pointer"
                                                     ) ? (
                                                         <div className="flex flex-col items-center gap-2">
-                                                            <Button
-                                                            onClick={() => {
-                                                                setIsAudioLoading(true);
-                                                                setAudioFetchPending(true);
-                                                                const messageContent: EditorPostMessages = {
-                                                                    command: "requestAudioForCell",
-                                                                    content: { cellId: cellMarkers[0] },
-                                                                };
-                                                                window.vscodeApi.postMessage(messageContent);
-                                                            }}
-                                                            className="h-9 px-3 text-sm"
-                                                        >
-                                                            <i className="codicon codicon-cloud-download mr-1" />
-                                                            Click to download
-                                                            </Button>
-                                                            <div className="text-xs text-muted-foreground">
-                                                                You can enable auto-download in settings
-                                                            </div>
+                                                            {isAudioLoading || audioFetchPending ? (
+                                                                <Button disabled className="h-9 px-3 text-sm opacity-80 cursor-default">
+                                                                    <i className="codicon codicon-sync codicon-modifier-spin mr-1" />
+                                                                    Downloading audio...
+                                                                </Button>
+                                                            ) : (
+                                                                <Button
+                                                                    onClick={() => {
+                                                                        setIsAudioLoading(true);
+                                                                        setAudioFetchPending(true);
+                                                                        const messageContent: EditorPostMessages = {
+                                                                            command: "requestAudioForCell",
+                                                                            content: { cellId: cellMarkers[0] },
+                                                                        };
+                                                                        window.vscodeApi.postMessage(messageContent);
+                                                                    }}
+                                                                    className="h-9 px-3 text-sm"
+                                                                >
+                                                                    <i className="codicon codicon-cloud-download mr-1" />
+                                                                    Click to download
+                                                                </Button>
+                                                            )}
+                                                            {(() => {
+                                                                const autoInit = (window as any).__autoDownloadAudioOnOpenInitialized;
+                                                                const autoFlag = (window as any).__autoDownloadAudioOnOpen;
+                                                                if (autoInit && !!autoFlag) return null;
+                                                                return (
+                                                                    <div className="text-xs text-muted-foreground">
+                                                                        You can enable auto-download in settings
+                                                                    </div>
+                                                                );
+                                                            })()}
                                                         </div>
                                                     ) : (
                                                         <span>No audio attached to this cell yet.</span>
@@ -2640,27 +2648,29 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             />
 
                                             {hasAudioHistory && (
-                                                <Button
-                                                    onClick={() => setShowAudioHistory(true)}
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="h-8 px-2 text-xs"
-                                                    title="Audio History"
-                                                >
-                                                    <History className="h-3 w-3" />
-                                                    <span className="ml-1">History</span>
+                                                <div className="relative inline-block">
+                                                    <Button
+                                                        onClick={() => setShowAudioHistory(true)}
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-8 px-2 text-xs"
+                                                        title="Audio History"
+                                                    >
+                                                        <History className="h-3 w-3" />
+                                                        <span className="ml-1">History</span>
+                                                    </Button>
                                                     {audioHistoryCount > 0 && (
                                                         <span
-                                                            className="ml-2 inline-flex items-center justify-center rounded-full"
+                                                            className="absolute -top-2 -right-2 inline-flex items-center justify-center rounded-full"
                                                             style={{
-                                                                minWidth: "1.5rem",
-                                                                height: "1.25rem",
+                                                                minWidth: "1.25rem",
+                                                                height: "1.1rem",
                                                                 padding: "0 6px",
                                                                 backgroundColor:
                                                                     "var(--vscode-badge-background)",
                                                                 color: "var(--vscode-badge-foreground)",
                                                                 border: "1px solid var(--vscode-panel-border)",
-                                                                fontSize: "0.75rem",
+                                                                fontSize: "0.7rem",
                                                                 fontWeight: 700,
                                                                 lineHeight: 1,
                                                             }}
@@ -2668,7 +2678,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             {audioHistoryCount}
                                                         </span>
                                                     )}
-                                                </Button>
+                                                </div>
                                             )}
 
                                             {audioUrl && !isRecording && (

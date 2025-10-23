@@ -13,6 +13,7 @@ import {
 } from '../../utils/workflowHelpers';
 import { WebVTTParser } from 'webvtt-parser';
 import { englishSubtitlesRaw, tigrinyaSubtitlesRaw, sourceOfTruthMapping } from './testData';
+import { CodexCellTypes } from 'types/enums';
 // Remove automatic import of compile-time tests to avoid circular dependency
 // Import './compiletimeTests' manually when needed for testing
 
@@ -183,13 +184,19 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
             // Generate a unique identifier for the cue that matches the expected format
             const cueId = `${baseNameAsId} 1:cue-${cue.startTime}-${cue.endTime}`;
 
-            // Create ProcessedCell using the correct structure
+            // Create ProcessedCell using the structure expected by the editor
+            // Timestamps and related fields should live under metadata.data
             const cell = createProcessedCell(cueId, cue.text, {
-                type: 'text',
-                startTime: cue.startTime,
-                endTime: cue.endTime,
-                format: format,
-                originalText: cue.text,
+
+                type: "text" as CodexCellTypes,
+                data: {
+                    startTime: cue.startTime,
+                    endTime: cue.endTime,
+                    format: format,
+                    originalText: cue.text,
+                },
+                edits: [],
+                id: cueId,
             });
 
             cells.push(cell);
@@ -213,7 +220,13 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
         const codexCells = cells.map(sourceCell =>
             createProcessedCell(sourceCell.id, '', {
                 ...sourceCell.metadata,
-                originalContent: sourceCell.content, // Keep reference to original
+                data: {
+                    ...sourceCell.metadata?.data,
+                    originalText: sourceCell.content,
+                },
+                edits: [...(sourceCell.metadata?.edits || [])],
+                id: sourceCell.id,
+                type: "text" as CodexCellTypes,
             })
         );
 

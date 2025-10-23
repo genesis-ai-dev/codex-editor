@@ -38,28 +38,66 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
 
     useEffect(() => {
         if (!show || !popoverRef.current || !anchorRef.current) return;
-        const buttonRect = anchorRef.current.getBoundingClientRect();
-        const popoverRect = popoverRef.current.getBoundingClientRect();
-        const viewportHeight = window.innerHeight;
 
-        const spaceAbove = buttonRect.top;
-        const spaceBelow = viewportHeight - (buttonRect.top + buttonRect.height);
+        const positionPopover = () => {
+            if (!popoverRef.current || !anchorRef.current) return;
 
-        let top = 0;
+            const buttonRect = anchorRef.current.getBoundingClientRect();
+            const popoverRect = popoverRef.current.getBoundingClientRect();
+            const viewportHeight = window.innerHeight;
+            const viewportWidth = window.innerWidth;
 
-        if (spaceBelow >= popoverRect.height + 10) {
-            top = buttonRect.height + 5;
-        } else if (spaceAbove >= popoverRect.height + 10) {
-            top = -popoverRect.height - 5;
-        } else {
-            top = -(popoverRect.height / 2) + buttonRect.height / 2;
-        }
+            // Vertical positioning
+            const spaceAbove = buttonRect.top;
+            const spaceBelow = viewportHeight - (buttonRect.top + buttonRect.height);
+            let top = 0;
+            if (spaceBelow >= popoverRect.height + 10) {
+                top = buttonRect.height + 5; // place below the badge
+            } else if (spaceAbove >= popoverRect.height + 10) {
+                top = -popoverRect.height - 5; // place above the badge
+            } else {
+                top = -(popoverRect.height / 2) + buttonRect.height / 2; // center align
+            }
 
-        popoverRef.current.style.top = `${top}px`;
-        popoverRef.current.style.position = "absolute";
-        popoverRef.current.style.opacity = "1";
-        popoverRef.current.style.pointerEvents = "auto";
-        popoverRef.current.style.zIndex = "100000";
+            // Horizontal positioning (dynamic left/right with clamping to viewport)
+            const spaceRight = viewportWidth - (buttonRect.left + buttonRect.width);
+            const spaceLeft = buttonRect.left;
+            let left = 0;
+            if (spaceRight >= popoverRect.width + 10) {
+                // Enough room on the right → align left edges
+                left = 0;
+            } else if (spaceLeft >= popoverRect.width + 10) {
+                // Open to the left so the popover fits within the card/viewport
+                left = -popoverRect.width + buttonRect.width;
+            } else {
+                // Center relative to the badge
+                left = -(popoverRect.width / 2 - buttonRect.width / 2);
+                // Clamp to viewport so it never overflows
+                const minLeft = 8 - buttonRect.left; // keep 8px from left edge
+                const maxLeft = viewportWidth - popoverRect.width - 8 - buttonRect.left; // 8px from right edge
+                left = Math.min(Math.max(left, minLeft), maxLeft);
+            }
+
+            const style = popoverRef.current.style;
+            style.top = `${top}px`;
+            style.left = `${left}px`;
+            style.right = "auto";
+            style.position = "absolute";
+            style.opacity = "1";
+            style.pointerEvents = "auto";
+            style.zIndex = "100000";
+        };
+
+        // Initial position
+        positionPopover();
+
+        // Reposition on resize/scroll to keep within bounds
+        window.addEventListener("resize", positionPopover);
+        window.addEventListener("scroll", positionPopover, true);
+        return () => {
+            window.removeEventListener("resize", positionPopover);
+            window.removeEventListener("scroll", positionPopover, true);
+        };
     }, [show, anchorRef]);
 
     // Close when clicking outside of both the anchor and the popover
@@ -109,7 +147,7 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
     return (
         <div
             ref={popoverRef}
-            className="audio-validation-popover absolute flex flex-col flex-1 gap-y-2 min-w-3xs sm:min-w-2xs rounded-md shadow-md p-2"
+            className="audio-validation-popover absolute flex flex-col gap-y-2 rounded-md shadow-md p-2"
             style={{
                 zIndex: 100000,
                 opacity: show ? "1" : "0",
@@ -117,6 +155,11 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
                 pointerEvents: show ? "auto" : "none",
                 backgroundColor: "var(--vscode-editor-background)",
                 border: "1px solid var(--vscode-editorWidget-border)",
+                // Ensure the popover fully covers underlying waveform/time text
+                mixBlendMode: "normal",
+                width: "max-content",
+                minWidth: "12rem",
+                maxWidth: "min(320px, calc(100vw - 24px))",
             }}
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
@@ -150,6 +193,7 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
                                 <div className="flex flex-col">
                                     <span
                                         className={`${isCurrentUser ? "font-bold" : "font-normal"}`}
+                                        style={{ overflowWrap: "anywhere" }}
                                     >
                                         {user.username}
                                     </span>

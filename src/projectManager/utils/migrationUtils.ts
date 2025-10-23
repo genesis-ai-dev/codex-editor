@@ -8,6 +8,196 @@ import type { ValidationEntry } from "../../../types";
 
 // FIXME: move notebook format migration here
 
+/**
+ * Migration: Move timestamps (startTime/endTime) and related subtitle fields
+ * from metadata top-level to metadata.data to match current schema.
+ * - Idempotent
+ * - Preserves existing metadata.data.* if already present
+ */
+export const migration_moveTimestampsToMetadataData = async (context?: vscode.ExtensionContext) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        // Check if migration has already been run
+        const migrationKey = "timestampsDataMigrationCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        let hasMigrationRun = false;
+
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch (e) {
+            // Setting might not be registered yet; fall back to workspaceState
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
+
+        if (hasMigrationRun) {
+            console.log("Timestamps data migration already completed, skipping");
+            return;
+        }
+
+        console.log("Running timestamps data migration...");
+
+        const workspaceFolder = workspaceFolders[0];
+
+        // Find all codex and source files
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+
+        const allFiles = [...codexFiles, ...sourceFiles];
+
+        if (allFiles.length === 0) {
+            console.log("No codex or source files found, skipping timestamps migration");
+            return;
+        }
+
+        let processedFiles = 0;
+        let migratedFiles = 0;
+
+        // Process files with progress
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Migrating subtitle timestamps",
+                cancellable: false
+            },
+            async (progress) => {
+                for (let i = 0; i < allFiles.length; i++) {
+                    const file = allFiles[i];
+                    progress.report({
+                        message: `Processing ${path.basename(file.fsPath)}`,
+                        increment: (100 / allFiles.length)
+                    });
+
+                    try {
+                        const wasMigrated = await migrateTimestampsForFile(file);
+                        processedFiles++;
+                        if (wasMigrated) {
+                            migratedFiles++;
+                        }
+                    } catch (error) {
+                        console.error(`Error processing ${file.fsPath}:`, error);
+                    }
+                }
+            }
+        );
+
+        // Mark migration as completed
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch (e) {
+            // If configuration key is not registered, fall back to workspaceState
+            await context?.workspaceState.update(migrationKey, true);
+        }
+
+        console.log(`Timestamps data migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        if (migratedFiles > 0) {
+            vscode.window.showInformationMessage(
+                `Subtitle timestamps migration complete: ${migratedFiles} files updated`
+            );
+        }
+
+    } catch (error) {
+        console.error("Error running timestamps data migration:", error);
+    }
+};
+
+/**
+ * Migration: Ensure cell type is stored at metadata.type, not under metadata.data.type.
+ * - Promotes metadata.data.type to metadata.type when metadata.type is missing.
+ * - Removes metadata.data.type after promotion to avoid duplication.
+ * - Idempotent.
+ */
+export const migration_promoteCellTypeToTopLevel = async (context?: vscode.ExtensionContext) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        const migrationKey = "cellTypePromotionMigrationCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        let hasMigrationRun = false;
+
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch (e) {
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
+
+        if (hasMigrationRun) {
+            console.log("Cell type promotion migration already completed, skipping");
+            return;
+        }
+
+        console.log("Running cell type promotion migration...");
+
+        const workspaceFolder = workspaceFolders[0];
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+        const allFiles = [...codexFiles, ...sourceFiles];
+        if (allFiles.length === 0) {
+            console.log("No codex or source files found, skipping cell type promotion migration");
+            return;
+        }
+
+        let processedFiles = 0;
+        let migratedFiles = 0;
+
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Normalizing cell type metadata",
+                cancellable: false,
+            },
+            async (progress) => {
+                for (let i = 0; i < allFiles.length; i++) {
+                    const file = allFiles[i];
+                    progress.report({
+                        message: `Processing ${path.basename(file.fsPath)}`,
+                        increment: 100 / allFiles.length,
+                    });
+
+                    try {
+                        const wasMigrated = await promoteCellTypeForFile(file);
+                        processedFiles++;
+                        if (wasMigrated) {
+                            migratedFiles++;
+                        }
+                    } catch (error) {
+                        console.error(`Error processing ${file.fsPath}:`, error);
+                    }
+                }
+            }
+        );
+
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch (e) {
+            await context?.workspaceState.update(migrationKey, true);
+        }
+
+        console.log(`Cell type promotion migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        if (migratedFiles > 0) {
+            vscode.window.showInformationMessage(
+                `Cell type normalization complete: ${migratedFiles} files updated`
+            );
+        }
+    } catch (error) {
+        console.error("Error running cell type promotion migration:", error);
+    }
+};
+
 export const migration_changeDraftFolderToFilesFolder = async () => {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (workspaceFolders && workspaceFolders.length > 0) {
@@ -455,6 +645,107 @@ async function migrateValidationsForFile(fileUri: vscode.Uri): Promise<boolean> 
         return false;
     } catch (error) {
         console.error(`Error migrating validations for ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
+
+async function migrateTimestampsForFile(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells = notebookData.cells || [];
+        let hasChanges = false;
+
+        for (const cell of cells) {
+            const md: any = cell.metadata || {};
+            const data: any = md.data || {};
+
+            // Detect legacy top-level timestamps
+            const legacyStart = (md as any).startTime;
+            const legacyEnd = (md as any).endTime;
+            const legacyFormat = (md as any).format;
+            const legacyOriginalText = (md as any).originalText;
+
+            const hasLegacyTs = legacyStart !== undefined || legacyEnd !== undefined || legacyFormat !== undefined || legacyOriginalText !== undefined;
+
+            if (hasLegacyTs) {
+                // Only set if not already present in data
+                if (legacyStart !== undefined && data.startTime === undefined) data.startTime = legacyStart;
+                if (legacyEnd !== undefined && data.endTime === undefined) data.endTime = legacyEnd;
+                if (legacyFormat !== undefined && data.format === undefined) data.format = legacyFormat;
+                if (legacyOriginalText !== undefined && data.originalText === undefined) data.originalText = legacyOriginalText;
+
+                // Clean legacy fields
+                delete (md as any).startTime;
+                delete (md as any).endTime;
+                delete (md as any).format;
+                delete (md as any).originalText;
+
+                md.data = data;
+                cell.metadata = md;
+                hasChanges = true;
+            }
+        }
+
+        if (hasChanges) {
+            const updatedContent = await serializer.serializeNotebook(
+                notebookData,
+                new vscode.CancellationTokenSource().token
+            );
+            await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+            return true;
+        }
+
+        return false;
+    } catch (error) {
+        console.error(`Error migrating timestamps for ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
+
+async function promoteCellTypeForFile(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells = notebookData.cells || [];
+        let hasChanges = false;
+
+        for (const cell of cells) {
+            const md: any = cell.metadata || {};
+            const data: any = md.data || {};
+
+            // If top-level type is missing but data.type exists, promote it
+            if ((md.type === undefined || md.type === null) && data && data.type !== undefined) {
+                md.type = data.type;
+                delete data.type;
+                md.data = data;
+                cell.metadata = md;
+                hasChanges = true;
+            }
+        }
+
+        if (hasChanges) {
+            const updatedContent = await serializer.serializeNotebook(
+                notebookData,
+                new vscode.CancellationTokenSource().token
+            );
+            await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+            return true;
+        }
+
+        return false;
+    } catch (error) {
+        console.error(`Error promoting cell type for ${fileUri.fsPath}:`, error);
         return false;
     }
 }

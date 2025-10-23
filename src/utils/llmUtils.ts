@@ -24,22 +24,27 @@ export async function callLLM(
             throw new vscode.CancellationError();
         }
 
-        // Get the LLM endpoint from auth API if available
+        // Only use Frontier auth if user hasn't provided their own API key
         let llmEndpoint: string | undefined;
         let authBearerToken: string | undefined;
-        try {
-            const frontierApi = getAuthApi();
-            if (frontierApi) {
-                llmEndpoint = await frontierApi.getLlmEndpoint();
-                // Get auth token from the auth provider
-                authBearerToken = await frontierApi.authProvider.getToken();
-            }
-        } catch (error) {
-            console.debug("Could not get LLM endpoint from auth API:", error);
-        }
+        const hasCustomApiKey = config.apiKey && config.apiKey.trim().length > 0;
 
-        if (llmEndpoint) {
-            config.endpoint = llmEndpoint;
+        if (!hasCustomApiKey) {
+            // User doesn't have their own key, try Frontier auth
+            try {
+                const frontierApi = getAuthApi();
+                if (frontierApi) {
+                    llmEndpoint = await frontierApi.getLlmEndpoint();
+                    // Get auth token from the auth provider
+                    authBearerToken = await frontierApi.authProvider.getToken();
+                }
+            } catch (error) {
+                console.debug("Could not get LLM endpoint from auth API:", error);
+            }
+
+            if (llmEndpoint) {
+                config.endpoint = llmEndpoint;
+            }
         }
 
         // Check for cancellation before creating OpenAI client

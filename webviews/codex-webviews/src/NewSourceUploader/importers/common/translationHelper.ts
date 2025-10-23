@@ -5,13 +5,22 @@ import { ImportedContent, ImporterComponentProps } from "../../types/plugin";
  * Helper function to convert notebook cells to ImportedContent format for translation imports
  */
 export function notebookToImportedContent(notebook: NotebookPair): ImportedContent[] {
-    return notebook.source.cells.map((cell, index) => ({
-        id: cell.id || cell.metadata?.id || `cell-${index}`,
-        content: cell.content,
-        edits: cell.metadata?.edits,
-        // Include any additional metadata that might be useful
-        ...(cell.metadata || {}),
-    }));
+    return notebook.source.cells.map((cell, index) => {
+        const md = cell.metadata || {};
+        const data = md.data || {};
+        return {
+            id: cell.id || md.id || `cell-${index}`,
+            content: cell.content,
+            edits: md.edits,
+            // Surface commonly used fields for aligners
+            startTime: data.startTime ?? md.startTime,
+            endTime: data.endTime ?? md.endTime,
+            format: data.format ?? md.format,
+            originalText: data.originalText ?? md.originalText,
+            // Spread remaining metadata for flexibility
+            ...md,
+        };
+    });
 }
 
 /**

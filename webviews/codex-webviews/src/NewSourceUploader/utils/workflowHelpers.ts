@@ -4,6 +4,7 @@ import {
     ProcessedCell,
     NotebookPair
 } from '../types/common';
+import type { CustomNotebookCellData } from 'types';
 
 /**
  * Creates a progress update object
@@ -60,7 +61,7 @@ export const parseStandardCellId = (cellId: string): {
 export const createProcessedCell = (
     id: string,
     content: string,
-    metadata?: Record<string, any>
+    metadata?: CustomNotebookCellData['metadata']
 ): ProcessedCell => ({
     id,
     content,

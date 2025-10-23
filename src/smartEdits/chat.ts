@@ -31,32 +31,37 @@ class Chatbot {
     }
 
     private async initializeOpenAI() {
-        // Get the LLM endpoint from auth API if available
+        // Only use Frontier auth if user hasn't provided their own API key
+        const apiKey = this.getApiKey();
+        const hasCustomApiKey = apiKey && apiKey.trim().length > 0;
+        
         let llmEndpoint: string | undefined;
         let authBearerToken: string | undefined;
         let frontierApiAvailable = false;
 
-        try {
-            const frontierApi = getAuthApi();
-            if (frontierApi) {
-                const authStatus = frontierApi.getAuthStatus();
-                if (authStatus.isAuthenticated) {
-                    frontierApiAvailable = true;
-                    llmEndpoint = await frontierApi.getLlmEndpoint();
-                    // Get auth token from the auth provider
-                    authBearerToken = await frontierApi.authProvider.getToken();
+        if (!hasCustomApiKey) {
+            // User doesn't have their own key, try Frontier auth
+            try {
+                const frontierApi = getAuthApi();
+                if (frontierApi) {
+                    const authStatus = frontierApi.getAuthStatus();
+                    if (authStatus.isAuthenticated) {
+                        frontierApiAvailable = true;
+                        llmEndpoint = await frontierApi.getLlmEndpoint();
+                        // Get auth token from the auth provider
+                        authBearerToken = await frontierApi.authProvider.getToken();
+                    }
                 }
+            } catch (error) {
+                console.debug("Could not get LLM endpoint from auth API:", error);
             }
-        } catch (error) {
-            console.debug("Could not get LLM endpoint from auth API:", error);
-        }
 
-        // Warn if API key is not set and no Frontier API is available
-        const apiKey = this.getApiKey();
-        if (!apiKey && !frontierApiAvailable) {
-            console.warn(
-                "Smart Edits LLM API key is not set (codex-editor-extension.api_key) and you are not logged into Frontier. LLM suggestions will be disabled."
-            );
+            // Warn if API key is not set and no Frontier API is available
+            if (!frontierApiAvailable) {
+                console.warn(
+                    "Smart Edits LLM API key is not set (codex-editor-extension.api_key) and you are not logged into Frontier. LLM suggestions will be disabled."
+                );
+            }
         }
 
         this.openai = new OpenAI({
@@ -72,6 +77,7 @@ class Chatbot {
             llmEndpoint:
                 llmEndpoint || this.config.get("llmEndpoint") || "https://api.openai.com/v1",
             authBearerToken,
+            usingCustomApiKey: hasCustomApiKey,
         });
     }
 

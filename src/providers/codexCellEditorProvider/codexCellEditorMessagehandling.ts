@@ -569,6 +569,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     { viewColumn: vscode.ViewColumn.One }
                 );
 
+                // Wait for source webview to be ready
+                await provider.waitForWebviewReady(sourcePath.toString(), 3000);
+
                 // Wait briefly for the source panel to register
                 let sourcePanel = provider.getWebviewPanels().get(sourcePath.toString());
                 if (!sourcePanel) {
