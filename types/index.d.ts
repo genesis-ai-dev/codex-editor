@@ -823,6 +823,7 @@ type CodexData = Timestamps & {
     verse?: string;
     merged?: boolean;
     deleted?: boolean;
+    originalText?: string;
 };
 
 type CustomCellMetaData = {
@@ -846,7 +847,7 @@ type CustomCellMetaData = {
     selectionTimestamp?: number; // Timestamp when selectedAudioId was last set
 };
 
-type CustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {
+export type CustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {
     metadata: CustomCellMetaData;
 };
 
@@ -909,6 +910,7 @@ interface QuillCellContent {
 interface Timestamps {
     startTime?: number;
     endTime?: number;
+    format?: string;
 }
 
 interface SpellCheckResponse {
