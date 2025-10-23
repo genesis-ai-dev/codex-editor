@@ -63,6 +63,17 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     vscode,
     progressData,
 }) => {
+    const [isAnyApplying, setIsAnyApplying] = useState(false);
+    useEffect(() => {
+        const onMessage = (event: MessageEvent) => {
+            const msg = event.data as any;
+            if (msg?.command === "project.mediaStrategyApplying") {
+                setIsAnyApplying(!!msg.applying);
+            }
+        };
+        window.addEventListener("message", onMessage);
+        return () => window.removeEventListener("message", onMessage);
+    }, []);
     const [searchQuery, setSearchQuery] = useState("");
     const [filter, setFilter] = useState<ProjectFilter>("all");
     const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
@@ -357,6 +368,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 setFilter={setFilter}
                 projects={projects}
                 vscode={vscode}
+                disabled={isAnyApplying}
             />
 
             {isLoading ? (
@@ -390,6 +402,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                 getStatusIcon={getStatusIcon}
                                 filterProjects={filterProjects}
                                 isProgressDataLoaded={!!progressData}
+                                isAnyOperationApplying={isAnyApplying}
                             />
                         ) : null
                     )}
@@ -430,6 +443,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                             parseProjectUrl={parseProjectUrl}
                                             getStatusIcon={getStatusIcon}
                                             isProgressDataLoaded={!!progressData}
+                                            isAnyOperationApplying={isAnyApplying}
                                         />
                                     ))}
                                 </div>

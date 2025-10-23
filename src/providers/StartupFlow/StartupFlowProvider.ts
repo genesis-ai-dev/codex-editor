@@ -1007,18 +1007,46 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         } catch (e) {
                             debugLog("Failed to ensure local project settings exist before open", e);
                         }
-                        const { getMediaFilesStrategy, getFlags, setLastModeRun, setChangesApplied } = await import("../../utils/localProjectSettings");
+                        const { getMediaFilesStrategy, getFlags, setLastModeRun, setChangesApplied, getApplyState, setApplyState } = await import("../../utils/localProjectSettings");
                         const strategy = await getMediaFilesStrategy(projectUri);
 
                         // If there are pending changes (either explicitly marked or
                         // inferred from a mismatch between last run and current), apply now
                         const flags = await getFlags(projectUri);
-                        if (strategy && (flags?.changesApplied === false || (flags?.lastModeRun && flags.lastModeRun !== strategy))) {
+                        const applyState = await getApplyState(projectUri);
+                        if (strategy && (applyState === "pending" || applyState === "applying" || applyState === "failed" || (flags?.lastModeRun && flags.lastModeRun !== strategy))) {
                             const { applyMediaStrategy } = await import("../../utils/mediaStrategyManager");
-                            // Force the apply when lastModeRun differs to ensure on-disk state matches selection
-                            await applyMediaStrategy(projectUri, strategy, true);
-                            await setLastModeRun(strategy, projectUri);
-                            await setChangesApplied(true, projectUri);
+                            // Inform webview that we are resuming apply work for this project
+                            try {
+                                this.safeSendMessage({
+                                    command: "project.mediaStrategyApplying",
+                                    projectPath,
+                                    applying: true,
+                                } as any);
+                            } catch (notifyStartErr) {
+                                debugLog("Failed to send applying=true notification (resume)", notifyStartErr);
+                            }
+                            try {
+                                // Mark applying while we resume
+                                try { await setApplyState("applying", projectUri); } catch (pendingErr) { debugLog("Failed to set applyState=applying before resume", pendingErr); }
+                                // Force the apply when lastModeRun differs to ensure on-disk state matches selection
+                                await applyMediaStrategy(projectUri, strategy, true);
+                                await setLastModeRun(strategy, projectUri);
+                                await setApplyState("applied", projectUri);
+                            } catch (resumeErr) {
+                                debugLog("Failed during resume apply on open", resumeErr);
+                                try { await setApplyState("failed", projectUri, { error: String(resumeErr) }); } catch (flagErr) { debugLog("Failed to set applyState=failed after resume error", flagErr); }
+                            } finally {
+                                try {
+                                    this.safeSendMessage({
+                                        command: "project.mediaStrategyApplying",
+                                        projectPath,
+                                        applying: false,
+                                    } as any);
+                                } catch (notifyEndErr) {
+                                    debugLog("Failed to send applying=false notification (resume)", notifyEndErr);
+                                }
+                            }
                         }
 
                         if (strategy === "auto-download") {
@@ -1969,6 +1997,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     // Check if strategy is actually changing
                     if (currentStrategy === mediaStrategy) {
                         debugLog(`Media strategy already set to "${mediaStrategy}"`);
+                        // Always notify webview so it can clear any pending UI state
+                        try {
+                            this.safeSendMessage({
+                                command: "project.setMediaStrategyResult",
+                                success: true,
+                                projectPath,
+                                mediaStrategy,
+                                noChange: true,
+                            } as any);
+                        } catch (notifyErr) {
+                            debugLog("Failed to notify webview (no change)", notifyErr);
+                        }
                         return;
                     }
 
@@ -1980,24 +2020,21 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     if (mediaStrategy === "auto-download") {
                         confirmMessage =
                             `Switch to "Auto Download Media"?\n\n` +
-                            `This will download all media files for offline use. ` +
-                            `Files will be available even without internet connection.\n\n` +
+                            `This will download all media files.\n\n` +
                             `This may use significant disk space and bandwidth.`;
                         openButton = "Download All & Open";
                     } else if (mediaStrategy === "stream-only") {
                         confirmMessage =
                             `Switch to "Stream Only"?\n\n` +
-                            `Downloaded media files will be replaced with pointers to save disk space. ` +
                             `Media will be streamed from the server when needed.\n\n` +
                             `Requires internet connection to play media.`;
                         openButton = "Free Space & Open";
                     } else if (mediaStrategy === "stream-and-save") {
                         confirmMessage =
                             `Switch to "Stream & Save"?\n\n` +
-                            `Media files will be downloaded on-demand when you play them, ` +
-                            `then saved for offline use.\n\n` +
+                            `Media files will be downloaded & saved when you play them.\n\n` +
                             `Best balance between disk space and offline availability.`;
-                        openButton = "Switch & Open";
+                        openButton = currentStrategy === "auto-download" ? "Free Space & Open" : "Switch & Open";
                     }
 
                     const selection = await vscode.window.showInformationMessage(
@@ -2042,23 +2079,40 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         return;
                     }
 
+                    // Inform webview that apply operations are starting for this project
+                    try {
+                        this.safeSendMessage({
+                            command: "project.mediaStrategyApplying",
+                            projectPath,
+                            applying: true,
+                        } as any);
+                    } catch (e) {
+                        // non-fatal
+                    }
+
                     // Switch & Open: apply now only if needed. If the selected
                     // strategy is the same as the last run one, we should not
                     // perform any destructive changes (like replacing files)
                     // and instead just confirm flags and proceed to open.
                     try {
-                        const { getFlags, setLastModeRun, setChangesApplied, setMediaFilesStrategy } = await import("../../utils/localProjectSettings");
+                        const { getFlags, setLastModeRun, setChangesApplied, setMediaFilesStrategy, setApplyState } = await import("../../utils/localProjectSettings");
                         const flags = await getFlags(projectUri);
                         if (flags?.lastModeRun === mediaStrategy) {
                             // Return to last-run mode: do not touch files. Just ensure
                             // the selected strategy is stored and flags are consistent.
                             await setMediaFilesStrategy(mediaStrategy, projectUri);
                             await setLastModeRun(mediaStrategy, projectUri);
-                            await setChangesApplied(true, projectUri);
+                            await setApplyState("applied", projectUri);
                         } else {
+                            // Mark pending before kicking off apply work
+                            try { await setApplyState("pending", projectUri); } catch (pendingErr) { debugLog("Failed to set applyState=pending before apply", pendingErr); }
                             await applyMediaStrategyAndRecord(projectUri, mediaStrategy);
                         }
-                    } catch {
+                    } catch (e) {
+                        try {
+                            const { setApplyState } = await import("../../utils/localProjectSettings");
+                            await setApplyState("pending", projectUri);
+                        } catch (pendingErr) { debugLog("Failed to set applyState=pending in error path", pendingErr); }
                         await applyMediaStrategyAndRecord(projectUri, mediaStrategy);
                     }
 
@@ -2076,7 +2130,16 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     } catch (openErr) {
                         debugLog("Failed to open project after strategy change", openErr);
                     }
-                    // Notify webview success
+                    // Notify webview success and that applying is finished
+                    try {
+                        this.safeSendMessage({
+                            command: "project.mediaStrategyApplying",
+                            projectPath,
+                            applying: false,
+                        } as any);
+                    } catch (notifyFinishErr) {
+                        debugLog("Failed to send applying=false notification", notifyFinishErr);
+                    }
                     this.safeSendMessage({
                         command: "project.setMediaStrategyResult",
                         success: true,
@@ -2090,6 +2153,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     );
                     // Notify webview failure
                     try {
+                        this.safeSendMessage({
+                            command: "project.mediaStrategyApplying",
+                            projectPath: (message as any).projectPath,
+                            applying: false,
+                        } as any);
                         this.safeSendMessage({
                             command: "project.setMediaStrategyResult",
                             success: false,
