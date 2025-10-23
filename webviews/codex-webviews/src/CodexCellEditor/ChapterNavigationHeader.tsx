@@ -1032,27 +1032,27 @@ ChapterNavigationHeaderProps) {
                                         return (
                                             <>
                                                 <span>{currentSection?.label || ""}</span>
-                                                {progress.isFullyValidated && (
-                                                    <div
-                                                        className="w-2 h-2 rounded-full"
-                                                        style={{
-                                                            backgroundColor:
-                                                                "var(--vscode-editorWarning-foreground)",
-                                                        }}
-                                                        title="Page fully validated"
-                                                    />
-                                                )}
-                                                {!progress.isFullyValidated &&
-                                                    progress.isFullyTranslated && (
-                                                        <div
-                                                            className="w-2 h-2 rounded-full"
-                                                            style={{
-                                                                backgroundColor:
-                                                                    "var(--vscode-charts-blue)",
+                                                {(() => {
+                                                    const percentages =
+                                                        deriveSubsectionPercentages(progress);
+                                                    return (
+                                                        <ProgressDots
+                                                            audio={{
+                                                                validatedPercent:
+                                                                    percentages.audioValidatedPercent,
+                                                                completedPercent:
+                                                                    percentages.audioCompletedPercent,
                                                             }}
-                                                            title="Page fully translated"
+                                                            text={{
+                                                                validatedPercent:
+                                                                    percentages.textValidatedPercent,
+                                                                completedPercent:
+                                                                    percentages.textCompletedPercent,
+                                                            }}
+                                                            onlyShowCompleted
                                                         />
-                                                    )}
+                                                    );
+                                                })()}
                                                 <i className="codicon codicon-chevron-down" />
                                             </>
                                         );
