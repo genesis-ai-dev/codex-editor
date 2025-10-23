@@ -24,7 +24,7 @@
         "editor.defaultFormatter": "esbenp.prettier-vscode"
     },
     "npm.packageManager": "pnpm",
-    
+
     // TypeScript Language Server Performance Optimizations
     "typescript.preferences.includePackageJsonAutoImports": "off",
     "typescript.suggest.autoImports": false,
@@ -34,7 +34,7 @@
     "typescript.updateImportsOnFileMove.enabled": "never",
     "typescript.tsc.autoDetect": "off",
     "typescript.npm": "off",
-    
+
     // General Performance
     "files.exclude": {
         "**/node_modules": true,
@@ -49,5 +49,5 @@
         "**/dist": true,
         "**/.vscode-test": true,
         "**/.tsbuildinfo": true
-    },
+    }
 }
