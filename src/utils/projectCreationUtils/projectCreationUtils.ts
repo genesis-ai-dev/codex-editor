@@ -224,7 +224,7 @@ export async function openProject(projectPath: string) {
 
             // Open folder and wait for it to open
             await vscode.commands.executeCommand("vscode.openFolder", uri);
-            
+
             // Sync metadata values to configuration after folder is open
             // Note: This doesn't execute immediately as the above command opens a new window
             // The syncMetadataToConfiguration will be called when checkIfMetadataAndGitIsInitialized
@@ -253,7 +253,7 @@ export async function openProject(projectPath: string) {
  * - Linux
  * - Git
  */
-function sanitizeProjectName(name: string): string {
+export function sanitizeProjectName(name: string): string {
     // Replace invalid characters with hyphens
     // This handles Windows, Mac, Linux filesystem restrictions and Git-unsafe characters
     return (
@@ -265,4 +265,11 @@ function sanitizeProjectName(name: string): string {
             .replace(/^-|-$/g, "") || // Remove leading/trailing hyphens OR
         "new-project" // Fallback if name becomes empty after sanitization
     );
+}
+
+/**
+ * Creates a new workspace and project using the provided name.
+ */
+export async function createWorkspaceWithProjectName(projectName: string) {
+    await createProjectInNewFolder(projectName);
 }

@@ -13,6 +13,8 @@ import { AuthState, FrontierAPI } from "webviews/codex-webviews/src/StartupFlow/
 import {
     createNewProject,
     createNewWorkspaceAndProject,
+    createWorkspaceWithProjectName,
+    sanitizeProjectName,
 } from "../../utils/projectCreationUtils/projectCreationUtils";
 import { getAuthApi } from "../../extension";
 import { createMachine, assign, createActor } from "xstate";
@@ -1442,6 +1444,32 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             case "project.createEmpty": {
                 debugLog("Creating empty project");
                 await createNewWorkspaceAndProject();
+                break;
+            }
+            case "project.createEmptyWithName": {
+                try {
+                    const inputName = (message as any).projectName as string;
+                    const sanitized = sanitizeProjectName(inputName);
+                    if (sanitized !== inputName) {
+                        this.safeSendMessage({
+                            command: "project.nameWillBeSanitized",
+                            original: inputName,
+                            sanitized,
+                        } as MessagesFromStartupFlowProvider);
+                        // Optionally wait for confirm message from webview
+                    } else {
+                        await createWorkspaceWithProjectName(sanitized);
+                    }
+                } catch (error) {
+                    console.error("Error creating project with name:", error);
+                }
+                break;
+            }
+            case "project.createEmpty.confirm": {
+                const { proceed, projectName } = message as any;
+                if (proceed && projectName) {
+                    await createWorkspaceWithProjectName(projectName);
+                }
                 break;
             }
             case "project.initialize": {
