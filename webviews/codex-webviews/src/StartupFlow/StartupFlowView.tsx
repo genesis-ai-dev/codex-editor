@@ -13,6 +13,9 @@ import {
 } from "types";
 import { createActor } from "xstate";
 import { InputCriticalProjectInfo } from "./components/InputCriticalProjectInfo";
+import NameProjectModal from "./components/NameProjectModal";
+import { WebviewApi } from "vscode-webview";
+import ConfirmModal from "../components/ConfirmModal";
 
 enum StartupFlowStates {
     LOGIN_REGISTER = "loginRegister",
@@ -145,7 +148,7 @@ export const StartupFlowView: React.FC = () => {
 
         window.addEventListener("message", messageHandler);
         return () => window.removeEventListener("message", messageHandler);
-    }, []);
+    }, [value]);
 
     // Try to sync project after successful authentication
     const triggerSyncAfterAuth = (isAuthenticated: boolean) => {
@@ -281,9 +284,38 @@ export const StartupFlowView: React.FC = () => {
         // send({ type: StartupFlowEvents.SKIP_AUTH });
     };
 
+    const [showNameModal, setShowNameModal] = useState(false);
+    const [pendingSanitizedName, setPendingSanitizedName] = useState<string | null>(null);
+    const [showConfirmSanitizedNameModal, setShowConfirmSanitizedNameModal] = useState(false);
+
+    useEffect(() => {
+        const onMessage = (event: MessageEvent<any>) => {
+            const message = event.data as MessagesFromStartupFlowProvider;
+            if (message?.command === "project.nameWillBeSanitized") {
+                setPendingSanitizedName(message.sanitized);
+                setShowConfirmSanitizedNameModal(true);
+            }
+        };
+        window.addEventListener("message", onMessage);
+        return () => window.removeEventListener("message", onMessage);
+    }, []);
+
     const handleCreateEmpty = () => {
-        vscode.postMessage({ command: "project.createEmpty" } as MessagesToStartupFlowProvider);
+        setPendingSanitizedName(null);
+        setShowNameModal(true);
     };
+
+    const submitProjectName = (name: string) => {
+        vscode.postMessage({
+            command: "project.createEmptyWithName",
+            projectName: name,
+        } as MessagesToStartupFlowProvider);
+        // keep modal open until we know if sanitize changed it; provider will tell us if needed
+        // but if no sanitize change, the provider will proceed and we can close immediately
+        setShowNameModal(false);
+    };
+
+    // Confirmation handled by separate modal via submitProjectName
 
     const handleCloneRepo = (repoUrl: string) => {
         vscode.postMessage({
@@ -308,9 +340,10 @@ export const StartupFlowView: React.FC = () => {
     //     }
     // }, [state.value]);
 
-    console.log(
-        { value, doesThisWork: value === StartupFlowStates.OPEN_OR_CREATE_PROJECT },
-        "value in startup flow"
+    const confirmModalContent = (
+        <div className="flex flex-col justify-center items-center py-4">
+            <div className="font-semibold">{pendingSanitizedName}</div>
+        </div>
     );
 
     return (
@@ -348,7 +381,7 @@ export const StartupFlowView: React.FC = () => {
                     onCreateEmpty={handleCreateEmpty}
                     onCloneRepo={handleCloneRepo}
                     onOpenProject={handleOpenProject}
-                    vscode={vscode}
+                    vscode={vscode as unknown as WebviewApi<any>}
                     // state={state}
                     // send={send}
                 />
@@ -397,6 +430,38 @@ export const StartupFlowView: React.FC = () => {
             {value === StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA && (
                 <InputCriticalProjectInfo vscode={vscode} />
             )}
+
+            <NameProjectModal
+                open={showNameModal}
+                defaultValue={pendingSanitizedName || ""}
+                onCancel={() => {
+                    setShowNameModal(false);
+                    setPendingSanitizedName(null);
+                }}
+                onSubmit={submitProjectName}
+            />
+
+            <ConfirmModal
+                title="Confirm Project Name"
+                description="Project name will be saved in the following format"
+                open={showConfirmSanitizedNameModal}
+                content={confirmModalContent}
+                disableSubmit={!pendingSanitizedName}
+                onCancel={() => {
+                    setShowConfirmSanitizedNameModal(false);
+                    setPendingSanitizedName(null);
+                    setShowNameModal(true);
+                }}
+                onSubmit={() => {
+                    vscode.postMessage({
+                        command: "project.createEmpty.confirm",
+                        proceed: true,
+                        projectName: pendingSanitizedName,
+                    } as MessagesToStartupFlowProvider);
+                    setShowConfirmSanitizedNameModal(false);
+                    setPendingSanitizedName(null);
+                }}
+            />
         </div>
     );
 };

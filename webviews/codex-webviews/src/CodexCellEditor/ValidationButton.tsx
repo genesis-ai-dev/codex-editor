@@ -37,14 +37,14 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     const [requiredValidations, setRequiredValidations] = useState(requiredValidationsProp ?? 1);
     const [userCreatedLatestEdit, setUserCreatedLatestEdit] = useState(false);
     const [showPopover, setShowPopover] = useState(false);
-    const [isPersistentPopover, setIsPersistentPopover] = useState(false);
     const [validationUsers, setValidationUsers] = useState<ValidationEntry[]>([]);
-    const [isDetailedView, setIsDetailedView] = useState(false);
     const [isPendingValidation, setIsPendingValidation] = useState(false);
     const [isValidationInProgress, setIsValidationInProgress] = useState(false);
     const buttonRef = useRef<HTMLDivElement>(null);
     const uniqueId = useRef(`validation-${cellId}-${Math.random().toString(36).substring(2, 11)}`);
     const closeTimerRef = useRef<number | null>(null);
+    const ignoreHoverRef = useRef(false);
+
     const clearCloseTimer = () => {
         if (closeTimerRef.current != null) {
             clearTimeout(closeTimerRef.current);
@@ -211,17 +211,26 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     const handleButtonClick = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (isDisabled) return;
-        // If not validated yet, validate the cell
+        
+        // Briefly ignore hover so the popover can't re-open immediately after clicking.
+        ignoreHoverRef.current = true;
+        window.setTimeout(() => {
+            ignoreHoverRef.current = false;
+        }, 200);
+        
         if (!isValidated) {
             handleValidate(e);
-            return;
+            closePopover();
         }
     };
 
     const showPopoverHandler = (e: React.MouseEvent) => {
         e.stopPropagation();
         e.preventDefault();
+
         if (isDisabled) return;
+
+        if (ignoreHoverRef.current) return;
 
         clearCloseTimer();
         setShowPopover(true);
