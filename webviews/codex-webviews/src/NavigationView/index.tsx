@@ -9,6 +9,8 @@ import { Progress } from "../components/ui/progress";
 import "../tailwind.css";
 import { CodexItem } from "types";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
+import LanguageIcon from "../components/ui/icons/LanguageIcon";
+import MicrophoneIcon from "../components/ui/icons/MicrophoneIcon";
 
 // Declare the acquireVsCodeApi function
 declare function acquireVsCodeApi(): any;
@@ -559,6 +561,10 @@ function NavigationView() {
         percentTextValidatedTranslations?: number;
         percentAudioTranslationsCompleted?: number;
         percentAudioValidatedTranslations?: number;
+        textValidationLevels?: number[];
+        audioValidationLevels?: number[];
+        requiredTextValidations?: number;
+        requiredAudioValidations?: number;
     }) => {
         if (typeof progress !== "object") return null;
         const textCompleted = Math.max(
@@ -583,22 +589,45 @@ function NavigationView() {
             Math.min(100, progress.percentAudioValidatedTranslations ?? 0)
         );
 
+        const textLevels = Array.isArray(progress.textValidationLevels)
+            ? progress.textValidationLevels
+            : [textValidated];
+        const audioLevels = Array.isArray(progress.audioValidationLevels)
+            ? progress.audioValidationLevels
+            : [audioValidated];
+        const requiredText = progress.requiredTextValidations;
+        const requiredAudio = progress.requiredAudioValidations;
+
         return (
             <div className="flex flex-col gap-1 pl-7">
-                <div className="flex items-center gap-1">
-                    <i className="codicon codicon-file-text text-[12px] opacity-70" />
-                    <span className="text-[10px] text-muted-foreground">Text</span>
+                <div className="flex gap-x-1">
+                    <span className="opacity-70">
+                        <LanguageIcon />
+                    </span>
+                    <div className="mt-[2px] w-full">
+                        <Progress
+                            value={textCompleted}
+                            validationValues={textLevels}
+                            requiredValidations={requiredText}
+                            showPercentage
+                            showLevelTicks
+                        />
+                    </div>
                 </div>
-                <Progress value={textCompleted} validationValues={[textValidated]} showPercentage />
-                <div className="flex items-center gap-1 mt-1">
-                    <i className="codicon codicon-mic text-[12px] opacity-70" />
-                    <span className="text-[10px] text-muted-foreground">Audio</span>
+                <div className="flex gap-x-1">
+                    <span className="opacity-70">
+                        <MicrophoneIcon />
+                    </span>
+                    <div className="mt-[2px] w-full">
+                        <Progress
+                            value={audioCompleted}
+                            validationValues={audioLevels}
+                            requiredValidations={requiredAudio}
+                            showPercentage
+                            showLevelTicks
+                        />
+                    </div>
                 </div>
-                <Progress
-                    value={audioCompleted}
-                    validationValues={[audioValidated]}
-                    showPercentage
-                />
             </div>
         );
     };

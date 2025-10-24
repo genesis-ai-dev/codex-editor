@@ -37,6 +37,7 @@
         --radius: 0.5rem;
         --editor-warning-foreground: var(--vscode-editorWarning-foreground, #bf8803);
         --charts-blue: var(--vscode-charts-blue, #1a85ff);
+        --charts-green: var(--vscode-charts-green, #388a34);
 
         /* Additional VSCode-specific colors - More subtle */
         --tab-active-background: var(--vscode-editor-background, #ffffff);
@@ -337,6 +338,7 @@
     --color-ring: var(--ring);
     --color-editor-warning-foreground: var(--editor-warning-foreground);
     --color-charts-blue: var(--charts-blue);
+    --color-charts-green: var(--charts-green);
 }
 
 /* Dark theme adjustments for better VSCode integration */

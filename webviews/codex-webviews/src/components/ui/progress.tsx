@@ -8,12 +8,14 @@ function Progress({
     value,
     secondaryValue = 0,
     showPercentage = false,
+    showLevelTicks = false,
     validationValues,
     requiredValidations,
     ...props
 }: React.ComponentProps<typeof ProgressPrimitive.Root> & {
     secondaryValue?: number;
     showPercentage?: boolean;
+    showLevelTicks?: boolean;
     validationValues?: number[];
     requiredValidations?: number;
 }) {
@@ -24,6 +26,9 @@ function Progress({
         ? (validationValues as number[]).map((v) => Math.max(0, Math.min(100, v)))
         : [];
     const n = hasValidationLayers ? requiredValidations || safeValidationValues.length : 0;
+    const fullIndex = hasValidationLayers
+        ? Math.max(0, Math.min(n, safeValidationValues.length) - 1)
+        : 0;
 
     const getOpacityForLevel = (index: number, totalLevels: number) => {
         if (totalLevels <= 0) return 0.3;
@@ -35,16 +40,12 @@ function Progress({
         <div className="w-full">
             <ProgressPrimitive.Root
                 data-slot="progress"
-                className={cn(
-                    "bg-primary/20 relative w-full overflow-hidden rounded-sm",
-                    showPercentage ? "h-2" : "h-1",
-                    className
-                )}
+                className="bg-primary/20 relative w-full overflow-hidden rounded-full h-[8px]"
                 {...props}
             >
                 <ProgressPrimitive.Indicator
                     data-slot="progress-indicator"
-                    className="bg-primary h-full w-full flex-1 transition-all"
+                    className="bg-primary h-full w-full flex-1 transition-all relative"
                     style={{ transform: `translateX(-${100 - translated}%)` }}
                 >
                     {hasValidationLayers ? (
@@ -52,18 +53,20 @@ function Progress({
                             {safeValidationValues.map((v, i) => {
                                 const clampedLevel = Math.min(translated, v);
                                 const shift = Math.max(0, translated - clampedLevel);
-                                const isLast = i === safeValidationValues.length - 1;
+                                const isFullLayer = i === fullIndex;
                                 if (clampedLevel <= 0) return null;
                                 return (
                                     <ProgressPrimitive.Indicator
                                         key={i}
                                         data-slot="progress-indicator"
-                                        className="h-full w-full flex-1 transition-all"
+                                        className="h-full w-full flex-1 transition-all absolute inset-0"
                                         style={{
-                                            backgroundColor: isLast
+                                            backgroundColor: isFullLayer
                                                 ? "var(--vscode-editorWarning-foreground)"
                                                 : `rgba(0, 0, 0, ${getOpacityForLevel(i, n)})`,
+                                            opacity: 1,
                                             transform: `translateX(-${shift}%)`,
+                                            zIndex: isFullLayer ? 100 : 10 + i,
                                         }}
                                     />
                                 );
@@ -88,15 +91,12 @@ function Progress({
                 <div className="flex items-center mt-0.5 gap-2">
                     {hasValidationLayers ? (
                         // Fully validated on the left (gold)
-                        (safeValidationValues[safeValidationValues.length - 1] || 0) > 0 ? (
+                        (safeValidationValues[fullIndex] || 0) > 0 ? (
                             <span
                                 className="text-[10px] font-medium"
                                 style={{ color: "var(--vscode-editorWarning-foreground)" }}
                             >
-                                {Math.floor(
-                                    safeValidationValues[safeValidationValues.length - 1] || 0
-                                )}
-                                %
+                                {Math.floor(safeValidationValues[fullIndex] || 0)}%
                             </span>
                         ) : (
                             <span></span>
@@ -116,6 +116,26 @@ function Progress({
                     <span className="text-[10px] font-medium text-primary">
                         {Math.floor(translated)}%
                     </span>
+                </div>
+            )}
+            {hasValidationLayers && showLevelTicks && (
+                <div className="mt-0.5 flex flex-wrap gap-2 text-[9px]">
+                    {safeValidationValues.map((v, i) => (
+                        <div
+                            key={i}
+                            className="flex items-center gap-x-1 font-medium"
+                            style={{
+                                color:
+                                    i === fullIndex
+                                        ? "var(--vscode-editorWarning-foreground)"
+                                        : "var(--vscode-button-background)",
+                            }}
+                        >
+                            {i + 1}
+                            <i className="codicon codicon-check-all text-[4px] text-charts-green" />
+                            {Math.floor(v)}%
+                        </div>
+                    ))}
                 </div>
             )}
         </div>

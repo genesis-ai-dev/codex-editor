@@ -1541,6 +1541,10 @@ interface CodexItem {
         percentAudioValidatedTranslations: number;
         percentTextValidatedTranslations: number;
         percentFullyValidatedTranslations: number;
+        textValidationLevels?: number[];
+        audioValidationLevels?: number[];
+        requiredTextValidations?: number;
+        requiredAudioValidations?: number;
     };
     sortOrder?: string;
     isProjectDictionary?: boolean;
