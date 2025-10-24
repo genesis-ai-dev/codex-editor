@@ -10,6 +10,7 @@ import {
     validateFileExtension,
 } from '../../utils/workflowHelpers';
 import { XMLParser } from 'fast-xml-parser';
+import { CodexCellTypes } from 'types/enums';
 
 const SUPPORTED_EXTENSIONS = ['tmx', 'xliff', 'xlf'];
 
@@ -240,20 +241,7 @@ const convertTranslationUnitsToCells = (
         // Create HTML markup
         const htmlContent = `<p class="translation-unit" data-unit-id="${escapeHtml(unit.id)}" data-source-language="${escapeHtml(unit.sourceLanguage)}" data-target-language="${escapeHtml(unit.targetLanguage)}">${escapeHtml(cleanText)}</p>`;
 
-        const cell = createProcessedCell(cellId, htmlContent, {
-            originalText: cleanText,
-            targetText: cleanTargetText,
-            sourceLanguage: unit.sourceLanguage,
-            targetLanguage: unit.targetLanguage,
-            unitId: unit.id,
-            note: unit.note,
-            cellLabel: (index + 1).toString(),
-            data: {
-                segmentIndex: index,
-                originalContent: cleanText,
-                isTranslationUnit: true
-            }
-        });
+        const cell = createProcessedCell(cellId, htmlContent);
 
         return cell;
     });
@@ -300,150 +288,18 @@ export const parseFile = async (
 
         onProgress?.(createProgress('Creating Notebooks', 'Creating notebooks...', 80));
 
-        // Create codex cells (empty for translation or with target text if extractTarget)
+        // Create codex cells (empty for translation or with target text)
         const codexCells = cells.map(sourceCell => {
             let codexContent = '';
 
             if (extractTarget && sourceCell.metadata?.targetText) {
+                // Create HTML structure for target text
                 const unitId = sourceCell.metadata?.unitId || 'unknown';
                 const targetLanguage = sourceCell.metadata?.targetLanguage || 'target';
-                codexContent = `<p class="translation-unit" data-unit-id="${escapeHtml(unitId)}" data-language="${escapeHtml(targetLanguage)}">${escapeHtml(sourceCell.metadata.targetText)}</p>`;
+                codexContent = `<p class="translation-paragraph" data-unit-id="${unitId}" data-language="${targetLanguage}">${escapeHtml(sourceCell.metadata.targetText)}</p>`;
             }
 
-            // Create notebooks for each book
-            const notebooks = [];
-
-            for (const book of bibleStructure.allBooks) {
-                const bookVerses = versesByBook.get(book.name);
-                if (!bookVerses || bookVerses.length === 0) continue;
-
-                const bookAbbrev = getBookAbbreviation(book.name);
-                const testamentName = book.testament === 'old' ? 'Old Testament' : 'New Testament';
-                const corpusMarker = book.testament === 'old' ? 'OT' : 'NT';
-
-                // Create cells for this book
-                const cells = bookVerses.map(verse => {
-                    const cellId = `${bookAbbrev} ${verse.chapter}:${verse.verse}`;
-
-                    // Clean the text
-                    const cleanText = verse.text
-                        .replace(/[\r\n]+/g, ' ')
-                        .replace(/\s+/g, ' ')
-                        .trim();
-
-                    // Clean target text if available
-                    const cleanTargetText = verse.targetText
-                        ? verse.targetText
-                            .replace(/[\r\n]+/g, ' ')
-                            .replace(/\s+/g, ' ')
-                            .trim()
-                        : '';
-
-                    // Create HTML content using inline structure to keep verse text on same line as number
-                    const verseContent = `<span class="verse" data-reference="${bookAbbrev} ${verse.chapter}:${verse.verse}">${escapeHtml(cleanText)}</span>`;
-
-                    return createProcessedCell(cellId, verseContent, {
-                        type: 'verse',
-                        bookName: book.name,
-                        bookCode: bookAbbrev,
-                        chapter: verse.chapter,
-                        verse: verse.verse,
-                        testament: verse.testament,
-                        corpusMarker: corpusMarker,
-                        cellLabel: verse.verse.toString(),
-                        originalText: cleanText,
-                        targetText: cleanTargetText,
-                    });
-                });
-
-                // Create codex cells (empty for translation or with target text)
-                const codexCells = cells.map(sourceCell => {
-                    const codexContent = extractTarget && sourceCell.metadata?.targetText
-                        ? `<span class="verse" data-reference="${sourceCell.metadata?.bookCode} ${sourceCell.metadata?.chapter}:${sourceCell.metadata?.verse}">${escapeHtml(sourceCell.metadata?.targetText)}</span>`
-                        : '';
-
-                    return createProcessedCell(sourceCell.id, codexContent, {
-                        ...sourceCell.metadata,
-                        originalContent: sourceCell.content
-                    });
-                });
-
-                // Create source notebook
-                const sourceNotebook = {
-                    name: bookAbbrev,
-                    cells: cells,
-                    metadata: {
-                        id: `translation-source-${bookAbbrev}-${Date.now()}`,
-                        originalFileName: file.name,
-                        originalFileData: arrayBuffer, // Store original file for round-trip export
-                        corpusMarker: corpusMarker, // tms-tmx or tms-xliff for round-trip
-                        importerType: 'translation',
-                        createdAt: new Date().toISOString(),
-                        bookName: book.name,
-                        bookCode: bookAbbrev,
-                        testament: book.testament,
-                        testamentName: testamentName,
-                        bookNumber: book.number,
-                        chapters: book.chapters,
-                        verses: book.verses,
-                        verseCount: cells.length,
-                        chapterCount: book.chapters,
-                        fileType: fileType, // Store file type for export
-                    },
-                };
-
-                // Create codex notebook
-                const codexNotebook = {
-                    name: bookAbbrev,
-                    cells: codexCells,
-                    metadata: {
-                        ...sourceNotebook.metadata,
-                        id: `translation-codex-${bookAbbrev}-${Date.now()}`,
-                        // Don't duplicate the original file data in codex
-                        originalFileData: undefined,
-                    },
-                };
-
-                notebooks.push({
-                    source: sourceNotebook,
-                    codex: codexNotebook,
-                });
-            }
-
-            return {
-                success: true,
-                notebookPairs: notebooks,
-                metadata: {
-                    translationUnitCount: translationUnits.length,
-                    hasTargets: !extractTarget,
-                    sourceLanguage: translationUnits[0]?.sourceLanguage || '',
-                    targetLanguage: translationUnits[0]?.targetLanguage || '',
-                    fileSize: file.size,
-                    booksCreated: notebooks.length,
-                    oldTestamentBooks: notebooks.filter(n => n.source.metadata.testament === 'old').length,
-                    newTestamentBooks: notebooks.filter(n => n.source.metadata.testament === 'new').length,
-                },
-            };
-        } else {
-            // Non-Bible translation import - create a single notebook
-            const cells = convertTranslationUnitsToSimpleCells(translationUnits, extractTarget);
-
-            // Create codex cells (empty for translation or with target text)
-            const codexCells = cells.map(sourceCell => {
-                let codexContent = '';
-
-                if (extractTarget && sourceCell.metadata?.targetText) {
-                    // Create HTML structure for non-Bible target text (no book/chapter/verse references)
-                    const unitId = sourceCell.metadata?.unitId || 'unknown';
-                    const targetLanguage = sourceCell.metadata?.targetLanguage || 'target';
-                    codexContent = `<p class="translation-paragraph" data-unit-id="${unitId}" data-language="${targetLanguage}">${escapeHtml(sourceCell.metadata.targetText)}</p>`;
-                }
-
-                return createProcessedCell(sourceCell.id, codexContent, {
-                    ...sourceCell.metadata,
-                    originalContent: sourceCell.content
-                });
-            });
+            return createProcessedCell(sourceCell.id, codexContent);
         });
 
         // Create source notebook
