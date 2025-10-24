@@ -401,19 +401,6 @@ export class SyncManager {
                 // Don't fail sync completion due to audio refresh errors
             }
 
-            // Post-sync cleanup for media files (stream-only mode)
-            try {
-                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-                if (workspaceFolder) {
-                    const { postSyncCleanup } = await import("../utils/mediaStrategyManager");
-                    await postSyncCleanup(workspaceFolder.uri);
-                    debug("[SyncManager] Post-sync media cleanup completed");
-                }
-            } catch (error) {
-                console.error("[SyncManager] Error in post-sync media cleanup:", error);
-                // Don't fail sync completion due to cleanup errors
-            }
-
             // Update sync stage and splash screen
             this.currentSyncStage = "Synchronization complete!";
             this.notifySyncStatusListeners();
