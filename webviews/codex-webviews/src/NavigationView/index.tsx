@@ -64,9 +64,7 @@ const styles = {
             transform: "scale(0.98)",
         },
     },
-    
-    
-    
+
     childrenContainer: {
         marginLeft: "16px",
         marginTop: "6px",
@@ -556,16 +554,49 @@ function NavigationView() {
     };
 
     const renderProgressSection = (progress?: {
-        percentTranslationsCompleted: number;
-        percentFullyValidatedTranslations: number;
+        percentTranslationsCompleted?: number;
+        percentFullyValidatedTranslations?: number;
+        percentTextValidatedTranslations?: number;
+        percentAudioTranslationsCompleted?: number;
+        percentAudioValidatedTranslations?: number;
     }) => {
         if (typeof progress !== "object") return null;
-        console.log({ progress });
+        const textCompleted = Math.max(
+            0,
+            Math.min(100, progress.percentTranslationsCompleted ?? 0)
+        );
+        const textValidated = Math.max(
+            0,
+            Math.min(
+                100,
+                progress.percentTextValidatedTranslations ??
+                    progress.percentFullyValidatedTranslations ??
+                    0
+            )
+        );
+        const audioCompleted = Math.max(
+            0,
+            Math.min(100, progress.percentAudioTranslationsCompleted ?? 0)
+        );
+        const audioValidated = Math.max(
+            0,
+            Math.min(100, progress.percentAudioValidatedTranslations ?? 0)
+        );
+
         return (
             <div className="flex flex-col gap-1 pl-7">
+                <div className="flex items-center gap-1">
+                    <i className="codicon codicon-file-text text-[12px] opacity-70" />
+                    <span className="text-[10px] text-muted-foreground">Text</span>
+                </div>
+                <Progress value={textCompleted} validationValues={[textValidated]} showPercentage />
+                <div className="flex items-center gap-1 mt-1">
+                    <i className="codicon codicon-mic text-[12px] opacity-70" />
+                    <span className="text-[10px] text-muted-foreground">Audio</span>
+                </div>
                 <Progress
-                    value={progress.percentTranslationsCompleted}
-                    secondaryValue={progress.percentFullyValidatedTranslations}
+                    value={audioCompleted}
+                    validationValues={[audioValidated]}
                     showPercentage
                 />
             </div>

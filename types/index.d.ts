@@ -1537,6 +1537,9 @@ interface CodexItem {
     corpusMarker?: string;
     progress?: {
         percentTranslationsCompleted: number;
+        percentAudioTranslationsCompleted: number;
+        percentAudioValidatedTranslations: number;
+        percentTextValidatedTranslations: number;
         percentFullyValidatedTranslations: number;
     };
     sortOrder?: string;

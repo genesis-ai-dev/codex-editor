@@ -7,7 +7,12 @@ import { ChapterSelectorModal } from "./modals/ChapterSelectorModal";
 import { MobileHeaderMenu } from "./components/MobileHeaderMenu";
 import { type QuillCellContent, type CustomNotebookMetadata } from "../../../../types";
 import { EditMapUtils } from "../../../../src/utils/editMapUtils";
-import { getCellValueData } from "@sharedUtils";
+import {
+    getCellValueData,
+    cellHasAudioUsingAttachments,
+    computeValidationStats,
+    computeProgressPercents,
+} from "@sharedUtils";
 import {
     type FileStatus,
     type EditorPosition,
@@ -684,24 +689,12 @@ ChapterNavigationHeaderProps) {
         const isFullyTranslated = completedCells.length === totalCells;
 
         // Calculate audio presence for subsection (mirrors chapter calculation)
-        const cellsWithAudioValues = validCells.filter((cell) => {
-            const atts = (cell as any).attachments as Record<string, any> | undefined;
-            if (!atts || Object.keys(atts).length === 0) return false;
-
-            const selectedId = (cell as any).metadata?.selectedAudioId;
-            if (selectedId && atts[selectedId]) {
-                const att = atts[selectedId];
-                return (
-                    att && att.type === "audio" && att.isDeleted === false && att.isMissing !== true
-                );
-            }
-
-            // Fallback: any non-deleted, non-missing audio attachment
-            return Object.values(atts).some(
-                (att: any) =>
-                    att && att.type === "audio" && att.isDeleted === false && att.isMissing !== true
-            );
-        }).length;
+        const cellsWithAudioValues = validCells.filter((cell) =>
+            cellHasAudioUsingAttachments(
+                (cell as any).attachments,
+                (cell as any).metadata?.selectedAudioId
+            )
+        ).length;
 
         // Check if all cells are validated
         let isFullyValidated = false;
@@ -717,33 +710,26 @@ ChapterNavigationHeaderProps) {
         // Calculate validation data using shared utils
         const cellWithValidatedData = validCells.map((cell) => getCellValueData(cell));
 
-        const fullyValidatedCells = cellWithValidatedData.filter((cell) => {
-            const validatedBy =
-                cell.validatedBy?.filter((v) => !v.isDeleted).length >= minimumValidationsRequired;
-            const audioValidatedBy =
-                cell.audioValidatedBy?.filter((v) => !v.isDeleted).length >=
-                minimumAudioValidationsRequired;
-            return validatedBy && audioValidatedBy;
-        }).length;
+        const { validatedCells, audioValidatedCells, fullyValidatedCells } = computeValidationStats(
+            cellWithValidatedData,
+            minimumValidationsRequired,
+            minimumAudioValidationsRequired
+        );
 
-        const validatedCells = cellWithValidatedData.filter((cell) => {
-            return (
-                cell.validatedBy?.filter((v) => !v.isDeleted).length >= minimumValidationsRequired
-            );
-        }).length;
-
-        const audioValidatedCells = cellWithValidatedData.filter((cell) => {
-            return (
-                cell.audioValidatedBy?.filter((v) => !v.isDeleted).length >=
-                minimumAudioValidationsRequired
-            );
-        }).length;
-
-        const percentTranslationsCompleted = (completedCells.length / totalCells) * 100;
-        const percentAudioTranslationsCompleted = (cellsWithAudioValues / totalCells) * 100;
-        const percentAudioValidatedTranslations = (audioValidatedCells / totalCells) * 100;
-        const percentTextValidatedTranslations = (validatedCells / totalCells) * 100;
-        const percentFullyValidatedTranslations = (fullyValidatedCells / totalCells) * 100;
+        const {
+            percentTranslationsCompleted,
+            percentAudioTranslationsCompleted,
+            percentAudioValidatedTranslations,
+            percentTextValidatedTranslations,
+            percentFullyValidatedTranslations,
+        } = computeProgressPercents(
+            totalCells,
+            completedCells.length,
+            cellsWithAudioValues,
+            validatedCells,
+            audioValidatedCells,
+            fullyValidatedCells
+        );
 
         if (isFullyTranslated) {
             // Maintain existing gating for the boolean display in this header
