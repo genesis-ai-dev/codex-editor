@@ -79,6 +79,8 @@ interface ChapterNavigationHeaderProps {
     allCellsForChapter?: QuillCellContent[];
     onTempFontSizeChange?: (fontSize: number) => void;
     onFontSizeSave?: (fontSize: number) => void;
+    requiredValidations?: number | null;
+    requiredAudioValidations?: number | null;
 }
 
 export function ChapterNavigationHeader({
@@ -127,6 +129,8 @@ export function ChapterNavigationHeader({
     allCellsForChapter,
     onTempFontSizeChange,
     onFontSizeSave,
+    requiredValidations,
+    requiredAudioValidations,
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
@@ -701,10 +705,14 @@ ChapterNavigationHeaderProps) {
 
         // Check if all cells are validated
         let isFullyValidated = false;
-        // Use the same validation thresholds as CodexCellEditor when available
-        const minimumValidationsRequired = (window as any)?.initialData?.validationCount ?? 1;
+        const minimumValidationsRequired =
+            (requiredValidations ?? undefined) !== undefined
+                ? (requiredValidations as number) ?? 1
+                : (window as any)?.initialData?.validationCount ?? 1;
         const minimumAudioValidationsRequired =
-            (window as any)?.initialData?.validationCountAudio ?? 1;
+            (requiredAudioValidations ?? undefined) !== undefined
+                ? (requiredAudioValidations as number) ?? 1
+                : (window as any)?.initialData?.validationCountAudio ?? 1;
 
         // Calculate validation data using shared utils
         const cellWithValidatedData = validCells.map((cell) => getCellValueData(cell));
