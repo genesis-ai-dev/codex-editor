@@ -2341,6 +2341,8 @@ const CodexCellEditor: React.FC = () => {
                             allCellsForChapter={allCellsForChapter}
                             onTempFontSizeChange={handleTempFontSizeChange}
                             onFontSizeSave={handleFontSizeSave}
+                            requiredValidations={requiredValidations ?? undefined}
+                            requiredAudioValidations={requiredAudioValidations ?? undefined}
                         />
                     </div>
                 </div>
