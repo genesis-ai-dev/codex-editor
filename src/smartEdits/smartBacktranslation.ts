@@ -25,9 +25,11 @@ export interface SavedBacktranslation {
 export class SmartBacktranslation {
     private backtranslationPath: string;
     private saveInProgress: Promise<void> = Promise.resolve();
+    private workspaceRoot: string;
 
     constructor(workspaceUri: vscode.Uri) {
         this.backtranslationPath = path.join(workspaceUri.fsPath, "files", "backtranslations.json");
+        this.workspaceRoot = workspaceUri.fsPath;
     }
 
     async generateBacktranslation(text: string, cellId: string, filePath?: string): Promise<SavedBacktranslation> {
@@ -134,6 +136,11 @@ Backtranslation: ${bt.backtranslation}
     private async saveBacktranslation(backtranslation: SavedBacktranslation): Promise<void> {
         this.saveInProgress = this.saveInProgress.then(async () => {
             try {
+                if (backtranslation.filePath) {
+                    backtranslation.filePath = path.isAbsolute(backtranslation.filePath)
+                        ? path.relative(this.workspaceRoot, backtranslation.filePath)
+                        : backtranslation.filePath;
+                }
                 const savedBacktranslations = await this.loadSavedBacktranslations();
                 savedBacktranslations[backtranslation.cellId] = backtranslation;
 

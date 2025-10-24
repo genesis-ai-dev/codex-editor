@@ -2420,7 +2420,9 @@ async function exportCodexContentAsBacktranslations(
                         continue;
                     }
                     
-                    const filePath = bt.filePath;
+                    const filePath = path.isAbsolute(bt.filePath)
+                        ? bt.filePath
+                        : path.join(workspaceFolders[0].uri.fsPath, bt.filePath);
                     if (!fileGroups.has(filePath)) {
                         fileGroups.set(filePath, []);
                     }
