@@ -61,6 +61,8 @@ export interface CellListProps {
     // Cells currently undergoing audio transcription
     transcribingCells?: Set<string>;
     isAudioOnly?: boolean;
+    showInlineBacktranslations?: boolean;
+    backtranslationsMap?: Map<string, any>;
 }
 
 const DEBUG_ENABLED = false;
@@ -103,6 +105,8 @@ const CellList: React.FC<CellListProps> = ({
     requiredAudioValidations,
     transcribingCells,
     isAudioOnly = false,
+    showInlineBacktranslations = false,
+    backtranslationsMap = new Map(),
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -664,6 +668,8 @@ const CellList: React.FC<CellListProps> = ({
                                 requiredValidations={requiredValidations}
                                 requiredAudioValidations={requiredAudioValidations}
                                 isAudioOnly={isAudioOnly}
+                                showInlineBacktranslations={showInlineBacktranslations}
+                                backtranslation={backtranslationsMap.get(cellMarkers[0])}
                             />
                         </span>
                     );
@@ -673,6 +679,8 @@ const CellList: React.FC<CellListProps> = ({
         [
             cellDisplayMode,
             textDirection,
+            showInlineBacktranslations,
+            backtranslationsMap,
             vscode,
             isSourceText,
             duplicateCellIds,
@@ -838,6 +846,8 @@ const CellList: React.FC<CellListProps> = ({
                                 requiredValidations={requiredValidations}
                                 requiredAudioValidations={requiredAudioValidations}
                                 isAudioOnly={isAudioOnly}
+                                showInlineBacktranslations={showInlineBacktranslations}
+                                backtranslation={backtranslationsMap.get(cellMarkers[0])}
                             />
                         </span>
                     );
