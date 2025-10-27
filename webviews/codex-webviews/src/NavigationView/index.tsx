@@ -215,6 +215,10 @@ function NavigationView() {
         },
     });
 
+    const [expandedValidationTicks, setExpandedValidationTicks] = useState<Record<string, boolean>>(
+        {}
+    );
+
     // Initialize Bible book map on component mount
     useEffect(() => {
         const bookMap = new Map<string, BibleBookInfo>();
@@ -555,17 +559,36 @@ function NavigationView() {
             .filter((item): item is CodexItem => item !== null);
     };
 
-    const renderProgressSection = (progress?: {
-        percentTranslationsCompleted?: number;
-        percentFullyValidatedTranslations?: number;
-        percentTextValidatedTranslations?: number;
-        percentAudioTranslationsCompleted?: number;
-        percentAudioValidatedTranslations?: number;
-        textValidationLevels?: number[];
-        audioValidationLevels?: number[];
-        requiredTextValidations?: number;
-        requiredAudioValidations?: number;
-    }) => {
+    const toggleTextValidationLevelTicks =
+        (itemKey: string) => (e: React.MouseEvent<HTMLButtonElement>) => {
+            e.stopPropagation();
+            e.preventDefault();
+            const key = `${itemKey}-text`;
+            setExpandedValidationTicks((prev) => ({ ...prev, [key]: !prev[key] }));
+        };
+
+    const toggleAudioValidationLevelTicks =
+        (itemKey: string) => (e: React.MouseEvent<HTMLButtonElement>) => {
+            e.stopPropagation();
+            e.preventDefault();
+            const key = `${itemKey}-audio`;
+            setExpandedValidationTicks((prev) => ({ ...prev, [key]: !prev[key] }));
+        };
+
+    const renderProgressSection = (
+        itemKey: string,
+        progress?: {
+            percentTranslationsCompleted?: number;
+            percentFullyValidatedTranslations?: number;
+            percentTextValidatedTranslations?: number;
+            percentAudioTranslationsCompleted?: number;
+            percentAudioValidatedTranslations?: number;
+            textValidationLevels?: number[];
+            audioValidationLevels?: number[];
+            requiredTextValidations?: number;
+            requiredAudioValidations?: number;
+        }
+    ) => {
         if (typeof progress !== "object") return null;
         const textCompleted = Math.max(
             0,
@@ -599,9 +622,9 @@ function NavigationView() {
         const requiredAudio = progress.requiredAudioValidations;
 
         return (
-            <div className="flex flex-col gap-1 pl-7">
+            <div className="flex flex-col gap-y-4 pl-7">
                 <div className="flex gap-x-1">
-                    <span className="opacity-70">
+                    <span className="opacity-70 font-light">
                         <LanguageIcon />
                     </span>
                     <div className="mt-[2px] w-full">
@@ -610,13 +633,25 @@ function NavigationView() {
                             validationValues={textLevels}
                             requiredValidations={requiredText}
                             showPercentage
-                            showLevelTicks
+                            showValidationLevelTicks={!!expandedValidationTicks[`${itemKey}-text`]}
                         />
                     </div>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="items-start -mt-[3px] h-6 w-6"
+                        onClick={toggleTextValidationLevelTicks(itemKey)}
+                    >
+                        {expandedValidationTicks[`${itemKey}-text`] ? (
+                            <i className="codicon codicon-chevron-up" />
+                        ) : (
+                            <i className="codicon codicon-chevron-down" />
+                        )}
+                    </Button>
                 </div>
                 <div className="flex gap-x-1">
                     <span className="opacity-70">
-                        <MicrophoneIcon />
+                        <i className="codicon codicon-mic" />
                     </span>
                     <div className="mt-[2px] w-full">
                         <Progress
@@ -624,9 +659,23 @@ function NavigationView() {
                             validationValues={audioLevels}
                             requiredValidations={requiredAudio}
                             showPercentage
-                            showLevelTicks
+                            showValidationLevelTicks={!!expandedValidationTicks[`${itemKey}-audio`]}
                         />
                     </div>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="items-start -mt-[3px] h-6 w-6"
+                        onClick={toggleAudioValidationLevelTicks(itemKey)}
+                    >
+                        <span className="hover:text-vscode-foreground">
+                            {expandedValidationTicks[`${itemKey}-audio`] ? (
+                                <i className="codicon codicon-chevron-up" />
+                            ) : (
+                                <i className="codicon codicon-chevron-down" />
+                            )}
+                        </span>
+                    </Button>
                 </div>
             </div>
         );
@@ -740,7 +789,7 @@ function NavigationView() {
                                 {displayLabel}
                             </span>
                         </div>
-                        {renderProgressSection(item.progress)}
+                        {renderProgressSection(itemId, item.progress)}
                     </div>
 
                     {/* Menu button positioned absolutely */}

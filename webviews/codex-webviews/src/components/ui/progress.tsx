@@ -1,21 +1,19 @@
 import * as React from "react";
 import * as ProgressPrimitive from "@radix-ui/react-progress";
 
-import { cn } from "../../lib/utils";
-
 function Progress({
     className,
     value,
     secondaryValue = 0,
     showPercentage = false,
-    showLevelTicks = false,
+    showValidationLevelTicks = false,
     validationValues,
     requiredValidations,
     ...props
 }: React.ComponentProps<typeof ProgressPrimitive.Root> & {
     secondaryValue?: number;
     showPercentage?: boolean;
-    showLevelTicks?: boolean;
+    showValidationLevelTicks?: boolean;
     validationValues?: number[];
     requiredValidations?: number;
 }) {
@@ -118,7 +116,7 @@ function Progress({
                     </span>
                 </div>
             )}
-            {hasValidationLayers && showLevelTicks && (
+            {hasValidationLayers && showValidationLevelTicks && (
                 <div className="mt-0.5 flex flex-wrap gap-2 text-[9px]">
                     {safeValidationValues.map((v, i) => (
                         <div
