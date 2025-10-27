@@ -79,6 +79,8 @@ interface ChapterNavigationHeaderProps {
     allCellsForChapter?: QuillCellContent[];
     onTempFontSizeChange?: (fontSize: number) => void;
     onFontSizeSave?: (fontSize: number) => void;
+    showInlineBacktranslations?: boolean;
+    onToggleInlineBacktranslations?: () => void;
 }
 
 export function ChapterNavigationHeader({
@@ -127,6 +129,8 @@ export function ChapterNavigationHeader({
     allCellsForChapter,
     onTempFontSizeChange,
     onFontSizeSave,
+    showInlineBacktranslations = false,
+    onToggleInlineBacktranslations,
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
@@ -1239,6 +1243,30 @@ ChapterNavigationHeaderProps) {
                                 }}
                             >
                                 {autoDownloadAudioOnOpen ? "On" : "Off"}
+                            </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={() => {
+                                if (onToggleInlineBacktranslations) {
+                                    onToggleInlineBacktranslations();
+                                }
+                            }}
+                            className="cursor-pointer"
+                        >
+                            <i className="codicon codicon-eye mr-2 h-4 w-4" />
+                            <span className="flex-1">Show inline backtranslations</span>
+                            <span
+                                className="text-xs px-2 py-0.5 rounded-full"
+                                style={{
+                                    backgroundColor: showInlineBacktranslations
+                                        ? "var(--vscode-charts-blue)"
+                                        : "var(--vscode-editorHoverWidget-border)",
+                                    color: showInlineBacktranslations
+                                        ? "var(--vscode-editor-background)"
+                                        : "var(--vscode-foreground)",
+                                }}
+                            >
+                                {showInlineBacktranslations ? "On" : "Off"}
                             </span>
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />

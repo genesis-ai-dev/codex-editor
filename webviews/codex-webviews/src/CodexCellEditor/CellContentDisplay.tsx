@@ -22,6 +22,7 @@ import "./TranslationAnimations.css"; // Import the animation CSS
 import { useTooltip } from "./contextProviders/TooltipContext";
 import CommentsBadge from "./CommentsBadge";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
+import ReactMarkdown from "react-markdown";
 
 const SHOW_VALIDATION_BUTTON = true;
 interface CellContentDisplayProps {
@@ -60,6 +61,8 @@ interface CellContentDisplayProps {
     requiredValidations?: number;
     requiredAudioValidations?: number;
     isAudioOnly?: boolean;
+    showInlineBacktranslations?: boolean;
+    backtranslation?: any;
 }
 
 const DEBUG_ENABLED = false;
@@ -424,6 +427,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         requiredValidations,
         requiredAudioValidations,
         isAudioOnly = false,
+        showInlineBacktranslations = false,
+        backtranslation,
     }) => {
         // const { cellContent, timestamps, editHistory } = cell; // I don't think we use this
         const cellIds = cell.cellMarkers;
@@ -1119,6 +1124,30 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         }`}
                     >
                         {renderContent()}
+                        
+                        {/* Inline backtranslation display */}
+                        {showInlineBacktranslations && backtranslation?.backtranslation && (
+                            <div
+                                style={{
+                                    marginTop: "0.25rem",
+                                    paddingLeft: "0.5rem",
+                                    fontSize: "0.85em",
+                                    fontStyle: "italic",
+                                    color: "var(--vscode-descriptionForeground)",
+                                    opacity: 0.8,
+                                    borderLeft: "2px solid var(--vscode-editorWidget-border)",
+                                }}
+                            >
+                                <ReactMarkdown 
+                                    className="prose prose-sm max-w-none"
+                                    components={{
+                                        p: ({ children }) => <span>{children}</span>,
+                                    }}
+                                >
+                                    {backtranslation.backtranslation}
+                                </ReactMarkdown>
+                            </div>
+                        )}
                     </div>
                 </div>
 

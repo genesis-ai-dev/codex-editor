@@ -4,6 +4,7 @@ import { extractVerseRefFromLine } from "../utils/verseRefUtils";
 import * as grammar from "usfm-grammar";
 import { CodexCellTypes } from "../../types/enums";
 import { basename } from "path";
+import * as path from "path";
 import { removeHtmlTags, generateSrtData } from "./subtitleUtils";
 import { generateVttData } from "./vttUtils";
 
@@ -302,6 +303,7 @@ export enum CodexExportFormat {
     CSV = "csv",
     TSV = "tsv",
     REBUILD_EXPORT = "rebuild-export",
+    BACKTRANSLATIONS = "backtranslations",
 }
 
 export interface ExportOptions {
@@ -772,7 +774,38 @@ export async function exportCodexContent(
         case CodexExportFormat.REBUILD_EXPORT:
             await exportCodexContentAsRebuild(userSelectedPath, filesToExport, options);
             break;
+        case CodexExportFormat.BACKTRANSLATIONS:
+            await exportCodexContentAsBacktranslations(userSelectedPath, filesToExport, options);
+            break;
     }
+}
+
+// Compact helpers for id handling and lookups
+function idCandidates(id: string): string[] {
+    const raw = (id || "").trim();
+    if (!raw) return [];
+    const noSuffix = raw.replace(/_\d+_complete\s+/, " ").replace(/\s+/g, " ").trim();
+    const set = new Set<string>([raw, noSuffix]);
+    const m = noSuffix.match(/^(\S+)\s+(\d+)\s*:\s*(\d+)$/);
+    if (m) {
+        const book = m[1];
+        const ref = `${Number(m[2])}:${Number(m[3])}`;
+        set.add(`${book} ${ref}`);
+        set.add(ref);
+    }
+    return Array.from(set);
+}
+
+function addCandidates(map: Map<string, string>, id: string, value: string) {
+    for (const k of idCandidates(id)) if (!map.has(k)) map.set(k, value);
+}
+
+function firstFrom(map: Map<string, string>, keys: string[]): string {
+    for (const k of keys) {
+        const v = map.get(k);
+        if (v !== undefined) return v;
+    }
+    return "";
 }
 
 export const exportCodexContentAsSubtitlesSrt = async (
@@ -2334,6 +2367,125 @@ async function exportCodexContentAsDelimited(
     } catch (error) {
         console.error(`${format.toUpperCase()} Export failed:`, error);
         vscode.window.showErrorMessage(`${format.toUpperCase()} Export failed: ${error}`);
+    }
+}
+
+async function exportCodexContentAsBacktranslations(
+    userSelectedPath: string,
+    filesToExport: string[],
+    options?: ExportOptions
+) {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders) {
+            vscode.window.showErrorMessage("No workspace folder found.");
+            return;
+        }
+
+        const backtranslationsPath = path.join(workspaceFolders[0].uri.fsPath, "files", "backtranslations.json");
+        let backtranslationsData: { [cellId: string]: any } = {};
+        try {
+            const backtranslationsUri = vscode.Uri.file(backtranslationsPath);
+            const backtranslationsContent = await vscode.workspace.fs.readFile(backtranslationsUri);
+            backtranslationsData = JSON.parse(Buffer.from(backtranslationsContent).toString());
+        } catch (error) {
+            vscode.window.showWarningMessage("No backtranslations found.");
+            return;
+        }
+
+        if (Object.keys(backtranslationsData).length === 0) {
+            vscode.window.showInformationMessage("No backtranslations to export.");
+            return;
+        }
+
+        return vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Exporting Backtranslations",
+                cancellable: false,
+            },
+            async (progress) => {
+                progress.report({ message: "Loading backtranslations..." });
+
+                const exportFolder = vscode.Uri.file(userSelectedPath);
+                await vscode.workspace.fs.createDirectory(exportFolder);
+
+                const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+                const fileGroups = new Map<string, Array<{ cellId: string; bt: any }>>();
+                let skipped = 0;
+
+                for (const [cellId, bt] of Object.entries(backtranslationsData)) {
+                    if (!bt.filePath) {
+                        skipped++;
+                        continue;
+                    }
+                    
+                    const filePath = path.isAbsolute(bt.filePath)
+                        ? bt.filePath
+                        : path.join(workspaceFolders[0].uri.fsPath, bt.filePath);
+                    if (!fileGroups.has(filePath)) {
+                        fileGroups.set(filePath, []);
+                    }
+                    fileGroups.get(filePath)!.push({ cellId, bt });
+                }
+
+                let totalExported = 0;
+                let filesWritten = 0;
+
+                for (const [targetPath, entries] of fileGroups) {
+                    try {
+                        const targetUri = vscode.Uri.file(targetPath);
+                        const sourcePath = targetPath.replace(/\.codex$/, ".source");
+                        const sourceUri = vscode.Uri.file(sourcePath);
+
+                        const targetData = await vscode.workspace.fs.readFile(targetUri);
+                        const targetNotebook = JSON.parse(Buffer.from(targetData).toString()) as CodexNotebookAsJSONData;
+
+                        let sourceNotebook: CodexNotebookAsJSONData | null = null;
+                        try {
+                            const sourceData = await vscode.workspace.fs.readFile(sourceUri);
+                            sourceNotebook = JSON.parse(Buffer.from(sourceData).toString()) as CodexNotebookAsJSONData;
+                        } catch (error) {
+                            void error;
+                        }
+
+                        const targetCellsMap = new Map(
+                            targetNotebook.cells
+                                .filter((cell) => (cell.kind === 2 || cell.kind === 1) && (cell as any).metadata?.id)
+                                .map((cell) => [cell.metadata.id, (cell as any).value || ""])
+                        );
+
+                        const sourceCellsMap = new Map(
+                            targetNotebook.cells
+                                .filter((cell) => (cell.kind === 2 || cell.kind === 1) && (cell as any).metadata?.id)
+                                .map((cell) => [cell.metadata.id, (cell.metadata as any)?.data?.originalText || ""])
+                        );
+
+                        let content = "Cell ID,Source Text,Translation,Backtranslation\n";
+                        for (const { cellId, bt } of entries) {
+                            const source = sourceCellsMap.get(cellId) || "";
+                            const target = targetCellsMap.get(cellId) || "";
+                            const backText = (bt && (bt.backtranslation || bt)) || "";
+                            content += `${escapeCsvValue(cellId)},${escapeCsvValue(source)},${escapeCsvValue(target)},${escapeCsvValue(backText)}\n`;
+                            totalExported++;
+                        }
+
+                        const fileName = basename(targetPath, ".codex");
+                        const exportFile = vscode.Uri.joinPath(exportFolder, `${fileName}_backtranslations_${timestamp}.csv`);
+                        await vscode.workspace.fs.writeFile(exportFile, Buffer.from(content));
+                        filesWritten++;
+                    } catch (error) {
+                        console.error(`Error exporting backtranslations for ${targetPath}:`, error);
+                    }
+                }
+
+                const skipMessage = skipped > 0 ? ` (${skipped} skipped - no file path stored)` : "";
+                vscode.window.showInformationMessage(`Exported ${totalExported} backtranslations to ${filesWritten} file(s)${skipMessage}`);
+            }
+        );
+    } catch (error) {
+        console.error("Backtranslations export failed:", error);
+        vscode.window.showErrorMessage(`Backtranslations export failed: ${error}`);
     }
 }
 

@@ -134,6 +134,12 @@ const CodexCellEditor: React.FC = () => {
     const playerRef = useRef<ReactPlayer>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const { setSourceCellMap } = useContext(SourceCellContext);
+    
+    // Backtranslation inline display state
+    const [showInlineBacktranslations, setShowInlineBacktranslations] = useState<boolean>(
+        (window as any).initialData?.metadata?.showInlineBacktranslations || false
+    );
+    const [backtranslationsMap, setBacktranslationsMap] = useState<Map<string, any>>(new Map());
 
     // Simplified state - now we just mirror the provider's state
     const [autocompletionState, setAutocompletionState] = useState<{
@@ -649,6 +655,70 @@ const CodexCellEditor: React.FC = () => {
         },
         [vscode]
     );
+
+    // Handle batch backtranslations response
+    useMessageHandler(
+        "codexCellEditor-batchBacktranslations",
+        (event: MessageEvent) => {
+            const message = event.data as EditorReceiveMessages;
+            if (message.type === "providerSendsBatchBacktranslations") {
+                const newMap = new Map(backtranslationsMap);
+                Object.entries(message.content).forEach(([cellId, backtranslation]) => {
+                    newMap.set(cellId, backtranslation);
+                });
+                setBacktranslationsMap(newMap);
+            }
+        },
+        [backtranslationsMap]
+    );
+
+    // Handle individual backtranslation updates (created/edited)
+    useMessageHandler(
+        "codexCellEditor-backtranslationUpdate",
+        (event: MessageEvent) => {
+            const message = event.data as EditorReceiveMessages;
+            if (
+                message.type === "providerSendsBacktranslation" ||
+                message.type === "providerSendsUpdatedBacktranslation" ||
+                message.type === "providerSendsExistingBacktranslation"
+            ) {
+                if (message.content && message.content.cellId) {
+                    const newMap = new Map(backtranslationsMap);
+                    newMap.set(message.content.cellId, message.content);
+                    setBacktranslationsMap(newMap);
+                }
+            }
+        },
+        [backtranslationsMap]
+    );
+
+    // Fetch backtranslations when toggle is enabled or visible cells change
+    useEffect(() => {
+        if (showInlineBacktranslations && translationUnits.length > 0) {
+            const cellIds = translationUnits
+                .filter((cell) => cell.cellMarkers && cell.cellMarkers.length > 0)
+                .map((cell) => cell.cellMarkers[0]);
+            
+            if (cellIds.length > 0) {
+                vscode.postMessage({
+                    command: "getBatchBacktranslations",
+                    content: { cellIds },
+                } as EditorPostMessages);
+            }
+        }
+    }, [showInlineBacktranslations, translationUnits, vscode]);
+
+    // Toggle inline backtranslations
+    const toggleInlineBacktranslations = useCallback(() => {
+        const newValue = !showInlineBacktranslations;
+        setShowInlineBacktranslations(newValue);
+        
+        // Update metadata in the backend
+        vscode.postMessage({
+            command: "updateNotebookMetadata",
+            content: { showInlineBacktranslations: newValue },
+        } as EditorPostMessages);
+    }, [showInlineBacktranslations, vscode]);
 
     // Listen for validation count updates (initial value comes bundled with content)
     useMessageHandler(
@@ -2332,6 +2402,8 @@ const CodexCellEditor: React.FC = () => {
                             bibleBookMap={bibleBookMap}
                             currentSubsectionIndex={currentSubsectionIndex}
                             setCurrentSubsectionIndex={setCurrentSubsectionIndex}
+                            showInlineBacktranslations={showInlineBacktranslations}
+                            onToggleInlineBacktranslations={toggleInlineBacktranslations}
                             getSubsectionsForChapter={getSubsectionsForChapter}
                             editorPosition={editorPosition}
                             fileStatus={fileStatus}
@@ -2409,6 +2481,8 @@ const CodexCellEditor: React.FC = () => {
                             requiredValidations={requiredValidations ?? undefined}
                             requiredAudioValidations={requiredAudioValidations ?? undefined}
                             transcribingCells={transcribingCells}
+                            showInlineBacktranslations={showInlineBacktranslations}
+                            backtranslationsMap={backtranslationsMap}
                         />
                     </div>
                 </div>
