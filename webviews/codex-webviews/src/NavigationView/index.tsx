@@ -1,16 +1,13 @@
-import React, { useState, useEffect, useMemo, FormEventHandler } from "react";
+import React, { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import { Badge } from "../components/ui/badge";
-import { WebviewHeader } from "../components/WebviewHeader";
 import bibleData from "../assets/bible-books-lookup.json";
 import { Progress } from "../components/ui/progress";
 import "../tailwind.css";
 import { CodexItem } from "types";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import LanguageIcon from "../components/ui/icons/LanguageIcon";
-import MicrophoneIcon from "../components/ui/icons/MicrophoneIcon";
 
 // Declare the acquireVsCodeApi function
 declare function acquireVsCodeApi(): any;

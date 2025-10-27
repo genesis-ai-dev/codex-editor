@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { ProgressPercentages } from "../../lib/types";
 import { getProgressColor } from "../utils/progressUtils";
 import MicrophoneIcon from "../../components/ui/icons/MicrophoneIcon";
-import LanguageIcon from "webviews/components/ui/icons/LanguageIcon";
+import LanguageIcon from "../../components/ui/icons/LanguageIcon";
 
 interface ChapterSelectorModalProps {
     isOpen: boolean;
