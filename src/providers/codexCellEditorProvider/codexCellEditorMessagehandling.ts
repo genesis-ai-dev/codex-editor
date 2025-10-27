@@ -129,7 +129,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     getAsrConfig: async ({ webviewPanel }) => {
         try {
             const config = vscode.workspace.getConfiguration("codex-editor-extension");
-            let endpoint = config.get<string>("asrEndpoint", "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe");
+            let endpoint = config.get<string>("asrEndpoint");
             const provider = config.get<string>("asrProvider", "mms");
             const model = config.get<string>("asrModel", "facebook/mms-1b-all");
             const language = config.get<string>("asrLanguage", "eng");
@@ -140,21 +140,26 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // Try to get authenticated endpoint from FrontierAPI
             try {
                 const frontierApi = getAuthApi();
+                console.log("[ASR Config] frontierApi exists:", !!frontierApi);
                 if (frontierApi) {
                     const authStatus = frontierApi.getAuthStatus();
+                    console.log("[ASR Config] Auth status:", authStatus.isAuthenticated);
                     if (authStatus.isAuthenticated) {
                         const asrEndpoint = await frontierApi.getAsrEndpoint();
+                        console.log("[ASR Config] ASR endpoint from auth API:", asrEndpoint);
                         if (asrEndpoint) {
                             endpoint = asrEndpoint;
                         }
                         // Get auth token for authenticated requests
                         authToken = await frontierApi.authProvider.getToken();
+                        console.log("[ASR Config] Auth token exists:", !!authToken, "length:", authToken?.length);
                     }
                 }
             } catch (error) {
                 console.debug("Could not get ASR endpoint from auth API:", error);
             }
 
+            console.log("[ASR Config] Final config - endpoint:", endpoint, "authToken exists:", !!authToken);
             safePostMessageToPanel(webviewPanel, {
                 type: "asrConfig",
                 content: { endpoint, provider, model, language, phonetic, authToken }
