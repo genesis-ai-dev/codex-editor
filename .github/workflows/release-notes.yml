@@ -106,12 +106,13 @@ jobs:
                   CURR="${{ steps.version.outputs.current_commit }}"
 
                   # Find the most recent 'bump version' commit up to CURR (for selective/hotfix releases)
-                  BUMP_COMMIT=$(git rev-list -n 1 --grep="^bump version$" "$CURR" || true)
+                  # Use precise subject-only matching to avoid merge commit bodies
+                  BUMP_COMMIT=$(git log --pretty=format:"%H %s" "$CURR" | grep -E "^[a-f0-9]{7,} bump version$" | head -n1 | awk '{print $1}' || true)
                   if [ -n "$BUMP_COMMIT" ]; then
                     # Use the parent of the bump as the effective end (exclude bump and post-bump commits)
                     EFFECTIVE_CURR=$(git rev-parse "$BUMP_COMMIT"^)
                     RANGE="$PREV..$EFFECTIVE_CURR"
-                    echo "Using selective range up to bump commit $BUMP_COMMIT"
+                    echo "Using selective range up to bump commit $BUMP_COMMIT (parent: $EFFECTIVE_CURR)"
                   else
                     # Fallback to full tag range
                     RANGE="$PREV..$CURR"
