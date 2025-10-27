@@ -44,6 +44,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     const [isValidationInProgress, setIsValidationInProgress] = useState(false);
     const buttonRef = useRef<HTMLDivElement>(null);
     const closeTimerRef = useRef<number | null>(null);
+    const ignoreHoverRef = useRef(false);
     const clearCloseTimer = () => {
         if (closeTimerRef.current != null) {
             clearTimeout(closeTimerRef.current);
@@ -189,15 +190,24 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         e.stopPropagation();
         if (isDisabled) return;
 
+        // briefly ignore hover so the popover can't re-open immediately
+        ignoreHoverRef.current = true;
+        window.setTimeout(() => {
+            ignoreHoverRef.current = false;
+        }, 200);
+        
         if (!isValidated) {
             handleValidate(e);
-            return;
+            handleRequestClose();
         }
     };
 
     const handleMouseEnter = (e: React.MouseEvent) => {
         e.stopPropagation();
+        
         if (isDisabled) return;
+
+        if (ignoreHoverRef.current) return;
 
         clearCloseTimer();
         setShowPopover(true);

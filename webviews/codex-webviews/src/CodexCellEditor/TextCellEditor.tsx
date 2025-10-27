@@ -1573,6 +1573,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
         centerEditor();
     }, [cellMarkers, centerEditor]);
 
+    // If the provider toggles auto-download while this cell is open, fetch immediately
+    useMessageHandler("providerUpdatesNotebookMetadataForWebview", (event: MessageEvent) => {
+        try {
+            const msg = event.data as any;
+            if (msg?.content?.autoDownloadAudioOnOpen === true) {
+                preloadAudioForTab();
+            }
+        } catch { /* no-op */ }
+    });
+
     // (Cache hydration handled in preloadAudioForTab to avoid double-renders)
 
     // Handle audio data response

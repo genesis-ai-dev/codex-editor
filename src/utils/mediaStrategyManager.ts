@@ -33,13 +33,28 @@ export async function replaceFilesWithPointers(projectPath: string): Promise<num
         const pointerFiles = await findAllPointerFiles(pointersDir);
         debug(`Found ${pointerFiles.length} pointer files to process`);
 
-        // Replace each file in files/ with its pointer
-        for (const relPath of pointerFiles) {
-            const success = await replaceFileWithPointer(projectPath, relPath);
-            if (success) {
-                replacedCount++;
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Updating media for streaming...",
+                cancellable: false,
+            },
+            async (progress) => {
+                const total = Math.max(pointerFiles.length, 1);
+                for (let i = 0; i < pointerFiles.length; i++) {
+                    const relPath = pointerFiles[i];
+                    progress.report({
+                        increment: 100 / total,
+                        message: `${i + 1}/${total}: ${path.basename(relPath)}`,
+                    });
+                    const success = await replaceFileWithPointer(projectPath, relPath);
+                    if (success) {
+                        replacedCount++;
+                    }
+                }
+                progress.report({ increment: 100, message: "Complete" });
             }
-        }
+        );
 
         debug(`Replaced ${replacedCount} files with pointers`);
         return replacedCount;
@@ -169,20 +184,36 @@ export async function removeFilesPointerStubs(projectPath: string): Promise<numb
         const pointersDir = path.join(projectPath, ".project", "attachments", "pointers");
         const pointerFiles = await findAllPointerFiles(pointersDir);
 
-        for (const relPath of pointerFiles) {
-            const filesPath = path.join(projectPath, ".project", "attachments", "files", relPath);
-            try {
-                const stat = await vscode.workspace.fs.stat(vscode.Uri.file(filesPath));
-                // Only remove if files/ contains a pointer (do not touch real media bytes)
-                const isPtr = await isPointerFile(filesPath);
-                if (stat && isPtr) {
-                    await vscode.workspace.fs.delete(vscode.Uri.file(filesPath));
-                    removedCount++;
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Cleaning up media placeholders...",
+                cancellable: false,
+            },
+            async (progress) => {
+                const total = Math.max(pointerFiles.length, 1);
+                for (let i = 0; i < pointerFiles.length; i++) {
+                    const relPath = pointerFiles[i];
+                    const filesPath = path.join(projectPath, ".project", "attachments", "files", relPath);
+                    progress.report({
+                        increment: 100 / total,
+                        message: `${i + 1}/${total}: ${path.basename(relPath)}`,
+                    });
+                    try {
+                        const stat = await vscode.workspace.fs.stat(vscode.Uri.file(filesPath));
+                        // Only remove if files/ contains a pointer (do not touch real media bytes)
+                        const isPtr = await isPointerFile(filesPath);
+                        if (stat && isPtr) {
+                            await vscode.workspace.fs.delete(vscode.Uri.file(filesPath));
+                            removedCount++;
+                        }
+                    } catch {
+                        // files path missing is fine
+                    }
                 }
-            } catch {
-                // files path missing is fine
+                progress.report({ increment: 100, message: "Complete" });
             }
-        }
+        );
     } catch (e) {
         console.error("Error removing pointer stubs from files dir:", e);
     }
@@ -212,9 +243,31 @@ export async function applyMediaStrategyAndRecord(
         // If flags can't be read, fall through to normal apply path
     }
 
+    // Mark as pending until the strategy application completes successfully
+    try {
+        // Mark state as applying for better diagnostics and resume behavior
+        const settingsMod = await import("./localProjectSettings");
+        try {
+            const s = await settingsMod.readLocalProjectSettings(projectUri);
+            s.mediaFileStrategyApplyState = "applying";
+            await settingsMod.writeLocalProjectSettings(s, projectUri);
+        } catch (e) {
+            // Fallback to boolean mirror if direct write fails
+            await settingsMod.setApplyState("applying", projectUri);
+        }
+    } catch (e) {
+        // non-fatal; proceed to apply regardless of ability to persist flag immediately
+        debug("Failed to set applying state before apply", e);
+    }
+
     await applyMediaStrategy(projectUri, newStrategy);
     await setLastModeRun(newStrategy, projectUri);
-    await setChangesApplied(true, projectUri);
+    try {
+        const settingsMod = await import("./localProjectSettings");
+        await settingsMod.setApplyState("applied", projectUri);
+    } catch (e) {
+        // best effort already applied
+    }
 }
 
 /**

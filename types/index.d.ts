@@ -263,6 +263,8 @@ export type MessagesToStartupFlowProvider =
     | { command: "project.open"; projectPath: string; mediaStrategy?: MediaFilesStrategy; }
     | { command: "project.delete"; projectPath: string; syncStatus?: ProjectSyncStatus; }
     | { command: "project.createEmpty"; }
+    | { command: "project.createEmptyWithName"; projectName: string; }
+    | { command: "project.createEmpty.confirm"; proceed: boolean; projectName?: string; }
     | { command: "project.initialize"; waitForStateUpdate?: boolean; }
     | { command: "metadata.check"; }
     | { command: "project.showManager"; }
@@ -358,7 +360,8 @@ export type MessagesFromStartupFlowProvider =
     | { command: "setupComplete"; }
     | { command: "project.progressReportSubmitted"; success: boolean; error?: string; }
     | { command: "progressData"; data: any; }
-    | { command: "aggregatedProgressData"; data: any; };
+    | { command: "aggregatedProgressData"; data: any; }
+    | { command: "project.nameWillBeSanitized"; original: string; sanitized: string; };
 
 type DictionaryPostMessages =
     | {
@@ -604,6 +607,7 @@ export type EditorPostMessages =
         };
     }
     | { command: "getBacktranslation"; content: { cellId: string; }; }
+    | { command: "getBatchBacktranslations"; content: { cellIds: string[]; }; }
     | {
         command: "setBacktranslation";
         content: {
@@ -876,6 +880,8 @@ export interface CustomNotebookMetadata {
     lineNumbersEnabledSource?: "global" | "local"; // Track whether line numbers visibility was set globally or locally
     /** When true, the editor will download/stream audio as soon as a cell opens */
     autoDownloadAudioOnOpen?: boolean;
+    /** When true, backtranslations will be displayed inline below cells */
+    showInlineBacktranslations?: boolean;
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
@@ -1682,6 +1688,10 @@ type EditorReceiveMessages =
     | {
         type: "providerSendsExistingBacktranslation";
         content: SavedBacktranslation | null;
+    }
+    | {
+        type: "providerSendsBatchBacktranslations";
+        content: { [cellId: string]: SavedBacktranslation | null };
     }
     | {
         type: "singleCellTranslationStarted";

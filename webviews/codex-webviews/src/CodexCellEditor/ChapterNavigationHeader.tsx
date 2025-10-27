@@ -5,12 +5,15 @@ import NotebookMetadataModal from "./NotebookMetadataModal";
 import { AutocompleteModal } from "./modals/AutocompleteModal";
 import { ChapterSelectorModal } from "./modals/ChapterSelectorModal";
 import { MobileHeaderMenu } from "./components/MobileHeaderMenu";
-import {
-    type QuillCellContent,
-    type CustomNotebookMetadata,
-} from "../../../../types";
+import { type QuillCellContent, type CustomNotebookMetadata } from "../../../../types";
 import { EditMapUtils } from "../../../../src/utils/editMapUtils";
-import { type FileStatus, type EditorPosition, type Subsection } from "../lib/types";
+import { getCellValueData } from "@sharedUtils";
+import {
+    type FileStatus,
+    type EditorPosition,
+    type Subsection,
+    type ProgressPercentages,
+} from "../lib/types";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -21,6 +24,8 @@ import {
 } from "../components/ui/dropdown-menu";
 import { Slider } from "../components/ui/slider";
 import { Alert, AlertDescription } from "../components/ui/alert";
+import { deriveSubsectionPercentages } from "./utils/progressUtils";
+import { ProgressDots } from "./components/ProgressDots";
 
 interface ChapterNavigationHeaderProps {
     chapterNumber: number;
@@ -70,13 +75,12 @@ interface ChapterNavigationHeaderProps {
     onClose?: () => void;
     onTriggerSync?: () => void;
     isCorrectionEditorMode?: boolean;
-    chapterProgress?: Record<
-        number,
-        { percentTranslationsCompleted: number; percentFullyValidatedTranslations: number }
-    >;
+    chapterProgress?: Record<number, ProgressPercentages>;
     allCellsForChapter?: QuillCellContent[];
     onTempFontSizeChange?: (fontSize: number) => void;
     onFontSizeSave?: (fontSize: number) => void;
+    showInlineBacktranslations?: boolean;
+    onToggleInlineBacktranslations?: () => void;
 }
 
 export function ChapterNavigationHeader({
@@ -125,6 +129,8 @@ export function ChapterNavigationHeader({
     allCellsForChapter,
     onTempFontSizeChange,
     onFontSizeSave,
+    showInlineBacktranslations = false,
+    onToggleInlineBacktranslations,
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
@@ -168,30 +174,44 @@ ChapterNavigationHeaderProps) {
 
     // Memoized dropdown item row to reduce re-renders
     const MemoDropdownRow = useCallback(
-        ({ label, isActive, isValidated, isTranslated, onClick }: { label: string; isActive: boolean; isValidated: boolean; isTranslated: boolean; onClick: () => void; }) => {
+        ({
+            label,
+            isActive,
+            progress,
+            onClick,
+        }: {
+            label: string;
+            isActive: boolean;
+            progress: {
+                isFullyTranslated: boolean;
+                isFullyValidated: boolean;
+                percentTranslationsCompleted?: number;
+                percentTextValidatedTranslations?: number;
+                percentAudioTranslationsCompleted?: number;
+                percentAudioValidatedTranslations?: number;
+            };
+            onClick: () => void;
+        }) => {
+            const progressPercentages = deriveSubsectionPercentages(progress);
             return (
                 <DropdownMenuItem
                     onClick={onClick}
-                    className={`flex items-center justify-between cursor-pointer ${isActive ? 'bg-accent text-accent-foreground font-semibold' : ''}`}
+                    className={`flex items-center justify-between cursor-pointer ${
+                        isActive ? "bg-accent text-accent-foreground font-semibold" : ""
+                    }`}
                     role="menuitem"
                 >
                     <span>{label}</span>
-                    <div className="flex items-center gap-1">
-                        {isValidated && (
-                            <div
-                                className="w-2 h-2 rounded-full"
-                                style={{ backgroundColor: "var(--vscode-editorWarning-foreground)" }}
-                                title="Page fully validated"
-                            />
-                        )}
-                        {!isValidated && isTranslated && (
-                            <div
-                                className="w-2 h-2 rounded-full"
-                                style={{ backgroundColor: "var(--vscode-charts-blue)" }}
-                                title="Page fully translated"
-                            />
-                        )}
-                    </div>
+                    <ProgressDots
+                        audio={{
+                            validatedPercent: progressPercentages.audioValidatedPercent,
+                            completedPercent: progressPercentages.audioCompletedPercent,
+                        }}
+                        text={{
+                            validatedPercent: progressPercentages.textValidatedPercent,
+                            completedPercent: progressPercentages.textCompletedPercent,
+                        }}
+                    />
                 </DropdownMenuItem>
             );
         },
@@ -223,8 +243,8 @@ ChapterNavigationHeaderProps) {
 
         const fullTitle = getDisplayTitle();
         const lastSpaceIndex = Math.max(
-            fullTitle.lastIndexOf('\u00A0'),
-            fullTitle.lastIndexOf(' ')
+            fullTitle.lastIndexOf("\u00A0"),
+            fullTitle.lastIndexOf(" ")
         );
         const bookName = lastSpaceIndex > 0 ? fullTitle.substring(0, lastSpaceIndex) : fullTitle;
         const chapterNum = lastSpaceIndex > 0 ? fullTitle.substring(lastSpaceIndex + 1) : "";
@@ -235,15 +255,17 @@ ChapterNavigationHeaderProps) {
 
             const availableWidth = Math.min(
                 parentRect.width,
-                isVerySmallScreen ? window.innerWidth * 0.5 :
-                shouldShowHamburger ? window.innerWidth * 0.6 :
-                window.innerWidth * 0.4
+                isVerySmallScreen
+                    ? window.innerWidth * 0.5
+                    : shouldShowHamburger
+                    ? window.innerWidth * 0.6
+                    : window.innerWidth * 0.4
             );
 
-            const temp = document.createElement('span');
-            const h1 = container.querySelector('h1') as HTMLElement | null;
-            temp.style.visibility = 'hidden';
-            temp.style.position = 'absolute';
+            const temp = document.createElement("span");
+            const h1 = container.querySelector("h1") as HTMLElement | null;
+            temp.style.visibility = "hidden";
+            temp.style.position = "absolute";
             temp.style.fontSize = window.getComputedStyle(h1 || container).fontSize;
             temp.style.fontFamily = window.getComputedStyle(h1 || container).fontFamily;
 
@@ -265,7 +287,8 @@ ChapterNavigationHeaderProps) {
                 const chapterNumWidth = chapterNum.length * avgCharWidth;
                 const subsectionLabelWidth = subsectionLabel.length * avgCharWidth;
                 const ellipsisWidth = 3 * avgCharWidth;
-                const availableForBookName = availableWidth - chapterNumWidth - subsectionLabelWidth - ellipsisWidth;
+                const availableForBookName =
+                    availableWidth - chapterNumWidth - subsectionLabelWidth - ellipsisWidth;
                 const maxBookNameChars = Math.floor(availableForBookName / avgCharWidth);
 
                 if (maxBookNameChars > 0) {
@@ -276,7 +299,13 @@ ChapterNavigationHeaderProps) {
                 setTruncatedBookName((prev) => (prev !== null ? null : prev));
             }
         });
-    }, [getDisplayTitle, isVerySmallScreen, shouldShowHamburger, subsections, currentSubsectionIndex]);
+    }, [
+        getDisplayTitle,
+        isVerySmallScreen,
+        shouldShowHamburger,
+        subsections,
+        currentSubsectionIndex,
+    ]);
 
     // Unified resize handling with RAF throttling
     useEffect(() => {
@@ -306,8 +335,8 @@ ChapterNavigationHeaderProps) {
 
         // Initial run
         onResize();
-        window.addEventListener('resize', onResize);
-        return () => window.removeEventListener('resize', onResize);
+        window.addEventListener("resize", onResize);
+        return () => window.removeEventListener("resize", onResize);
     }, [measureAndTruncateTitle, shouldShowHamburger, isVerySmallScreen]);
 
     // Observe container size changes that may affect title truncation
@@ -359,10 +388,9 @@ ChapterNavigationHeaderProps) {
             debouncedResizeHandler(handleBreakpointResize);
         };
 
-        window.addEventListener('resize', debouncedBreakpointHandler);
-        return () => window.removeEventListener('resize', debouncedBreakpointHandler);
+        window.addEventListener("resize", debouncedBreakpointHandler);
+        return () => window.removeEventListener("resize", debouncedBreakpointHandler);
     }, [shouldShowHamburger, isVerySmallScreen, debouncedResizeHandler]);
-
 
     // Dynamic title truncation based on available space - now universal (not screen-size dependent)
     useEffect(() => {
@@ -372,10 +400,11 @@ ChapterNavigationHeaderProps) {
 
             const fullTitle = getDisplayTitle();
             const lastSpaceIndex = Math.max(
-                fullTitle.lastIndexOf('\u00A0'),
-                fullTitle.lastIndexOf(' ')
+                fullTitle.lastIndexOf("\u00A0"),
+                fullTitle.lastIndexOf(" ")
             );
-            const bookName = lastSpaceIndex > 0 ? fullTitle.substring(0, lastSpaceIndex) : fullTitle;
+            const bookName =
+                lastSpaceIndex > 0 ? fullTitle.substring(0, lastSpaceIndex) : fullTitle;
             const chapterNum = lastSpaceIndex > 0 ? fullTitle.substring(lastSpaceIndex + 1) : "";
 
             // Use requestAnimationFrame to ensure DOM has updated
@@ -387,17 +416,23 @@ ChapterNavigationHeaderProps) {
                 // Calculate available width based on responsive states
                 const availableWidth = Math.min(
                     parentRect.width,
-                    isVerySmallScreen ? window.innerWidth * 0.5 : // On very small screens, limit to 50%
-                    shouldShowHamburger ? window.innerWidth * 0.6 : // On mobile layout, limit to 60%
-                    window.innerWidth * 0.4 // On larger screens, limit to 40%
+                    isVerySmallScreen
+                        ? window.innerWidth * 0.5 // On very small screens, limit to 50%
+                        : shouldShowHamburger
+                        ? window.innerWidth * 0.6 // On mobile layout, limit to 60%
+                        : window.innerWidth * 0.4 // On larger screens, limit to 40%
                 );
 
                 // Create temporary element to measure text width including subsection label
-                const temp = document.createElement('span');
-                temp.style.visibility = 'hidden';
-                temp.style.position = 'absolute';
-                temp.style.fontSize = window.getComputedStyle(container.querySelector('h1') || container).fontSize;
-                temp.style.fontFamily = window.getComputedStyle(container.querySelector('h1') || container).fontFamily;
+                const temp = document.createElement("span");
+                temp.style.visibility = "hidden";
+                temp.style.position = "absolute";
+                temp.style.fontSize = window.getComputedStyle(
+                    container.querySelector("h1") || container
+                ).fontSize;
+                temp.style.fontFamily = window.getComputedStyle(
+                    container.querySelector("h1") || container
+                ).fontFamily;
 
                 // Account for subsection label like "(1-50)" only when it should be visible
                 const subsectionLabel =
@@ -420,7 +455,8 @@ ChapterNavigationHeaderProps) {
                     const chapterNumWidth = chapterNum.length * avgCharWidth;
                     const subsectionLabelWidth = subsectionLabel.length * avgCharWidth;
                     const ellipsisWidth = 3 * avgCharWidth; // "..." width
-                    const availableForBookName = availableWidth - chapterNumWidth - subsectionLabelWidth - ellipsisWidth;
+                    const availableForBookName =
+                        availableWidth - chapterNumWidth - subsectionLabelWidth - ellipsisWidth;
                     const maxBookNameChars = Math.floor(availableForBookName / avgCharWidth);
 
                     if (maxBookNameChars > 0) {
@@ -451,15 +487,23 @@ ChapterNavigationHeaderProps) {
         }
 
         // Add window resize listener as fallback
-        window.addEventListener('resize', debouncedTitleHandler);
+        window.addEventListener("resize", debouncedTitleHandler);
 
         return () => {
             if (resizeObserver) {
                 resizeObserver.disconnect();
             }
-            window.removeEventListener('resize', debouncedTitleHandler);
+            window.removeEventListener("resize", debouncedTitleHandler);
         };
-    }, [getDisplayTitle, translationUnitsForSection, subsections, currentSubsectionIndex, shouldShowHamburger, isVerySmallScreen, debouncedResizeHandler]);
+    }, [
+        getDisplayTitle,
+        translationUnitsForSection,
+        subsections,
+        currentSubsectionIndex,
+        shouldShowHamburger,
+        isVerySmallScreen,
+        debouncedResizeHandler,
+    ]);
 
     // Common handler for stopping any kind of translation
     const handleStopTranslation = () => {
@@ -544,7 +588,6 @@ ChapterNavigationHeaderProps) {
         }
     };
 
-
     const handleTogglePrimarySidebar = () => {
         if (vscode) {
             vscode.postMessage({ command: "togglePrimarySidebar" });
@@ -594,7 +637,10 @@ ChapterNavigationHeaderProps) {
     const shouldHideNavButtons = isVerySmallScreen; // Hide nav buttons on very small screens
 
     // Calculate progress for each subsection/page
-    const calculateSubsectionProgress = (subsection: Subsection, forSourceText: boolean = isSourceText) => {
+    const calculateSubsectionProgress = (
+        subsection: Subsection,
+        forSourceText: boolean = isSourceText
+    ) => {
         // Use allCellsForChapter if available, otherwise fall back to translationUnitsForSection
         const allChapterCells = allCellsForChapter || translationUnitsForSection;
 
@@ -607,13 +653,23 @@ ChapterNavigationHeaderProps) {
             return cellId && !cellId.startsWith("paratext-") && !cell.merged;
         });
 
-        if (validCells.length === 0) {
-            return { isFullyTranslated: false, isFullyValidated: false };
+        const totalCells = validCells.length;
+        if (totalCells === 0) {
+            return {
+                isFullyTranslated: false,
+                isFullyValidated: false,
+                percentTranslationsCompleted: 0,
+                percentAudioTranslationsCompleted: 0,
+                percentFullyValidatedTranslations: 0,
+                percentAudioValidatedTranslations: 0,
+                percentTextValidatedTranslations: 0,
+            };
         }
 
         // Check if all cells have content (translated for target, existing for source)
         const completedCells = validCells.filter((cell) => {
-            const hasContent = cell.cellContent &&
+            const hasContent =
+                cell.cellContent &&
                 cell.cellContent.trim().length > 0 &&
                 cell.cellContent !== "<span></span>";
 
@@ -625,44 +681,87 @@ ChapterNavigationHeaderProps) {
                 return hasContent;
             }
         });
-        const isFullyTranslated = completedCells.length === validCells.length;
+        const isFullyTranslated = completedCells.length === totalCells;
+
+        // Calculate audio presence for subsection (mirrors chapter calculation)
+        const cellsWithAudioValues = validCells.filter((cell) => {
+            const atts = (cell as any).attachments as Record<string, any> | undefined;
+            if (!atts || Object.keys(atts).length === 0) return false;
+
+            const selectedId = (cell as any).metadata?.selectedAudioId;
+            if (selectedId && atts[selectedId]) {
+                const att = atts[selectedId];
+                return (
+                    att && att.type === "audio" && att.isDeleted === false && att.isMissing !== true
+                );
+            }
+
+            // Fallback: any non-deleted, non-missing audio attachment
+            return Object.values(atts).some(
+                (att: any) =>
+                    att && att.type === "audio" && att.isDeleted === false && att.isMissing !== true
+            );
+        }).length;
 
         // Check if all cells are validated
         let isFullyValidated = false;
+        // Use the same validation thresholds as CodexCellEditor when available
+        const minimumValidationsRequired = (window as any)?.initialData?.validationCount ?? 1;
+        const minimumAudioValidationsRequired =
+            (window as any)?.initialData?.validationCountAudio ?? 1;
+
+        // Calculate validation data using shared utils
+        const cellWithValidatedData = validCells.map((cell) => getCellValueData(cell));
+
+        const fullyValidatedCells = cellWithValidatedData.filter((cell) => {
+            const validatedBy =
+                cell.validatedBy?.filter((v) => !v.isDeleted).length >= minimumValidationsRequired;
+            const audioValidatedBy =
+                cell.audioValidatedBy?.filter((v) => !v.isDeleted).length >=
+                minimumAudioValidationsRequired;
+            return validatedBy && audioValidatedBy;
+        }).length;
+
+        const validatedCells = cellWithValidatedData.filter((cell) => {
+            return (
+                cell.validatedBy?.filter((v) => !v.isDeleted).length >= minimumValidationsRequired
+            );
+        }).length;
+
+        const audioValidatedCells = cellWithValidatedData.filter((cell) => {
+            return (
+                cell.audioValidatedBy?.filter((v) => !v.isDeleted).length >=
+                minimumAudioValidationsRequired
+            );
+        }).length;
+
+        const percentTranslationsCompleted = (completedCells.length / totalCells) * 100;
+        const percentAudioTranslationsCompleted = (cellsWithAudioValues / totalCells) * 100;
+        const percentAudioValidatedTranslations = (audioValidatedCells / totalCells) * 100;
+        const percentTextValidatedTranslations = (validatedCells / totalCells) * 100;
+        const percentFullyValidatedTranslations = (fullyValidatedCells / totalCells) * 100;
+
         if (isFullyTranslated) {
-            const minimumValidationsRequired = 1; // Can be made configurable later
-            const validatedCells = validCells.filter((cell) => {
-                if (forSourceText) {
-                    // For source text, validation might not apply the same way
-                    // Check if there's any validation history at all
-                    const hasAnyValidation = cell.editHistory &&
-                        cell.editHistory.some(edit =>
-                            edit.validatedBy && edit.validatedBy.filter(v => !v.isDeleted).length > 0
-                        );
-                    return hasAnyValidation;
-                } else {
-                    // For target text, use existing validation logic
-                    const validatedBy =
-                        cell.editHistory
-                            ?.slice()
-                            .reverse()
-                            .find(
-                                (edit) =>
-                                    EditMapUtils.isValue(edit.editMap) &&
-                                    edit.value === cell.cellContent
-                            )?.validatedBy || [];
-                    return validatedBy.filter((v) => !v.isDeleted).length >= minimumValidationsRequired;
-                }
-            });
-            isFullyValidated = validatedCells.length === validCells.length;
+            // Maintain existing gating for the boolean display in this header
+            isFullyValidated = fullyValidatedCells === totalCells;
         }
 
-        return { isFullyTranslated, isFullyValidated };
+        return {
+            isFullyTranslated,
+            isFullyValidated,
+            percentTranslationsCompleted,
+            percentAudioTranslationsCompleted,
+            percentFullyValidatedTranslations,
+            percentAudioValidatedTranslations,
+            percentTextValidatedTranslations,
+        };
     };
 
     return (
         <div
-            className={`relative flex flex-row ${shouldUseMinimalLayout ? "p-1" : "p-2"} max-w-full items-center transition-all duration-200 ease-in-out`}
+            className={`relative flex flex-row ${
+                shouldUseMinimalLayout ? "p-1" : "p-2"
+            } max-w-full items-center transition-all duration-200 ease-in-out`}
             ref={headerContainerRef}
         >
             {/* Hamburger menu positioned on the left when space is insufficient */}
@@ -711,8 +810,13 @@ ChapterNavigationHeaderProps) {
                         onToggleAutoDownloadAudio={(val) => {
                             setAutoDownloadAudioOnOpenState(!!val);
                             try {
-                                vscode.postMessage({ command: "setAutoDownloadAudioOnOpen", content: { value: !!val } });
-                            } catch {}
+                                vscode.postMessage({
+                                    command: "setAutoDownloadAudioOnOpen",
+                                    content: { value: !!val },
+                                });
+                            } catch (error) {
+                                console.error("Error setting auto download audio on open", error);
+                            }
                         }}
                     />
                 </div>
@@ -720,7 +824,9 @@ ChapterNavigationHeaderProps) {
 
             {/* Desktop left controls - hidden when hamburger is active */}
             <div
-                className={`${shouldShowHamburger ? "hidden" : "flex"} items-center justify-start flex-shrink-0 transition-all duration-200 ease-in-out`}
+                className={`${
+                    shouldShowHamburger ? "hidden" : "flex"
+                } items-center justify-start flex-shrink-0 transition-all duration-200 ease-in-out`}
             >
                 {isSourceText ? (
                     <>
@@ -758,50 +864,51 @@ ChapterNavigationHeaderProps) {
                 {/* Navigation arrows - hidden on very small screens */}
                 {!shouldHideNavButtons && (
                     <Button
-                    className="inline-flex transition-all duration-200 ease-in-out"
-                    variant="outline"
-                    size="default"
-                    onClick={() => {
-                        if (!unsavedChanges) {
-                            // Check if we're on the first page of the current chapter
-                            if (currentSubsectionIndex > 0) {
-                                // Move to previous page within the same chapter
-                                setCurrentSubsectionIndex(currentSubsectionIndex - 1);
-                            } else {
-                                // Move to previous chapter
-                                const newChapter =
-                                    chapterNumber === 1 ? totalChapters : chapterNumber - 1;
-                                jumpToChapter(newChapter);
+                        className="inline-flex transition-all duration-200 ease-in-out"
+                        variant="outline"
+                        size="default"
+                        onClick={() => {
+                            if (!unsavedChanges) {
+                                // Check if we're on the first page of the current chapter
+                                if (currentSubsectionIndex > 0) {
+                                    // Move to previous page within the same chapter
+                                    setCurrentSubsectionIndex(currentSubsectionIndex - 1);
+                                } else {
+                                    // Move to previous chapter
+                                    const newChapter =
+                                        chapterNumber === 1 ? totalChapters : chapterNumber - 1;
+                                    jumpToChapter(newChapter);
 
-                                // When jumping to a new chapter, check if it has subsections
-                                // and if so, jump to the last page
-                                const newChapterSubsections = getSubsectionsForChapter(newChapter);
-                                if (newChapterSubsections.length > 0) {
-                                    setCurrentSubsectionIndex(newChapterSubsections.length - 1);
+                                    // When jumping to a new chapter, check if it has subsections
+                                    // and if so, jump to the last page
+                                    const newChapterSubsections =
+                                        getSubsectionsForChapter(newChapter);
+                                    if (newChapterSubsections.length > 0) {
+                                        setCurrentSubsectionIndex(newChapterSubsections.length - 1);
+                                    }
                                 }
+                            } else {
+                                // Show warning when there are unsaved changes
+                                setShowUnsavedWarning(true);
+                                setTimeout(() => setShowUnsavedWarning(false), 3000);
                             }
-                        } else {
-                            // Show warning when there are unsaved changes
-                            setShowUnsavedWarning(true);
-                            setTimeout(() => setShowUnsavedWarning(false), 3000);
+                        }}
+                        title={
+                            unsavedChanges
+                                ? "Save changes first to change chapter"
+                                : currentSubsectionIndex > 0
+                                ? "Previous Page"
+                                : "Previous Chapter"
                         }
-                    }}
-                    title={
-                        unsavedChanges
-                            ? "Save changes first to change chapter"
-                            : currentSubsectionIndex > 0
-                            ? "Previous Page"
-                            : "Previous Chapter"
-                    }
-                >
-                    <i
-                        className={`codicon ${
-                            textDirection === "rtl"
-                                ? "codicon-chevron-right"
-                                : "codicon-chevron-left"
-                        }`}
-                    />
-                </Button>
+                    >
+                        <i
+                            className={`codicon ${
+                                textDirection === "rtl"
+                                    ? "codicon-chevron-right"
+                                    : "codicon-chevron-left"
+                            }`}
+                        />
+                    </Button>
                 )}
 
                 <div
@@ -818,8 +925,18 @@ ChapterNavigationHeaderProps) {
                         }
                     }}
                 >
-                    <h1 className={`${shouldUseMinimalLayout ? "text-sm" : "text-2xl"} flex items-center m-0 min-w-0 transition-all duration-200 ease-in-out`}>
-                        <span className={`${shouldUseMinimalLayout || truncatedBookName !== null ? "truncate" : "whitespace-nowrap"} transition-all duration-200 ease-in-out`}>
+                    <h1
+                        className={`${
+                            shouldUseMinimalLayout ? "text-sm" : "text-2xl"
+                        } flex items-center m-0 min-w-0 transition-all duration-200 ease-in-out`}
+                    >
+                        <span
+                            className={`${
+                                shouldUseMinimalLayout || truncatedBookName !== null
+                                    ? "truncate"
+                                    : "whitespace-nowrap"
+                            } transition-all duration-200 ease-in-out`}
+                        >
                             {(() => {
                                 if (truncatedBookName !== null) {
                                     return truncatedBookName + "...";
@@ -848,7 +965,11 @@ ChapterNavigationHeaderProps) {
                         </span>
                         {/* Show page info - hide when using hamburger menu to prevent collisions */}
                         {subsections.length > 0 && !shouldShowHamburger && (
-                            <span className={`flex-shrink-0 ml-1 ${shouldUseMinimalLayout ? "text-xs" : "text-sm"} inline transition-opacity duration-200 ease-in-out`}>
+                            <span
+                                className={`flex-shrink-0 ml-1 ${
+                                    shouldUseMinimalLayout ? "text-xs" : "text-sm"
+                                } inline transition-opacity duration-200 ease-in-out`}
+                            >
                                 ({subsections[currentSubsectionIndex]?.label || ""})
                             </span>
                         )}
@@ -865,45 +986,45 @@ ChapterNavigationHeaderProps) {
                         className="inline-flex transition-all duration-200 ease-in-out"
                         variant="outline"
                         size="default"
-                    onClick={() => {
-                        if (!unsavedChanges) {
-                            // Check if we're on the last page of the current chapter
-                            if (
-                                subsections.length > 0 &&
-                                currentSubsectionIndex < subsections.length - 1
-                            ) {
-                                // Move to next page within the same chapter
-                                setCurrentSubsectionIndex(currentSubsectionIndex + 1);
+                        onClick={() => {
+                            if (!unsavedChanges) {
+                                // Check if we're on the last page of the current chapter
+                                if (
+                                    subsections.length > 0 &&
+                                    currentSubsectionIndex < subsections.length - 1
+                                ) {
+                                    // Move to next page within the same chapter
+                                    setCurrentSubsectionIndex(currentSubsectionIndex + 1);
+                                } else {
+                                    // Move to next chapter and reset to first page
+                                    const newChapter =
+                                        chapterNumber === totalChapters ? 1 : chapterNumber + 1;
+                                    jumpToChapter(newChapter);
+                                    setCurrentSubsectionIndex(0);
+                                }
                             } else {
-                                // Move to next chapter and reset to first page
-                                const newChapter =
-                                    chapterNumber === totalChapters ? 1 : chapterNumber + 1;
-                                jumpToChapter(newChapter);
-                                setCurrentSubsectionIndex(0);
+                                // Show warning when there are unsaved changes
+                                setShowUnsavedWarning(true);
+                                setTimeout(() => setShowUnsavedWarning(false), 3000);
                             }
-                        } else {
-                            // Show warning when there are unsaved changes
-                            setShowUnsavedWarning(true);
-                            setTimeout(() => setShowUnsavedWarning(false), 3000);
+                        }}
+                        title={
+                            unsavedChanges
+                                ? "Save changes first to change chapter"
+                                : subsections.length > 0 &&
+                                  currentSubsectionIndex < subsections.length - 1
+                                ? "Next Page"
+                                : "Next Chapter"
                         }
-                    }}
-                    title={
-                        unsavedChanges
-                            ? "Save changes first to change chapter"
-                            : subsections.length > 0 &&
-                              currentSubsectionIndex < subsections.length - 1
-                            ? "Next Page"
-                            : "Next Chapter"
-                    }
-                >
-                    <i
-                        className={`codicon ${
-                            textDirection === "rtl"
-                                ? "codicon-chevron-left"
-                                : "codicon-chevron-right"
-                        }`}
-                    />
-                </Button>
+                    >
+                        <i
+                            className={`codicon ${
+                                textDirection === "rtl"
+                                    ? "codicon-chevron-left"
+                                    : "codicon-chevron-right"
+                            }`}
+                        />
+                    </Button>
                 )}
 
                 {/* Page selector - shown when not using hamburger menu */}
@@ -919,35 +1040,34 @@ ChapterNavigationHeaderProps) {
                                 >
                                     {(() => {
                                         const currentSection = subsections[currentSubsectionIndex];
-                                        const progress =
-                                            calculateSubsectionProgress(currentSection, isSourceText);
+                                        const progress = calculateSubsectionProgress(
+                                            currentSection,
+                                            isSourceText
+                                        );
                                         return (
                                             <>
-                                                <span
-                                                >
-                                                    {currentSection?.label || ""}
-                                                </span>
-                                                {progress.isFullyValidated && (
-                                                    <div
-                                                        className="w-2 h-2 rounded-full"
-                                                        style={{
-                                                            backgroundColor:
-                                                                "var(--vscode-editorWarning-foreground)",
-                                                        }}
-                                                        title="Page fully validated"
-                                                    />
-                                                )}
-                                                {!progress.isFullyValidated &&
-                                                    progress.isFullyTranslated && (
-                                                        <div
-                                                            className="w-2 h-2 rounded-full"
-                                                            style={{
-                                                                backgroundColor:
-                                                                    "var(--vscode-charts-blue)",
+                                                <span>{currentSection?.label || ""}</span>
+                                                {(() => {
+                                                    const percentages =
+                                                        deriveSubsectionPercentages(progress);
+                                                    return (
+                                                        <ProgressDots
+                                                            audio={{
+                                                                validatedPercent:
+                                                                    percentages.audioValidatedPercent,
+                                                                completedPercent:
+                                                                    percentages.audioCompletedPercent,
                                                             }}
-                                                            title="Page fully translated"
+                                                            text={{
+                                                                validatedPercent:
+                                                                    percentages.textValidatedPercent,
+                                                                completedPercent:
+                                                                    percentages.textCompletedPercent,
+                                                            }}
+                                                            onlyShowCompleted
                                                         />
-                                                    )}
+                                                    );
+                                                })()}
                                                 <i className="codicon codicon-chevron-down" />
                                             </>
                                         );
@@ -960,15 +1080,17 @@ ChapterNavigationHeaderProps) {
                                 style={{ zIndex: 99999 }}
                             >
                                 {subsections.map((section, index) => {
-                                    const progress = calculateSubsectionProgress(section, isSourceText);
+                                    const progress = calculateSubsectionProgress(
+                                        section,
+                                        isSourceText
+                                    );
                                     const isActive = currentSubsectionIndex === index;
                                     return (
                                         <MemoDropdownRow
                                             key={section.id}
                                             label={section.label}
                                             isActive={isActive}
-                                            isValidated={progress.isFullyValidated}
-                                            isTranslated={progress.isFullyTranslated}
+                                            progress={progress}
                                             onClick={() => setCurrentSubsectionIndex(index)}
                                         />
                                     );
@@ -981,7 +1103,9 @@ ChapterNavigationHeaderProps) {
 
             {/* Desktop right controls - hidden when hamburger is active */}
             <div
-                className={`${shouldShowHamburger ? "hidden" : "flex"} items-center justify-end ml-auto space-x-2`}
+                className={`${
+                    shouldShowHamburger ? "hidden" : "flex"
+                } items-center justify-end ml-auto space-x-2`}
             >
                 {/* {getFileStatusButton()} // FIXME: we want to show the file status, but it needs to load immediately, and it needs to be more reliable. - test this and also think through UX */}
                 {/* Show left sidebar toggle only when editor is not leftmost
@@ -1082,11 +1206,26 @@ ChapterNavigationHeaderProps) {
                             onClick={() => {
                                 const next = !autoDownloadAudioOnOpen;
                                 setAutoDownloadAudioOnOpenState(next);
-                                try { vscode.postMessage({ command: "setAutoDownloadAudioOnOpen", content: { value: next } }); } catch {}
+                                try {
+                                    vscode.postMessage({
+                                        command: "setAutoDownloadAudioOnOpen",
+                                        content: { value: next },
+                                    });
+                                } catch (error) {
+                                    console.error(
+                                        "Error setting auto download audio on open",
+                                        error
+                                    );
+                                }
                                 try {
                                     (window as any).__autoDownloadAudioOnOpen = next;
                                     (window as any).__autoDownloadAudioOnOpenInitialized = true;
-                                } catch {}
+                                } catch (error) {
+                                    console.error(
+                                        "Error setting auto download audio on open",
+                                        error
+                                    );
+                                }
                             }}
                             className="cursor-pointer"
                         >
@@ -1104,6 +1243,30 @@ ChapterNavigationHeaderProps) {
                                 }}
                             >
                                 {autoDownloadAudioOnOpen ? "On" : "Off"}
+                            </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={() => {
+                                if (onToggleInlineBacktranslations) {
+                                    onToggleInlineBacktranslations();
+                                }
+                            }}
+                            className="cursor-pointer"
+                        >
+                            <i className="codicon codicon-eye mr-2 h-4 w-4" />
+                            <span className="flex-1">Show inline backtranslations</span>
+                            <span
+                                className="text-xs px-2 py-0.5 rounded-full"
+                                style={{
+                                    backgroundColor: showInlineBacktranslations
+                                        ? "var(--vscode-charts-blue)"
+                                        : "var(--vscode-editorHoverWidget-border)",
+                                    color: showInlineBacktranslations
+                                        ? "var(--vscode-editor-background)"
+                                        : "var(--vscode-foreground)",
+                                }}
+                            >
+                                {showInlineBacktranslations ? "On" : "Off"}
                             </span>
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
@@ -1236,7 +1399,8 @@ ChapterNavigationHeaderProps) {
                     <Alert variant="destructive" className="bg-red-50 border-red-200 shadow-lg">
                         <i className="codicon codicon-warning h-4 w-4" />
                         <AlertDescription className="text-red-800">
-                            Please close the editor or save your changes before navigating away from this section.
+                            Please close the editor or save your changes before navigating away from
+                            this section.
                         </AlertDescription>
                     </Alert>
                 </div>
