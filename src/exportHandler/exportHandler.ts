@@ -354,8 +354,8 @@ async function exportCodexContentAsIdmlRoundtrip(
 
                     console.log(`[IDML Export] Processing ${fileName} (corpusMarker: ${corpusMarker}) using ${exporterType} exporter`);
 
-                    // Lookup original attachment by originalName metadata on the notebook (fallback to {bookCode}.idml)
-                    const originalFileName = (codexNotebook.metadata as any)?.originalName || `${bookCode}.idml`;
+                    // Lookup original attachment by originalFileName metadata on the notebook (fallback to {bookCode}.idml)
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName || `${bookCode}.idml`;
                     const originalsDir = vscode.Uri.joinPath(
                         workspaceFolders[0].uri,
                         ".project",
@@ -442,8 +442,8 @@ async function exportCodexContentAsDocxRoundtrip(
                         continue;
                     }
 
-                    // Lookup original attachment by originalName metadata
-                    const originalFileName = (codexNotebook.metadata as any)?.originalName || `${bookCode}.docx`;
+                    // Lookup original attachment by originalFileName metadata
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName || `${bookCode}.docx`;
                     const originalsDir = vscode.Uri.joinPath(
                         workspaceFolders[0].uri,
                         ".project",
@@ -535,8 +535,8 @@ async function exportCodexContentAsPdfRoundtrip(
                         continue;
                     }
 
-                    // Lookup original attachment by originalName metadata
-                    const originalFileName = (codexNotebook.metadata as any)?.originalName || `${bookCode}.pdf`;
+                    // Lookup original attachment by originalFileName metadata
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName || `${bookCode}.pdf`;
                     const originalsDir = vscode.Uri.joinPath(
                         workspaceFolders[0].uri,
                         ".project",
@@ -586,92 +586,92 @@ async function exportCodexContentAsPdfRoundtrip(
         return;
     }
 
-    const exportFolder = vscode.Uri.file(userSelectedPath);
-    await vscode.workspace.fs.createDirectory(exportFolder);
+//     const exportFolder = vscode.Uri.file(userSelectedPath);
+//     await vscode.workspace.fs.createDirectory(exportFolder);
 
-    return vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: "Exporting RTF Round-trip",
-            cancellable: false,
-        },
-        async (progress) => {
-            const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
+//     return vscode.window.withProgress(
+//         {
+//             location: vscode.ProgressLocation.Notification,
+//             title: "Exporting RTF Round-trip",
+//             cancellable: false,
+//         },
+//         async (progress) => {
+//             const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
 
-            // Import RTF exporter
-            const { exportRtfWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/rtfExporter");
+//             // Import RTF exporter
+//             const { exportRtfWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/rtfExporter");
 
-            // For each selected codex file, find its original attachment and create a translated copy in export folder
-            for (const [index, filePath] of filesToExport.entries()) {
-                progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
-                try {
-                    const file = vscode.Uri.file(filePath);
-                    const fileName = basename(file.fsPath);
-                    const bookCode = fileName.split(".")[0] || "";
+//             // For each selected codex file, find its original attachment and create a translated copy in export folder
+//             for (const [index, filePath] of filesToExport.entries()) {
+//                 progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
+//                 try {
+//                     const file = vscode.Uri.file(filePath);
+//                     const fileName = basename(file.fsPath);
+//                     const bookCode = fileName.split(".")[0] || "";
 
-                    console.log(`[RTF Export] Processing ${fileName} using RTF exporter`);
+//                     console.log(`[RTF Export] Processing ${fileName} using RTF exporter`);
 
-                    // Read codex notebook
-                    const codexNotebook = await readCodexNotebookFromUri(file);
+//                     // Read codex notebook
+//                     const codexNotebook = await readCodexNotebookFromUri(file);
 
-                    // Check if this is an RTF file
-                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
-                    if (corpusMarker !== 'rtf') {
-                        console.warn(`[RTF Export] Skipping ${fileName} - not imported with RTF importer (corpusMarker: ${corpusMarker})`);
-                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with RTF importer`);
-                        continue;
-                    }
+//                     // Check if this is an RTF file
+//                     const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
+//                     if (corpusMarker !== 'rtf') {
+//                         console.warn(`[RTF Export] Skipping ${fileName} - not imported with RTF importer (corpusMarker: ${corpusMarker})`);
+//                         vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with RTF importer`);
+//                         continue;
+//                     }
 
-                    // Lookup original attachment by originalName metadata
-                    const originalFileName = (codexNotebook.metadata as any)?.originalName || `${bookCode}.rtf`;
-                    const originalsDir = vscode.Uri.joinPath(
-                        workspaceFolders[0].uri,
-                        ".project",
-                        "attachments",
-                        "originals"
-                    );
-                    const originalFileUri = vscode.Uri.joinPath(originalsDir, originalFileName);
+//                     // Lookup original attachment by originalFileName metadata
+//                     const originalFileName = (codexNotebook.metadata as any)?.originalFileName || `${bookCode}.rtf`;
+//                     const originalsDir = vscode.Uri.joinPath(
+//                         workspaceFolders[0].uri,
+//                         ".project",
+//                         "attachments",
+//                         "originals"
+//                     );
+//                     const originalFileUri = vscode.Uri.joinPath(originalsDir, originalFileName);
 
-                    // Load original RTF file
-                    const rtfData = await vscode.workspace.fs.readFile(originalFileUri);
-                    const originalRtfContent = new TextDecoder().decode(rtfData);
+//                     // Load original RTF file
+//                     const rtfData = await vscode.workspace.fs.readFile(originalFileUri);
+//                     const originalRtfContent = new TextDecoder().decode(rtfData);
 
-                    console.log('[RTF Export] Loaded original RTF file:', originalFileName, 'length:', originalRtfContent.length);
+//                     console.log('[RTF Export] Loaded original RTF file:', originalFileName, 'length:', originalRtfContent.length);
 
-                    // Re-parse the original RTF file to get document structure
-                    // This is more reliable than storing in metadata
-                    const { parseRtfFile } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/rtfParser");
+//                     // Re-parse the original RTF file to get document structure
+//                     // This is more reliable than storing in metadata
+//                     const { parseRtfFile } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/rtfParser");
 
-                    // Create a File object from the RTF data for the parser
-                    const rtfBlob = new Blob([new Uint8Array(rtfData)], { type: 'application/rtf' });
-                    const rtfFile = new File([rtfBlob], originalFileName, { type: 'application/rtf' });
+//                     // Create a File object from the RTF data for the parser
+//                     const rtfBlob = new Blob([new Uint8Array(rtfData)], { type: 'application/rtf' });
+//                     const rtfFile = new File([rtfBlob], originalFileName, { type: 'application/rtf' });
 
-                    const rtfDocument = await parseRtfFile(rtfFile);
-                    console.log('[RTF Export] Parsed RTF document with', rtfDocument.paragraphs?.length || 0, 'paragraphs');
+//                     const rtfDocument = await parseRtfFile(rtfFile);
+//                     console.log('[RTF Export] Parsed RTF document with', rtfDocument.paragraphs?.length || 0, 'paragraphs');
 
-                    // Export with translations
-                    const updatedRtfContent = await exportRtfWithTranslations(
-                        originalRtfContent,
-                        codexNotebook.cells,
-                        rtfDocument
-                    );
+//                     // Export with translations
+//                     const updatedRtfContent = await exportRtfWithTranslations(
+//                         originalRtfContent,
+//                         codexNotebook.cells,
+//                         rtfDocument
+//                     );
 
-                    // Save translated RTF into the chosen export folder
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                    const exportedName = originalFileName.replace(/\.rtf$/i, `_${timestamp}_translated.rtf`);
-                    const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
+//                     // Save translated RTF into the chosen export folder
+//                     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+//                     const exportedName = originalFileName.replace(/\.rtf$/i, `_${timestamp}_translated.rtf`);
+//                     const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
 
-                    // Write RTF content as text file
-                    const encoder = new TextEncoder();
-                    await vscode.workspace.fs.writeFile(exportedUri, encoder.encode(updatedRtfContent));
+//                     // Write RTF content as text file
+//                     const encoder = new TextEncoder();
+//                     await vscode.workspace.fs.writeFile(exportedUri, encoder.encode(updatedRtfContent));
 
-                    console.log(`[RTF Export] ✓ Exported ${exportedName}`);
+//                     console.log(`[RTF Export] ✓ Exported ${exportedName}`);
 
-                } catch (error) {
-                    console.error(`[RTF Export] Error exporting ${filePath}:`, error);
-                    vscode.window.showErrorMessage(`Failed to export ${basename(filePath)}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-                }
-            }
+//                 } catch (error) {
+//                     console.error(`[RTF Export] Error exporting ${filePath}:`, error);
+//                     vscode.window.showErrorMessage(`Failed to export ${basename(filePath)}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+//                 }
+//             }
 
             vscode.window.showInformationMessage(`RTF round-trip export completed to ${userSelectedPath}`);
         }
@@ -752,7 +752,7 @@ async function exportCodexContentAsObsRoundtrip(
                     console.log('[OBS Export] Generated markdown with translations, length:', updatedMarkdown.length);
 
                     // Determine output filename
-                    const originalFileName = (codexNotebook.metadata as any)?.originalName || `${fileName.split('.')[0]}.md`;
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName || `${fileName.split('.')[0]}.md`;
                     const baseFileName = originalFileName.replace(/\.md$/i, '');
 
                     // Create timestamped filename
@@ -823,7 +823,7 @@ async function exportCodexContentAsTmsRoundtrip(
                     const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
                     const fileFormat = (codexNotebook.metadata as any)?.fileFormat || corpusMarker; // Fallback to corpusMarker for old files
                     const fileType = (codexNotebook.metadata as any)?.fileType; // Direct file type field (tmx or xliff)
-                    const originalFileName = (codexNotebook.metadata as any)?.originalName; // Get original filename (stored as originalName in metadata)
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName; // Get original filename (stored as originalFileName in metadata)
 
                     if (corpusMarker !== 'tms' && fileFormat !== 'tms-tmx' && fileFormat !== 'tms-xliff') {
                         console.warn(`[TMS Export] Skipping ${fileName} - not imported with TMS importer (corpusMarker: ${corpusMarker}, fileFormat: ${fileFormat})`);
@@ -943,7 +943,7 @@ async function exportCodexContentAsRebuild(
                     const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
                     const importerType = (codexNotebook.metadata as any)?.importerType;
                     const fileType = (codexNotebook.metadata as any)?.fileType;
-                    const originalFileName = (codexNotebook.metadata as any)?.originalName;
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName;
 
                     console.log(`[Rebuild Export] File: ${basename(filePath)}, corpusMarker: ${corpusMarker}, importerType: ${importerType}, fileType: ${fileType}`);
 
@@ -1129,7 +1129,7 @@ async function exportCodexContentAsRebuild(
                     .join('\n');
 
                 vscode.window.showWarningMessage(
-                    `The following files were skipped (unsupported or coming soon):\n${unsupportedList}\n\nSupported types: DOCX, IDML, Biblica, PDF, RTF`,
+                    `The following files were skipped (unsupported or coming soon):\n${unsupportedList}\n\nSupported types: DOCX, IDML, Biblica, PDF`,
                     { modal: false }
                 );
             }
@@ -2741,6 +2741,125 @@ async function exportCodexContentAsDelimited(
     } catch (error) {
         console.error(`${format.toUpperCase()} Export failed:`, error);
         vscode.window.showErrorMessage(`${format.toUpperCase()} Export failed: ${error}`);
+    }
+}
+
+async function exportCodexContentAsBacktranslations(
+    userSelectedPath: string,
+    filesToExport: string[],
+    options?: ExportOptions
+) {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders) {
+            vscode.window.showErrorMessage("No workspace folder found.");
+            return;
+        }
+
+        const backtranslationsPath = path.join(workspaceFolders[0].uri.fsPath, "files", "backtranslations.json");
+        let backtranslationsData: { [cellId: string]: any; } = {};
+        try {
+            const backtranslationsUri = vscode.Uri.file(backtranslationsPath);
+            const backtranslationsContent = await vscode.workspace.fs.readFile(backtranslationsUri);
+            backtranslationsData = JSON.parse(Buffer.from(backtranslationsContent).toString());
+        } catch (error) {
+            vscode.window.showWarningMessage("No backtranslations found.");
+            return;
+        }
+
+        if (Object.keys(backtranslationsData).length === 0) {
+            vscode.window.showInformationMessage("No backtranslations to export.");
+            return;
+        }
+
+        return vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Exporting Backtranslations",
+                cancellable: false,
+            },
+            async (progress) => {
+                progress.report({ message: "Loading backtranslations..." });
+
+                const exportFolder = vscode.Uri.file(userSelectedPath);
+                await vscode.workspace.fs.createDirectory(exportFolder);
+
+                const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+                const fileGroups = new Map<string, Array<{ cellId: string; bt: any; }>>();
+                let skipped = 0;
+
+                for (const [cellId, bt] of Object.entries(backtranslationsData)) {
+                    if (!bt.filePath) {
+                        skipped++;
+                        continue;
+                    }
+
+                    const filePath = path.isAbsolute(bt.filePath)
+                        ? bt.filePath
+                        : path.join(workspaceFolders[0].uri.fsPath, bt.filePath);
+                    if (!fileGroups.has(filePath)) {
+                        fileGroups.set(filePath, []);
+                    }
+                    fileGroups.get(filePath)!.push({ cellId, bt });
+                }
+
+                let totalExported = 0;
+                let filesWritten = 0;
+
+                for (const [targetPath, entries] of fileGroups) {
+                    try {
+                        const targetUri = vscode.Uri.file(targetPath);
+                        const sourcePath = targetPath.replace(/\.codex$/, ".source");
+                        const sourceUri = vscode.Uri.file(sourcePath);
+
+                        const targetData = await vscode.workspace.fs.readFile(targetUri);
+                        const targetNotebook = JSON.parse(Buffer.from(targetData).toString()) as CodexNotebookAsJSONData;
+
+                        let sourceNotebook: CodexNotebookAsJSONData | null = null;
+                        try {
+                            const sourceData = await vscode.workspace.fs.readFile(sourceUri);
+                            sourceNotebook = JSON.parse(Buffer.from(sourceData).toString()) as CodexNotebookAsJSONData;
+                        } catch (error) {
+                            void error;
+                        }
+
+                        const targetCellsMap = new Map(
+                            targetNotebook.cells
+                                .filter((cell) => (cell.kind === 2 || cell.kind === 1) && (cell as any).metadata?.id)
+                                .map((cell) => [cell.metadata.id, (cell as any).value || ""])
+                        );
+
+                        const sourceCellsMap = new Map(
+                            targetNotebook.cells
+                                .filter((cell) => (cell.kind === 2 || cell.kind === 1) && (cell as any).metadata?.id)
+                                .map((cell) => [cell.metadata.id, (cell.metadata as any)?.data?.originalText || ""])
+                        );
+
+                        let content = "Cell ID,Source Text,Translation,Backtranslation\n";
+                        for (const { cellId, bt } of entries) {
+                            const source = sourceCellsMap.get(cellId) || "";
+                            const target = targetCellsMap.get(cellId) || "";
+                            const backText = (bt && (bt.backtranslation || bt)) || "";
+                            content += `${escapeCsvValue(cellId)},${escapeCsvValue(source)},${escapeCsvValue(target)},${escapeCsvValue(backText)}\n`;
+                            totalExported++;
+                        }
+
+                        const fileName = basename(targetPath, ".codex");
+                        const exportFile = vscode.Uri.joinPath(exportFolder, `${fileName}_backtranslations_${timestamp}.csv`);
+                        await vscode.workspace.fs.writeFile(exportFile, Buffer.from(content));
+                        filesWritten++;
+                    } catch (error) {
+                        console.error(`Error exporting backtranslations for ${targetPath}:`, error);
+                    }
+                }
+
+                const skipMessage = skipped > 0 ? ` (${skipped} skipped - no file path stored)` : "";
+                vscode.window.showInformationMessage(`Exported ${totalExported} backtranslations to ${filesWritten} file(s)${skipMessage}`);
+            }
+        );
+    } catch (error) {
+        console.error("Backtranslations export failed:", error);
+        vscode.window.showErrorMessage(`Backtranslations export failed: ${error}`);
     }
 }
 
