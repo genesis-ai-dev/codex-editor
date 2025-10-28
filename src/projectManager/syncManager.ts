@@ -112,10 +112,15 @@ export class SyncManager {
     private CONNECTION_ERROR_COOLDOWN = 60000; // 1 minute cooldown for connection messages
     private currentSyncStage: string = "";
     private syncStatusListeners: Array<(isSyncInProgress: boolean, syncStage: string) => void> = [];
+    private frontierSyncSubscription: vscode.Disposable | undefined;
+    private frontierSyncProgressResolver: ((value: void) => void) | undefined;
+    private isCodexInitiatedSync: boolean = false;
 
     private constructor() {
         // Initialize with configuration values
         this.updateFromConfiguration();
+        // Subscribe to Frontier sync events
+        this.subscribeFrontierSyncEvents();
     }
 
     public static getInstance(): SyncManager {
@@ -149,6 +154,143 @@ export class SyncManager {
                 console.error("Error notifying sync status listener:", error);
             }
         });
+    }
+
+    // Subscribe to Frontier sync events to keep UI in sync
+    private subscribeFrontierSyncEvents(): void {
+        try {
+            const authApi = getAuthApi();
+            if (!authApi) {
+                debug("[SyncManager] Frontier API not available");
+                return;
+            }
+
+            // Check if onSyncStatusChange is available (for backward compatibility)
+            if (!('onSyncStatusChange' in authApi)) {
+                debug("[SyncManager] Frontier API doesn't support sync events (older version)");
+                return;
+            }
+
+            this.frontierSyncSubscription = (authApi as any).onSyncStatusChange((status: { status: 'started' | 'completed' | 'error' | 'skipped', message?: string; }) => {
+                debug(`[SyncManager] Received Frontier sync event: ${status.status} - ${status.message || ''}`);
+
+                switch (status.status) {
+                    case 'started':
+                        // Only show Frontier progress if this sync wasn't initiated by Codex
+                        if (!this.isCodexInitiatedSync) {
+                            this.isSyncInProgress = true;
+                            this.currentSyncStage = status.message || 'Synchronizing...';
+                            this.notifySyncStatusListeners();
+                            // Start showing progress notification for externally-triggered syncs
+                            this.showFrontierSyncProgress();
+                        }
+                        break;
+                    case 'completed':
+                        this.isSyncInProgress = false;
+                        this.currentSyncStage = status.message || 'Sync complete';
+                        this.notifySyncStatusListeners();
+                        // Resolve the progress notification to complete it (if it exists)
+                        if (this.frontierSyncProgressResolver) {
+                            this.frontierSyncProgressResolver();
+                            this.frontierSyncProgressResolver = undefined;
+                        }
+                        // Reset the flag
+                        this.isCodexInitiatedSync = false;
+                        break;
+                    case 'error':
+                        this.isSyncInProgress = false;
+                        this.currentSyncStage = status.message || 'Sync failed';
+                        this.notifySyncStatusListeners();
+                        // Resolve the progress notification to complete it (if it exists)
+                        if (this.frontierSyncProgressResolver) {
+                            this.frontierSyncProgressResolver();
+                            this.frontierSyncProgressResolver = undefined;
+                        }
+                        // Reset the flag
+                        this.isCodexInitiatedSync = false;
+                        break;
+                    case 'skipped':
+                        this.isSyncInProgress = false;
+                        this.currentSyncStage = status.message || 'Sync skipped';
+                        this.notifySyncStatusListeners();
+                        // Resolve the progress notification to complete it (if it exists)
+                        if (this.frontierSyncProgressResolver) {
+                            this.frontierSyncProgressResolver();
+                            this.frontierSyncProgressResolver = undefined;
+                        }
+                        // Reset the flag
+                        this.isCodexInitiatedSync = false;
+                        break;
+                }
+            });
+
+            debug("[SyncManager] Successfully subscribed to Frontier sync events");
+        } catch (error) {
+            console.error("[SyncManager] Failed to subscribe to Frontier sync events:", error);
+        }
+    }
+
+    // Show progress notification for Frontier-triggered syncs
+    private showFrontierSyncProgress(): void {
+        // Don't show multiple progress notifications
+        if (this.frontierSyncProgressResolver) {
+            return;
+        }
+
+        vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Synchronizing Project",
+                cancellable: false,
+            },
+            async (progress) => {
+                let progressValue = 0;
+
+                // Initial progress
+                progress.report({
+                    increment: 0,
+                    message: "Checking files are up to date..."
+                });
+
+                // Create a promise that we can resolve from outside
+                await new Promise<void>((resolve) => {
+                    this.frontierSyncProgressResolver = resolve;
+
+                    // Poll for status updates
+                    const updateInterval = setInterval(() => {
+                        if (!this.isSyncInProgress) {
+                            clearInterval(updateInterval);
+                            return;
+                        }
+
+                        if (this.currentSyncStage) {
+                            const increment = Math.min(20, 90 - progressValue);
+                            progressValue += increment;
+
+                            progress.report({
+                                increment,
+                                message: this.currentSyncStage
+                            });
+                        }
+                    }, 500);
+
+                    // Clean up interval when promise resolves
+                    this.frontierSyncProgressResolver = () => {
+                        clearInterval(updateInterval);
+                        resolve();
+                    };
+                });
+
+                // Final completion message
+                progress.report({
+                    increment: 100 - progressValue,
+                    message: this.currentSyncStage || "Synchronization complete!"
+                });
+
+                // Brief delay to show completion before closing
+                await new Promise(resolve => setTimeout(resolve, 1500));
+            }
+        );
     }
 
     // Schedule a sync operation to occur after the configured delay
@@ -261,6 +403,8 @@ export class SyncManager {
         this.clearPendingSync();
         this.isSyncInProgress = true;
         this.currentSyncStage = "Starting sync...";
+        // Mark this as a Codex-initiated sync so we don't show duplicate notifications
+        this.isCodexInitiatedSync = true;
         this.notifySyncStatusListeners();
         debug("Sync operation in background with message:", commitMessage);
 
