@@ -7,7 +7,7 @@ import { BaseWebviewProvider } from "../../globalProvider";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToView } from "../../utils/webviewUtils";
 import { CodexItem } from "types";
-import { getCellValueData } from "../../../sharedUtils";
+import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents } from "../../../sharedUtils";
 
 interface CodexMetadata {
     id: string;
@@ -492,15 +492,61 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                         cellType: cell.languageId as any,
                         cellLabel: cell.metadata.cellLabel,
                         editHistory: cell.metadata.edits,
-                    });
+                        attachments: cell.metadata.attachments,
+                        metadata: { selectedAudioId: (cell as any)?.metadata?.selectedAudioId },
+                    } as any);
                     return cellValueData;
                 }
             );
-            const minimumValidationsRequired = vscode.workspace.getConfiguration("codex-project-manager").get<number>("minimumValidationsRequired", 1);
-            const fullyValidatedCells = cellWithValidatedData.filter(
-                (cell) => cell.validatedBy?.filter((v) => !v.isDeleted).length >= minimumValidationsRequired
+
+            // Compute audio completion based on attachments (mirrors editor logic)
+            const cellsWithAudioValues = unmergedCells.filter((cell) =>
+                cellHasAudioUsingAttachments((cell as any)?.metadata?.attachments, (cell as any)?.metadata?.selectedAudioId)
             ).length;
-            const fullyValidatedProgress = totalCells > 0 ? (fullyValidatedCells / totalCells) * 100 : 0;
+
+            // Use project settings for required validation counts
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            const minimumValidationsRequired = config.get<number>("validationCount", 1);
+            const minimumAudioValidationsRequired = config.get<number>("validationCountAudio", 1);
+
+            const { validatedCells, audioValidatedCells, fullyValidatedCells } = computeValidationStats(
+                cellWithValidatedData,
+                minimumValidationsRequired,
+                minimumAudioValidationsRequired
+            );
+
+            // Compute per-level validation percentages for text and audio
+            const countNonDeleted = (arr: any[] | undefined) => (arr || []).filter((v: any) => !v.isDeleted).length;
+            const textValidationCounts = cellWithValidatedData.map((c) => countNonDeleted((c as any).validatedBy));
+            const audioValidationCounts = cellWithValidatedData.map((c) => countNonDeleted((c as any).audioValidatedBy));
+
+            const computeLevelPercents = (counts: number[], maxLevel: number) => {
+                const levels: number[] = [];
+                const total = totalCells > 0 ? totalCells : 1;
+                for (let k = 1; k <= Math.max(0, maxLevel); k++) {
+                    const satisfied = counts.filter((n) => n >= k).length;
+                    levels.push((satisfied / total) * 100);
+                }
+                return levels;
+            };
+
+            const textValidationLevels = computeLevelPercents(textValidationCounts, minimumValidationsRequired);
+            const audioValidationLevels = computeLevelPercents(audioValidationCounts, minimumAudioValidationsRequired);
+
+            const {
+                percentTranslationsCompleted,
+                percentAudioTranslationsCompleted,
+                percentFullyValidatedTranslations,
+                percentAudioValidatedTranslations,
+                percentTextValidatedTranslations,
+            } = computeProgressPercents(
+                totalCells,
+                cellsWithValues,
+                cellsWithAudioValues,
+                validatedCells,
+                audioValidatedCells,
+                fullyValidatedCells
+            );
             const bookInfo = this.bibleBookMap.get(fileNameAbbr);
             const label = fileNameAbbr;
             const sortOrder = bookInfo?.ord;
@@ -512,8 +558,15 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 type: "codexDocument",
                 corpusMarker: corpusMarker,
                 progress: {
-                    percentTranslationsCompleted: progress,
-                    percentFullyValidatedTranslations: fullyValidatedProgress,
+                    percentTranslationsCompleted,
+                    percentTextValidatedTranslations,
+                    percentAudioTranslationsCompleted,
+                    percentAudioValidatedTranslations,
+                    percentFullyValidatedTranslations,
+                    textValidationLevels,
+                    audioValidationLevels,
+                    requiredTextValidations: minimumValidationsRequired,
+                    requiredAudioValidations: minimumAudioValidationsRequired,
                 },
                 sortOrder,
             };
@@ -548,10 +601,36 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
         const groupedItems: CodexItem[] = [];
         corpusGroups.forEach((itemsInGroup, corpusMarker) => {
             const totalProgress = itemsInGroup.reduce((sum, item) => sum + (item.progress?.percentTranslationsCompleted || 0), 0);
-            const averageProgress =
-                itemsInGroup.length > 0 ? totalProgress / itemsInGroup.length : 0;
+            const averageProgress = itemsInGroup.length > 0 ? totalProgress / itemsInGroup.length : 0;
 
+            const averageTextValidated = itemsInGroup.reduce((sum, item) => sum + (item.progress?.percentTextValidatedTranslations || 0), 0) / itemsInGroup.length;
+            const averageAudioCompleted = itemsInGroup.reduce((sum, item) => sum + (item.progress?.percentAudioTranslationsCompleted || 0), 0) / itemsInGroup.length;
+            const averageAudioValidated = itemsInGroup.reduce((sum, item) => sum + (item.progress?.percentAudioValidatedTranslations || 0), 0) / itemsInGroup.length;
             const averageValidationProgress = itemsInGroup.reduce((sum, item) => sum + (item.progress?.percentFullyValidatedTranslations || 0), 0) / itemsInGroup.length;
+
+            // Average per-level arrays when available
+            const firstTextLevels = itemsInGroup.find((i) => i.progress?.textValidationLevels)?.progress?.textValidationLevels || [];
+            const firstAudioLevels = itemsInGroup.find((i) => i.progress?.audioValidationLevels)?.progress?.audioValidationLevels || [];
+            const textLen = firstTextLevels.length;
+            const audioLen = firstAudioLevels.length;
+
+            const avgArray = (key: 'textValidationLevels' | 'audioValidationLevels', len: number) => {
+                if (len === 0) return [] as number[];
+                const sums = new Array(len).fill(0);
+                let count = 0;
+                itemsInGroup.forEach((it) => {
+                    const arr = (it.progress as any)?.[key] as number[] | undefined;
+                    if (arr && arr.length === len) {
+                        for (let i = 0; i < len; i++) sums[i] += arr[i];
+                        count++;
+                    }
+                });
+                if (count === 0) return [] as number[];
+                return sums.map((s) => s / count);
+            };
+
+            const averageTextValidationLevels = avgArray('textValidationLevels', textLen);
+            const averageAudioValidationLevels = avgArray('audioValidationLevels', audioLen);
 
             const sortedItems = itemsInGroup.sort((a, b) => {
                 if (a.sortOrder && b.sortOrder) {
@@ -567,7 +646,14 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 children: sortedItems,
                 progress: {
                     percentTranslationsCompleted: averageProgress,
+                    percentTextValidatedTranslations: averageTextValidated,
+                    percentAudioTranslationsCompleted: averageAudioCompleted,
+                    percentAudioValidatedTranslations: averageAudioValidated,
                     percentFullyValidatedTranslations: averageValidationProgress,
+                    textValidationLevels: averageTextValidationLevels,
+                    audioValidationLevels: averageAudioValidationLevels,
+                    requiredTextValidations: vscode.workspace.getConfiguration("codex-project-manager").get<number>("validationCount", 1) || 1,
+                    requiredAudioValidations: vscode.workspace.getConfiguration("codex-project-manager").get<number>("validationCountAudio", 1) || 1,
                 },
             });
         });
