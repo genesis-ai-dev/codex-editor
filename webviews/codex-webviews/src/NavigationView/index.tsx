@@ -7,7 +7,7 @@ import { Progress } from "../components/ui/progress";
 import "../tailwind.css";
 import { CodexItem } from "types";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
-import LanguageIcon from "../components/ui/icons/LanguageIcon";
+import { Languages } from "lucide-react";
 
 // Declare the acquireVsCodeApi function
 declare function acquireVsCodeApi(): any;
@@ -622,7 +622,7 @@ function NavigationView() {
             <div className="flex flex-col gap-y-4 pl-7">
                 <div className="flex gap-x-1">
                     <span className="opacity-70 font-light">
-                        <LanguageIcon />
+                        <Languages className="h-[14px] w-[14px]" />
                     </span>
                     <div className="mt-[2px] w-full">
                         <Progress

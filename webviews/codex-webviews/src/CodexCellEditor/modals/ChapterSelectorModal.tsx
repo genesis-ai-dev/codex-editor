@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { ProgressPercentages } from "../../lib/types";
 import { getProgressColor } from "../utils/progressUtils";
 import MicrophoneIcon from "../../components/ui/icons/MicrophoneIcon";
-import LanguageIcon from "../../components/ui/icons/LanguageIcon";
+import { Languages } from "lucide-react";
 
 interface ChapterSelectorModalProps {
     isOpen: boolean;
@@ -286,7 +286,7 @@ export function ChapterSelectorModal({
                                         className={`flex w-full justify-center items-center ${textBackgroundColor}`}
                                         title={textTitle}
                                     >
-                                        <LanguageIcon width={14} height={14} />
+                                        <Languages className="h-[14px] w-[14px]" />
                                     </div>
                                 </div>
                             </div>
