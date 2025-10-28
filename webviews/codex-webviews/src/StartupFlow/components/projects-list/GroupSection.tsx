@@ -42,6 +42,7 @@ interface GroupSectionProps {
     };
     filterProjects: (projects: ProjectWithSyncStatus[]) => ProjectWithSyncStatus[];
     isProgressDataLoaded?: boolean;
+    isAnyOperationApplying?: boolean;
 }
 
 const INDENTATION_SIZE_REM = 1.25;
@@ -65,6 +66,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
     getStatusIcon,
     filterProjects,
     isProgressDataLoaded = false,
+    isAnyOperationApplying = false,
 }) => {
     if (!group || typeof group !== "object") return null;
 
@@ -127,6 +129,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                             [group.name]: !(prev[group.name] ?? true),
                         }))
                     }
+                    aria-disabled={isAnyOperationApplying}
                 >
                     <div className="flex items-center gap-2">
                         <i
@@ -158,10 +161,10 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                     <CardContent className="p-0">
                         {filteredProjects.length > 0 && (
                             <div className="border-t border-muted">
-                                {filteredProjects.map((project) => (
+                        {filteredProjects.map((project) => (
                                     <ProjectCard
                                         key={`${project.name}-${project.gitOriginUrl || 'no-url'}`}
-                                        project={project}
+                                project={{ ...project }}
                                         onCloneProject={onCloneProject}
                                         onOpenProject={onOpenProject}
                                         onDeleteProject={onDeleteProject}
@@ -173,6 +176,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                                         parseProjectUrl={parseProjectUrl}
                                         getStatusIcon={getStatusIcon}
                                         isProgressDataLoaded={isProgressDataLoaded}
+                                        isAnyOperationApplying={isAnyOperationApplying}
                                     />
                                 ))}
                             </div>
@@ -209,6 +213,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                                         getStatusIcon={getStatusIcon}
                                         filterProjects={filterProjects}
                                         isProgressDataLoaded={isProgressDataLoaded}
+                                        isAnyOperationApplying={isAnyOperationApplying}
                                     />
                                 </div>
                             );

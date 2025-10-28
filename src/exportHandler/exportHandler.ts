@@ -303,6 +303,7 @@ export enum CodexExportFormat {
     CSV = "csv",
     TSV = "tsv",
     REBUILD_EXPORT = "rebuild-export",
+    BACKTRANSLATIONS = "backtranslations",
 }
 
 export interface ExportOptions {
@@ -1178,7 +1179,38 @@ export async function exportCodexContent(
         case CodexExportFormat.REBUILD_EXPORT:
             await exportCodexContentAsRebuild(userSelectedPath, filesToExport, options);
             break;
+        case CodexExportFormat.BACKTRANSLATIONS:
+            await exportCodexContentAsBacktranslations(userSelectedPath, filesToExport, options);
+            break;
     }
+}
+
+// Compact helpers for id handling and lookups
+function idCandidates(id: string): string[] {
+    const raw = (id || "").trim();
+    if (!raw) return [];
+    const noSuffix = raw.replace(/_\d+_complete\s+/, " ").replace(/\s+/g, " ").trim();
+    const set = new Set<string>([raw, noSuffix]);
+    const m = noSuffix.match(/^(\S+)\s+(\d+)\s*:\s*(\d+)$/);
+    if (m) {
+        const book = m[1];
+        const ref = `${Number(m[2])}:${Number(m[3])}`;
+        set.add(`${book} ${ref}`);
+        set.add(ref);
+    }
+    return Array.from(set);
+}
+
+function addCandidates(map: Map<string, string>, id: string, value: string) {
+    for (const k of idCandidates(id)) if (!map.has(k)) map.set(k, value);
+}
+
+function firstFrom(map: Map<string, string>, keys: string[]): string {
+    for (const k of keys) {
+        const v = map.get(k);
+        if (v !== undefined) return v;
+    }
+    return "";
 }
 
 export const exportCodexContentAsSubtitlesSrt = async (
