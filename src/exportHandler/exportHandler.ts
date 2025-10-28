@@ -573,18 +573,17 @@ async function exportCodexContentAsPdfRoundtrip(
     );
 }
 
-// RTF Round-trip export
-// NOTE: RTF export is still in development and temporarily disabled
-/* async function exportCodexContentAsRtfRoundtrip(
-    userSelectedPath: string,
-    filesToExport: string[],
-    _options?: ExportOptions
-) {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
-        return;
-    }
+// RTF Round-trip export - DISABLED (RTF importer files deleted)
+// async function exportCodexContentAsRtfRoundtrip(
+//     userSelectedPath: string,
+//     filesToExport: string[],
+//     _options?: ExportOptions
+// ) {
+//     const workspaceFolders = vscode.workspace.workspaceFolders;
+//     if (!workspaceFolders) {
+//         vscode.window.showErrorMessage("No workspace folder found.");
+//         return;
+//     }
 
 //     const exportFolder = vscode.Uri.file(userSelectedPath);
 //     await vscode.workspace.fs.createDirectory(exportFolder);
@@ -673,10 +672,10 @@ async function exportCodexContentAsPdfRoundtrip(
 //                 }
 //             }
 
-            vscode.window.showInformationMessage(`RTF round-trip export completed to ${userSelectedPath}`);
-        }
-    );
-} */
+//             vscode.window.showInformationMessage(`RTF round-trip export completed to ${userSelectedPath}`);
+//         }
+//     );
+// }
 
 /**
  * OBS (Open Bible Stories) Round-trip export
@@ -968,11 +967,11 @@ async function exportCodexContentAsRebuild(
                         // PDF files use the PDF exporter
                         filesByType['pdf'] = filesByType['pdf'] || [];
                         filesByType['pdf'].push(filePath);
-                    } /* else if (corpusMarker === 'rtf') {
-                        // RTF files use the RTF exporter (TEMPORARILY DISABLED - RTF still in development)
-                        filesByType['rtf'] = filesByType['rtf'] || [];
-                        filesByType['rtf'].push(filePath);
-                    } */ else if (corpusMarker === 'obs' || importerType === 'obs-story') {
+                        // } else if (corpusMarker === 'rtf') {
+                        //     // RTF files use the RTF exporter - DISABLED
+                        //     filesByType['rtf'] = filesByType['rtf'] || [];
+                        //     filesByType['rtf'].push(filePath);
+                    } else if (corpusMarker === 'obs' || importerType === 'obs-story') {
                         // OBS (Open Bible Stories) markdown files use the OBS exporter
                         // Fallback: also detect by importerType for older files
                         filesByType['obs'] = filesByType['obs'] || [];
@@ -1057,22 +1056,21 @@ async function exportCodexContentAsRebuild(
                 }
             }
 
-            // Export RTF files
-            // NOTE: RTF export temporarily disabled - still in development
-            /* if (filesByType['rtf']?.length > 0) {
-                console.log(`[Rebuild Export] Exporting ${filesByType['rtf'].length} RTF file(s)...`);
-                progress.report({
-                    message: `Exporting ${filesByType['rtf'].length} RTF file(s)...`,
-                    increment: 20
-                });
-                try {
-                    await exportCodexContentAsRtfRoundtrip(userSelectedPath, filesByType['rtf'], options);
-                    processedCount += filesByType['rtf'].length;
-                } catch (error) {
-                    console.error('[Rebuild Export] RTF export failed:', error);
-                    vscode.window.showErrorMessage(`RTF export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-                }
-            } */
+            // Export RTF files - DISABLED (RTF importer files deleted)
+            // if (filesByType['rtf']?.length > 0) {
+            //     console.log(`[Rebuild Export] Exporting ${filesByType['rtf'].length} RTF file(s)...`);
+            //     progress.report({
+            //         message: `Exporting ${filesByType['rtf'].length} RTF file(s)...`,
+            //         increment: 20
+            //     });
+            //     try {
+            //         await exportCodexContentAsRtfRoundtrip(userSelectedPath, filesByType['rtf'], options);
+            //         processedCount += filesByType['rtf'].length;
+            //     } catch (error) {
+            //         console.error('[Rebuild Export] RTF export failed:', error);
+            //         vscode.window.showErrorMessage(`RTF export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            //     }
+            // }
 
             // Export OBS files
             if (filesByType['obs']?.length > 0) {
