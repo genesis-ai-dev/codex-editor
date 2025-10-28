@@ -308,6 +308,7 @@ export enum CodexExportFormat {
 
 export interface ExportOptions {
     skipValidation?: boolean;
+    removeIds?: boolean;
 }
 
 // IDML Round-trip export: Uses idmlExporter or biblicaExporter based on filename
@@ -1418,6 +1419,7 @@ async function exportCodexContentAsPlaintext(
                     let exportContent = "";
                     let currentChapter = "";
                     let chapterContent = "";
+                    const includeIds = !(options?.removeIds);
 
                     // Already filtered for merged and deleted
                     const activeCells = cells;
@@ -1445,7 +1447,7 @@ async function exportCodexContentAsPlaintext(
                                     .replace(/<\/?[^>]+(>|$)/g, "")
                                     .trim();
                                 if (verseContent) {
-                                    chapterContent += `${verseRef} ${verseContent}\n`;
+                                    chapterContent += includeIds ? `${verseRef} ${verseContent}\n` : `${verseContent}\n`;
                                     totalVerses++;
                                 }
                             }
