@@ -887,12 +887,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         );
     },
 
-    generateBacktranslation: async ({ event, webviewPanel, provider }) => {
+    generateBacktranslation: async ({ event, webviewPanel, provider, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "generateBacktranslation"; }>;
         const backtranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
             "codex-smart-edits.generateBacktranslation",
             typedEvent.content.text,
-            typedEvent.content.cellId
+            typedEvent.content.cellId,
+            document.uri.fsPath
         );
         provider.postMessageToWebview(webviewPanel, {
             type: "providerSendsBacktranslation",
@@ -900,13 +901,14 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
     },
 
-    editBacktranslation: async ({ event, webviewPanel, provider }) => {
+    editBacktranslation: async ({ event, webviewPanel, provider, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "editBacktranslation"; }>;
         const updatedBacktranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
             "codex-smart-edits.editBacktranslation",
             typedEvent.content.cellId,
             typedEvent.content.newText,
-            typedEvent.content.existingBacktranslation
+            typedEvent.content.existingBacktranslation,
+            document.uri.fsPath
         );
         provider.postMessageToWebview(webviewPanel, {
             type: "providerSendsUpdatedBacktranslation",
@@ -926,13 +928,34 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
     },
 
-    setBacktranslation: async ({ event, webviewPanel, provider }) => {
+    getBatchBacktranslations: async ({ event, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "getBatchBacktranslations"; }>;
+        const cellIds = typedEvent.content.cellIds;
+        
+        // Fetch backtranslations for all cell IDs
+        const backtranslations: { [cellId: string]: SavedBacktranslation | null } = {};
+        for (const cellId of cellIds) {
+            const backtranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
+                "codex-smart-edits.getBacktranslation",
+                cellId
+            );
+            backtranslations[cellId] = backtranslation;
+        }
+        
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerSendsBatchBacktranslations",
+            content: backtranslations,
+        });
+    },
+
+    setBacktranslation: async ({ event, webviewPanel, provider, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "setBacktranslation"; }>;
         const backtranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
             "codex-smart-edits.setBacktranslation",
             typedEvent.content.cellId,
             typedEvent.content.originalText,
-            typedEvent.content.userBacktranslation
+            typedEvent.content.userBacktranslation,
+            document.uri.fsPath
         );
         provider.postMessageToWebview(webviewPanel, {
             type: "providerConfirmsBacktranslationSet",

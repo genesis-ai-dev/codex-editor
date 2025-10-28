@@ -12,7 +12,9 @@ export type MediaFilesStrategy =
 export interface LocalProjectSettings {
     currentMediaFilesStrategy?: MediaFilesStrategy;
     lastMediaFileStrategyRun?: MediaFilesStrategy;
-    changesApplied?: boolean;
+    changesApplied?: boolean; // legacy boolean (mirrored from applyState)
+    /** Granular state machine for media apply lifecycle */
+    mediaFileStrategyApplyState?: "idle" | "pending" | "applying" | "applied" | "failed";
     /** When true, the editor will download/stream audio as soon as a cell opens */
     autoDownloadAudioOnOpen?: boolean;
     // Legacy keys (read and mirrored for backward compatibility)
@@ -60,6 +62,22 @@ export async function readLocalProjectSettings(workspaceFolderUri?: vscode.Uri):
         if (normalized.lastModeRun === undefined && normalized.lastMediaFileStrategyRun !== undefined) {
             normalized.lastModeRun = normalized.lastMediaFileStrategyRun;
         }
+        // Derive mediaFileStrategyApplyState from legacy fields if missing
+        if (normalized.mediaFileStrategyApplyState === undefined) {
+            const legacyApplyState = (settings as any)?.applyState as
+                | "idle" | "pending" | "applying" | "applied" | "failed" | undefined;
+            if (legacyApplyState !== undefined) {
+                normalized.mediaFileStrategyApplyState = legacyApplyState;
+            } else if (normalized.changesApplied === true) {
+                normalized.mediaFileStrategyApplyState = "applied";
+            } else if (normalized.changesApplied === false) {
+                normalized.mediaFileStrategyApplyState = "pending";
+            }
+        }
+        // Also keep legacy mirrors aligned in-memory
+        if (normalized.mediaFileStrategyApplyState !== undefined) {
+            normalized.changesApplied = normalized.mediaFileStrategyApplyState === "applied";
+        }
         debug("Read local project settings:", normalized);
         return normalized;
     } catch (error) {
@@ -99,7 +117,7 @@ export async function writeLocalProjectSettings(
         const toWrite: LocalProjectSettings = {
             currentMediaFilesStrategy: settings.currentMediaFilesStrategy ?? settings.mediaFilesStrategy,
             lastMediaFileStrategyRun: settings.lastMediaFileStrategyRun ?? settings.lastModeRun,
-            changesApplied: settings.changesApplied,
+            mediaFileStrategyApplyState: settings.mediaFileStrategyApplyState ?? (settings as any).applyState,
             autoDownloadAudioOnOpen: settings.autoDownloadAudioOnOpen,
         };
         const content = JSON.stringify(toWrite, null, 2);
@@ -142,18 +160,36 @@ export async function setLastModeRun(
     await writeLocalProjectSettings(settings, workspaceFolderUri);
 }
 
+// Legacy wrapper (kept for compatibility). Prefer setApplyState.
 export async function setChangesApplied(
     applied: boolean,
     workspaceFolderUri?: vscode.Uri
 ): Promise<void> {
-    const settings = await readLocalProjectSettings(workspaceFolderUri);
-    settings.changesApplied = applied;
-    await writeLocalProjectSettings(settings, workspaceFolderUri);
+    await setApplyState(applied ? "applied" : "pending", workspaceFolderUri);
 }
 
+// Legacy wrapper (kept for compatibility). Prefer getApplyState.
 export async function getFlags(workspaceFolderUri?: vscode.Uri): Promise<Pick<LocalProjectSettings, "lastModeRun" | "changesApplied">> {
     const settings = await readLocalProjectSettings(workspaceFolderUri);
-    return { lastModeRun: settings.lastModeRun, changesApplied: settings.changesApplied };
+    return { lastModeRun: settings.lastModeRun, changesApplied: settings.mediaFileStrategyApplyState === "applied" };
+}
+
+// New explicit helpers (preferred over legacy boolean)
+export async function getApplyState(workspaceFolderUri?: vscode.Uri): Promise<NonNullable<LocalProjectSettings["mediaFileStrategyApplyState"]> | undefined> {
+    const s = await readLocalProjectSettings(workspaceFolderUri);
+    return s.mediaFileStrategyApplyState;
+}
+
+export async function setApplyState(
+    state: NonNullable<LocalProjectSettings["mediaFileStrategyApplyState"]>,
+    workspaceFolderUri?: vscode.Uri,
+    meta?: { error?: string; }
+): Promise<void> {
+    const s = await readLocalProjectSettings(workspaceFolderUri);
+    s.mediaFileStrategyApplyState = state;
+    // Keep the state minimal; no timestamps or error strings persisted
+    s.changesApplied = state === "applied"; // keep mirror until full removal
+    await writeLocalProjectSettings(s, workspaceFolderUri);
 }
 
 /**
@@ -189,6 +225,7 @@ export async function ensureLocalProjectSettingsExists(
         currentMediaFilesStrategy: "auto-download",
         lastMediaFileStrategyRun: "auto-download",
         changesApplied: true,
+        mediaFileStrategyApplyState: "applied",
         autoDownloadAudioOnOpen: false,
         ...(defaults || {}),
     };

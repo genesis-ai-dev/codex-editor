@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Button } from "../../components/ui/button";
+import { ProgressPercentages } from "../../lib/types";
+import { getProgressColor } from "../utils/progressUtils";
 
 interface ChapterSelectorModalProps {
     isOpen: boolean;
@@ -12,10 +13,12 @@ interface ChapterSelectorModalProps {
     bookTitle: string;
     unsavedChanges: boolean;
     anchorRef: React.RefObject<HTMLDivElement>;
-    chapterProgress?: Record<
-        number,
-        { percentTranslationsCompleted: number; percentFullyValidatedTranslations: number }
-    >;
+    chapterProgress?: Record<number, ProgressPercentages>;
+}
+
+interface ChapterColor {
+    audioBackgroundColor: string;
+    textBackgroundColor: string;
 }
 
 export function ChapterSelectorModal({
@@ -34,49 +37,34 @@ export function ChapterSelectorModal({
     const [columns, setColumns] = useState(10);
     const [arrowPosition, setArrowPosition] = useState<"top" | "bottom">("top");
 
-    // Helper function to get chapter background color based on progress
-    const getChapterBackgroundColor = (chapter: number, isSelected: boolean) => {
+    const getChapterColor = (chapter: number): ChapterColor => {
         if (!chapterProgress || !chapterProgress[chapter]) {
-            // Default styling when no progress data
-            return isSelected
-                ? "var(--vscode-button-background)"
-                : "var(--vscode-editorWidget-background)";
+            return {
+                audioBackgroundColor: "text-muted-foreground/25",
+                textBackgroundColor: "text-muted-foreground/25",
+            };
         }
 
-        const progress = chapterProgress[chapter];
-        const { percentTranslationsCompleted, percentFullyValidatedTranslations } = progress;
+        const {
+            percentAudioValidatedTranslations,
+            percentTextValidatedTranslations,
+            percentTranslationsCompleted,
+            percentAudioTranslationsCompleted,
+        } = chapterProgress[chapter];
 
-        // If 100% validated (secondary color)
-        if (percentFullyValidatedTranslations >= 100) {
-            return "var(--vscode-editorWarning-foreground)";
-        }
-        // If 100% translated (primary color)
-        else if (percentTranslationsCompleted >= 100) {
-            return "var(--vscode-charts-blue)";
-        }
-        // Default styling
-        else {
-            return isSelected
-                ? "var(--vscode-button-background)"
-                : "var(--vscode-editorWidget-background)";
-        }
-    };
+        const textBackgroundColor = getProgressColor(
+            percentTextValidatedTranslations,
+            percentTranslationsCompleted
+        );
+        const audioBackgroundColor = getProgressColor(
+            percentAudioValidatedTranslations,
+            percentAudioTranslationsCompleted
+        );
 
-    // Helper function to get text color based on background
-    const getChapterTextColor = (chapter: number, isSelected: boolean) => {
-        if (!chapterProgress || !chapterProgress[chapter]) {
-            return isSelected ? "var(--vscode-button-foreground)" : "var(--vscode-foreground)";
-        }
-
-        const progress = chapterProgress[chapter];
-        const { percentTranslationsCompleted, percentFullyValidatedTranslations } = progress;
-
-        // If progress colors are applied, use contrasting text
-        if (percentFullyValidatedTranslations >= 100 || percentTranslationsCompleted >= 100) {
-            return "var(--vscode-editor-background)"; // Dark text on colored background
-        }
-
-        return isSelected ? "var(--vscode-button-foreground)" : "var(--vscode-foreground)";
+        return {
+            audioBackgroundColor: audioBackgroundColor,
+            textBackgroundColor: textBackgroundColor,
+        };
     };
 
     // Calculate position and dimensions
@@ -205,7 +193,7 @@ export function ChapterSelectorModal({
     return (
         <div
             ref={modalRef}
-            className="chapter-selector-dropdown"
+            className="chapter-selector-dropdown focus-visible:outline-none"
             tabIndex={-1}
             style={{
                 position: "absolute",
@@ -225,48 +213,14 @@ export function ChapterSelectorModal({
                 transformOrigin: arrowPosition === "top" ? "top center" : "bottom center",
             }}
         >
-            {/* Dropdown arrow */}
-            {arrowPosition === "top" && (
-                <div
-                    style={{
-                        position: "absolute",
-                        top: "-8px",
-                        left: `${arrowLeftPercent}%`,
-                        transform: "translateX(-50%) rotate(45deg)",
-                        width: "16px",
-                        height: "16px",
-                        backgroundColor: "var(--vscode-editor-background)",
-                        border: "1px solid var(--vscode-widget-border)",
-                        borderBottom: "none",
-                        borderRight: "none",
-                        zIndex: 9998,
-                    }}
-                />
-            )}
-
-            {arrowPosition === "bottom" && (
-                <div
-                    style={{
-                        position: "absolute",
-                        bottom: "-8px",
-                        left: `${arrowLeftPercent}%`,
-                        transform: "translateX(-50%) rotate(45deg)",
-                        width: "16px",
-                        height: "16px",
-                        backgroundColor: "var(--vscode-editor-background)",
-                        border: "1px solid var(--vscode-widget-border)",
-                        borderTop: "none",
-                        borderLeft: "none",
-                        zIndex: 9998,
-                    }}
-                />
-            )}
-
             <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold m-0">{bookTitle}</h2>
-                <Button onClick={onClose}>
+                <div
+                    className="flex items-center cursor-pointer hover:bg-secondary rounded-md p-1"
+                    onClick={onClose}
+                >
                     <i className="codicon codicon-close" />
-                </Button>
+                </div>
             </div>
 
             <div
@@ -277,8 +231,20 @@ export function ChapterSelectorModal({
             >
                 {Array.from({ length: totalChapters }, (_, i) => i + 1).map((chapter) => {
                     const isSelected = currentChapter === chapter;
-                    const backgroundColor = getChapterBackgroundColor(chapter, isSelected);
-                    const textColor = getChapterTextColor(chapter, isSelected);
+                    const { textBackgroundColor, audioBackgroundColor } = getChapterColor(chapter);
+                    const cp = chapterProgress?.[chapter];
+                    const audioCompletedPercent = Math.round(
+                        cp?.percentAudioTranslationsCompleted ?? 0
+                    );
+                    const audioValidatedPercent = Math.round(
+                        cp?.percentAudioValidatedTranslations ?? 0
+                    );
+                    const textCompletedPercent = Math.round(cp?.percentTranslationsCompleted ?? 0);
+                    const textValidatedPercent = Math.round(
+                        cp?.percentTextValidatedTranslations ?? 0
+                    );
+                    const audioTitle = `Audio: ${audioCompletedPercent}% completed, ${audioValidatedPercent}% validated`;
+                    const textTitle = `Text: ${textCompletedPercent}% completed, ${textValidatedPercent}% validated`;
 
                     return (
                         <div
@@ -289,12 +255,11 @@ export function ChapterSelectorModal({
                                     onClose();
                                 }
                             }}
-                            className={`aspect-square flex items-center justify-center rounded cursor-pointer transition-all relative overflow-hidden min-w-[32px] min-h-[32px] ${
+                            className={`aspect-[3/4] flex items-center justify-center rounded cursor-pointer transition-all relative overflow-hidden min-w-[40px] min-h-[40px] bg-gray-50 ${
                                 unsavedChanges ? "opacity-60 cursor-not-allowed" : ""
                             } ${isSelected ? "font-semibold" : ""}`}
                             style={{
-                                backgroundColor,
-                                color: textColor,
+                                color: "var(--vscode-foreground)",
                                 border: isSelected
                                     ? "2px solid var(--vscode-focusBorder)"
                                     : "1px solid var(--vscode-widget-border)",
@@ -304,15 +269,55 @@ export function ChapterSelectorModal({
                                     : "none",
                             }}
                         >
-                            {isSelected && (
-                                <div className="absolute top-0.5 right-0.5 w-2.5 h-2.5 flex items-center justify-center">
-                                    <i
-                                        className="codicon codicon-check"
-                                        style={{ fontSize: "8px", color: textColor }}
-                                    />
+                            <div className="flex flex-col items-center justify-center w-full h-full">
+                                <div className="flex w-full h-full justify-center items-center bg-[var(--background)] shadow-sm">
+                                    {chapter}
                                 </div>
-                            )}
-                            {chapter}
+                                <div className="flex w-full items-center justify-center p-[4px] border-t border-[var(--vscode-widget-border)]">
+                                    <div
+                                        className={`flex w-full justify-center items-center ${audioBackgroundColor}`}
+                                        title={audioTitle}
+                                    >
+                                        <svg
+                                            viewBox="0 0 64 64"
+                                            width="14"
+                                            height="14"
+                                            aria-hidden="true"
+                                        >
+                                            <path
+                                                fill="currentColor"
+                                                d="M32,44c6.629,0,12-5.371,12-12V12c0-6.629-5.371-12-12-12S20,5.371,20,12v20C20,38.629,25.371,44,32,44z"
+                                            />
+                                            <path
+                                                fill="currentColor"
+                                                d="M52,28c-2.211,0-4,1.789-4,4c0,8.836-7.164,16-16,16s-16-7.164-16-16c0-2.211-1.789-4-4-4s-4,1.789-4,4
+                                                    c0,11.887,8.656,21.73,20,23.641V60c0,2.211,1.789,4,4,4s4-1.789,4-4v-4.359C47.344,53.73,56,43.887,56,32
+                                                    C56,29.789,54.211,28,52,28z"
+                                            />
+                                        </svg>
+                                    </div>
+                                    <div
+                                        className={`flex w-full justify-center items-center ${textBackgroundColor}`}
+                                        title={textTitle}
+                                    >
+                                        <svg
+                                            viewBox="0 0 512 512"
+                                            width="14"
+                                            height="14"
+                                            aria-hidden="true"
+                                        >
+                                            <path
+                                                fill="currentColor"
+                                                d="M478.33,433.6l-90-218a22,22,0,0,0-40.67,0l-90,218a22,22,0,1,0,40.67,16.79L316.66,406H419.33l18.33,44.39A22,22,0,0,0,458,464a22,22,0,0,0,20.32-30.4ZM334.83,362,368,281.65,401.17,362Z"
+                                            />
+                                            <path
+                                                fill="currentColor"
+                                                d="M267.84,342.92a22,22,0,0,0-4.89-30.7c-.2-.15-15-11.13-36.49-34.73,39.65-53.68,62.11-114.75,71.27-143.49H330a22,22,0,0,0,0-44H214V70a22,22,0,0,0-44,0V90H54a22,22,0,0,0,0,44H251.25c-9.52,26.95-27.05,69.5-53.79,108.36-31.41-41.68-43.08-68.65-43.17-68.87a22,22,0,0,0-40.58,17c.58,1.38,14.55,34.23,52.86,83.93.92,1.19,1.83,2.35,2.74,3.51-39.24,44.35-77.74,71.86-93.85,80.74a22,22,0,1,0,21.07,38.63c2.16-1.18,48.6-26.89,101.63-85.59,22.52,24.08,38,35.44,38.93,36.1a22,22,0,0,0,30.75-4.9Z"
+                                            />
+                                        </svg>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     );
                 })}

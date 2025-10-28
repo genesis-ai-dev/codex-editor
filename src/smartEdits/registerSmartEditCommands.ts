@@ -68,9 +68,9 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "codex-smart-edits.generateBacktranslation",
-            async (text: string, cellId: string): Promise<SavedBacktranslation | null> => {
+            async (text: string, cellId: string, filePath?: string): Promise<SavedBacktranslation | null> => {
                 try {
-                    return await smartBacktranslation.generateBacktranslation(text, cellId);
+                    return await smartBacktranslation.generateBacktranslation(text, cellId, filePath);
                 } catch (error) {
                     console.error("Error generating backtranslation:", error);
                     vscode.window.showErrorMessage(
@@ -88,13 +88,15 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
             async (
                 cellId: string,
                 newText: string,
-                existingBacktranslation: string
+                existingBacktranslation: string,
+                filePath?: string
             ): Promise<SavedBacktranslation | null> => {
                 try {
                     return await smartBacktranslation.editBacktranslation(
                         cellId,
                         newText,
-                        existingBacktranslation
+                        existingBacktranslation,
+                        filePath
                     );
                 } catch (error) {
                     console.error("Error editing backtranslation:", error);
@@ -130,13 +132,15 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
             async (
                 cellId: string,
                 originalText: string,
-                userBacktranslation: string
+                userBacktranslation: string,
+                filePath?: string
             ): Promise<SavedBacktranslation | null> => {
                 try {
                     return await smartBacktranslation.setBacktranslation(
                         cellId,
                         originalText,
-                        userBacktranslation
+                        userBacktranslation,
+                        filePath
                     );
                 } catch (error) {
                     console.error("Error setting backtranslation:", error);

@@ -359,6 +359,18 @@ function getWebviewContent(
                             </div>
                         </div>
 
+                        <!-- Backtranslations Export - Full Width -->
+                        <div style="display: flex; gap: 1rem;">
+                            <div class="format-option" data-format="backtranslations" style="flex: 1;">
+                                <i class="codicon codicon-checklist"></i>
+                                <div>
+                                    <strong>Backtranslations (CSV)</strong>
+                                    <p>Export backtranslations as CSV with ID, source text, translation, and backtranslation columns</p>
+                                    <span class="format-tag">Quality Assurance</span>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Data Export Section -->
                         <div class="format-section">
                             <div class="format-section-header">

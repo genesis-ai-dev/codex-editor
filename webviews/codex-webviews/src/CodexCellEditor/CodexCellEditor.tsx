@@ -29,7 +29,7 @@ import { isValidValidationEntry } from "./validationUtils";
 import "./TranslationAnimations.css";
 import { CellTranslationState } from "./CellTranslationStyles";
 import { getVSCodeAPI } from "../shared/vscodeApi";
-import { Subsection } from "../lib/types";
+import { Subsection, ProgressPercentages } from "../lib/types";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { WhisperTranscriptionClient, type AsrMeta } from "./WhisperTranscriptionClient";
@@ -134,6 +134,12 @@ const CodexCellEditor: React.FC = () => {
     const playerRef = useRef<ReactPlayer>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const { setSourceCellMap } = useContext(SourceCellContext);
+    
+    // Backtranslation inline display state
+    const [showInlineBacktranslations, setShowInlineBacktranslations] = useState<boolean>(
+        (window as any).initialData?.metadata?.showInlineBacktranslations || false
+    );
+    const [backtranslationsMap, setBacktranslationsMap] = useState<Map<string, any>>(new Map());
 
     // Simplified state - now we just mirror the provider's state
     const [autocompletionState, setAutocompletionState] = useState<{
@@ -287,7 +293,11 @@ const CodexCellEditor: React.FC = () => {
                             if (!resolved) {
                                 window.removeEventListener("message", onMsg);
                                 // Reject instead of using hardcoded fallback - let backend provide endpoint
-                                reject(new Error("Timeout waiting for ASR config from backend. Please check your ASR settings."));
+                                reject(
+                                    new Error(
+                                        "Timeout waiting for ASR config from backend. Please check your ASR settings."
+                                    )
+                                );
                             }
                         }, 5000);
                     });
@@ -383,7 +393,10 @@ const CodexCellEditor: React.FC = () => {
                         }
 
                         // Transcribe
-                        const client = new WhisperTranscriptionClient(wsEndpoint, asrConfig.authToken);
+                        const client = new WhisperTranscriptionClient(
+                            wsEndpoint,
+                            asrConfig.authToken
+                        );
                         try {
                             // Mark cell as transcribing for UI feedback
                             setTranscribingCells((prev) => {
@@ -642,6 +655,70 @@ const CodexCellEditor: React.FC = () => {
         },
         [vscode]
     );
+
+    // Handle batch backtranslations response
+    useMessageHandler(
+        "codexCellEditor-batchBacktranslations",
+        (event: MessageEvent) => {
+            const message = event.data as EditorReceiveMessages;
+            if (message.type === "providerSendsBatchBacktranslations") {
+                const newMap = new Map(backtranslationsMap);
+                Object.entries(message.content).forEach(([cellId, backtranslation]) => {
+                    newMap.set(cellId, backtranslation);
+                });
+                setBacktranslationsMap(newMap);
+            }
+        },
+        [backtranslationsMap]
+    );
+
+    // Handle individual backtranslation updates (created/edited)
+    useMessageHandler(
+        "codexCellEditor-backtranslationUpdate",
+        (event: MessageEvent) => {
+            const message = event.data as EditorReceiveMessages;
+            if (
+                message.type === "providerSendsBacktranslation" ||
+                message.type === "providerSendsUpdatedBacktranslation" ||
+                message.type === "providerSendsExistingBacktranslation"
+            ) {
+                if (message.content && message.content.cellId) {
+                    const newMap = new Map(backtranslationsMap);
+                    newMap.set(message.content.cellId, message.content);
+                    setBacktranslationsMap(newMap);
+                }
+            }
+        },
+        [backtranslationsMap]
+    );
+
+    // Fetch backtranslations when toggle is enabled or visible cells change
+    useEffect(() => {
+        if (showInlineBacktranslations && translationUnits.length > 0) {
+            const cellIds = translationUnits
+                .filter((cell) => cell.cellMarkers && cell.cellMarkers.length > 0)
+                .map((cell) => cell.cellMarkers[0]);
+            
+            if (cellIds.length > 0) {
+                vscode.postMessage({
+                    command: "getBatchBacktranslations",
+                    content: { cellIds },
+                } as EditorPostMessages);
+            }
+        }
+    }, [showInlineBacktranslations, translationUnits, vscode]);
+
+    // Toggle inline backtranslations
+    const toggleInlineBacktranslations = useCallback(() => {
+        const newValue = !showInlineBacktranslations;
+        setShowInlineBacktranslations(newValue);
+        
+        // Update metadata in the backend
+        vscode.postMessage({
+            command: "updateNotebookMetadata",
+            content: { showInlineBacktranslations: newValue },
+        } as EditorPostMessages);
+    }, [showInlineBacktranslations, vscode]);
 
     // Listen for validation count updates (initial value comes bundled with content)
     useMessageHandler(
@@ -1198,7 +1275,7 @@ const CodexCellEditor: React.FC = () => {
 
     // Calculate progress for each chapter based on translation and validation status
     const calculateChapterProgress = useCallback(
-        (chapterNum: number) => {
+        (chapterNum: number): ProgressPercentages => {
             // Filter cells for the specific chapter (excluding paratext and merged cells)
             const cellsForChapter = translationUnits.filter((cell) => {
                 const cellId = cell?.cellMarkers?.[0];
@@ -1212,7 +1289,13 @@ const CodexCellEditor: React.FC = () => {
 
             const totalCells = cellsForChapter.length;
             if (totalCells === 0) {
-                return { percentTranslationsCompleted: 0, percentFullyValidatedTranslations: 0 };
+                return {
+                    percentTranslationsCompleted: 0,
+                    percentAudioTranslationsCompleted: 0,
+                    percentFullyValidatedTranslations: 0,
+                    percentAudioValidatedTranslations: 0,
+                    percentTextValidatedTranslations: 0,
+                };
             }
 
             // Count cells with content (translated)
@@ -1223,38 +1306,83 @@ const CodexCellEditor: React.FC = () => {
                     cell.cellContent !== "<span></span>"
             ).length;
 
+            const cellsWithAudioValues = cellsForChapter.filter((cell) => {
+                const atts = (cell as any).attachments as Record<string, any> | undefined;
+                if (!atts || Object.keys(atts).length === 0) return false;
+
+                const selectedId = (cell as any).metadata?.selectedAudioId;
+                if (selectedId && atts[selectedId]) {
+                    const att = atts[selectedId];
+                    return (
+                        att &&
+                        att.type === "audio" &&
+                        att.isDeleted === false &&
+                        att.isMissing !== true
+                    );
+                }
+
+                // Fallback: any non-deleted, non-missing audio attachment
+                return Object.values(atts).some(
+                    (att: any) =>
+                        att &&
+                        att.type === "audio" &&
+                        att.isDeleted === false &&
+                        att.isMissing !== true
+                );
+            }).length;
+
             // Calculate validation data using the same logic as navigation provider
             const cellWithValidatedData = cellsForChapter.map((cell) => {
-                return getCellValueData({
-                    cellContent: cell.cellContent,
-                    cellMarkers: cell.cellMarkers,
-                    cellType: cell.cellType,
-                    cellLabel: cell.cellLabel,
-                    editHistory: cell.editHistory,
-                });
+                return getCellValueData(cell);
             });
 
             const minimumValidationsRequired = requiredValidations ?? 1;
-            const fullyValidatedCells = cellWithValidatedData.filter(
-                (cell) =>
+            const minimumAudioValidationsRequired = requiredAudioValidations ?? 1;
+
+            const fullyValidatedCells = cellWithValidatedData.filter((cell) => {
+                const validatedBy =
+                    cell.validatedBy?.filter((v) => !v.isDeleted).length >=
+                    minimumValidationsRequired;
+                const audioValidatedBy =
+                    cell.audioValidatedBy?.filter((v) => !v.isDeleted).length >=
+                    minimumAudioValidationsRequired;
+                return validatedBy && audioValidatedBy;
+            }).length;
+
+            const validatedCells = cellWithValidatedData.filter((cell) => {
+                return (
                     cell.validatedBy?.filter((v) => !v.isDeleted).length >=
                     minimumValidationsRequired
-            ).length;
+                );
+            }).length;
+
+            const audioValidatedCells = cellWithValidatedData.filter((cell) => {
+                return (
+                    cell.audioValidatedBy?.filter((v) => !v.isDeleted).length >=
+                    minimumAudioValidationsRequired
+                );
+            }).length;
 
             const percentTranslationsCompleted = (cellsWithValues / totalCells) * 100;
+            const percentAudioTranslationsCompleted = (cellsWithAudioValues / totalCells) * 100;
+            const percentAudioValidatedTranslations = (audioValidatedCells / totalCells) * 100;
+            const percentTextValidatedTranslations = (validatedCells / totalCells) * 100;
             const percentFullyValidatedTranslations = (fullyValidatedCells / totalCells) * 100;
 
-            return { percentTranslationsCompleted, percentFullyValidatedTranslations };
+            return {
+                percentTranslationsCompleted,
+                percentAudioTranslationsCompleted,
+                percentFullyValidatedTranslations,
+                percentAudioValidatedTranslations,
+                percentTextValidatedTranslations,
+            };
         },
-        [translationUnits, requiredValidations]
+        [translationUnits, requiredValidations, requiredAudioValidations]
     );
 
     // Calculate progress for all chapters
     const allChapterProgress = useMemo(() => {
-        const progress: Record<
-            number,
-            { percentTranslationsCompleted: number; percentFullyValidatedTranslations: number }
-        > = {};
+        const progress: Record<number, ProgressPercentages> = {};
         for (let i = 1; i <= totalChapters; i++) {
             progress[i] = calculateChapterProgress(i);
         }
@@ -2274,6 +2402,8 @@ const CodexCellEditor: React.FC = () => {
                             bibleBookMap={bibleBookMap}
                             currentSubsectionIndex={currentSubsectionIndex}
                             setCurrentSubsectionIndex={setCurrentSubsectionIndex}
+                            showInlineBacktranslations={showInlineBacktranslations}
+                            onToggleInlineBacktranslations={toggleInlineBacktranslations}
                             getSubsectionsForChapter={getSubsectionsForChapter}
                             editorPosition={editorPosition}
                             fileStatus={fileStatus}
@@ -2351,6 +2481,8 @@ const CodexCellEditor: React.FC = () => {
                             requiredValidations={requiredValidations ?? undefined}
                             requiredAudioValidations={requiredAudioValidations ?? undefined}
                             transcribingCells={transcribingCells}
+                            showInlineBacktranslations={showInlineBacktranslations}
+                            backtranslationsMap={backtranslationsMap}
                         />
                     </div>
                 </div>
