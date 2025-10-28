@@ -308,6 +308,7 @@ export enum CodexExportFormat {
 
 export interface ExportOptions {
     skipValidation?: boolean;
+    removeIds?: boolean;
 }
 
 // IDML Round-trip export: Uses idmlExporter or biblicaExporter based on filename
@@ -1013,6 +1014,7 @@ async function exportCodexContentAsPlaintext(
                     let exportContent = "";
                     let currentChapter = "";
                     let chapterContent = "";
+                    const includeIds = !(options?.removeIds);
 
                     // Already filtered for merged and deleted
                     const activeCells = cells;
@@ -1040,7 +1042,7 @@ async function exportCodexContentAsPlaintext(
                                     .replace(/<\/?[^>]+(>|$)/g, "")
                                     .trim();
                                 if (verseContent) {
-                                    chapterContent += `${verseRef} ${verseContent}\n`;
+                                    chapterContent += includeIds ? `${verseRef} ${verseContent}\n` : `${verseContent}\n`;
                                     totalVerses++;
                                 }
                             }
@@ -2383,7 +2385,7 @@ async function exportCodexContentAsBacktranslations(
         }
 
         const backtranslationsPath = path.join(workspaceFolders[0].uri.fsPath, "files", "backtranslations.json");
-        let backtranslationsData: { [cellId: string]: any } = {};
+        let backtranslationsData: { [cellId: string]: any; } = {};
         try {
             const backtranslationsUri = vscode.Uri.file(backtranslationsPath);
             const backtranslationsContent = await vscode.workspace.fs.readFile(backtranslationsUri);
@@ -2411,7 +2413,7 @@ async function exportCodexContentAsBacktranslations(
                 await vscode.workspace.fs.createDirectory(exportFolder);
 
                 const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                const fileGroups = new Map<string, Array<{ cellId: string; bt: any }>>();
+                const fileGroups = new Map<string, Array<{ cellId: string; bt: any; }>>();
                 let skipped = 0;
 
                 for (const [cellId, bt] of Object.entries(backtranslationsData)) {
@@ -2419,7 +2421,7 @@ async function exportCodexContentAsBacktranslations(
                         skipped++;
                         continue;
                     }
-                    
+
                     const filePath = path.isAbsolute(bt.filePath)
                         ? bt.filePath
                         : path.join(workspaceFolders[0].uri.fsPath, bt.filePath);
