@@ -265,6 +265,7 @@ const downloadObsRepository = async (
                 metadata: {
                     id: `obs-${obsStory.storyNumber.toString().padStart(2, '0')}-source`,
                     originalFileName: storyFile.name,
+                    corpusMarker: 'obs', // Enable round-trip export
                     importerType: 'obs-story',
                     createdAt: new Date().toISOString(),
                     storyNumber: obsStory.storyNumber,
@@ -274,6 +275,9 @@ const downloadObsRepository = async (
                     sourceReference: obsStory.sourceReference,
                     fileName: storyFile.name,
                     parentCollection: 'Open Bible Stories',
+
+                    // Store OBS story structure for round-trip export
+                    obsStory: JSON.stringify(obsStory),
                 }
             };
 
@@ -284,6 +288,7 @@ const downloadObsRepository = async (
                 metadata: {
                     id: `obs-${obsStory.storyNumber.toString().padStart(2, '0')}-codex`,
                     originalFileName: storyFile.name,
+                    corpusMarker: 'obs', // Enable round-trip export
                     importerType: 'obs-story',
                     createdAt: new Date().toISOString(),
                     storyNumber: obsStory.storyNumber,
@@ -293,6 +298,9 @@ const downloadObsRepository = async (
                     sourceReference: obsStory.sourceReference,
                     fileName: storyFile.name,
                     parentCollection: 'Open Bible Stories',
+
+                    // Store OBS story structure for round-trip export
+                    obsStory: JSON.stringify(obsStory),
                 }
             };
 
@@ -476,6 +484,9 @@ const parseObsMarkdown = async (
 
     onProgress?.(createProgress('Creating Notebooks', 'Creating OBS notebooks...', 80));
 
+    // Read original file data for round-trip export
+    const arrayBuffer = await file.arrayBuffer();
+
     // Create notebook pair manually
     const baseName = file.name.replace(/\.[^/.]+$/, '');
 
@@ -485,6 +496,8 @@ const parseObsMarkdown = async (
         metadata: {
             id: `obs-source-${Date.now()}`,
             originalFileName: file.name,
+            originalFileData: arrayBuffer, // Store original file for export - system will save to .project/attachments/originals/
+            corpusMarker: 'obs', // Enable round-trip export
             importerType: 'obs',
             createdAt: new Date().toISOString(),
             storyNumber: obsStory.storyNumber,
@@ -492,6 +505,9 @@ const parseObsMarkdown = async (
             totalSegments: obsStory.segments.length,
             imageCount: obsStory.segments.reduce((count, seg) => count + seg.images.length, 0),
             sourceReference: obsStory.sourceReference,
+
+            // Store OBS story structure for round-trip export
+            obsStory: JSON.stringify(obsStory), // Serialize for storage
         },
     };
 
@@ -510,6 +526,8 @@ const parseObsMarkdown = async (
         metadata: {
             ...sourceNotebook.metadata,
             id: `obs-codex-${Date.now()}`,
+            // Don't duplicate the original file data in codex
+            originalFileData: undefined,
         },
     };
 
@@ -743,6 +761,7 @@ const parseObsZip = async (
                 metadata: {
                     id: `obs-${obsStory.storyNumber.toString().padStart(2, '0')}-source`,
                     originalFileName: markdownFile.name,
+                    corpusMarker: 'obs', // Enable round-trip export
                     importerType: 'obs-story',
                     createdAt: new Date().toISOString(),
                     storyNumber: obsStory.storyNumber,
@@ -752,6 +771,9 @@ const parseObsZip = async (
                     sourceReference: obsStory.sourceReference,
                     fileName: markdownFile.name,
                     parentCollection: 'Open Bible Stories',
+
+                    // Store OBS story structure for round-trip export
+                    obsStory: JSON.stringify(obsStory),
                 }
             };
 
@@ -762,6 +784,7 @@ const parseObsZip = async (
                 metadata: {
                     id: `obs-${obsStory.storyNumber.toString().padStart(2, '0')}-codex`,
                     originalFileName: markdownFile.name,
+                    corpusMarker: 'obs', // Enable round-trip export
                     importerType: 'obs-story',
                     createdAt: new Date().toISOString(),
                     storyNumber: obsStory.storyNumber,
@@ -771,6 +794,9 @@ const parseObsZip = async (
                     sourceReference: obsStory.sourceReference,
                     fileName: markdownFile.name,
                     parentCollection: 'Open Bible Stories',
+
+                    // Store OBS story structure for round-trip export
+                    obsStory: JSON.stringify(obsStory),
                 }
             };
 
