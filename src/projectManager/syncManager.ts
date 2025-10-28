@@ -114,7 +114,7 @@ export class SyncManager {
     private syncStatusListeners: Array<(isSyncInProgress: boolean, syncStage: string) => void> = [];
     private frontierSyncSubscription: vscode.Disposable | undefined;
     private frontierSyncProgressResolver: ((value: void) => void) | undefined;
-    private isCodexInitiatedSync: boolean = false;
+    private codexInitiatedSyncCount: number = 0;
 
     private constructor() {
         // Initialize with configuration values
@@ -177,7 +177,7 @@ export class SyncManager {
                 switch (status.status) {
                     case 'started':
                         // Only show Frontier progress if this sync wasn't initiated by Codex
-                        if (!this.isCodexInitiatedSync) {
+                        if (this.codexInitiatedSyncCount === 0) {
                             this.isSyncInProgress = true;
                             this.currentSyncStage = status.message || 'Synchronizing...';
                             this.notifySyncStatusListeners();
@@ -194,8 +194,10 @@ export class SyncManager {
                             this.frontierSyncProgressResolver();
                             this.frontierSyncProgressResolver = undefined;
                         }
-                        // Reset the flag
-                        this.isCodexInitiatedSync = false;
+                        // Decrement counter if we have Codex-initiated syncs
+                        if (this.codexInitiatedSyncCount > 0) {
+                            this.codexInitiatedSyncCount--;
+                        }
                         break;
                     case 'error':
                         this.isSyncInProgress = false;
@@ -206,8 +208,10 @@ export class SyncManager {
                             this.frontierSyncProgressResolver();
                             this.frontierSyncProgressResolver = undefined;
                         }
-                        // Reset the flag
-                        this.isCodexInitiatedSync = false;
+                        // Decrement counter if we have Codex-initiated syncs
+                        if (this.codexInitiatedSyncCount > 0) {
+                            this.codexInitiatedSyncCount--;
+                        }
                         break;
                     case 'skipped':
                         this.isSyncInProgress = false;
@@ -218,8 +222,10 @@ export class SyncManager {
                             this.frontierSyncProgressResolver();
                             this.frontierSyncProgressResolver = undefined;
                         }
-                        // Reset the flag
-                        this.isCodexInitiatedSync = false;
+                        // Decrement counter if we have Codex-initiated syncs
+                        if (this.codexInitiatedSyncCount > 0) {
+                            this.codexInitiatedSyncCount--;
+                        }
                         break;
                 }
             });
@@ -403,8 +409,8 @@ export class SyncManager {
         this.clearPendingSync();
         this.isSyncInProgress = true;
         this.currentSyncStage = "Starting sync...";
-        // Mark this as a Codex-initiated sync so we don't show duplicate notifications
-        this.isCodexInitiatedSync = true;
+        // Increment counter to track this Codex-initiated sync
+        this.codexInitiatedSyncCount++;
         this.notifySyncStatusListeners();
         debug("Sync operation in background with message:", commitMessage);
 
