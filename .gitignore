@@ -16,3 +16,6 @@ package-lock.json
 AGENTS.md
 # TypeScript build cache
 .tsbuildinfo
+
+CLAUDE.md
+docs/QUILL_EDITOR_DEEP_DIVE.md

@@ -1,13 +1,16 @@
 import * as vscode from "vscode";
+import * as path from "path";
+import * as fs from "fs";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { createNoteBookPair } from "./codexFIleCreateUtils";
-import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteResponseMessage, WriteNotebooksWithAttachmentsMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
+import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteResponseMessage, WriteNotebooksWithAttachmentsMessage, SelectAudioFileMessage, ReprocessAudioFileMessage, RequestAudioSegmentMessage, FinalizeAudioImportMessage, UpdateAudioSegmentsMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
 import { ProcessedNotebook } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/common";
 import { NotebookPreview, CustomNotebookMetadata } from "../../../types";
 import { CodexCell } from "../../utils/codexNotebookUtils";
 import { CodexCellTypes } from "../../../types/enums";
 import { importBookNamesFromXmlContent } from "../../bookNameSettings/bookNameSettings";
 import { createStandardizedFilename } from "../../utils/bookNameUtils";
+import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 
 const DEBUG_NEW_SOURCE_UPLOADER_PROVIDER = false;
 function debug(message: string, ...args: any[]): void {
@@ -58,8 +61,16 @@ async function initializePdfParse(): Promise<void> {
     }
 }
 
+interface AudioImportSession {
+    filePath: string;
+    segments: Array<{ id: string; startSec: number; endSec: number }>;
+    tempDir: string;
+    durationSec?: number;
+}
+
 export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvider {
     public static readonly viewType = "newSourceUploaderProvider";
+    private audioImportSessions = new Map<string, AudioImportSession>();
 
     constructor(private readonly context: vscode.ExtensionContext) {
         // Initialize pdf-parse module early to trigger and handle the test file bug
@@ -81,9 +92,12 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         webviewPanel: vscode.WebviewPanel,
         token: vscode.CancellationToken
     ): Promise<void> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         webviewPanel.webview.options = {
             enableScripts: true,
-            localResourceRoots: [this.context.extensionUri],
+            localResourceRoots: workspaceFolder 
+                ? [this.context.extensionUri, workspaceFolder.uri]
+                : [this.context.extensionUri],
         };
 
         webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
@@ -284,6 +298,16 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             message: error instanceof Error ? error.message : "Failed to open navigation"
                         });
                     }
+                } else if (message.command === "selectAudioFile") {
+                    await this.handleSelectAudioFile(message as SelectAudioFileMessage, webviewPanel);
+                } else if (message.command === "reprocessAudioFile") {
+                    await this.handleReprocessAudioFile(message as ReprocessAudioFileMessage, webviewPanel);
+                } else if (message.command === "requestAudioSegment") {
+                    await this.handleRequestAudioSegment(message as RequestAudioSegmentMessage, webviewPanel);
+                } else if (message.command === "finalizeAudioImport") {
+                    await this.handleFinalizeAudioImport(message as FinalizeAudioImportMessage, token, webviewPanel);
+                } else if (message.command === "updateAudioSegments") {
+                    await this.handleUpdateAudioSegments(message as UpdateAudioSegmentsMessage, webviewPanel);
                 }
             } catch (error) {
                 console.error("Error handling message:", error);
@@ -304,7 +328,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
     private convertToNotebookPreview(processedNotebook: ProcessedNotebook): NotebookPreview {
         const cells: CodexCell[] = processedNotebook.cells.map(processedCell => ({
             kind: vscode.NotebookCellKind.Code,
-            value: processedCell.content,
+            value: processedCell.content ?? "",
             languageId: "html",
             metadata: {
                 id: processedCell.id,
@@ -460,6 +484,10 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             command: "projectInventory",
             inventory: inventory,
         });
+
+        // Reload metadata to discover newly created notebooks
+        const metadataManager = getNotebookMetadataManager();
+        await metadataManager.loadMetadata();
 
         // Use incremental indexing for just the newly created files
         if (createdFiles && createdFiles.length > 0) {
@@ -1235,10 +1263,432 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         return getWebviewHtml(webview, this.context, {
             title: "Source File Importer",
             scriptPath: ["NewSourceUploader", "index.js"],
-            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; img-src data: https:; connect-src https: http:; media-src blob: data:;`,
+            // Using default CSP which already includes webview.cspSource for media-src
             inlineStyles: "#root { height: 100vh; width: 100vw; overflow-y: auto; }",
             customScript: "window.vscodeApi = acquireVsCodeApi();"
         });
+    }
+
+    private async handleSelectAudioFile(message: SelectAudioFileMessage, webviewPanel: vscode.WebviewPanel): Promise<void> {
+        try {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                throw new Error("No workspace folder found");
+            }
+
+            const fileUris = await vscode.window.showOpenDialog({
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false,
+                filters: {
+                    Audio: ["mp3", "wav", "m4a", "aac", "ogg", "webm", "flac"],
+                },
+                openLabel: "Select Audio File",
+            });
+
+            if (!fileUris || fileUris.length === 0) {
+                webviewPanel.webview.postMessage({
+                    command: "audioFileSelected",
+                    sessionId: "",
+                    fileName: "",
+                    durationSec: 0,
+                    segments: [],
+                    waveformPeaks: [],
+                    error: "No file selected",
+                });
+                return;
+            }
+
+            const fileUri = fileUris[0];
+            const filePath = fileUri.fsPath;
+            const fileName = path.basename(filePath);
+
+            const sessionId = `audio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            const tempDir = path.join(workspaceFolder.uri.fsPath, ".project", ".temp", "audio-import", sessionId);
+            
+            if (!fs.existsSync(tempDir)) {
+                fs.mkdirSync(tempDir, { recursive: true });
+            }
+
+            // Copy audio file to workspace temp directory so webview URI works reliably
+            const tempFilePath = path.join(tempDir, fileName);
+            fs.copyFileSync(filePath, tempFilePath);
+            const tempFileUri = vscode.Uri.file(tempFilePath);
+
+            const { processAudioFile } = await import("../../utils/audioProcessor");
+            const thresholdDb = message.thresholdDb ?? -40;
+            const minDuration = message.minDuration ?? 0.5;
+            const metadata = await processAudioFile(tempFilePath, 30, thresholdDb, minDuration);
+
+            const segments = metadata.segments.map((seg, index) => ({
+                id: `${sessionId}-seg${index + 1}`,
+                startSec: seg.startSec,
+                endSec: seg.endSec,
+            }));
+
+            this.audioImportSessions.set(sessionId, {
+                filePath: tempFilePath, // Use temp file path
+                segments,
+                tempDir,
+                durationSec: metadata.durationSec,
+            });
+
+            // Create webview URI for the temp audio file (now within workspace)
+            const fullAudioUri = webviewPanel.webview.asWebviewUri(tempFileUri).toString();
+
+            webviewPanel.webview.postMessage({
+                command: "audioFileSelected",
+                sessionId,
+                fileName,
+                durationSec: metadata.durationSec,
+                segments,
+                waveformPeaks: metadata.previewPeaks || [],
+                fullAudioUri,
+                thresholdDb,
+                minDuration,
+            });
+        } catch (error) {
+            console.error("[AudioImporter2] Error selecting audio file:", error);
+            webviewPanel.webview.postMessage({
+                command: "audioFileSelected",
+                sessionId: "",
+                fileName: "",
+                durationSec: 0,
+                segments: [],
+                waveformPeaks: [],
+                error: error instanceof Error ? error.message : "Unknown error",
+            });
+        }
+    }
+
+    private async handleReprocessAudioFile(
+        message: ReprocessAudioFileMessage,
+        webviewPanel: vscode.WebviewPanel
+    ): Promise<void> {
+        try {
+            const session = this.audioImportSessions.get(message.sessionId);
+            if (!session) {
+                throw new Error("Session not found");
+            }
+
+            const { processAudioFile } = await import("../../utils/audioProcessor");
+            const metadata = await processAudioFile(session.filePath, 30, message.thresholdDb, message.minDuration);
+
+            const segments = metadata.segments.map((seg, index) => ({
+                id: `${message.sessionId}-seg${index + 1}`,
+                startSec: seg.startSec,
+                endSec: seg.endSec,
+            }));
+
+            // Update session with new segments
+            session.segments = segments;
+            if (metadata.durationSec) {
+                session.durationSec = metadata.durationSec;
+            }
+
+            // Create webview URI for the temp audio file (already in workspace)
+            const fullAudioUri = webviewPanel.webview.asWebviewUri(vscode.Uri.file(session.filePath)).toString();
+
+            webviewPanel.webview.postMessage({
+                command: "audioFileSelected",
+                sessionId: message.sessionId,
+                fileName: path.basename(session.filePath),
+                durationSec: metadata.durationSec,
+                segments,
+                waveformPeaks: metadata.previewPeaks || [],
+                fullAudioUri,
+                thresholdDb: message.thresholdDb,
+                minDuration: message.minDuration,
+            });
+        } catch (error) {
+            console.error("[AudioImporter2] Error reprocessing audio file:", error);
+            webviewPanel.webview.postMessage({
+                command: "audioFileSelected",
+                sessionId: message.sessionId,
+                fileName: "",
+                durationSec: 0,
+                segments: [],
+                waveformPeaks: [],
+                error: error instanceof Error ? error.message : "Unknown error",
+            });
+        }
+    }
+
+    private async handleRequestAudioSegment(
+        message: RequestAudioSegmentMessage,
+        webviewPanel: vscode.WebviewPanel
+    ): Promise<void> {
+        try {
+            const session = this.audioImportSessions.get(message.sessionId);
+            if (!session) {
+                throw new Error("Session not found");
+            }
+
+            const segment = session.segments.find((s) => s.id === message.segmentId);
+            if (!segment) {
+                throw new Error("Segment not found");
+            }
+
+            const outputFileName = `${message.segmentId}.wav`;
+            const outputPath = path.join(session.tempDir, outputFileName);
+
+            const { extractSegment } = await import("../../utils/audioProcessor");
+            await extractSegment(
+                session.filePath,
+                outputPath,
+                message.startSec,
+                message.endSec
+            );
+
+            const audioUri = webviewPanel.webview.asWebviewUri(vscode.Uri.file(outputPath)).toString();
+
+            webviewPanel.webview.postMessage({
+                command: "audioSegmentResponse",
+                segmentId: message.segmentId,
+                audioUri,
+            });
+        } catch (error) {
+            console.error("[AudioImporter2] Error extracting segment:", error);
+            webviewPanel.webview.postMessage({
+                command: "audioSegmentResponse",
+                segmentId: message.segmentId,
+                audioUri: "",
+                error: error instanceof Error ? error.message : "Unknown error",
+            });
+        }
+    }
+
+    private async handleUpdateAudioSegments(
+        message: UpdateAudioSegmentsMessage,
+        webviewPanel: vscode.WebviewPanel
+    ): Promise<void> {
+        try {
+            const session = this.audioImportSessions.get(message.sessionId);
+            if (!session) {
+                throw new Error("Session not found");
+            }
+
+            // Validate segments
+            if (message.segments.length === 0) {
+                throw new Error("Segments array cannot be empty");
+            }
+            
+            // Get audio duration from the last segment's endSec
+            const duration = Math.max(...message.segments.map(s => s.endSec));
+            
+            for (let i = 0; i < message.segments.length; i++) {
+                const seg = message.segments[i];
+                
+                // Validate timing
+                if (seg.startSec < 0 || seg.endSec < 0) {
+                    throw new Error(`Segment ${seg.id} has negative time`);
+                }
+                if (seg.startSec >= seg.endSec) {
+                    throw new Error(`Segment ${seg.id} has invalid time range`);
+                }
+                if (seg.endSec > duration + 0.1) { // Small tolerance for floating point
+                    throw new Error(`Segment ${seg.id} extends beyond audio duration`);
+                }
+                
+                // Validate monotonic order (segments should not overlap)
+                if (i > 0 && seg.startSec < message.segments[i - 1].endSec) {
+                    throw new Error(`Segments overlap or are out of order`);
+                }
+            }
+
+            // Update session segments
+            session.segments = message.segments.map(seg => ({
+                id: seg.id,
+                startSec: seg.startSec,
+                endSec: seg.endSec,
+            }));
+
+            console.log(`[AudioImporter2] Updated ${message.segments.length} segments for session ${message.sessionId}`);
+
+            webviewPanel.webview.postMessage({
+                command: "audioSegmentsUpdated",
+                sessionId: message.sessionId,
+                success: true,
+            });
+        } catch (error) {
+            console.error("[AudioImporter2] Error updating segments:", error);
+            webviewPanel.webview.postMessage({
+                command: "audioSegmentsUpdated",
+                sessionId: message.sessionId,
+                success: false,
+                error: error instanceof Error ? error.message : "Unknown error",
+            });
+        }
+    }
+
+    private async handleFinalizeAudioImport(
+        message: FinalizeAudioImportMessage,
+        token: vscode.CancellationToken,
+        webviewPanel: vscode.WebviewPanel
+    ): Promise<void> {
+        try {
+            const session = this.audioImportSessions.get(message.sessionId);
+            if (!session) {
+                throw new Error("Session not found");
+            }
+
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                throw new Error("No workspace folder found");
+            }
+
+            webviewPanel.webview.postMessage({
+                command: "audioImportProgress",
+                sessionId: message.sessionId,
+                stage: "preparing",
+                message: "Preparing directories...",
+                progress: 5,
+            });
+
+            const docId = message.documentName;
+            const filesDir = vscode.Uri.joinPath(
+                workspaceFolder.uri,
+                ".project",
+                "attachments",
+                "files",
+                docId
+            );
+            const pointersDir = vscode.Uri.joinPath(
+                workspaceFolder.uri,
+                ".project",
+                "attachments",
+                "pointers",
+                docId
+            );
+
+            await vscode.workspace.fs.createDirectory(filesDir);
+            await vscode.workspace.fs.createDirectory(pointersDir);
+
+            const totalSegments = message.segmentMappings.length;
+            let processedSegments = 0;
+
+            webviewPanel.webview.postMessage({
+                command: "audioImportProgress",
+                sessionId: message.sessionId,
+                stage: "extracting",
+                message: `Extracting and saving ${totalSegments} audio segments...`,
+                progress: 10,
+                currentSegment: 0,
+                totalSegments,
+            });
+
+            // Process segments sequentially to avoid overheating
+            const progressUpdateInterval = Math.max(1, Math.floor(totalSegments / 20));
+            
+            for (let i = 0; i < message.segmentMappings.length; i++) {
+                const mapping = message.segmentMappings[i];
+                const segment = session.segments.find((s) => s.id === mapping.segmentId);
+                if (!segment) {
+                    console.warn(`Segment ${mapping.segmentId} not found in session`);
+                    continue;
+                }
+
+                const tempFilePath = path.join(session.tempDir, `${mapping.segmentId}.wav`);
+                const needsExtraction = !fs.existsSync(tempFilePath);
+                
+                if (needsExtraction) {
+                    const { extractSegment } = await import("../../utils/audioProcessor");
+                    await extractSegment(
+                        session.filePath,
+                        tempFilePath,
+                        segment.startSec,
+                        segment.endSec
+                    );
+                }
+
+                // Use fs.copyFileSync for faster copies instead of readFile + writeFile
+                const filesPath = path.join(filesDir.fsPath, mapping.fileName);
+                const pointersPath = path.join(pointersDir.fsPath, mapping.fileName);
+
+                // Copy to both locations efficiently using native fs operations
+                fs.copyFileSync(tempFilePath, filesPath);
+                fs.copyFileSync(tempFilePath, pointersPath);
+
+                processedSegments++;
+
+                // Send progress update at intervals
+                if (i === 0 || i === message.segmentMappings.length - 1 || i % progressUpdateInterval === 0) {
+                    const progress = Math.floor(((i + 1) / totalSegments) * 80);
+                    
+                    webviewPanel.webview.postMessage({
+                        command: "audioImportProgress",
+                        sessionId: message.sessionId,
+                        stage: "processing",
+                        message: `Processing segments... (${i + 1}/${totalSegments})`,
+                        progress,
+                        currentSegment: i + 1,
+                        totalSegments,
+                    });
+                }
+            }
+
+            webviewPanel.webview.postMessage({
+                command: "audioImportProgress",
+                sessionId: message.sessionId,
+                stage: "creating",
+                message: "Creating notebook files...",
+                progress: 85,
+            });
+
+            await this.handleWriteNotebooks(
+                {
+                    command: "writeNotebooks",
+                    notebookPairs: message.notebookPairs,
+                    metadata: {
+                        importerType: "audio2",
+                        timestamp: new Date().toISOString(),
+                    },
+                },
+                token,
+                webviewPanel
+            );
+
+            webviewPanel.webview.postMessage({
+                command: "audioImportProgress",
+                sessionId: message.sessionId,
+                stage: "cleaning",
+                message: "Cleaning up temporary files...",
+                progress: 95,
+            });
+
+            this.audioImportSessions.delete(message.sessionId);
+
+            try {
+                fs.rmSync(session.tempDir, { recursive: true, force: true });
+            } catch (cleanupError) {
+                console.warn(`Failed to cleanup temp directory ${session.tempDir}:`, cleanupError);
+            }
+
+            webviewPanel.webview.postMessage({
+                command: "audioImportComplete",
+                sessionId: message.sessionId,
+                success: true,
+            });
+
+            webviewPanel.webview.postMessage({
+                command: "notification",
+                type: "success",
+                message: "Audio import completed successfully!",
+            });
+        } catch (error) {
+            console.error("[AudioImporter2] Error finalizing import:", error);
+            webviewPanel.webview.postMessage({
+                command: "audioImportComplete",
+                sessionId: message.sessionId,
+                success: false,
+                error: error instanceof Error ? error.message : "Failed to finalize import",
+            });
+            webviewPanel.webview.postMessage({
+                command: "notification",
+                type: "error",
+                message: error instanceof Error ? error.message : "Failed to finalize import",
+            });
+        }
     }
 }
 
