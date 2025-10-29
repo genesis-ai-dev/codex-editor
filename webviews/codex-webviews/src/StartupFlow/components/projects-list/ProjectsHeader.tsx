@@ -20,6 +20,7 @@ interface ProjectsHeaderProps {
     setFilter: React.Dispatch<React.SetStateAction<ProjectFilter>>;
     projects: ProjectWithSyncStatus[];
     vscode: any;
+    disabled?: boolean;
 }
 
 export const ProjectsHeader: React.FC<ProjectsHeaderProps> = ({
@@ -29,6 +30,7 @@ export const ProjectsHeader: React.FC<ProjectsHeaderProps> = ({
     setFilter,
     projects,
     vscode,
+    disabled = false,
 }) => {
     const getFilterCount = (filterType: ProjectFilter) => {
         // First filter by the filter type
@@ -71,14 +73,16 @@ export const ProjectsHeader: React.FC<ProjectsHeaderProps> = ({
                         placeholder="Search projects..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-8 h-9 text-sm"
+                        className={`pl-8 h-9 text-sm ${disabled ? "opacity-50 pointer-events-none cursor-default" : ""}`}
+                        readOnly={disabled}
+                        tabIndex={disabled ? -1 : undefined}
                     />
                     {searchQuery && (
                         <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => setSearchQuery("")}
-                            className="absolute right-1 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                            className={`absolute right-1 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0 ${disabled ? "opacity-50 pointer-events-none cursor-default" : ""}`}
                         >
                             <i className="codicon codicon-close text-xs" />
                         </Button>
@@ -86,7 +90,11 @@ export const ProjectsHeader: React.FC<ProjectsHeaderProps> = ({
                 </div>
 
                 <Select value={filter} onValueChange={(value) => setFilter(value as ProjectFilter)}>
-                    <SelectTrigger className="w-40 text-sm border border-gray-200">
+                    <SelectTrigger
+                        className={`w-40 text-sm border border-gray-200 ${disabled ? "opacity-50 pointer-events-none cursor-default" : ""}`}
+                        tabIndex={disabled ? -1 : undefined}
+                        aria-disabled={disabled}
+                    >
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>

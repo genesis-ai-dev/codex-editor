@@ -33,6 +33,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     const [isLoading, setIsLoading] = useState(true);
     const [progressData, setProgressData] = useState<any>(null);
     const [isLoadingProgress, setIsLoadingProgress] = useState(false);
+    const [isAnyApplying, setIsAnyApplying] = useState(false);
     // const [state, send, service] = useMachine(startupFlowMachine);
 
     const fetchProjectList = () => {
@@ -114,6 +115,8 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                 setIsLoadingProgress(false);
             } else if (message.command === "projectsSyncStatus") {
                 setSyncStatus(message.status);
+            } else if ((message as any).command === "project.mediaStrategyApplying") {
+                setIsAnyApplying(!!(message as any).applying);
             }
         };
 
@@ -165,7 +168,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                         appearance="secondary"
                         onClick={fetchProjectList}
                         title="Refresh Projects List"
-                        className="refresh-button"
+                        className={`refresh-button ${isAnyApplying ? "opacity-50 pointer-events-none cursor-default" : ""}`}
                     >
                         <i className="codicon codicon-refresh"></i>
                         Refresh
@@ -175,7 +178,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                         appearance="primary"
                         onClick={onCreateEmpty}
                         title="Create New Project from Scratch"
-                        className="create-button"
+                        className={`create-button ${isAnyApplying ? "opacity-50 pointer-events-none cursor-default" : ""}`}
                     >
                         <i className="codicon codicon-plus"></i>
                         Create New Project

@@ -7,7 +7,12 @@ import { ChapterSelectorModal } from "./modals/ChapterSelectorModal";
 import { MobileHeaderMenu } from "./components/MobileHeaderMenu";
 import { type QuillCellContent, type CustomNotebookMetadata } from "../../../../types";
 import { EditMapUtils } from "../../../../src/utils/editMapUtils";
-import { getCellValueData } from "@sharedUtils";
+import {
+    getCellValueData,
+    cellHasAudioUsingAttachments,
+    computeValidationStats,
+    computeProgressPercents,
+} from "@sharedUtils";
 import {
     type FileStatus,
     type EditorPosition,
@@ -79,6 +84,10 @@ interface ChapterNavigationHeaderProps {
     allCellsForChapter?: QuillCellContent[];
     onTempFontSizeChange?: (fontSize: number) => void;
     onFontSizeSave?: (fontSize: number) => void;
+    requiredValidations?: number | null;
+    requiredAudioValidations?: number | null;
+    showInlineBacktranslations?: boolean;
+    onToggleInlineBacktranslations?: () => void;
 }
 
 export function ChapterNavigationHeader({
@@ -127,6 +136,10 @@ export function ChapterNavigationHeader({
     allCellsForChapter,
     onTempFontSizeChange,
     onFontSizeSave,
+    requiredValidations,
+    requiredAudioValidations,
+    showInlineBacktranslations = false,
+    onToggleInlineBacktranslations,
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
@@ -680,62 +693,47 @@ ChapterNavigationHeaderProps) {
         const isFullyTranslated = completedCells.length === totalCells;
 
         // Calculate audio presence for subsection (mirrors chapter calculation)
-        const cellsWithAudioValues = validCells.filter((cell) => {
-            const atts = (cell as any).attachments as Record<string, any> | undefined;
-            if (!atts || Object.keys(atts).length === 0) return false;
-
-            const selectedId = (cell as any).metadata?.selectedAudioId;
-            if (selectedId && atts[selectedId]) {
-                const att = atts[selectedId];
-                return (
-                    att && att.type === "audio" && att.isDeleted === false && att.isMissing !== true
-                );
-            }
-
-            // Fallback: any non-deleted, non-missing audio attachment
-            return Object.values(atts).some(
-                (att: any) =>
-                    att && att.type === "audio" && att.isDeleted === false && att.isMissing !== true
-            );
-        }).length;
+        const cellsWithAudioValues = validCells.filter((cell) =>
+            cellHasAudioUsingAttachments(
+                (cell as any).attachments,
+                (cell as any).metadata?.selectedAudioId
+            )
+        ).length;
 
         // Check if all cells are validated
         let isFullyValidated = false;
-        // Use the same validation thresholds as CodexCellEditor when available
-        const minimumValidationsRequired = (window as any)?.initialData?.validationCount ?? 1;
+        const minimumValidationsRequired =
+            (requiredValidations ?? undefined) !== undefined
+                ? (requiredValidations as number) ?? 1
+                : (window as any)?.initialData?.validationCount ?? 1;
         const minimumAudioValidationsRequired =
-            (window as any)?.initialData?.validationCountAudio ?? 1;
+            (requiredAudioValidations ?? undefined) !== undefined
+                ? (requiredAudioValidations as number) ?? 1
+                : (window as any)?.initialData?.validationCountAudio ?? 1;
 
         // Calculate validation data using shared utils
         const cellWithValidatedData = validCells.map((cell) => getCellValueData(cell));
 
-        const fullyValidatedCells = cellWithValidatedData.filter((cell) => {
-            const validatedBy =
-                cell.validatedBy?.filter((v) => !v.isDeleted).length >= minimumValidationsRequired;
-            const audioValidatedBy =
-                cell.audioValidatedBy?.filter((v) => !v.isDeleted).length >=
-                minimumAudioValidationsRequired;
-            return validatedBy && audioValidatedBy;
-        }).length;
+        const { validatedCells, audioValidatedCells, fullyValidatedCells } = computeValidationStats(
+            cellWithValidatedData,
+            minimumValidationsRequired,
+            minimumAudioValidationsRequired
+        );
 
-        const validatedCells = cellWithValidatedData.filter((cell) => {
-            return (
-                cell.validatedBy?.filter((v) => !v.isDeleted).length >= minimumValidationsRequired
-            );
-        }).length;
-
-        const audioValidatedCells = cellWithValidatedData.filter((cell) => {
-            return (
-                cell.audioValidatedBy?.filter((v) => !v.isDeleted).length >=
-                minimumAudioValidationsRequired
-            );
-        }).length;
-
-        const percentTranslationsCompleted = (completedCells.length / totalCells) * 100;
-        const percentAudioTranslationsCompleted = (cellsWithAudioValues / totalCells) * 100;
-        const percentAudioValidatedTranslations = (audioValidatedCells / totalCells) * 100;
-        const percentTextValidatedTranslations = (validatedCells / totalCells) * 100;
-        const percentFullyValidatedTranslations = (fullyValidatedCells / totalCells) * 100;
+        const {
+            percentTranslationsCompleted,
+            percentAudioTranslationsCompleted,
+            percentAudioValidatedTranslations,
+            percentTextValidatedTranslations,
+            percentFullyValidatedTranslations,
+        } = computeProgressPercents(
+            totalCells,
+            completedCells.length,
+            cellsWithAudioValues,
+            validatedCells,
+            audioValidatedCells,
+            fullyValidatedCells
+        );
 
         if (isFullyTranslated) {
             // Maintain existing gating for the boolean display in this header
@@ -1239,6 +1237,30 @@ ChapterNavigationHeaderProps) {
                                 }}
                             >
                                 {autoDownloadAudioOnOpen ? "On" : "Off"}
+                            </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={() => {
+                                if (onToggleInlineBacktranslations) {
+                                    onToggleInlineBacktranslations();
+                                }
+                            }}
+                            className="cursor-pointer"
+                        >
+                            <i className="codicon codicon-eye mr-2 h-4 w-4" />
+                            <span className="flex-1">Show inline backtranslations</span>
+                            <span
+                                className="text-xs px-2 py-0.5 rounded-full"
+                                style={{
+                                    backgroundColor: showInlineBacktranslations
+                                        ? "var(--vscode-charts-blue)"
+                                        : "var(--vscode-editorHoverWidget-border)",
+                                    color: showInlineBacktranslations
+                                        ? "var(--vscode-editor-background)"
+                                        : "var(--vscode-foreground)",
+                                }}
+                            >
+                                {showInlineBacktranslations ? "On" : "Off"}
                             </span>
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />

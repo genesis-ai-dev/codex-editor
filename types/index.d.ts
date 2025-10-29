@@ -607,6 +607,7 @@ export type EditorPostMessages =
         };
     }
     | { command: "getBacktranslation"; content: { cellId: string; }; }
+    | { command: "getBatchBacktranslations"; content: { cellIds: string[]; }; }
     | {
         command: "setBacktranslation";
         content: {
@@ -879,6 +880,8 @@ export interface CustomNotebookMetadata {
     lineNumbersEnabledSource?: "global" | "local"; // Track whether line numbers visibility was set globally or locally
     /** When true, the editor will download/stream audio as soon as a cell opens */
     autoDownloadAudioOnOpen?: boolean;
+    /** When true, backtranslations will be displayed inline below cells */
+    showInlineBacktranslations?: boolean;
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
@@ -1537,7 +1540,14 @@ interface CodexItem {
     corpusMarker?: string;
     progress?: {
         percentTranslationsCompleted: number;
+        percentAudioTranslationsCompleted: number;
+        percentAudioValidatedTranslations: number;
+        percentTextValidatedTranslations: number;
         percentFullyValidatedTranslations: number;
+        textValidationLevels?: number[];
+        audioValidationLevels?: number[];
+        requiredTextValidations?: number;
+        requiredAudioValidations?: number;
     };
     sortOrder?: string;
     isProjectDictionary?: boolean;
@@ -1685,6 +1695,10 @@ type EditorReceiveMessages =
     | {
         type: "providerSendsExistingBacktranslation";
         content: SavedBacktranslation | null;
+    }
+    | {
+        type: "providerSendsBatchBacktranslations";
+        content: { [cellId: string]: SavedBacktranslation | null };
     }
     | {
         type: "singleCellTranslationStarted";

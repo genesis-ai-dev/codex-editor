@@ -19,16 +19,20 @@ export interface SavedBacktranslation {
     originalText: string;
     backtranslation: string;
     lastUpdated: number;
+    filePath?: string;
 }
 
 export class SmartBacktranslation {
     private backtranslationPath: string;
+    private saveInProgress: Promise<void> = Promise.resolve();
+    private workspaceRoot: string;
 
     constructor(workspaceUri: vscode.Uri) {
         this.backtranslationPath = path.join(workspaceUri.fsPath, "files", "backtranslations.json");
+        this.workspaceRoot = workspaceUri.fsPath;
     }
 
-    async generateBacktranslation(text: string, cellId: string): Promise<SavedBacktranslation> {
+    async generateBacktranslation(text: string, cellId: string, filePath?: string): Promise<SavedBacktranslation> {
         const similarBacktranslations = await this.findSimilarBacktranslations(text);
         const context = this.formatSimilarBacktranslations(similarBacktranslations);
         const targetLanguage = getSourceLanguageName();
@@ -45,6 +49,7 @@ export class SmartBacktranslation {
             originalText: text,
             backtranslation: cleanedResponse,
             lastUpdated: Date.now(),
+            filePath,
         };
 
         await this.saveBacktranslation(backtranslation);
@@ -54,7 +59,8 @@ export class SmartBacktranslation {
     async editBacktranslation(
         cellId: string,
         newText: string,
-        existingBacktranslation: string
+        existingBacktranslation: string,
+        filePath?: string
     ): Promise<SavedBacktranslation> {
         const targetLanguage = getSourceLanguageName();
         const systemMessage = buildSystemMessage(targetLanguage);
@@ -70,6 +76,7 @@ export class SmartBacktranslation {
             originalText: newText,
             backtranslation: cleanedResponse,
             lastUpdated: Date.now(),
+            filePath,
         };
 
         await this.saveBacktranslation(updatedBacktranslation);
@@ -127,18 +134,26 @@ Backtranslation: ${bt.backtranslation}
     }
 
     private async saveBacktranslation(backtranslation: SavedBacktranslation): Promise<void> {
-        try {
-            const savedBacktranslations = await this.loadSavedBacktranslations();
-            savedBacktranslations[backtranslation.cellId] = backtranslation;
+        this.saveInProgress = this.saveInProgress.then(async () => {
+            try {
+                if (backtranslation.filePath) {
+                    backtranslation.filePath = path.isAbsolute(backtranslation.filePath)
+                        ? path.relative(this.workspaceRoot, backtranslation.filePath)
+                        : backtranslation.filePath;
+                }
+                const savedBacktranslations = await this.loadSavedBacktranslations();
+                savedBacktranslations[backtranslation.cellId] = backtranslation;
 
-            const fileUri = vscode.Uri.file(this.backtranslationPath);
-            await vscode.workspace.fs.writeFile(
-                fileUri,
-                Buffer.from(JSON.stringify(savedBacktranslations, null, 2))
-            );
-        } catch (error) {
-            console.error("Error saving backtranslation:", error);
-        }
+                const fileUri = vscode.Uri.file(this.backtranslationPath);
+                await vscode.workspace.fs.writeFile(
+                    fileUri,
+                    Buffer.from(JSON.stringify(savedBacktranslations, null, 2))
+                );
+            } catch (error) {
+                console.error("Error saving backtranslation:", error);
+            }
+        });
+        await this.saveInProgress;
     }
 
     async getBacktranslation(cellId: string): Promise<SavedBacktranslation | null> {
@@ -154,13 +169,15 @@ Backtranslation: ${bt.backtranslation}
     async setBacktranslation(
         cellId: string,
         originalText: string,
-        userBacktranslation: string
+        userBacktranslation: string,
+        filePath?: string
     ): Promise<SavedBacktranslation> {
         const backtranslation: SavedBacktranslation = {
             cellId,
             originalText,
             backtranslation: userBacktranslation,
             lastUpdated: Date.now(),
+            filePath,
         };
 
         await this.saveBacktranslation(backtranslation);

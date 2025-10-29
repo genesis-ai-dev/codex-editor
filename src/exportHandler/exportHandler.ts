@@ -4,6 +4,7 @@ import { extractVerseRefFromLine } from "../utils/verseRefUtils";
 import * as grammar from "usfm-grammar";
 import { CodexCellTypes } from "../../types/enums";
 import { basename } from "path";
+import * as path from "path";
 import { removeHtmlTags, generateSrtData } from "./subtitleUtils";
 import { generateVttData } from "./vttUtils";
 
@@ -302,10 +303,12 @@ export enum CodexExportFormat {
     CSV = "csv",
     TSV = "tsv",
     REBUILD_EXPORT = "rebuild-export",
+    BACKTRANSLATIONS = "backtranslations",
 }
 
 export interface ExportOptions {
     skipValidation?: boolean;
+    removeIds?: boolean;
 }
 
 // IDML Round-trip export: Uses idmlExporter or biblicaExporter based on filename
@@ -573,6 +576,339 @@ async function exportCodexContentAsPdfRoundtrip(
     );
 }
 
+// RTF Round-trip export - DISABLED (RTF importer files deleted)
+// async function exportCodexContentAsRtfRoundtrip(
+//     userSelectedPath: string,
+//     filesToExport: string[],
+//     _options?: ExportOptions
+// ) {
+//     const workspaceFolders = vscode.workspace.workspaceFolders;
+//     if (!workspaceFolders) {
+//         vscode.window.showErrorMessage("No workspace folder found.");
+//         return;
+//     }
+
+//     const exportFolder = vscode.Uri.file(userSelectedPath);
+//     await vscode.workspace.fs.createDirectory(exportFolder);
+
+//     return vscode.window.withProgress(
+//         {
+//             location: vscode.ProgressLocation.Notification,
+//             title: "Exporting RTF Round-trip",
+//             cancellable: false,
+//         },
+//         async (progress) => {
+//             const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
+
+//             // Import RTF exporter
+//             const { exportRtfWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/rtfExporter");
+
+//             // For each selected codex file, find its original attachment and create a translated copy in export folder
+//             for (const [index, filePath] of filesToExport.entries()) {
+//                 progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
+//                 try {
+//                     const file = vscode.Uri.file(filePath);
+//                     const fileName = basename(file.fsPath);
+//                     const bookCode = fileName.split(".")[0] || "";
+
+//                     console.log(`[RTF Export] Processing ${fileName} using RTF exporter`);
+
+//                     // Read codex notebook
+//                     const codexNotebook = await readCodexNotebookFromUri(file);
+
+//                     // Check if this is an RTF file
+//                     const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
+//                     if (corpusMarker !== 'rtf') {
+//                         console.warn(`[RTF Export] Skipping ${fileName} - not imported with RTF importer (corpusMarker: ${corpusMarker})`);
+//                         vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with RTF importer`);
+//                         continue;
+//                     }
+
+//                     // Lookup original attachment by originalFileName metadata
+//                     const originalFileName = (codexNotebook.metadata as any)?.originalFileName || `${bookCode}.rtf`;
+//                     const originalsDir = vscode.Uri.joinPath(
+//                         workspaceFolders[0].uri,
+//                         ".project",
+//                         "attachments",
+//                         "originals"
+//                     );
+//                     const originalFileUri = vscode.Uri.joinPath(originalsDir, originalFileName);
+
+//                     // Load original RTF file
+//                     const rtfData = await vscode.workspace.fs.readFile(originalFileUri);
+//                     const originalRtfContent = new TextDecoder().decode(rtfData);
+
+//                     console.log('[RTF Export] Loaded original RTF file:', originalFileName, 'length:', originalRtfContent.length);
+
+//                     // Re-parse the original RTF file to get document structure
+//                     // This is more reliable than storing in metadata
+//                     const { parseRtfFile } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/rtfParser");
+
+//                     // Create a File object from the RTF data for the parser
+//                     const rtfBlob = new Blob([new Uint8Array(rtfData)], { type: 'application/rtf' });
+//                     const rtfFile = new File([rtfBlob], originalFileName, { type: 'application/rtf' });
+
+//                     const rtfDocument = await parseRtfFile(rtfFile);
+//                     console.log('[RTF Export] Parsed RTF document with', rtfDocument.paragraphs?.length || 0, 'paragraphs');
+
+//                     // Export with translations
+//                     const updatedRtfContent = await exportRtfWithTranslations(
+//                         originalRtfContent,
+//                         codexNotebook.cells,
+//                         rtfDocument
+//                     );
+
+//                     // Save translated RTF into the chosen export folder
+//                     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+//                     const exportedName = originalFileName.replace(/\.rtf$/i, `_${timestamp}_translated.rtf`);
+//                     const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
+
+//                     // Write RTF content as text file
+//                     const encoder = new TextEncoder();
+//                     await vscode.workspace.fs.writeFile(exportedUri, encoder.encode(updatedRtfContent));
+
+//                     console.log(`[RTF Export] ✓ Exported ${exportedName}`);
+
+//                 } catch (error) {
+//                     console.error(`[RTF Export] Error exporting ${filePath}:`, error);
+//                     vscode.window.showErrorMessage(`Failed to export ${basename(filePath)}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+//                 }
+//             }
+
+//             vscode.window.showInformationMessage(`RTF round-trip export completed to ${userSelectedPath}`);
+//         }
+//     );
+// }
+
+/**
+ * OBS (Open Bible Stories) Round-trip export
+ */
+async function exportCodexContentAsObsRoundtrip(
+    userSelectedPath: string,
+    filesToExport: string[],
+    _options?: ExportOptions
+) {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) {
+        vscode.window.showErrorMessage("No workspace folder found.");
+        return;
+    }
+
+    const exportFolder = vscode.Uri.file(userSelectedPath);
+    await vscode.workspace.fs.createDirectory(exportFolder);
+
+    return vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: "Exporting OBS Markdown Round-trip",
+            cancellable: false,
+        },
+        async (progress) => {
+            const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
+
+            // Import OBS exporter
+            const { exportObsWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/obs/obsExporter");
+
+            // For each selected codex file, reconstruct the OBS markdown with translations
+            for (const [index, filePath] of filesToExport.entries()) {
+                progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
+                try {
+                    const file = vscode.Uri.file(filePath);
+                    const fileName = basename(file.fsPath);
+
+                    console.log(`[OBS Export] Processing ${fileName} using OBS markdown exporter`);
+
+                    // Read codex notebook
+                    const codexNotebook = await readCodexNotebookFromUri(file);
+
+                    // Check if this is an OBS file
+                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
+                    if (corpusMarker !== 'obs') {
+                        console.warn(`[OBS Export] Skipping ${fileName} - not imported with OBS importer (corpusMarker: ${corpusMarker})`);
+                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with OBS importer`);
+                        continue;
+                    }
+
+                    // Get the stored OBS story structure
+                    let obsStoryJson = (codexNotebook.metadata as any)?.obsStory;
+
+                    // If obsStory is not in metadata, reconstruct it from cells
+                    if (!obsStoryJson) {
+                        console.warn(`[OBS Export] No OBS story structure in metadata for ${fileName}, reconstructing from cells...`);
+
+                        const { extractObsStoryFromCells } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/obs/obsExporter");
+                        const reconstructedStory = extractObsStoryFromCells(codexNotebook.cells);
+                        obsStoryJson = JSON.stringify(reconstructedStory);
+
+                        console.log('[OBS Export] Reconstructed story structure from cells');
+                    } else {
+                        console.log('[OBS Export] Retrieved OBS story structure from metadata');
+                    }
+
+                    // Export with translations
+                    const updatedMarkdown = await exportObsWithTranslations(
+                        codexNotebook.cells,
+                        obsStoryJson // Pass the JSON string, exporter will parse it
+                    );
+
+                    console.log('[OBS Export] Generated markdown with translations, length:', updatedMarkdown.length);
+
+                    // Determine output filename
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName || `${fileName.split('.')[0]}.md`;
+                    const baseFileName = originalFileName.replace(/\.md$/i, '');
+
+                    // Create timestamped filename
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").split('T')[0]; // YYYY-MM-DD format
+                    const exportedName = `${baseFileName}_${timestamp}_translated.md`;
+                    const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
+
+                    // Write markdown content
+                    const encoder = new TextEncoder();
+                    await vscode.workspace.fs.writeFile(exportedUri, encoder.encode(updatedMarkdown));
+
+                    console.log(`[OBS Export] ✓ Exported ${exportedName}`);
+
+                } catch (error) {
+                    console.error(`[OBS Export] Error exporting ${filePath}:`, error);
+                    vscode.window.showErrorMessage(`Failed to export ${basename(filePath)}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+            }
+
+            vscode.window.showInformationMessage(`OBS markdown round-trip export completed to ${userSelectedPath}`);
+        }
+    );
+}
+
+/**
+ * TMS (Translation Memory System) Round-trip export
+ * Supports both TMX and XLIFF formats
+ */
+async function exportCodexContentAsTmsRoundtrip(
+    userSelectedPath: string,
+    filesToExport: string[],
+    _options?: ExportOptions
+) {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) {
+        vscode.window.showErrorMessage("No workspace folder found.");
+        return;
+    }
+
+    const exportFolder = vscode.Uri.file(userSelectedPath);
+    await vscode.workspace.fs.createDirectory(exportFolder);
+
+    return vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: "Exporting TMS Round-trip",
+            cancellable: false,
+        },
+        async (progress) => {
+            const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
+
+            // Import TMS exporter
+            const { exportTmsWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/tms/tmsExporter");
+
+            // For each selected codex file, reconstruct the TMS file with translations
+            for (const [index, filePath] of filesToExport.entries()) {
+                progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
+                try {
+                    const file = vscode.Uri.file(filePath);
+                    const fileName = basename(file.fsPath);
+
+                    console.log(`[TMS Export] Processing ${fileName} using TMS exporter`);
+
+                    // Read codex notebook
+                    const codexNotebook = await readCodexNotebookFromUri(file);
+
+                    // Check if this is a TMS file - check both corpusMarker and fileFormat for backwards compatibility
+                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
+                    const fileFormat = (codexNotebook.metadata as any)?.fileFormat || corpusMarker; // Fallback to corpusMarker for old files
+                    const fileType = (codexNotebook.metadata as any)?.fileType; // Direct file type field (tmx or xliff)
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName; // Get original filename (stored as originalFileName in metadata)
+
+                    if (corpusMarker !== 'tms' && fileFormat !== 'tms-tmx' && fileFormat !== 'tms-xliff') {
+                        console.warn(`[TMS Export] Skipping ${fileName} - not imported with TMS importer (corpusMarker: ${corpusMarker}, fileFormat: ${fileFormat})`);
+                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with TMS importer`);
+                        continue;
+                    }
+
+                    // Determine file type with multiple fallback strategies:
+                    // 1. Use fileType metadata if available (new imports)
+                    // 2. Check fileFormat metadata (tms-tmx or tms-xliff)
+                    // 3. Extract from originalFileName if available (most reliable for old imports)
+                    // 4. Default to tmx
+                    let determinedFileType: 'tmx' | 'xliff';
+                    if (fileType) {
+                        determinedFileType = fileType;
+                    } else if (originalFileName) {
+                        // Extract extension from original filename
+                        const lowerFileName = originalFileName.toLowerCase();
+                        if (lowerFileName.endsWith('.xliff') || lowerFileName.endsWith('.xlf')) {
+                            determinedFileType = 'xliff';
+                        } else if (lowerFileName.endsWith('.tmx')) {
+                            determinedFileType = 'tmx';
+                        } else {
+                            determinedFileType = (fileFormat === 'tms-tmx' ? 'tmx' : 'xliff');
+                        }
+                    } else if (fileFormat === 'tms-tmx' || fileFormat === 'tmx') {
+                        determinedFileType = 'tmx';
+                    } else {
+                        determinedFileType = 'xliff';
+                    }
+
+                    const fileExtension = determinedFileType === 'tmx' ? '.tmx' : '.xliff';
+
+                    // Use originalFileName from metadata, or construct fallback
+                    const finalOriginalFileName = originalFileName || `${fileName.split('.')[0]}${fileExtension}`;
+                    const originalsDir = vscode.Uri.joinPath(
+                        workspaceFolders[0].uri,
+                        ".project",
+                        "attachments",
+                        "originals"
+                    );
+                    const originalFileUri = vscode.Uri.joinPath(originalsDir, finalOriginalFileName);
+
+                    // Load original TMS file
+                    const tmsData = await vscode.workspace.fs.readFile(originalFileUri);
+                    const originalTmsContent = new TextDecoder('utf-8').decode(tmsData);
+
+                    console.log(`[TMS Export] Loaded original ${determinedFileType.toUpperCase()} file:`, finalOriginalFileName, 'length:', originalTmsContent.length);
+
+                    // Export with translations
+                    const updatedTmsContent = await exportTmsWithTranslations(
+                        originalTmsContent,
+                        codexNotebook.cells,
+                        determinedFileType
+                    );
+
+                    console.log(`[TMS Export] Generated ${determinedFileType.toUpperCase()} with translations, length:`, updatedTmsContent.length);
+
+                    // Determine output filename
+                    const baseFileName = finalOriginalFileName.replace(/\.(tmx|xliff|xlf)$/i, '');
+
+                    // Create timestamped filename
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").split('T')[0]; // YYYY-MM-DD format
+                    const exportedName = `${baseFileName}_${timestamp}_translated${fileExtension}`;
+                    const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
+
+                    // Write TMS content
+                    const encoder = new TextEncoder();
+                    await vscode.workspace.fs.writeFile(exportedUri, encoder.encode(updatedTmsContent));
+
+                    console.log(`[TMS Export] ✓ Exported ${exportedName}`);
+
+                } catch (error) {
+                    console.error(`[TMS Export] Error exporting ${filePath}:`, error);
+                    vscode.window.showErrorMessage(`Failed to export ${basename(filePath)}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+            }
+
+            vscode.window.showInformationMessage(`TMS round-trip export completed to ${userSelectedPath}`);
+        }
+    );
+}
+
 /**
  * Rebuild Export: Intelligently routes files to appropriate exporters based on corpusMarker metadata
  * This enables round-trip export for multiple file types in a single export operation
@@ -606,9 +942,12 @@ async function exportCodexContentAsRebuild(
                 try {
                     const file = vscode.Uri.file(filePath);
                     const codexNotebook = await readCodexNotebookFromUri(file);
-                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker || 'unknown';
+                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
+                    const importerType = (codexNotebook.metadata as any)?.importerType;
+                    const fileType = (codexNotebook.metadata as any)?.fileType;
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName;
 
-                    console.log(`[Rebuild Export] ${basename(filePath)} -> corpusMarker: ${corpusMarker}`);
+                    console.log(`[Rebuild Export] File: ${basename(filePath)}, corpusMarker: ${corpusMarker}, importerType: ${importerType}, fileType: ${fileType}`);
 
                     // Group by supported types
                     if (corpusMarker === 'docx-roundtrip') {
@@ -631,8 +970,29 @@ async function exportCodexContentAsRebuild(
                         // PDF files use the PDF exporter
                         filesByType['pdf'] = filesByType['pdf'] || [];
                         filesByType['pdf'].push(filePath);
+                        // } else if (corpusMarker === 'rtf') {
+                        //     // RTF files use the RTF exporter - DISABLED
+                        //     filesByType['rtf'] = filesByType['rtf'] || [];
+                        //     filesByType['rtf'].push(filePath);
+                    } else if (corpusMarker === 'obs' || importerType === 'obs-story') {
+                        // OBS (Open Bible Stories) markdown files use the OBS exporter
+                        // Fallback: also detect by importerType for older files
+                        filesByType['obs'] = filesByType['obs'] || [];
+                        filesByType['obs'].push(filePath);
+                    } else if (
+                        corpusMarker === 'tms' || // New: Unified TMS corpus marker
+                        corpusMarker === 'tms-tmx' || // Legacy: Backwards compatibility
+                        corpusMarker === 'tms-xliff' || // Legacy: Backwards compatibility
+                        // Fallback detection for TMS files without corpusMarker
+                        (importerType === 'tms') || // New: Check importerType
+                        (importerType === 'translation' && (fileType === 'tmx' || fileType === 'xliff')) ||
+                        (originalFileName && (originalFileName.endsWith('.tmx') || originalFileName.endsWith('.xliff') || originalFileName.endsWith('.xlf')))
+                    ) {
+                        // TMS (Translation Memory System) files use the TMS exporter
+                        filesByType['tms'] = filesByType['tms'] || [];
+                        filesByType['tms'].push(filePath);
                     } else {
-                        unsupportedFiles.push({ file: basename(filePath), marker: corpusMarker });
+                        unsupportedFiles.push({ file: basename(filePath), marker: corpusMarker || importerType || 'unknown' });
                     }
                 } catch (error) {
                     console.error(`[Rebuild Export] Error analyzing ${filePath}:`, error);
@@ -696,6 +1056,54 @@ async function exportCodexContentAsRebuild(
                 } catch (error) {
                     console.error('[Rebuild Export] PDF export failed:', error);
                     vscode.window.showErrorMessage(`PDF export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+            }
+
+            // Export RTF files - DISABLED (RTF importer files deleted)
+            // if (filesByType['rtf']?.length > 0) {
+            //     console.log(`[Rebuild Export] Exporting ${filesByType['rtf'].length} RTF file(s)...`);
+            //     progress.report({
+            //         message: `Exporting ${filesByType['rtf'].length} RTF file(s)...`,
+            //         increment: 20
+            //     });
+            //     try {
+            //         await exportCodexContentAsRtfRoundtrip(userSelectedPath, filesByType['rtf'], options);
+            //         processedCount += filesByType['rtf'].length;
+            //     } catch (error) {
+            //         console.error('[Rebuild Export] RTF export failed:', error);
+            //         vscode.window.showErrorMessage(`RTF export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            //     }
+            // }
+
+            // Export OBS files
+            if (filesByType['obs']?.length > 0) {
+                console.log(`[Rebuild Export] Exporting ${filesByType['obs'].length} OBS markdown file(s)...`);
+                progress.report({
+                    message: `Exporting ${filesByType['obs'].length} OBS file(s)...`,
+                    increment: 20
+                });
+                try {
+                    await exportCodexContentAsObsRoundtrip(userSelectedPath, filesByType['obs'], options);
+                    processedCount += filesByType['obs'].length;
+                } catch (error) {
+                    console.error('[Rebuild Export] OBS export failed:', error);
+                    vscode.window.showErrorMessage(`OBS export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+            }
+
+            // Export TMS files
+            if (filesByType['tms']?.length > 0) {
+                console.log(`[Rebuild Export] Exporting ${filesByType['tms'].length} TMS file(s)...`);
+                progress.report({
+                    message: `Exporting ${filesByType['tms'].length} TMS file(s)...`,
+                    increment: 20
+                });
+                try {
+                    await exportCodexContentAsTmsRoundtrip(userSelectedPath, filesByType['tms'], options);
+                    processedCount += filesByType['tms'].length;
+                } catch (error) {
+                    console.error('[Rebuild Export] TMS export failed:', error);
+                    vscode.window.showErrorMessage(`TMS export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
                 }
             }
 
@@ -772,7 +1180,38 @@ export async function exportCodexContent(
         case CodexExportFormat.REBUILD_EXPORT:
             await exportCodexContentAsRebuild(userSelectedPath, filesToExport, options);
             break;
+        case CodexExportFormat.BACKTRANSLATIONS:
+            await exportCodexContentAsBacktranslations(userSelectedPath, filesToExport, options);
+            break;
     }
+}
+
+// Compact helpers for id handling and lookups
+function idCandidates(id: string): string[] {
+    const raw = (id || "").trim();
+    if (!raw) return [];
+    const noSuffix = raw.replace(/_\d+_complete\s+/, " ").replace(/\s+/g, " ").trim();
+    const set = new Set<string>([raw, noSuffix]);
+    const m = noSuffix.match(/^(\S+)\s+(\d+)\s*:\s*(\d+)$/);
+    if (m) {
+        const book = m[1];
+        const ref = `${Number(m[2])}:${Number(m[3])}`;
+        set.add(`${book} ${ref}`);
+        set.add(ref);
+    }
+    return Array.from(set);
+}
+
+function addCandidates(map: Map<string, string>, id: string, value: string) {
+    for (const k of idCandidates(id)) if (!map.has(k)) map.set(k, value);
+}
+
+function firstFrom(map: Map<string, string>, keys: string[]): string {
+    for (const k of keys) {
+        const v = map.get(k);
+        if (v !== undefined) return v;
+    }
+    return "";
 }
 
 export const exportCodexContentAsSubtitlesSrt = async (
@@ -980,6 +1419,7 @@ async function exportCodexContentAsPlaintext(
                     let exportContent = "";
                     let currentChapter = "";
                     let chapterContent = "";
+                    const includeIds = !(options?.removeIds);
 
                     // Already filtered for merged and deleted
                     const activeCells = cells;
@@ -1007,7 +1447,7 @@ async function exportCodexContentAsPlaintext(
                                     .replace(/<\/?[^>]+(>|$)/g, "")
                                     .trim();
                                 if (verseContent) {
-                                    chapterContent += `${verseRef} ${verseContent}\n`;
+                                    chapterContent += includeIds ? `${verseRef} ${verseContent}\n` : `${verseContent}\n`;
                                     totalVerses++;
                                 }
                             }
@@ -2334,6 +2774,125 @@ async function exportCodexContentAsDelimited(
     } catch (error) {
         console.error(`${format.toUpperCase()} Export failed:`, error);
         vscode.window.showErrorMessage(`${format.toUpperCase()} Export failed: ${error}`);
+    }
+}
+
+async function exportCodexContentAsBacktranslations(
+    userSelectedPath: string,
+    filesToExport: string[],
+    options?: ExportOptions
+) {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders) {
+            vscode.window.showErrorMessage("No workspace folder found.");
+            return;
+        }
+
+        const backtranslationsPath = path.join(workspaceFolders[0].uri.fsPath, "files", "backtranslations.json");
+        let backtranslationsData: { [cellId: string]: any; } = {};
+        try {
+            const backtranslationsUri = vscode.Uri.file(backtranslationsPath);
+            const backtranslationsContent = await vscode.workspace.fs.readFile(backtranslationsUri);
+            backtranslationsData = JSON.parse(Buffer.from(backtranslationsContent).toString());
+        } catch (error) {
+            vscode.window.showWarningMessage("No backtranslations found.");
+            return;
+        }
+
+        if (Object.keys(backtranslationsData).length === 0) {
+            vscode.window.showInformationMessage("No backtranslations to export.");
+            return;
+        }
+
+        return vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Exporting Backtranslations",
+                cancellable: false,
+            },
+            async (progress) => {
+                progress.report({ message: "Loading backtranslations..." });
+
+                const exportFolder = vscode.Uri.file(userSelectedPath);
+                await vscode.workspace.fs.createDirectory(exportFolder);
+
+                const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+                const fileGroups = new Map<string, Array<{ cellId: string; bt: any; }>>();
+                let skipped = 0;
+
+                for (const [cellId, bt] of Object.entries(backtranslationsData)) {
+                    if (!bt.filePath) {
+                        skipped++;
+                        continue;
+                    }
+
+                    const filePath = path.isAbsolute(bt.filePath)
+                        ? bt.filePath
+                        : path.join(workspaceFolders[0].uri.fsPath, bt.filePath);
+                    if (!fileGroups.has(filePath)) {
+                        fileGroups.set(filePath, []);
+                    }
+                    fileGroups.get(filePath)!.push({ cellId, bt });
+                }
+
+                let totalExported = 0;
+                let filesWritten = 0;
+
+                for (const [targetPath, entries] of fileGroups) {
+                    try {
+                        const targetUri = vscode.Uri.file(targetPath);
+                        const sourcePath = targetPath.replace(/\.codex$/, ".source");
+                        const sourceUri = vscode.Uri.file(sourcePath);
+
+                        const targetData = await vscode.workspace.fs.readFile(targetUri);
+                        const targetNotebook = JSON.parse(Buffer.from(targetData).toString()) as CodexNotebookAsJSONData;
+
+                        let sourceNotebook: CodexNotebookAsJSONData | null = null;
+                        try {
+                            const sourceData = await vscode.workspace.fs.readFile(sourceUri);
+                            sourceNotebook = JSON.parse(Buffer.from(sourceData).toString()) as CodexNotebookAsJSONData;
+                        } catch (error) {
+                            void error;
+                        }
+
+                        const targetCellsMap = new Map(
+                            targetNotebook.cells
+                                .filter((cell) => (cell.kind === 2 || cell.kind === 1) && (cell as any).metadata?.id)
+                                .map((cell) => [cell.metadata.id, (cell as any).value || ""])
+                        );
+
+                        const sourceCellsMap = new Map(
+                            targetNotebook.cells
+                                .filter((cell) => (cell.kind === 2 || cell.kind === 1) && (cell as any).metadata?.id)
+                                .map((cell) => [cell.metadata.id, (cell.metadata as any)?.data?.originalText || ""])
+                        );
+
+                        let content = "Cell ID,Source Text,Translation,Backtranslation\n";
+                        for (const { cellId, bt } of entries) {
+                            const source = sourceCellsMap.get(cellId) || "";
+                            const target = targetCellsMap.get(cellId) || "";
+                            const backText = (bt && (bt.backtranslation || bt)) || "";
+                            content += `${escapeCsvValue(cellId)},${escapeCsvValue(source)},${escapeCsvValue(target)},${escapeCsvValue(backText)}\n`;
+                            totalExported++;
+                        }
+
+                        const fileName = basename(targetPath, ".codex");
+                        const exportFile = vscode.Uri.joinPath(exportFolder, `${fileName}_backtranslations_${timestamp}.csv`);
+                        await vscode.workspace.fs.writeFile(exportFile, Buffer.from(content));
+                        filesWritten++;
+                    } catch (error) {
+                        console.error(`Error exporting backtranslations for ${targetPath}:`, error);
+                    }
+                }
+
+                const skipMessage = skipped > 0 ? ` (${skipped} skipped - no file path stored)` : "";
+                vscode.window.showInformationMessage(`Exported ${totalExported} backtranslations to ${filesWritten} file(s)${skipMessage}`);
+            }
+        );
+    } catch (error) {
+        console.error("Backtranslations export failed:", error);
+        vscode.window.showErrorMessage(`Backtranslations export failed: ${error}`);
     }
 }
 

@@ -236,6 +236,9 @@ export interface FrontierAPI {
         offline?: boolean;
     }>;
     completeMerge: (resolvedFiles: ResolvedFile[], workspacePath: string | undefined) => Promise<void>;
+    onSyncStatusChange: (
+        callback: (status: { status: 'started' | 'completed' | 'error' | 'skipped', message?: string; }) => void
+    ) => vscode.Disposable;
 
     // Progress reporting API methods
     submitProgressReport: (report: ProjectProgressReport) => Promise<{
