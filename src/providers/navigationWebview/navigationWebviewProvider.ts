@@ -504,7 +504,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const bookInfo = this.bibleBookMap.get(fileNameAbbr);
             const label = fileNameAbbr;
             const sortOrder = bookInfo?.ord;
-            const corpusMarker = bookInfo?.testament || metadata?.corpusMarker;
+            const corpusMarker = metadata?.corpusMarker || bookInfo?.testament;
 
             return {
                 uri,
@@ -757,9 +757,17 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
                         // Check if this file's corpus marker matches the old label
                         const metadata = notebookData.metadata as any;
-                        if (metadata && metadata.corpusMarker === oldCorpusLabel) {
-                            // Update the corpus marker
-                            metadata.corpusMarker = newCorpusName;
+
+                        const fileNameAbbr = path.basename(uri.fsPath, ".codex");
+                        const bookInfo = this.bibleBookMap.get(fileNameAbbr);
+
+                        // Resolve corpus marker using same logic as grouping
+                        let resolved = (metadata?.corpusMarker ?? bookInfo?.testament) as string | undefined;
+                        if (resolved === "Old Testament") resolved = "OT";
+                        if (resolved === "New Testament") resolved = "NT";
+
+                        if (resolved === oldCorpusLabel) {
+                            (notebookData.metadata as any) = { ...(notebookData.metadata as any), corpusMarker: newCorpusName };
 
                             // Serialize and save the updated notebook
                             const updatedContent = await this.serializer.serializeNotebook(

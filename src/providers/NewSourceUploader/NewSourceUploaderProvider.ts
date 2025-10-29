@@ -326,7 +326,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             codexFsPath: "",
             navigation: [],
             sourceCreatedAt: processedNotebook.metadata.createdAt,
-            corpusMarker: processedNotebook.metadata.importerType,
+            corpusMarker: processedNotebook.metadata.corpusMarker || processedNotebook.metadata.importerType,
             textDirection: "ltr",
             ...(processedNotebook.metadata.videoUrl && { videoUrl: processedNotebook.metadata.videoUrl }),
             ...(processedNotebook.metadata as any)?.audioOnly !== undefined

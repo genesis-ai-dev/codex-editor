@@ -64,9 +64,7 @@ const styles = {
             transform: "scale(0.98)",
         },
     },
-    
-    
-    
+
     childrenContainer: {
         marginLeft: "16px",
         marginTop: "6px",
@@ -461,7 +459,7 @@ function NavigationView() {
             renameModal: {
                 isOpen: true,
                 item: item,
-                newName: item.label,
+                newName: "",
             },
         }));
     };
@@ -752,6 +750,33 @@ function NavigationView() {
     const filteredDictionaryItems = filterItems(state.dictionaryItems);
     const hasResults = filteredCodexItems.length > 0 || filteredDictionaryItems.length > 0;
 
+    const renameTestamentAbbreviations = (fileName: string, hasBibleBookMap: boolean): string => {
+        if (hasBibleBookMap) {
+            if (fileName === "NT") {
+                return "New Testament";
+            } else if (fileName === "OT") {
+                return "Old Testament";
+            }
+        }
+
+        return fileName;
+    };
+
+    const renameModalOriginalLabel = useMemo(() => {
+        const originalLabel = state.renameModal.item?.label || "";
+        const hasMap = !!state.bibleBookMap;
+
+        return renameTestamentAbbreviations(originalLabel, hasMap);
+    }, [state.renameModal.item?.label, state.bibleBookMap]);
+
+    const disableRenameButton = useMemo(() => {
+        return (
+            !state.renameModal.newName.trim() ||
+            state.renameModal.newName.trim() === renameModalOriginalLabel ||
+            state.renameModal.newName.trim() === state.renameModal.item?.label
+        );
+    }, [state.renameModal.newName, renameModalOriginalLabel]);
+
     // Separate project dictionary from other dictionaries
     const projectDictionary = filteredDictionaryItems.find((item) => item.isProjectDictionary);
     const otherDictionaries = filteredDictionaryItems.filter((item) => !item.isProjectDictionary);
@@ -844,7 +869,8 @@ function NavigationView() {
                     <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
                         <div style={styles.modalTitle}>Rename Corpus</div>
                         <div style={styles.modalDescription}>
-                            Enter new name for "{state.renameModal.item?.label}":
+                            Enter new name for "{renameModalOriginalLabel}
+                            ":
                         </div>
                         <input
                             type="text"
@@ -862,11 +888,7 @@ function NavigationView() {
                             <Button
                                 variant="default"
                                 onClick={handleRenameModalConfirm}
-                                disabled={
-                                    !state.renameModal.newName.trim() ||
-                                    state.renameModal.newName.trim() ===
-                                        state.renameModal.item?.label
-                                }
+                                disabled={disableRenameButton}
                             >
                                 Rename
                             </Button>
