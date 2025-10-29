@@ -956,8 +956,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                         </div>
                                     )}
                                     {!isSourceText &&
-                                        SHOW_VALIDATION_BUTTON &&
-                                        !isInTranslationProcess && (
+                                        SHOW_VALIDATION_BUTTON && (
                                             <>
                                                 <div className="flex items-center justify-center gap-x-px">
                                                     <AudioValidationButton
@@ -971,11 +970,14 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                         }
                                                         setShowSparkleButton={setShowSparkleButton}
                                                         disabled={
+                                                            isInTranslationProcess ||
                                                             audioState === "none" ||
                                                             audioState === "deletedOnly"
                                                         }
                                                         disabledReason={
-                                                            audioState === "none" ||
+                                                            isInTranslationProcess
+                                                                ? "Translation in progress"
+                                                                : audioState === "none" ||
                                                             audioState === "deletedOnly"
                                                                 ? "Audio validation requires audio"
                                                                 : undefined
@@ -1031,11 +1033,17 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                         currentUsername={currentUsername}
                                                         requiredValidations={requiredValidations}
                                                         setShowSparkleButton={setShowSparkleButton}
-                                                        disabled={shouldDisableValidation(
+                                                        disabled={
+                                                            isInTranslationProcess ||
+                                                            shouldDisableValidation(
                                                             cell.cellContent,
                                                             audioAttachments?.[cellIds[0]] as any
-                                                        )}
+                                                            )
+                                                        }
                                                         disabledReason={(() => {
+                                                            if (isInTranslationProcess) {
+                                                                return "Translation in progress";
+                                                            }
                                                             const audioState = audioAttachments?.[
                                                                 cellIds[0]
                                                             ] as any;
