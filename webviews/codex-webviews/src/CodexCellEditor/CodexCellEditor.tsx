@@ -139,7 +139,7 @@ const CodexCellEditor: React.FC = () => {
     const playerRef = useRef<ReactPlayer>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const { setSourceCellMap } = useContext(SourceCellContext);
-    
+
     // Backtranslation inline display state
     const [showInlineBacktranslations, setShowInlineBacktranslations] = useState<boolean>(
         (window as any).initialData?.metadata?.showInlineBacktranslations || false
@@ -703,7 +703,7 @@ const CodexCellEditor: React.FC = () => {
             const cellIds = translationUnits
                 .filter((cell) => cell.cellMarkers && cell.cellMarkers.length > 0)
                 .map((cell) => cell.cellMarkers[0]);
-            
+
             if (cellIds.length > 0) {
                 vscode.postMessage({
                     command: "getBatchBacktranslations",
@@ -717,7 +717,7 @@ const CodexCellEditor: React.FC = () => {
     const toggleInlineBacktranslations = useCallback(() => {
         const newValue = !showInlineBacktranslations;
         setShowInlineBacktranslations(newValue);
-        
+
         // Update metadata in the backend
         vscode.postMessage({
             command: "updateNotebookMetadata",
@@ -1364,8 +1364,11 @@ const CodexCellEditor: React.FC = () => {
         }
 
         // For regular cells, check if they belong to the current chapter
-        const sectionCellIdParts = cellId?.split(" ")?.[1]?.split(":");
-        const sectionCellNumber = sectionCellIdParts?.[0];
+        // Handle both "BOOK CHAPTER:VERSE" (biblical) and "CHAPTER:VERSE" (non-biblical) formats
+        const cellIdWithoutBook = cellId?.includes(" ")
+            ? cellId.split(" ")[1] // Biblical format: "GEN 1:1" → "1:1"
+            : cellId; // Non-biblical format: "1:1" → "1:1"
+        const sectionCellNumber = cellIdWithoutBook?.split(":")?.[0];
         return sectionCellNumber === chapterNumber.toString();
     });
 
