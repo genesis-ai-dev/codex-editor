@@ -1,0 +1,20 @@
+[
+    {
+        "abbr": "GEN",
+        "name": "Custom Genesis",
+        "ord": "01",
+        "testament": "OT"
+    },
+    {
+        "abbr": "EXO",
+        "name": "Custom Exodus",
+        "ord": "02",
+        "testament": "OT"
+    },
+    {
+        "abbr": "MAT",
+        "name": "Custom Matthew",
+        "ord": "40",
+        "testament": "NT"
+    }
+]
