@@ -61,28 +61,6 @@ export async function getUsfmCodeFromBookName(bookName: string): Promise<string 
         return exactMatch.abbr;
     }
 
-    // Try to match against localized book names if they exist
-    try {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (workspaceFolders) {
-            const workspaceRoot = workspaceFolders[0].uri.fsPath;
-            const localizedPath = path.join(workspaceRoot, "localized-books.json");
-
-            const fs = await import("fs");
-            if (fs.existsSync(localizedPath)) {
-                const localizedContent = fs.readFileSync(localizedPath, "utf8");
-                const localizedBooks = JSON.parse(localizedContent);
-
-                const localizedMatch = localizedBooks.find((book: any) => book.name === bookName);
-                if (localizedMatch && localizedMatch.abbr) {
-                    return localizedMatch.abbr;
-                }
-            }
-        }
-    } catch (error) {
-        console.warn("Error reading localized book names:", error);
-    }
-
     // Fallback: try partial matching or common patterns
     const normalizedBookName = bookName.toLowerCase().trim();
 
@@ -105,26 +83,25 @@ export async function getUsfmCodeFromBookName(bookName: string): Promise<string 
  * Get book display name from USFM code (uses localized names if available)
  */
 export async function getBookDisplayName(usfmCode: string): Promise<string> {
-    // First check for localized names
+    // First check codex metadata for a saved display name
     try {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (workspaceFolders) {
-            const workspaceRoot = workspaceFolders[0].uri.fsPath;
-            const localizedPath = path.join(workspaceRoot, "localized-books.json");
-
-            const fs = await import("fs");
-            if (fs.existsSync(localizedPath)) {
-                const localizedContent = fs.readFileSync(localizedPath, "utf8");
-                const localizedBooks = JSON.parse(localizedContent);
-
-                const localizedBook = localizedBooks.find((book: any) => book.abbr === usfmCode);
-                if (localizedBook && localizedBook.name) {
-                    return localizedBook.name;
+            const rootUri = workspaceFolders[0].uri;
+            const codexPattern = new vscode.RelativePattern(rootUri.fsPath, `files/target/**/${usfmCode}.codex`);
+            const matches = await vscode.workspace.findFiles(codexPattern, undefined, 1);
+            if (matches.length > 0) {
+                const serializer = new (await import("../serializer")).CodexContentSerializer();
+                const content = await vscode.workspace.fs.readFile(matches[0]);
+                const notebookData = await serializer.deserializeNotebook(content, new vscode.CancellationTokenSource().token);
+                const dn = (notebookData.metadata as any)?.bookDisplayName;
+                if (typeof dn === "string" && dn.trim()) {
+                    return dn.trim();
                 }
             }
         }
     } catch (error) {
-        console.warn("Error reading localized book names:", error);
+        console.warn("Error reading bookDisplayName from metadata:", error);
     }
 
     // Fallback to English name

@@ -31,18 +31,6 @@ interface BibleBookInfo {
     osisId: string;
 }
 
-// export interface CodexItem {
-//     uri: vscode.Uri;
-//     label: string;
-//     type: "corpus" | "codexDocument" | "dictionary";
-//     children?: CodexItem[];
-//     corpusMarker?: string;
-//     progress?: number;
-//     sortOrder?: string;
-//     isProjectDictionary?: boolean;
-//     wordCount?: number;
-//     isEnabled?: boolean;
-// }
 
 export class NavigationWebviewProvider extends BaseWebviewProvider {
     public static readonly viewType = "codex-editor.navigation";
@@ -70,53 +58,17 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
     private loadBibleBookMap(): void {
         console.log("Loading bible book map for Navigation...");
-
-        // Start with default Bible data
+        // Build the book map from default data only; display names come from metadata.bookDisplayName
         const defaultBooks: any[] = [...bibleData];
-        const localizedOverrides: Record<string, any> = {};
-
-        try {
-            const workspaceFolders = vscode.workspace.workspaceFolders;
-            if (workspaceFolders && workspaceFolders.length > 0) {
-                const workspaceRoot = workspaceFolders[0].uri.fsPath;
-                const localizedPath = path.join(workspaceRoot, "localized-books.json");
-                if (fs.existsSync(localizedPath)) {
-                    console.log("Navigation: Found localized-books.json, loading...");
-                    const raw = fs.readFileSync(localizedPath, "utf8");
-                    const localizedBooks = JSON.parse(raw);
-
-                    // Only use localized books if the array is not empty
-                    if (Array.isArray(localizedBooks) && localizedBooks.length > 0) {
-                        // Create a map of localized overrides
-                        localizedBooks.forEach((book: any) => {
-                            if (book.abbr) {
-                                localizedOverrides[book.abbr] = book;
-                            }
-                        });
-                        console.log("Navigation: Localized books loaded successfully, overrides:", Object.keys(localizedOverrides).length);
-                    } else {
-                        console.log("Navigation: localized-books.json is empty, using defaults.");
-                    }
-                } else {
-                    console.log("Navigation: localized-books.json not found, using defaults.");
-                }
-            }
-        } catch (err) {
-            console.error("Navigation: Error loading localized-books.json:", err);
-        }
-
-        // Build the final book map, merging defaults with localized overrides
         this.bibleBookMap.clear();
         defaultBooks.forEach((book) => {
             if (book.abbr) {
-                // Use localized override if available, otherwise use default
-                const finalBook = localizedOverrides[book.abbr] || book;
                 this.bibleBookMap.set(book.abbr, {
-                    name: finalBook.name,
-                    abbr: finalBook.abbr,
-                    ord: finalBook.ord || book.ord, // Preserve original order if not overridden
-                    testament: finalBook.testament || book.testament, // Preserve original testament if not overridden
-                    osisId: finalBook.osisId || book.osisId, // Preserve original osisId if not overridden
+                    name: book.name,
+                    abbr: book.abbr,
+                    ord: book.ord,
+                    testament: book.testament,
+                    osisId: book.osisId,
                 });
             }
         });
@@ -813,12 +765,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             return;
         }
 
-        const workspaceRoot = workspaceFolders[0].uri.fsPath;
-        const localizedPath = path.join(workspaceRoot, "localized-books.json");
-
-        // Dynamic import for fs
-        const fs = await import("fs");
-
         try {
             // Get default book info to ensure we have ord and testament
             const defaultBookInfo = this.bibleBookMap.get(bookAbbr);
@@ -826,41 +772,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 vscode.window.showErrorMessage(`Book abbreviation "${bookAbbr}" not found`);
                 return;
             }
-
-            // Load existing localized books
-            let localizedBooks: any[] = [];
-            if (fs.existsSync(localizedPath)) {
-                try {
-                    const raw = fs.readFileSync(localizedPath, "utf8");
-                    localizedBooks = JSON.parse(raw);
-                    if (!Array.isArray(localizedBooks)) {
-                        localizedBooks = [];
-                    }
-                } catch (err) {
-                    console.warn("Error reading localized-books.json, creating new file:", err);
-                    localizedBooks = [];
-                }
-            }
-
-            // Find existing entry or create new one
-            const existingIndex = localizedBooks.findIndex((book: any) => book.abbr === bookAbbr);
-            const bookEntry = {
-                abbr: bookAbbr,
-                name: newBookName,
-                ord: defaultBookInfo.ord,
-                testament: defaultBookInfo.testament,
-            };
-
-            if (existingIndex >= 0) {
-                // Update existing entry
-                localizedBooks[existingIndex] = bookEntry;
-            } else {
-                // Add new entry
-                localizedBooks.push(bookEntry);
-            }
-
-            // Save back to file
-            fs.writeFileSync(localizedPath, JSON.stringify(localizedBooks, null, 2));
 
             // Update .codex file metadata
             const rootUri = workspaceFolders[0].uri;
@@ -926,9 +837,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                     }
                 });
 
-                // Reload bible book map to reflect changes
-                this.loadBibleBookMap();
-
                 // Refresh navigation view
                 await this.buildInitialData();
 
@@ -943,12 +851,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 }
             } catch (error) {
                 console.error("Error updating codex files:", error);
-                // Still show success for localized-books.json update
-                vscode.window.showWarningMessage(
-                    `Book name updated in localized-books.json, but failed to update codex files: ${error}`
-                );
-                // Reload bible book map and refresh navigation view anyway
-                this.loadBibleBookMap();
+                vscode.window.showErrorMessage(`Failed to update book name in codex files: ${error}`);
                 await this.buildInitialData();
             }
         } catch (error) {

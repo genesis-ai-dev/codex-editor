@@ -457,7 +457,9 @@ function NavigationView() {
     };
 
     const handleEditBookName = (item: CodexItem) => {
-        const currentDisplayName = formatLabel(item.label, state.bibleBookMap || new Map());
+        // Use bookDisplayName from metadata if available, otherwise fall back to formatted label
+        const currentDisplayName =
+            item.bookDisplayName || formatLabel(item.label, state.bibleBookMap || new Map());
         setState((prev) => ({
             ...prev,
             bookNameModal: {
@@ -546,7 +548,9 @@ function NavigationView() {
     const handleBookNameModalConfirm = () => {
         const { item, newName } = state.bookNameModal;
         if (item && newName.trim() !== "") {
-            const currentDisplayName = formatLabel(item.label, state.bibleBookMap || new Map());
+            // Use bookDisplayName from metadata if available, otherwise fall back to formatted label
+            const currentDisplayName =
+                item.bookDisplayName || formatLabel(item.label, state.bibleBookMap || new Map());
             if (newName.trim() !== currentDisplayName) {
                 vscode.postMessage({
                     command: "editBookName",
@@ -842,7 +846,11 @@ function NavigationView() {
 
     const bookNameModalOriginalLabel = useMemo(() => {
         if (!state.bookNameModal.item) return "";
-        return formatLabel(state.bookNameModal.item.label, state.bibleBookMap || new Map());
+        // Use bookDisplayName from metadata if available, otherwise fall back to formatted label
+        return (
+            state.bookNameModal.item.bookDisplayName ||
+            formatLabel(state.bookNameModal.item.label, state.bibleBookMap || new Map())
+        );
     }, [state.bookNameModal.item, state.bibleBookMap]);
 
     const disableBookNameButton = useMemo(() => {

@@ -3449,28 +3449,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     // Add method to load bible book map
     private async loadBibleBookMap(document: CodexCellDocument): Promise<void> {
         debug("Loading bible book map");
-        let bookData: any[] = bibleData; // Default data
-        try {
-            const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-            if (workspaceFolder) {
-                const localizedPath = vscode.Uri.joinPath(
-                    workspaceFolder.uri,
-                    "localized-books.json"
-                );
-                try {
-                    await vscode.workspace.fs.stat(localizedPath);
-                    const content = await vscode.workspace.fs.readFile(localizedPath);
-                    const raw = new TextDecoder().decode(content);
-                    bookData = JSON.parse(raw);
-                } catch (err) {
-                    // File doesn't exist, use default data
-                }
-            }
-        } catch (err) {
-            console.error("Error loading localized-books.json:", err);
-            // Fallback to default if error occurs
-            bookData = bibleData;
-        }
+        const bookData: any[] = bibleData; // Use bundled defaults only; display names come from metadata
 
         // Create the map
         this.bibleBookMap = new Map<string, { name: string;[key: string]: any; }>();

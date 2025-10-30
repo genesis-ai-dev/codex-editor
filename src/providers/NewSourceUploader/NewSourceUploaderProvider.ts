@@ -436,6 +436,9 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             codexNotebooks,
         });
 
+        // Remove any localized book overrides to ensure fresh defaults after new source import
+        await this.removeLocalizedBooksJsonIfPresent();
+
         // Show success message
         const count = message.notebookPairs.length;
         const notebooksText = count === 1 ? "notebook" : "notebooks";
@@ -503,6 +506,9 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         const codexNotebooks = message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.codex));
 
         await createNoteBookPair({ token, sourceNotebooks, codexNotebooks });
+
+        // Remove any localized book overrides to ensure fresh defaults after new source import
+        await this.removeLocalizedBooksJsonIfPresent();
 
         // 2) Write video files separately (only once per video)
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -768,6 +774,30 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         webviewPanel.webview.postMessage({ command: "notification", type: "success", message: "Notebooks and attachments created successfully!" });
         const inventory = await this.fetchProjectInventory();
         webviewPanel.webview.postMessage({ command: "projectInventory", inventory });
+    }
+
+    /**
+     * Removes the workspace-level localized-books.json file if present.
+     * This ensures that newly uploaded sources don't inherit stale overrides.
+     */
+    private async removeLocalizedBooksJsonIfPresent(): Promise<void> {
+        try {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                return;
+            }
+            const localizedUri = vscode.Uri.joinPath(workspaceFolder.uri, "localized-books.json");
+            try {
+                // If the file exists, delete it (no trash, non-recursive)
+                await vscode.workspace.fs.stat(localizedUri);
+                await vscode.workspace.fs.delete(localizedUri, { recursive: false, useTrash: false });
+                console.log("Removed localized-books.json after source upload");
+            } catch {
+                // File does not exist; nothing to remove
+            }
+        } catch (err) {
+            console.warn("Failed to remove localized-books.json:", err);
+        }
     }
 
     private async handleWriteTranslation(

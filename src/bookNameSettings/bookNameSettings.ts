@@ -24,7 +24,6 @@ export async function openBookNameEditor() {
         return;
     }
     const workspaceRoot = workspaceFolders[0].uri.fsPath;
-    const localizedPath = path.join(workspaceRoot, "localized-books.json");
 
     // Correctly get the extension context - this needs to be passed in or retrieved differently
     // For now, let's assume we can get the extension path this way, but it might need adjustment
@@ -57,27 +56,33 @@ export async function openBookNameEditor() {
         return;
     }
 
-    // Load localized books if present
-    const localizedBooks: Record<string, string> = {};
+    // Build current overrides from codex metadata (bookDisplayName) instead of localized-books.json
+    const displayNameByAbbr: Record<string, string> = {};
     try {
-        if (fs.existsSync(localizedPath)) {
-            const raw = fs.readFileSync(localizedPath, "utf8");
-            const arr = JSON.parse(raw);
-            for (const book of arr) {
-                if (book.abbr && book.name) {
-                    localizedBooks[book.abbr] = book.name;
+        const codexUris = await vscode.workspace.findFiles(new vscode.RelativePattern(workspaceRoot, "files/target/**/*.codex"));
+        const serializer = new (await import("../serializer")).CodexContentSerializer();
+        for (const uri of codexUris) {
+            try {
+                const content = await vscode.workspace.fs.readFile(uri);
+                const notebookData = await serializer.deserializeNotebook(content, new vscode.CancellationTokenSource().token);
+                const abbr = path.basename(uri.fsPath, ".codex");
+                const dn = (notebookData.metadata as any)?.bookDisplayName;
+                if (abbr && typeof dn === "string" && dn.trim()) {
+                    displayNameByAbbr[abbr] = dn.trim();
                 }
+            } catch (error) {
+                console.error(`Error reading bookDisplayName from ${uri.fsPath}:`, error);
             }
         }
-    } catch (err) {
-        // Ignore, fallback to default
+    } catch (error) {
+        console.error(`Error reading bookDisplayName from codex files:`, error);
     }
 
-    // Merge for UI: always show all books, use localized name if present
+    // Merge for UI: always show all books, use bookDisplayName from metadata if present
     const mergedBooks = defaultBooks.map((book: any) => ({
         abbr: book.abbr,
         defaultName: book.name,
-        name: localizedBooks[book.abbr] || "",
+        name: displayNameByAbbr[book.abbr] || "",
         ord: book.ord,
         testament: book.testament,
     }));
@@ -89,23 +94,53 @@ export async function openBookNameEditor() {
         switch (message.command) {
             case "save": {
                 try {
-                    // Only save books with a non-blank name different from default
-                    const toSave = mergedBooks
-                        .map((book, i) => {
-                            const newName = message.books[i]?.name?.trim();
-                            if (newName && newName !== book.defaultName) {
-                                return {
-                                    abbr: book.abbr,
-                                    name: newName,
-                                    ord: book.ord,
-                                    testament: book.testament,
+                    // Only persist non-blank names different from default into codex file metadata
+                    const updates = new Map<string, string>(); // abbr -> newName
+                    mergedBooks.forEach((book, i) => {
+                        const newName = message.books[i]?.name?.trim();
+                        if (newName && newName !== book.defaultName) {
+                            updates.set(book.abbr, newName);
+                        }
+                    });
+
+                    if (updates.size === 0) {
+                        vscode.window.showInformationMessage("No changes to save");
+                        panel.dispose();
+                        break;
+                    }
+
+                    const rootUri = vscode.Uri.file(workspaceRoot);
+                    const codexPattern = new vscode.RelativePattern(rootUri.fsPath, "files/target/**/*.codex");
+                    const codexUris = await vscode.workspace.findFiles(codexPattern);
+                    const serializer = new (await import("../serializer")).CodexContentSerializer();
+                    let updatedCount = 0;
+
+                    await vscode.window.withProgress({
+                        location: vscode.ProgressLocation.Notification,
+                        title: "Saving book name overrides",
+                        cancellable: false,
+                    }, async () => {
+                        for (const uri of codexUris) {
+                            const abbr = path.basename(uri.fsPath, ".codex");
+                            const newName = updates.get(abbr);
+                            if (!newName) continue;
+                            try {
+                                const content = await vscode.workspace.fs.readFile(uri);
+                                const notebookData = await serializer.deserializeNotebook(content, new vscode.CancellationTokenSource().token);
+                                (notebookData.metadata as any) = {
+                                    ...(notebookData.metadata || {}),
+                                    bookDisplayName: newName,
                                 };
+                                const updatedContent = await serializer.serializeNotebook(notebookData as any, new vscode.CancellationTokenSource().token);
+                                await vscode.workspace.fs.writeFile(uri, updatedContent);
+                                updatedCount++;
+                            } catch (error) {
+                                console.error(`Error saving book name to ${uri.fsPath}:`, error);
                             }
-                            return null;
-                        })
-                        .filter(Boolean);
-                    fs.writeFileSync(localizedPath, JSON.stringify(toSave, null, 2));
-                    vscode.window.showInformationMessage("Book names updated successfully");
+                        }
+                    });
+
+                    vscode.window.showInformationMessage(`Book names updated in ${updatedCount} file(s)`);
                     panel.dispose();
                 } catch (error) {
                     vscode.window.showErrorMessage(`Failed to save book names: ${error}`);
@@ -369,7 +404,6 @@ export async function importBookNamesFromXmlContent(
             return false;
         }
         const workspaceRoot = workspaceFolders[0].uri.fsPath;
-        const localizedPath = path.join(workspaceRoot, "localized-books.json");
 
         // Parse XML to JSON
         const parser = new xml2js.Parser({
@@ -419,29 +453,33 @@ export async function importBookNamesFromXmlContent(
                     const raw = fs.readFileSync(defaultBooksPath, "utf8");
                     const defaultBooks = JSON.parse(raw);
 
-                    // Create localized books array
-                    const toSave = defaultBooks
-                        .map((book: any) => {
-                            const customName = xmlBooks[book.abbr];
-                            if (customName && customName !== book.name) {
-                                return {
-                                    abbr: book.abbr,
-                                    name: customName,
-                                    ord: book.ord,
-                                    testament: book.testament,
-                                };
-                            }
-                            return null;
-                        })
-                        .filter(Boolean);
+                    // Apply overrides directly to codex metadata
+                    const rootUri = vscode.Uri.file(workspaceRoot);
+                    const codexPattern = new vscode.RelativePattern(rootUri.fsPath, "files/target/**/*.codex");
+                    const codexUris = await vscode.workspace.findFiles(codexPattern);
+                    const serializer = new (await import("../serializer")).CodexContentSerializer();
+                    let updatedCount = 0;
 
-                    // Save to localized-books.json
-                    if (toSave.length > 0) {
-                        fs.writeFileSync(localizedPath, JSON.stringify(toSave, null, 2));
-                        vscode.window.showInformationMessage(
-                            `Imported ${toSave.length} book names from Paratext project`
-                        );
+                    for (const uri of codexUris) {
+                        try {
+                            const abbr = path.basename(uri.fsPath, ".codex");
+                            const customName = xmlBooks[abbr];
+                            if (!customName) continue;
+                            const content = await vscode.workspace.fs.readFile(uri);
+                            const notebookData = await serializer.deserializeNotebook(content, new vscode.CancellationTokenSource().token);
+                            (notebookData.metadata as any) = {
+                                ...(notebookData.metadata || {}),
+                                bookDisplayName: customName,
+                            };
+                            const updatedContent = await serializer.serializeNotebook(notebookData as any, new vscode.CancellationTokenSource().token);
+                            await vscode.workspace.fs.writeFile(uri, updatedContent);
+                            updatedCount++;
+                        } catch (error) {
+                            console.error(`Error applying book names to ${uri.fsPath}:`, error);
+                        }
                     }
+
+                    vscode.window.showInformationMessage(`Imported book names applied to ${updatedCount} file(s)`);
 
                     resolve(true);
                 } catch (error: any) {
