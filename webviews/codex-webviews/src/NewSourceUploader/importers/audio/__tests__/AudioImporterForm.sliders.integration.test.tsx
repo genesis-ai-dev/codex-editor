@@ -53,6 +53,13 @@ function buildFakeAudioBuffer(): any {
 beforeEach(() => {
     vi.clearAllMocks();
 
+    // Ensure File#arrayBuffer exists in jsdom
+    if (!(File.prototype as any).arrayBuffer) {
+        (File.prototype as any).arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(8));
+    } else {
+        (File.prototype as any).arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(8));
+    }
+
     (window as any).AudioContext = class {
         decodeAudioData(_buf: ArrayBuffer) {
             return Promise.resolve(buildFakeAudioBuffer());
