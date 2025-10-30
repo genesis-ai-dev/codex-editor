@@ -96,9 +96,9 @@ describe("AudioImporterForm sliders integration", () => {
         const autoSegmentBtn = await screen.findByRole("button", { name: /Auto Segment/i });
         await fireEvent.click(autoSegmentBtn);
 
-        // Wait for initial segmentation badge to show more than 1 segment
-        // Allow Auto Segment flow to expand and process (uses setTimeout ~1000ms)
-        await new Promise((r) => setTimeout(r, 1700));
+        // Wait for the row to expand and AudioWaveform to load
+        // First wait for the expanded content (waveform) to appear - look for the "segments" badge
+        await screen.findByText(/\d+\s+segments?/i, {}, { timeout: 5000 });
 
         // Scope badge lookup to this file row's card
         const rowTitle = await screen.findByText(/^test$/i);
@@ -110,10 +110,10 @@ describe("AudioImporterForm sliders integration", () => {
                 (rowCard as HTMLElement).querySelectorAll(".badge, [class*='badge']")
             );
             // Choose a badge that looks like "NN segments"
-            const seg = badges.find((b) => /^(\s*)?\d+\s+segments?/i.test(b.textContent || ""));
+            const seg = badges.find((b) => /\d+\s+segments?/i.test(b.textContent || ""));
             expect(seg).toBeTruthy();
             return seg as HTMLElement;
-        });
+        }, { timeout: 5000 });
 
         // Capture initial count
         const parseCount = (el: HTMLElement) => {
