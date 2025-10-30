@@ -430,6 +430,21 @@ export interface AudioFileSelectedMessage {
     error?: string;
 }
 
+export interface AudioFilesSelectedMessage {
+    command: 'audioFilesSelected';
+    files: Array<{
+        sessionId: string;
+        fileName: string;
+        durationSec: number;
+        segments: Array<{ id: string; startSec: number; endSec: number }>;
+        waveformPeaks: number[];
+        fullAudioUri?: string;
+    }>;
+    thresholdDb?: number;
+    minDuration?: number;
+    error?: string;
+}
+
 export interface RequestAudioSegmentMessage {
     command: 'requestAudioSegment';
     sessionId: string;
@@ -461,6 +476,7 @@ export interface AudioImportProgressMessage {
     progress?: number; // 0-100
     currentSegment?: number;
     totalSegments?: number;
+    etaSeconds?: number; // Estimated time remaining in seconds
 }
 
 export interface AudioImportCompleteMessage {

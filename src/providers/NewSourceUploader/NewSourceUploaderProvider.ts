@@ -1279,11 +1279,11 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             const fileUris = await vscode.window.showOpenDialog({
                 canSelectFiles: true,
                 canSelectFolders: false,
-                canSelectMany: false,
+                canSelectMany: true,
                 filters: {
                     Audio: ["mp3", "wav", "m4a", "aac", "ogg", "webm", "flac"],
                 },
-                openLabel: "Select Audio File",
+                openLabel: "Select Audio Files",
             });
 
             if (!fileUris || fileUris.length === 0) {
@@ -1294,59 +1294,98 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     durationSec: 0,
                     segments: [],
                     waveformPeaks: [],
-                    error: "No file selected",
+                    error: "No files selected",
                 });
                 return;
             }
 
-            const fileUri = fileUris[0];
-            const filePath = fileUri.fsPath;
-            const fileName = path.basename(filePath);
-
-            const sessionId = `audio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-            const tempDir = path.join(workspaceFolder.uri.fsPath, ".project", ".temp", "audio-import", sessionId);
-            
-            if (!fs.existsSync(tempDir)) {
-                fs.mkdirSync(tempDir, { recursive: true });
-            }
-
-            // Copy audio file to workspace temp directory so webview URI works reliably
-            const tempFilePath = path.join(tempDir, fileName);
-            fs.copyFileSync(filePath, tempFilePath);
-            const tempFileUri = vscode.Uri.file(tempFilePath);
-
+            // Process all selected files
             const { processAudioFile } = await import("../../utils/audioProcessor");
             const thresholdDb = message.thresholdDb ?? -40;
             const minDuration = message.minDuration ?? 0.5;
-            const metadata = await processAudioFile(tempFilePath, 30, thresholdDb, minDuration);
+            
+            const results: Array<{
+                sessionId: string;
+                fileName: string;
+                durationSec: number;
+                segments: Array<{ id: string; startSec: number; endSec: number }>;
+                waveformPeaks: number[];
+                fullAudioUri: string;
+            }> = [];
 
-            const segments = metadata.segments.map((seg, index) => ({
-                id: `${sessionId}-seg${index + 1}`,
-                startSec: seg.startSec,
-                endSec: seg.endSec,
-            }));
+            for (const fileUri of fileUris) {
+                const filePath = fileUri.fsPath;
+                const fileName = path.basename(filePath);
 
-            this.audioImportSessions.set(sessionId, {
-                filePath: tempFilePath, // Use temp file path
-                segments,
-                tempDir,
-                durationSec: metadata.durationSec,
-            });
+                const sessionId = `audio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                const tempDir = path.join(workspaceFolder.uri.fsPath, ".project", ".temp", "audio-import", sessionId);
+                
+                if (!fs.existsSync(tempDir)) {
+                    fs.mkdirSync(tempDir, { recursive: true });
+                }
 
-            // Create webview URI for the temp audio file (now within workspace)
-            const fullAudioUri = webviewPanel.webview.asWebviewUri(tempFileUri).toString();
+                // Copy audio file to workspace temp directory so webview URI works reliably
+                const tempFilePath = path.join(tempDir, fileName);
+                fs.copyFileSync(filePath, tempFilePath);
+                const tempFileUri = vscode.Uri.file(tempFilePath);
 
-            webviewPanel.webview.postMessage({
-                command: "audioFileSelected",
-                sessionId,
-                fileName,
-                durationSec: metadata.durationSec,
-                segments,
-                waveformPeaks: metadata.previewPeaks || [],
-                fullAudioUri,
-                thresholdDb,
-                minDuration,
-            });
+                const metadata = await processAudioFile(tempFilePath, 30, thresholdDb, minDuration);
+
+                const segments = metadata.segments.map((seg, index) => ({
+                    id: `${sessionId}-seg${index + 1}`,
+                    startSec: seg.startSec,
+                    endSec: seg.endSec,
+                }));
+
+                this.audioImportSessions.set(sessionId, {
+                    filePath: tempFilePath,
+                    segments,
+                    tempDir,
+                    durationSec: metadata.durationSec,
+                });
+
+                const fullAudioUri = webviewPanel.webview.asWebviewUri(tempFileUri).toString();
+
+                results.push({
+                    sessionId,
+                    fileName,
+                    durationSec: metadata.durationSec,
+                    segments,
+                    waveformPeaks: metadata.previewPeaks || [],
+                    fullAudioUri,
+                });
+            }
+
+            // Send all results - if multiple files, send array; if single, send single object
+            if (results.length === 1) {
+                // Single file - send as before for backwards compatibility
+                webviewPanel.webview.postMessage({
+                    command: "audioFileSelected",
+                    sessionId: results[0].sessionId,
+                    fileName: results[0].fileName,
+                    durationSec: results[0].durationSec,
+                    segments: results[0].segments,
+                    waveformPeaks: results[0].waveformPeaks,
+                    fullAudioUri: results[0].fullAudioUri,
+                    thresholdDb,
+                    minDuration,
+                });
+            } else {
+                // Multiple files - send array
+                webviewPanel.webview.postMessage({
+                    command: "audioFilesSelected",
+                    files: results.map(r => ({
+                        sessionId: r.sessionId,
+                        fileName: r.fileName,
+                        durationSec: r.durationSec,
+                        segments: r.segments,
+                        waveformPeaks: r.waveformPeaks,
+                        fullAudioUri: r.fullAudioUri,
+                    })),
+                    thresholdDb,
+                    minDuration,
+                });
+            }
         } catch (error) {
             console.error("[AudioImporter2] Error selecting audio file:", error);
             webviewPanel.webview.postMessage({
@@ -1566,6 +1605,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
             const totalSegments = message.segmentMappings.length;
             let processedSegments = 0;
+            const startTime = Date.now();
 
             webviewPanel.webview.postMessage({
                 command: "audioImportProgress",
@@ -1575,10 +1615,13 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 progress: 10,
                 currentSegment: 0,
                 totalSegments,
+                etaSeconds: undefined,
             });
 
             // Process segments sequentially to avoid overheating
-            const progressUpdateInterval = Math.max(1, Math.floor(totalSegments / 20));
+            // Update progress every segment for smooth updates (but throttle UI updates)
+            const minUpdateIntervalMs = 100; // Update UI at most every 100ms
+            let lastUpdateTime = Date.now();
             
             for (let i = 0; i < message.segmentMappings.length; i++) {
                 const mapping = message.segmentMappings[i];
@@ -1588,32 +1631,40 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     continue;
                 }
 
-                const tempFilePath = path.join(session.tempDir, `${mapping.segmentId}.wav`);
-                const needsExtraction = !fs.existsSync(tempFilePath);
-                
-                if (needsExtraction) {
-                    const { extractSegment } = await import("../../utils/audioProcessor");
-                    await extractSegment(
-                        session.filePath,
-                        tempFilePath,
-                        segment.startSec,
-                        segment.endSec
-                    );
-                }
-
-                // Use fs.copyFileSync for faster copies instead of readFile + writeFile
+                // Extract directly to final location (skip temp directory entirely)
                 const filesPath = path.join(filesDir.fsPath, mapping.fileName);
                 const pointersPath = path.join(pointersDir.fsPath, mapping.fileName);
+                
+                // Extract directly to files directory first
+                const { extractSegment } = await import("../../utils/audioProcessor");
+                await extractSegment(
+                    session.filePath,
+                    filesPath,
+                    segment.startSec,
+                    segment.endSec
+                );
 
-                // Copy to both locations efficiently using native fs operations
-                fs.copyFileSync(tempFilePath, filesPath);
-                fs.copyFileSync(tempFilePath, pointersPath);
+                // Copy to pointers directory (much faster than re-extracting)
+                fs.copyFileSync(filesPath, pointersPath);
 
                 processedSegments++;
 
-                // Send progress update at intervals
-                if (i === 0 || i === message.segmentMappings.length - 1 || i % progressUpdateInterval === 0) {
+                // Calculate ETA based on elapsed time and progress
+                const elapsedMs = Date.now() - startTime;
+                const elapsedSeconds = elapsedMs / 1000;
+                const segmentsPerSecond = (i + 1) / elapsedSeconds;
+                const remainingSegments = totalSegments - (i + 1);
+                const etaSeconds = segmentsPerSecond > 0 ? Math.ceil(remainingSegments / segmentsPerSecond) : undefined;
+
+                // Send progress update more frequently (every segment, but throttle UI updates)
+                const now = Date.now();
+                const shouldUpdate = i === 0 || 
+                                     i === message.segmentMappings.length - 1 || 
+                                     now - lastUpdateTime >= minUpdateIntervalMs;
+                
+                if (shouldUpdate) {
                     const progress = Math.floor(((i + 1) / totalSegments) * 80);
+                    lastUpdateTime = now;
                     
                     webviewPanel.webview.postMessage({
                         command: "audioImportProgress",
@@ -1623,6 +1674,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         progress,
                         currentSegment: i + 1,
                         totalSegments,
+                        etaSeconds,
                     });
                 }
             }

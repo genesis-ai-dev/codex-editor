@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { ImporterComponentProps, SelectAudioFileMessage, ReprocessAudioFileMessage, FinalizeAudioImportMessage, AudioFileSelectedMessage, AudioImportProgressMessage, AudioImportCompleteMessage, UpdateAudioSegmentsMessage, AudioSegmentsUpdatedMessage } from "../../types/plugin";
+import { ImporterComponentProps, SelectAudioFileMessage, ReprocessAudioFileMessage, FinalizeAudioImportMessage, AudioFileSelectedMessage, AudioFilesSelectedMessage, AudioImportProgressMessage, AudioImportCompleteMessage, UpdateAudioSegmentsMessage, AudioSegmentsUpdatedMessage } from "../../types/plugin";
 import { Button } from "../../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Input } from "../../../components/ui/input";
@@ -10,6 +10,7 @@ import { Upload, Music, Play, Pause, ArrowLeft, Check, AlertTriangle, RotateCcw,
 import { Slider } from "../../../components/ui/slider";
 import { NotebookPair, ProcessedCell } from "../../types/common";
 import { createProcessedCell } from "../../utils/workflowHelpers";
+import { CodexCellTypes } from "types/enums";
 
 const vscode: { postMessage: (message: any) => void } = (window as any).vscodeApi;
 
@@ -30,6 +31,14 @@ interface AudioFileData {
     fullAudioUri?: string;
     thresholdDb?: number;
     minDuration?: number;
+}
+
+function formatETA(seconds?: number): string {
+    if (seconds === undefined || !isFinite(seconds) || seconds < 0) return "--";
+    if (seconds < 60) return `${Math.ceil(seconds)}s`;
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = Math.ceil(seconds % 60);
+    return `${minutes}m ${remainingSeconds}s`;
 }
 
 function formatSeconds(sec: number): string {
@@ -59,9 +68,11 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
         wizardContext?.selectedSource?.name || "AudioDocument"
     );
     const [audioFile, setAudioFile] = useState<AudioFileData | null>(null);
+    const [audioFiles, setAudioFiles] = useState<AudioFileData[]>([]);
+    const [selectedFileIndex, setSelectedFileIndex] = useState<number>(0);
     const [isLoading, setIsLoading] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
-    const [importProgress, setImportProgress] = useState<{ stage: string; message: string; progress?: number } | null>(null);
+    const [importProgress, setImportProgress] = useState<{ stage: string; message: string; progress?: number; currentSegment?: number; totalSegments?: number; etaSeconds?: number } | null>(null);
     const [error, setError] = useState<string | null>(null);
     
     // VAD settings
@@ -73,7 +84,9 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
     const [newBreakpointIndex, setNewBreakpointIndex] = useState<number | null>(null);
     const [playingSegmentId, setPlayingSegmentId] = useState<string | null>(null);
     const [audioElements, setAudioElements] = useState<Map<string, HTMLAudioElement>>(new Map());
-    const [pendingNotebookPair, setPendingNotebookPair] = useState<NotebookPair | null>(null);
+    const [pendingNotebookPairs, setPendingNotebookPairs] = useState<NotebookPair[]>([]);
+    const [completedImportSessions, setCompletedImportSessions] = useState<Set<string>>(new Set());
+    const [allSegmentMappings, setAllSegmentMappings] = useState<Array<{ sessionId: string; mappings: Array<{ segmentId: string; cellId: string; attachmentId: string; fileName: string }> }>>([]);
     
     // Dragging state
     const [isDragging, setIsDragging] = useState(false);
@@ -105,7 +118,7 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
                     setError(data.error);
                     setIsLoading(false);
                 } else {
-                    setAudioFile({
+                    const fileData: AudioFileData = {
                         sessionId: data.sessionId,
                         fileName: data.fileName,
                         durationSec: data.durationSec,
@@ -114,7 +127,10 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
                         fullAudioUri: data.fullAudioUri,
                         thresholdDb: data.thresholdDb,
                         minDuration: data.minDuration,
-                    });
+                    };
+                    setAudioFiles([fileData]);
+                    setAudioFile(fileData);
+                    setSelectedFileIndex(0);
                     // Update settings to match what was used
                     if (data.thresholdDb !== undefined) setThresholdDb(data.thresholdDb);
                     if (data.minDuration !== undefined) setMinDuration(data.minDuration);
@@ -126,28 +142,99 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
                         setDocumentName(nameWithoutExt);
                     }
                 }
+            } else if (message.command === "audioFilesSelected") {
+                const data = message as AudioFilesSelectedMessage;
+                if (data.error) {
+                    setError(data.error);
+                    setIsLoading(false);
+                } else {
+                    const files: AudioFileData[] = data.files.map(f => ({
+                        sessionId: f.sessionId,
+                        fileName: f.fileName,
+                        durationSec: f.durationSec,
+                        segments: f.segments,
+                        waveformPeaks: f.waveformPeaks || [],
+                        fullAudioUri: f.fullAudioUri,
+                        thresholdDb: data.thresholdDb,
+                        minDuration: data.minDuration,
+                    }));
+                    setAudioFiles(files);
+                    setAudioFile(files[0] || null);
+                    setSelectedFileIndex(0);
+                    // Update settings to match what was used
+                    if (data.thresholdDb !== undefined) setThresholdDb(data.thresholdDb);
+                    if (data.minDuration !== undefined) setMinDuration(data.minDuration);
+                    setIsLoading(false);
+                    setError(null);
+                    
+                    if (!documentName || documentName === "AudioDocument") {
+                        const firstFileName = files[0]?.fileName.replace(/\.[^/.]+$/, "") || "AudioDocument";
+                        setDocumentName(files.length === 1 ? firstFileName : `${firstFileName} and ${files.length - 1} more`);
+                    }
+                }
             } else if (message.command === "audioImportProgress") {
                 const data = message as AudioImportProgressMessage;
-                if (data.sessionId === audioFile?.sessionId) {
+                // Check if progress matches any of the audio files
+                const matchingFile = audioFiles.find(f => f.sessionId === data.sessionId);
+                if (matchingFile) {
                     setImportProgress({
                         stage: data.stage,
                         message: data.message,
                         progress: data.progress,
+                        currentSegment: data.currentSegment,
+                        totalSegments: data.totalSegments,
+                        etaSeconds: data.etaSeconds,
                     });
                 }
             } else if (message.command === "audioImportComplete") {
                 const data = message as AudioImportCompleteMessage;
-                if (data.sessionId === audioFile?.sessionId) {
-                    setIsImporting(false);
-                    setImportProgress(null);
-                    if (data.success && pendingNotebookPair) {
-                        // Import is complete, call onComplete after a short delay
-                        setTimeout(() => {
-                            onComplete?.([pendingNotebookPair]);
-                        }, 500);
-                    } else if (!data.success) {
-                        setError(data.error || "Import failed");
-                    }
+                // Check if completion matches any of the audio files
+                const matchingFileIndex = audioFiles.findIndex(f => f.sessionId === data.sessionId);
+                if (matchingFileIndex !== -1) {
+                    setCompletedImportSessions(prev => {
+                        const updated = new Set([...prev, data.sessionId]);
+                        
+                        if (data.success) {
+                            // Check if all files are imported
+                            if (updated.size >= audioFiles.length) {
+                                // All imports complete
+                                setIsImporting(false);
+                                setImportProgress(null);
+                                setTimeout(() => {
+                                    onComplete?.(pendingNotebookPairs.length === 1 ? pendingNotebookPairs : pendingNotebookPairs);
+                                }, 500);
+                            } else {
+                                // More files to import - trigger next import
+                                const nextIndex = matchingFileIndex + 1;
+                                if (nextIndex < audioFiles.length) {
+                                    const nextFile = audioFiles[nextIndex];
+                                    const nextNotebookPair = pendingNotebookPairs[nextIndex];
+                                    const nextMapping = allSegmentMappings.find(m => m.sessionId === nextFile.sessionId);
+                                    if (nextFile && nextNotebookPair && nextMapping) {
+                                        vscode.postMessage({
+                                            command: "finalizeAudioImport",
+                                            sessionId: nextFile.sessionId,
+                                            documentName: nextNotebookPair.source.name,
+                                            notebookPairs: [nextNotebookPair],
+                                            segmentMappings: nextMapping.mappings,
+                                        } as FinalizeAudioImportMessage);
+                                    }
+                                }
+                                setImportProgress({
+                                    stage: "importing",
+                                    message: `Completed ${updated.size}/${audioFiles.length} files. Continuing...`,
+                                    progress: (updated.size / audioFiles.length) * 100,
+                                });
+                            }
+                        } else {
+                            // Import failed
+                            setIsImporting(false);
+                            setImportProgress(null);
+                            setError(data.error || "Import failed");
+                        }
+                        
+                        return updated;
+                    });
                 }
             } else if (message.command === "audioSegmentsUpdated") {
                 const data = message as AudioSegmentsUpdatedMessage;
@@ -161,7 +248,15 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
 
         window.addEventListener("message", handleMessage);
         return () => window.removeEventListener("message", handleMessage);
-    }, [documentName, audioFile, pendingNotebookPair, onComplete]);
+    }, [documentName, audioFiles, audioFile, pendingNotebookPairs, completedImportSessions, allSegmentMappings, onComplete]);
+
+    // Update audioFile when selectedFileIndex changes
+    useEffect(() => {
+        if (audioFiles.length > 0 && selectedFileIndex >= 0 && selectedFileIndex < audioFiles.length) {
+            setAudioFile(audioFiles[selectedFileIndex]);
+            setSelectedSegmentId(null);
+        }
+    }, [selectedFileIndex, audioFiles]);
 
 
     const handleSelectFile = useCallback(() => {
@@ -179,13 +274,17 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
         if (!audioFile) return;
         setIsLoading(true);
         setError(null);
+        // Update the file in audioFiles array
+        setAudioFiles(prev => prev.map((f, idx) => 
+            idx === selectedFileIndex ? f : f
+        ));
         vscode.postMessage({
             command: "reprocessAudioFile",
             sessionId: audioFile.sessionId,
             thresholdDb,
             minDuration,
         } as ReprocessAudioFileMessage);
-    }, [audioFile, thresholdDb, minDuration]);
+    }, [audioFile, selectedFileIndex, thresholdDb, minDuration]);
 
     const handleDissolveBreakpoint = useCallback((segmentIndex: number) => {
         if (!audioFile || segmentIndex < 0 || segmentIndex >= audioFile.segments.length - 1) return;
@@ -213,10 +312,14 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
         }
         
         // Update local state optimistically
-        setAudioFile({
+        const updatedFile = {
             ...audioFile,
             segments,
-        });
+        };
+        setAudioFile(updatedFile);
+        setAudioFiles(prev => prev.map((f, idx) => 
+            idx === selectedFileIndex ? updatedFile : f
+        ));
         
         // Send update to backend
         vscode.postMessage({
@@ -228,7 +331,7 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
                 endSec: s.endSec,
             })),
         } as UpdateAudioSegmentsMessage);
-    }, [audioFile, newBreakpointIndex]);
+    }, [audioFile, selectedFileIndex, newBreakpointIndex]);
 
     const handleAddBreakpoint = useCallback((segmentIndex: number) => {
         if (!audioFile || segmentIndex < 0 || segmentIndex >= audioFile.segments.length) return;
@@ -266,10 +369,14 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
         setNewBreakpointIndex(segmentIndex);
         
         // Update local state optimistically
-        setAudioFile({
+        const updatedFile = {
             ...audioFile,
             segments,
-        });
+        };
+        setAudioFile(updatedFile);
+        setAudioFiles(prev => prev.map((f, idx) => 
+            idx === selectedFileIndex ? updatedFile : f
+        ));
         
         // Select and scroll to the new segment (secondHalf) in both views
         requestAnimationFrame(() => {
@@ -327,6 +434,9 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
 
         // Set up timeupdate listener to stop at segment end
         const checkTime = () => {
+            // Don't update audio position while user is dragging a boundary
+            if (isDragging) return;
+            
             if (audio && audio.currentTime >= segment.endSec) {
                 audio.pause();
                 audio.currentTime = segment.endSec;
@@ -391,7 +501,7 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
             setPlayingSegmentId(null);
             audio.removeEventListener("timeupdate", checkTime);
         }
-    }, [handleSegmentSelect, playingSegmentId, audioElements, audioFile]);
+    }, [handleSegmentSelect, playingSegmentId, audioElements, audioFile, selectedFileIndex, isDragging]);
 
     const handleStopPlayback = useCallback(() => {
         if (playingSegmentId) {
@@ -405,102 +515,138 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
     }, [playingSegmentId, audioElements]);
 
     const handleImport = useCallback(() => {
-        if (!audioFile || audioFile.segments.length === 0) return;
-
-        const docId = documentName.replace(/\.[^/.]+$/, "").replace(/\s+/g, "");
-        const nowIso = new Date().toISOString();
-        
-        const segmentMappings = audioFile.segments.map((segment, index) => {
-            const cellIndex = index + 1;
-            const attachmentId = `audio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}-seg${cellIndex}`;
-            const fileName = `${attachmentId}.wav`;
-            return {
-                segmentId: segment.id,
-                cellId: `${docId} 1:${cellIndex}`,
-                attachmentId,
-                fileName,
-            };
-        });
-
-        const sourceCells: ProcessedCell[] = [];
-        const codexCells: ProcessedCell[] = [];
-
-        audioFile.segments.forEach((segment, index) => {
-            const mapping = segmentMappings[index];
-            const cellId = mapping.cellId;
-            const attachmentId = mapping.attachmentId;
-            const fileName = mapping.fileName;
-            const url = `.project/attachments/files/${docId}/${fileName}`;
-
-            sourceCells.push(createProcessedCell(cellId, "", {
-                type: "text",
-                id: cellId,
-                data: { startTime: segment.startSec, endTime: segment.endSec },
-                edits: [],
-                attachments: {
-                    [attachmentId]: {
-                        url,
-                        type: "audio",
-                        createdAt: Date.now(),
-                        updatedAt: Date.now(),
-                        isDeleted: false,
-                        startTime: 0,
-                        endTime: Number.NaN,
-                    },
-                },
-                selectedAudioId: attachmentId,
-                selectionTimestamp: Date.now(),
-            }));
-
-            codexCells.push(createProcessedCell(cellId, "", {
-                type: "text",
-                id: cellId,
-                data: { startTime: segment.startSec, endTime: segment.endSec },
-                edits: [],
-                attachments: [],
-            }));
-        });
-
-        const notebookPair: NotebookPair = {
-            source: {
-                name: docId,
-                cells: sourceCells,
-                metadata: {
-                    id: docId,
-                    originalFileName: documentName,
-                    importerType: "audio2",
-                    createdAt: nowIso,
-                    audioOnly: true,
-                },
-            },
-            codex: {
-                name: docId,
-                cells: codexCells,
-                metadata: {
-                    id: docId,
-                    originalFileName: documentName,
-                    importerType: "audio2",
-                    createdAt: nowIso,
-                    audioOnly: true,
-                },
-            },
-        };
+        if (audioFiles.length === 0 || audioFiles.every(f => f.segments.length === 0)) return;
 
         setIsImporting(true);
         setImportProgress({ stage: "starting", message: "Starting import...", progress: 0 });
         setError(null);
-        setPendingNotebookPair(notebookPair);
 
-        vscode.postMessage({
-            command: "finalizeAudioImport",
-            sessionId: audioFile.sessionId,
-            documentName: docId,
-            notebookPairs: [notebookPair],
-            segmentMappings,
-        } as FinalizeAudioImportMessage);
+        const notebookPairs: NotebookPair[] = [];
+        const allSegmentMappings: Array<{ sessionId: string; mappings: Array<{ segmentId: string; cellId: string; attachmentId: string; fileName: string }> }> = [];
 
-        // Don't call onComplete here - wait for audioImportComplete message
-    }, [audioFile, documentName, onComplete]);
+        audioFiles.forEach((file, fileIndex) => {
+            if (file.segments.length === 0) return;
+
+            const docId = fileIndex === 0 
+                ? documentName.replace(/\.[^/.]+$/, "").replace(/\s+/g, "")
+                : `${documentName.replace(/\.[^/.]+$/, "").replace(/\s+/g, "")}_${fileIndex + 1}`;
+            const nowIso = new Date().toISOString();
+            
+            const segmentMappings = file.segments.map((segment, index) => {
+                const cellIndex = index + 1;
+                const attachmentId = `audio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}-seg${cellIndex}`;
+                const fileName = `${attachmentId}.wav`;
+                return {
+                    segmentId: segment.id,
+                    cellId: `${docId} 1:${cellIndex}`,
+                    attachmentId,
+                    fileName,
+                };
+            });
+
+            const sourceCells: ProcessedCell[] = [];
+            const codexCells: ProcessedCell[] = [];
+
+            file.segments.forEach((segment, index) => {
+                const mapping = segmentMappings[index];
+                const cellId = mapping.cellId;
+                const attachmentId = mapping.attachmentId;
+                const fileName = mapping.fileName;
+                const url = `.project/attachments/files/${docId}/${fileName}`;
+
+                sourceCells.push(createProcessedCell(cellId, "", {
+                    type: "text" as CodexCellTypes,
+                    id: cellId,
+                    data: { startTime: segment.startSec, endTime: segment.endSec },
+                    edits: [],
+                    attachments: {
+                        [attachmentId]: {
+                            url,
+                            type: "audio",
+                            createdAt: Date.now(),
+                            updatedAt: Date.now(),
+                            isDeleted: false,
+                        },
+                    },
+                    selectedAudioId: attachmentId,
+                    selectionTimestamp: Date.now(),
+                }));
+
+                codexCells.push(createProcessedCell(cellId, "", {
+                    type: "text" as CodexCellTypes,
+                    id: cellId,
+                    data: { startTime: segment.startSec, endTime: segment.endSec },
+                    edits: [],
+                    attachments: {},
+                }));
+            });
+
+            const notebookPair: NotebookPair = {
+                source: {
+                    name: docId,
+                    cells: sourceCells,
+                    metadata: {
+                        id: docId,
+                        originalFileName: file.fileName,
+                        importerType: "audio2",
+                        createdAt: nowIso,
+                        audioOnly: true,
+                    },
+                },
+                codex: {
+                    name: docId,
+                    cells: codexCells,
+                    metadata: {
+                        id: docId,
+                        originalFileName: file.fileName,
+                        importerType: "audio2",
+                        createdAt: nowIso,
+                        audioOnly: true,
+                    },
+                },
+            };
+
+            notebookPairs.push(notebookPair);
+            allSegmentMappings.push({ sessionId: file.sessionId, mappings: segmentMappings });
+        });
+
+        setPendingNotebookPairs(notebookPairs);
+        setAllSegmentMappings(allSegmentMappings);
+        setCompletedImportSessions(new Set());
+
+        // Import all files sequentially
+        const importNext = async (index: number) => {
+            if (index >= audioFiles.length) {
+                // All imports complete
+                setIsImporting(false);
+                setImportProgress(null);
+                setTimeout(() => {
+                    onComplete?.(notebookPairs.length === 1 ? notebookPairs : notebookPairs);
+                }, 500);
+                return;
+            }
+
+            const file = audioFiles[index];
+            const mapping = allSegmentMappings.find(m => m.sessionId === file.sessionId);
+            const notebookPair = notebookPairs[index];
+
+            if (mapping && notebookPair) {
+                vscode.postMessage({
+                    command: "finalizeAudioImport",
+                    sessionId: file.sessionId,
+                    documentName: notebookPair.source.name,
+                    notebookPairs: [notebookPair],
+                    segmentMappings: mapping.mappings,
+                } as FinalizeAudioImportMessage);
+            }
+
+            // Wait for import to complete before starting next
+            // This will be handled by the audioImportComplete message handler
+        };
+
+        // Start importing first file
+        importNext(0);
+    }, [audioFiles, documentName, onComplete]);
 
     const waveformPeaks = audioFile?.waveformPeaks || [];
     const maxPeak = waveformPeaks.length > 0 ? Math.max(...waveformPeaks) : 1;
@@ -512,9 +658,10 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
     
     // Calculate adaptive pixels per second to fit within safe canvas size
     // For long files, reduce zoom; for short files, increase zoom
+    // Default zoom is 3x (150 pixels per second instead of 50)
     const canvasWidth = React.useMemo(() => {
         if (!audioFile) return minCanvasWidth;
-        const pixelsPerSecond = Math.min(50, maxCanvasWidth / audioFile.durationSec);
+        const pixelsPerSecond = Math.min(150, maxCanvasWidth / audioFile.durationSec);
         return Math.min(maxCanvasWidth, Math.max(minCanvasWidth, audioFile.durationSec * pixelsPerSecond));
     }, [audioFile]);
 
@@ -595,6 +742,14 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
         const boundaryIndex = findBoundaryNear(x);
         
         if (boundaryIndex !== null) {
+            // Pause audio if playing while user drags boundary
+            if (playingSegmentId) {
+                const audio = audioElements.get(playingSegmentId);
+                if (audio && !audio.paused) {
+                    audio.pause();
+                }
+            }
+            
             // Clear purple highlight when clicking on any boundary
             setNewBreakpointIndex(null);
             // Select the segment that starts at this boundary (the segment after the boundary)
@@ -617,7 +772,7 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
                 handleSegmentSelect(segment);
             }
         }
-    }, [audioFile, isDragging, findBoundaryNear, pixelToTime, handleSegmentSelect]);
+    }, [audioFile, isDragging, findBoundaryNear, pixelToTime, handleSegmentSelect, playingSegmentId, audioElements]);
 
     // Handle mouse move
     useEffect(() => {
@@ -650,7 +805,12 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
                     ...updatedSegments[draggedBoundaryIndex + 1],
                     startSec: constrainedTime,
                 };
-                return { ...prev, segments: updatedSegments };
+                const updatedFile = { ...prev, segments: updatedSegments };
+                // Also update audioFiles array
+                setAudioFiles(prevFiles => prevFiles.map((f, idx) => 
+                    idx === selectedFileIndex ? updatedFile : f
+                ));
+                return updatedFile;
             });
         };
 
@@ -658,7 +818,7 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
             window.addEventListener("mousemove", handleMouseMove);
             return () => window.removeEventListener("mousemove", handleMouseMove);
         }
-    }, [isDragging, draggedBoundaryIndex, audioFile, pixelToTime]);
+    }, [isDragging, draggedBoundaryIndex, audioFile, pixelToTime, selectedFileIndex]);
 
     // Handle mouse up - finalize drag and send update
     useEffect(() => {
@@ -845,10 +1005,25 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                         <Music className="h-5 w-5" />
-                        Import Audio File
+                        Import Audio File{audioFiles.length > 1 ? `s (${audioFiles.length})` : ""}
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                    {audioFiles.length > 1 && (
+                        <div className="flex gap-2 overflow-x-auto pb-2 border-b">
+                            {audioFiles.map((file, index) => (
+                                <Button
+                                    key={file.sessionId}
+                                    variant={selectedFileIndex === index ? "default" : "outline"}
+                                    size="sm"
+                                    onClick={() => setSelectedFileIndex(index)}
+                                    className="whitespace-nowrap"
+                                >
+                                    {file.fileName}
+                                </Button>
+                            ))}
+                        </div>
+                    )}
                     <div className="space-y-2">
                         <Label htmlFor="doc-name">Document Name</Label>
                         <Input
@@ -928,7 +1103,7 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
                                 ) : (
                                     <>
                                         <Upload className="mr-2 h-4 w-4" />
-                                        Select Audio File
+                                        Select Audio File{audioFiles.length > 0 ? "s" : ""}
                                     </>
                                 )}
                             </Button>
@@ -1088,13 +1263,27 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
                                     <div className="space-y-2">
                                         <div className="flex items-center justify-between">
                                             <span className="text-sm font-medium">{importProgress.stage}</span>
-                                            {importProgress.progress !== undefined && (
-                                                <span className="text-sm text-muted-foreground">
-                                                    {Math.round(importProgress.progress)}%
+                                            <div className="flex items-center gap-3">
+                                                {importProgress.etaSeconds !== undefined && (
+                                                    <span className="text-xs text-muted-foreground">
+                                                        {formatETA(importProgress.etaSeconds)} remaining
+                                                    </span>
+                                                )}
+                                                {importProgress.progress !== undefined && (
+                                                    <span className="text-sm text-muted-foreground">
+                                                        {Math.round(importProgress.progress)}%
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <p className="text-sm text-muted-foreground">
+                                            {importProgress.message}
+                                            {importProgress.currentSegment !== undefined && importProgress.totalSegments !== undefined && (
+                                                <span className="ml-2">
+                                                    ({importProgress.currentSegment}/{importProgress.totalSegments})
                                                 </span>
                                             )}
-                                        </div>
-                                        <p className="text-sm text-muted-foreground">{importProgress.message}</p>
+                                        </p>
                                         {importProgress.progress !== undefined && (
                                             <Progress value={importProgress.progress} className="w-full" />
                                         )}
