@@ -331,8 +331,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             corpusMarker: processedNotebook.metadata.corpusMarker || processedNotebook.metadata.importerType,
             textDirection: "ltr",
             ...(processedNotebook.metadata.videoUrl && { videoUrl: processedNotebook.metadata.videoUrl }),
-            ...(processedNotebook.metadata as any)?.audioOnly !== undefined
-                ? { audioOnly: (processedNotebook.metadata as any).audioOnly as boolean }
+            ...(processedNotebook.metadata)?.audioOnly !== undefined
+                ? { audioOnly: processedNotebook.metadata.audioOnly as boolean }
                 : {},
             // Preserve document structure metadata and other custom fields
             ...(processedNotebook.metadata.documentStructure && {
@@ -345,13 +345,13 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 mammothMessages: processedNotebook.metadata.mammothMessages
             }),
             // Preserve DOCX round-trip structure
-            ...((processedNotebook.metadata as any)?.docxDocument && {
-                docxDocument: (processedNotebook.metadata as any).docxDocument
+            ...(processedNotebook.metadata?.docxDocument && {
+                docxDocument: processedNotebook.metadata.docxDocument
             }),
-            ...((processedNotebook.metadata as any)?.originalHash && {
-                originalHash: (processedNotebook.metadata as any).originalHash
+            ...(processedNotebook.metadata?.originalHash && {
+                originalHash: processedNotebook.metadata.originalHash
             }),
-        } as any; // Cast to any to allow custom fields
+        };
 
         return {
             name: processedNotebook.name,
@@ -868,8 +868,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         );
 
                         // Ensure metadata exists, then update it with fileDisplayName
-                        const existingMetadata = (notebookData.metadata as any) || {};
-                        (notebookData.metadata as any) = {
+                        const existingMetadata = notebookData.metadata || {};
+                        notebookData.metadata = {
                             ...existingMetadata,
                             fileDisplayName: book.name.trim(),
                         };

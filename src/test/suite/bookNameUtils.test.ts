@@ -59,7 +59,7 @@ suite("bookNameUtils Test Suite", () => {
 
         const serializer = new CodexContentSerializer();
         const serialized = await serializer.serializeNotebook(
-            notebookData as any,
+            notebookData,
             new vscode.CancellationTokenSource().token
         );
         await vscode.workspace.fs.writeFile(codexUri, serialized);

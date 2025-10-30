@@ -1,3 +1,4 @@
+import { CustomNotebookMetadata } from "@types";
 import * as vscode from "vscode";
 import * as xml2js from "xml2js";
 
@@ -66,7 +67,7 @@ export async function openBookNameEditor() {
                 const content = await vscode.workspace.fs.readFile(uri);
                 const notebookData = await serializer.deserializeNotebook(content, new vscode.CancellationTokenSource().token);
                 const abbr = path.basename(uri.fsPath, ".codex");
-                const dn = (notebookData.metadata as any)?.fileDisplayName;
+                const dn = (notebookData.metadata as CustomNotebookMetadata)?.fileDisplayName;
                 if (abbr && typeof dn === "string" && dn.trim()) {
                     displayNameByAbbr[abbr] = dn.trim();
                 }
@@ -127,11 +128,11 @@ export async function openBookNameEditor() {
                             try {
                                 const content = await vscode.workspace.fs.readFile(uri);
                                 const notebookData = await serializer.deserializeNotebook(content, new vscode.CancellationTokenSource().token);
-                                (notebookData.metadata as any) = {
+                                (notebookData.metadata as CustomNotebookMetadata) = {
                                     ...(notebookData.metadata || {}),
                                     fileDisplayName: newName,
                                 };
-                                const updatedContent = await serializer.serializeNotebook(notebookData as any, new vscode.CancellationTokenSource().token);
+                                const updatedContent = await serializer.serializeNotebook(notebookData, new vscode.CancellationTokenSource().token);
                                 await vscode.workspace.fs.writeFile(uri, updatedContent);
                                 updatedCount++;
                             } catch (error) {
@@ -467,11 +468,11 @@ export async function importBookNamesFromXmlContent(
                             if (!customName) continue;
                             const content = await vscode.workspace.fs.readFile(uri);
                             const notebookData = await serializer.deserializeNotebook(content, new vscode.CancellationTokenSource().token);
-                            (notebookData.metadata as any) = {
+                            (notebookData.metadata) = {
                                 ...(notebookData.metadata || {}),
                                 fileDisplayName: customName,
                             };
-                            const updatedContent = await serializer.serializeNotebook(notebookData as any, new vscode.CancellationTokenSource().token);
+                            const updatedContent = await serializer.serializeNotebook(notebookData, new vscode.CancellationTokenSource().token);
                             await vscode.workspace.fs.writeFile(uri, updatedContent);
                             updatedCount++;
                         } catch (error) {

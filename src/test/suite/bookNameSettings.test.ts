@@ -75,7 +75,7 @@ suite("bookNameSettings Test Suite", () => {
 
         const serializer = new CodexContentSerializer();
         const serialized = await serializer.serializeNotebook(
-            notebookData as any,
+            notebookData,
             new vscode.CancellationTokenSource().token
         );
         await vscode.workspace.fs.writeFile(codexUri, serialized);
@@ -126,7 +126,7 @@ suite("bookNameSettings Test Suite", () => {
             const abbr = path.basename(uri.fsPath, ".codex");
             if (abbr === "GEN") {
                 assert.strictEqual(
-                    (notebookData.metadata as any).fileDisplayName,
+                    notebookData.metadata.fileDisplayName,
                     "Custom Genesis",
                     "GEN should have fileDisplayName"
                 );
@@ -180,7 +180,7 @@ suite("bookNameSettings Test Suite", () => {
                 new vscode.CancellationTokenSource().token
             );
             assert.strictEqual(
-                (genData.metadata as any).fileDisplayName,
+                genData.metadata.fileDisplayName,
                 "Custom Genesis Name",
                 "GEN should have updated fileDisplayName"
             );
@@ -194,7 +194,7 @@ suite("bookNameSettings Test Suite", () => {
                 new vscode.CancellationTokenSource().token
             );
             assert.strictEqual(
-                (exoData.metadata as any).fileDisplayName,
+                exoData.metadata.fileDisplayName,
                 "Custom Exodus Name",
                 "EXO should have updated fileDisplayName"
             );
@@ -283,13 +283,13 @@ suite("bookNameSettings Test Suite", () => {
                 new vscode.CancellationTokenSource().token
             );
 
-            (notebookData.metadata as any) = {
+            notebookData.metadata = {
                 ...(notebookData.metadata || {}),
                 fileDisplayName: newName,
             };
 
             const updatedContent = await serializer.serializeNotebook(
-                notebookData as any,
+                notebookData,
                 new vscode.CancellationTokenSource().token
             );
             await vscode.workspace.fs.writeFile(uri, updatedContent);
@@ -308,7 +308,7 @@ suite("bookNameSettings Test Suite", () => {
             );
 
             assert.strictEqual(
-                (notebookData.metadata as any).fileDisplayName,
+                notebookData.metadata.fileDisplayName,
                 expectedName,
                 `${abbr} should have updated fileDisplayName`
             );

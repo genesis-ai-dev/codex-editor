@@ -447,15 +447,15 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                         cellLabel: cell.metadata.cellLabel,
                         editHistory: cell.metadata.edits,
                         attachments: cell.metadata.attachments,
-                        metadata: { selectedAudioId: (cell as any)?.metadata?.selectedAudioId },
-                    } as any);
+                        metadata: { selectedAudioId: cell?.metadata?.selectedAudioId },
+                    });
                     return cellValueData;
                 }
             );
 
             // Compute audio completion based on attachments (mirrors editor logic)
             const cellsWithAudioValues = unmergedCells.filter((cell) =>
-                cellHasAudioUsingAttachments((cell as any)?.metadata?.attachments, (cell as any)?.metadata?.selectedAudioId)
+                cellHasAudioUsingAttachments(cell?.metadata?.attachments, cell?.metadata?.selectedAudioId)
             ).length;
 
             // Use project settings for required validation counts
@@ -471,8 +471,8 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
             // Compute per-level validation percentages for text and audio
             const countNonDeleted = (arr: any[] | undefined) => (arr || []).filter((v: any) => !v.isDeleted).length;
-            const textValidationCounts = cellWithValidatedData.map((c) => countNonDeleted((c as any).validatedBy));
-            const audioValidationCounts = cellWithValidatedData.map((c) => countNonDeleted((c as any).audioValidatedBy));
+            const textValidationCounts = cellWithValidatedData.map((c) => countNonDeleted(c.validatedBy));
+            const audioValidationCounts = cellWithValidatedData.map((c) => countNonDeleted(c.audioValidatedBy));
 
             const computeLevelPercents = (counts: number[], maxLevel: number) => {
                 const levels: number[] = [];
@@ -574,7 +574,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 const sums = new Array(len).fill(0);
                 let count = 0;
                 itemsInGroup.forEach((it) => {
-                    const arr = (it.progress as any)?.[key] as number[] | undefined;
+                    const arr = it.progress?.[key] as number[] | undefined;
                     if (arr && arr.length === len) {
                         for (let i = 0; i < len; i++) sums[i] += arr[i];
                         count++;
@@ -797,7 +797,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                         );
 
                         // Check if this file's corpus marker matches the old label
-                        const metadata = notebookData.metadata as any;
+                        const metadata = notebookData.metadata;
 
                         const fileNameAbbr = path.basename(uri.fsPath, ".codex");
                         const bookInfo = this.bibleBookMap.get(fileNameAbbr);
@@ -808,7 +808,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                         if (resolved === "New Testament") resolved = "NT";
 
                         if (resolved === oldCorpusLabel) {
-                            (notebookData.metadata as any) = { ...(notebookData.metadata as any), corpusMarker: newCorpusName };
+                            notebookData.metadata = { ...notebookData.metadata, corpusMarker: newCorpusName };
 
                             // Serialize and save the updated notebook
                             const updatedContent = await this.serializer.serializeNotebook(
@@ -901,8 +901,8 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                             );
 
                             // Update metadata to add fileDisplayName (preserve originalName)
-                            const metadata = notebookData.metadata as any;
-                            (notebookData.metadata as any) = {
+                            const metadata = notebookData.metadata;
+                            notebookData.metadata = {
                                 ...metadata,
                                 fileDisplayName: newBookName,
                                 // Preserve originalName if it exists, don't modify it

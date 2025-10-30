@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "path";
+import { CustomNotebookMetadata } from "@types";
 
 interface BookInfo {
     name: string;
@@ -94,7 +95,7 @@ export async function getBookDisplayName(usfmCode: string): Promise<string> {
                 const serializer = new (await import("../serializer")).CodexContentSerializer();
                 const content = await vscode.workspace.fs.readFile(matches[0]);
                 const notebookData = await serializer.deserializeNotebook(content, new vscode.CancellationTokenSource().token);
-                const dn = (notebookData.metadata as any)?.fileDisplayName;
+                const dn = (notebookData.metadata as CustomNotebookMetadata)?.fileDisplayName;
                 if (typeof dn === "string" && dn.trim()) {
                     return dn.trim();
                 }

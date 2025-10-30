@@ -882,6 +882,7 @@ export interface CustomNotebookMetadata {
     autoDownloadAudioOnOpen?: boolean;
     /** When true, backtranslations will be displayed inline below cells */
     showInlineBacktranslations?: boolean;
+    fileDisplayName?: string;
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
