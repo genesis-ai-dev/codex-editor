@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -8,6 +8,7 @@ import "../tailwind.css";
 import { CodexItem } from "types";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { Languages } from "lucide-react";
+import { RenameModal } from "../components/RenameModal";
 
 // Declare the acquireVsCodeApi function
 declare function acquireVsCodeApi(): any;
@@ -101,43 +102,6 @@ const styles = {
             transform: "scale(0.98)",
         },
     },
-
-    // Modal styles
-    modalOverlay: {
-        position: "fixed" as const,
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: "rgba(0, 0, 0, 0.5)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 2000,
-    },
-    modalContent: {
-        backgroundColor: "var(--vscode-editor-background)",
-        border: "1px solid var(--vscode-editorWidget-border)",
-        borderRadius: "8px",
-        padding: "20px",
-        minWidth: "300px",
-        maxWidth: "350px",
-        boxShadow: "0 8px 32px rgba(0, 0, 0, 0.3)",
-    },
-    modalTitle: {
-        fontSize: "16px",
-        fontWeight: "600",
-        color: "var(--vscode-foreground)",
-        marginBottom: "16px",
-    },
-    modalDescription: {
-        fontSize: "14px",
-        color: "var(--vscode-descriptionForeground)",
-        marginBottom: "20px",
-        lineHeight: "1.5",
-    },
-    modalInput: {},
-    modalButtons: {},
 };
 
 // Helper function to sort items based on Bible book order or alphanumerically
@@ -474,12 +438,14 @@ function NavigationView() {
     };
 
     const handleEditCorpusMarker = (item: CodexItem) => {
+        const currentCorpusName =
+            item.corpusMarker || formatLabel(item.label, state.bibleBookMap || new Map());
         setState((prev) => ({
             ...prev,
             renameModal: {
                 isOpen: true,
                 item: item,
-                newName: "",
+                newName: prev.renameModal.newName || currentCorpusName,
             },
         }));
     };
@@ -495,12 +461,12 @@ function NavigationView() {
         }));
     };
 
-    const handleRenameModalInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleRenameModalInputChange = (value: string) => {
         setState((prev) => ({
             ...prev,
             renameModal: {
                 ...prev.renameModal,
-                newName: e.target.value,
+                newName: value,
             },
         }));
     };
@@ -519,14 +485,6 @@ function NavigationView() {
         handleRenameModalClose();
     };
 
-    const handleRenameModalKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === "Enter") {
-            handleRenameModalConfirm();
-        } else if (e.key === "Escape") {
-            handleRenameModalClose();
-        }
-    };
-
     const handleBookNameModalClose = () => {
         setState((prev) => ({
             ...prev,
@@ -538,12 +496,12 @@ function NavigationView() {
         }));
     };
 
-    const handleBookNameModalInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleBookNameModalInputChange = (value: string) => {
         setState((prev) => ({
             ...prev,
             bookNameModal: {
                 ...prev.bookNameModal,
-                newName: e.target.value,
+                newName: value,
             },
         }));
     };
@@ -565,14 +523,6 @@ function NavigationView() {
             }
         }
         handleBookNameModalClose();
-    };
-
-    const handleBookNameModalKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === "Enter") {
-            handleBookNameModalConfirm();
-        } else if (e.key === "Escape") {
-            handleBookNameModalClose();
-        }
     };
 
     const openFile = (item: CodexItem) => {
@@ -1056,72 +1006,34 @@ function NavigationView() {
             </div>
 
             {/* Rename Modal */}
-            {state.renameModal.isOpen && (
-                <div style={styles.modalOverlay} onClick={handleRenameModalClose}>
-                    <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-                        <div style={styles.modalTitle}>Rename Corpus</div>
-                        <div style={styles.modalDescription}>
-                            Enter new name for "{renameModalOriginalLabel}
-                            ":
-                        </div>
-                        <input
-                            type="text"
-                            className="w-full p-2 text-sm bg-vscode-input-background text-vscode-input-foreground border border-vscode-input-border rounded-md mb-5 outline-none"
-                            value={state.renameModal.newName}
-                            onChange={handleRenameModalInputChange}
-                            onKeyDown={handleRenameModalKeyPress}
-                            placeholder="Enter new corpus name"
-                            autoFocus
-                        />
-                        <div className="flex gap-3 justify-end">
-                            <Button variant="secondary" onClick={handleRenameModalClose}>
-                                Cancel
-                            </Button>
-                            <Button
-                                variant="default"
-                                onClick={handleRenameModalConfirm}
-                                disabled={disableRenameButton}
-                            >
-                                Rename
-                            </Button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <RenameModal
+                open={state.renameModal.isOpen}
+                title="Rename Corpus"
+                description="Enter new name for"
+                originalLabel={renameModalOriginalLabel}
+                value={state.renameModal.newName}
+                placeholder="Enter new corpus name"
+                confirmButtonLabel="Rename"
+                disabled={disableRenameButton}
+                onClose={handleRenameModalClose}
+                onConfirm={handleRenameModalConfirm}
+                onValueChange={handleRenameModalInputChange}
+            />
 
             {/* Book Name Modal */}
-            {state.bookNameModal.isOpen && (
-                <div style={styles.modalOverlay} onClick={handleBookNameModalClose}>
-                    <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-                        <div style={styles.modalTitle}>Edit Book Name</div>
-                        <div style={styles.modalDescription}>
-                            Enter new name for "{bookNameModalOriginalLabel}
-                            ":
-                        </div>
-                        <input
-                            type="text"
-                            className="w-full p-2 text-sm bg-vscode-input-background text-vscode-input-foreground border border-vscode-input-border rounded-md mb-5 outline-none"
-                            value={state.bookNameModal.newName}
-                            onChange={handleBookNameModalInputChange}
-                            onKeyDown={handleBookNameModalKeyPress}
-                            placeholder="Enter new book name"
-                            autoFocus
-                        />
-                        <div className="flex gap-3 justify-end">
-                            <Button variant="secondary" onClick={handleBookNameModalClose}>
-                                Cancel
-                            </Button>
-                            <Button
-                                variant="default"
-                                onClick={handleBookNameModalConfirm}
-                                disabled={disableBookNameButton}
-                            >
-                                Save
-                            </Button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <RenameModal
+                open={state.bookNameModal.isOpen}
+                title="Edit Book Name"
+                description="Enter new name for"
+                originalLabel={bookNameModalOriginalLabel}
+                value={state.bookNameModal.newName}
+                placeholder="Enter new book name"
+                confirmButtonLabel="Save"
+                disabled={disableBookNameButton}
+                onClose={handleBookNameModalClose}
+                onConfirm={handleBookNameModalConfirm}
+                onValueChange={handleBookNameModalInputChange}
+            />
         </div>
     );
 }
