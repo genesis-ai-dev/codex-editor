@@ -59,6 +59,37 @@ function formatDuration(sec: number): string {
     return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
+// Automatically split any segments that exceed 30 seconds
+function ensureMaxSegmentLength(segments: Segment[], sessionId: string): Segment[] {
+    const MAX_SEGMENT_LENGTH = 30;
+    const result: Segment[] = [];
+    
+    for (const seg of segments) {
+        const duration = seg.endSec - seg.startSec;
+        if (duration <= MAX_SEGMENT_LENGTH) {
+            result.push(seg);
+        } else {
+            // Split into multiple segments of max 30 seconds each
+            let currentStart = seg.startSec;
+            let segmentIndex = 0;
+            while (currentStart < seg.endSec) {
+                const currentEnd = Math.min(currentStart + MAX_SEGMENT_LENGTH, seg.endSec);
+                const newId = segmentIndex === 0 ? seg.id : `${sessionId}-seg${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                result.push({
+                    ...seg,
+                    id: newId,
+                    startSec: currentStart,
+                    endSec: currentEnd,
+                });
+                currentStart = currentEnd;
+                segmentIndex++;
+            }
+        }
+    }
+    
+    return result;
+}
+
 export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
     onComplete,
     onCancel,
@@ -303,6 +334,9 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
         segments[segmentIndex] = mergedSegment;
         segments.splice(segmentIndex + 1, 1);
         
+        // Automatically split any segments that exceed 30 seconds
+        const processedSegments = ensureMaxSegmentLength(segments, audioFile.sessionId);
+        
         // Clear purple highlight if this segment was newly added
         if (newBreakpointIndex === segmentIndex || newBreakpointIndex === segmentIndex + 1) {
             setNewBreakpointIndex(null);
@@ -314,7 +348,7 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
         // Update local state optimistically
         const updatedFile = {
             ...audioFile,
-            segments,
+            segments: processedSegments,
         };
         setAudioFile(updatedFile);
         setAudioFiles(prev => prev.map((f, idx) => 
@@ -325,7 +359,7 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
         vscode.postMessage({
             command: "updateAudioSegments",
             sessionId: audioFile.sessionId,
-            segments: segments.map(s => ({
+            segments: processedSegments.map(s => ({
                 id: s.id,
                 startSec: s.startSec,
                 endSec: s.endSec,
@@ -365,36 +399,45 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
         segments[segmentIndex] = firstHalf;
         segments.splice(segmentIndex + 1, 0, secondHalf);
         
+        // Automatically split any segments that exceed 30 seconds
+        const processedSegments = ensureMaxSegmentLength(segments, audioFile.sessionId);
+        
         // Highlight the new breakpoint (the boundary we just created)
         setNewBreakpointIndex(segmentIndex);
         
         // Update local state optimistically
         const updatedFile = {
             ...audioFile,
-            segments,
+            segments: processedSegments,
         };
         setAudioFile(updatedFile);
         setAudioFiles(prev => prev.map((f, idx) => 
             idx === selectedFileIndex ? updatedFile : f
         ));
         
-        // Select and scroll to the new segment (secondHalf) in both views
+        // Select and scroll to the new segment in both views
+        // Find the segment that starts at the midpoint (the second half)
         requestAnimationFrame(() => {
-            handleSegmentSelect(secondHalf);
-            // Scroll the segment into view in the list
-            setTimeout(() => {
-                const segmentElement = document.getElementById(`segment-${newSegmentId}`);
-                if (segmentElement) {
-                    segmentElement.scrollIntoView({ behavior: "smooth", block: "nearest" });
-                }
-            }, 100);
+            const segmentToSelect = processedSegments.find(s => 
+                Math.abs(s.startSec - midpoint) < 0.01
+            ) || processedSegments[segmentIndex + 1] || processedSegments[segmentIndex];
+            if (segmentToSelect) {
+                handleSegmentSelect(segmentToSelect);
+                // Scroll the segment into view in the list
+                setTimeout(() => {
+                    const segmentElement = document.getElementById(`segment-${segmentToSelect.id}`);
+                    if (segmentElement) {
+                        segmentElement.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                    }
+                }, 100);
+            }
         });
         
-        // Send update to backend
+        // Send update to backend (using processed segments that are all <= 30 seconds)
         vscode.postMessage({
             command: "updateAudioSegments",
             sessionId: audioFile.sessionId,
-            segments: segments.map(s => ({
+            segments: processedSegments.map(s => ({
                 id: s.id,
                 startSec: s.startSec,
                 endSec: s.endSec,
@@ -790,7 +833,6 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
             
             const minTime = prevSegment.startSec + 0.1; // Minimum 0.1s segment
             const maxTime = nextSegment.endSec - 0.1; // Minimum 0.1s segment
-            
             const constrainedTime = Math.max(minTime, Math.min(maxTime, newTime));
             
             // Update segments optimistically
@@ -805,7 +847,11 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
                     ...updatedSegments[draggedBoundaryIndex + 1],
                     startSec: constrainedTime,
                 };
-                const updatedFile = { ...prev, segments: updatedSegments };
+                
+                // Automatically split any segments that exceed 30 seconds
+                const processedSegments = ensureMaxSegmentLength(updatedSegments, prev.sessionId);
+                
+                const updatedFile = { ...prev, segments: processedSegments };
                 // Also update audioFiles array
                 setAudioFiles(prevFiles => prevFiles.map((f, idx) => 
                     idx === selectedFileIndex ? updatedFile : f
@@ -827,11 +873,14 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
 
             setIsDragging(false);
             
+            // Ensure all segments are under 30 seconds before sending to backend
+            const processedSegments = ensureMaxSegmentLength(audioFile.segments, audioFile.sessionId);
+            
             // Send update to backend
             vscode.postMessage({
                 command: "updateAudioSegments",
                 sessionId: audioFile.sessionId,
-                segments: audioFile.segments.map(s => ({
+                segments: processedSegments.map(s => ({
                     id: s.id,
                     startSec: s.startSec,
                     endSec: s.endSec,

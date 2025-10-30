@@ -1515,6 +1515,10 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             // Get audio duration from the last segment's endSec
             const duration = Math.max(...message.segments.map(s => s.endSec));
             
+            // Validate timing and automatically split segments that exceed 30 seconds
+            const MAX_SEGMENT_LENGTH = 30;
+            const processedSegments: Array<{ id: string; startSec: number; endSec: number }> = [];
+            
             for (let i = 0; i < message.segments.length; i++) {
                 const seg = message.segments[i];
                 
@@ -1533,16 +1537,37 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 if (i > 0 && seg.startSec < message.segments[i - 1].endSec) {
                     throw new Error(`Segments overlap or are out of order`);
                 }
+                
+                // Automatically split segments that exceed 30 seconds
+                const segmentDuration = seg.endSec - seg.startSec;
+                if (segmentDuration <= MAX_SEGMENT_LENGTH) {
+                    processedSegments.push({ id: seg.id, startSec: seg.startSec, endSec: seg.endSec });
+                } else {
+                    // Split into multiple segments of max 30 seconds each
+                    let currentStart = seg.startSec;
+                    let segmentIndex = 0;
+                    while (currentStart < seg.endSec) {
+                        const currentEnd = Math.min(currentStart + MAX_SEGMENT_LENGTH, seg.endSec);
+                        const newId = segmentIndex === 0 ? seg.id : `${seg.id}-split${segmentIndex}`;
+                        processedSegments.push({
+                            id: newId,
+                            startSec: currentStart,
+                            endSec: currentEnd,
+                        });
+                        currentStart = currentEnd;
+                        segmentIndex++;
+                    }
+                }
             }
 
-            // Update session segments
-            session.segments = message.segments.map(seg => ({
+            // Update session segments (using processed segments that are all <= 30 seconds)
+            session.segments = processedSegments.map(seg => ({
                 id: seg.id,
                 startSec: seg.startSec,
                 endSec: seg.endSec,
             }));
 
-            console.log(`[AudioImporter2] Updated ${message.segments.length} segments for session ${message.sessionId}`);
+            console.log(`[AudioImporter2] Updated ${processedSegments.length} segments (from ${message.segments.length} input segments) for session ${message.sessionId}`);
 
             webviewPanel.webview.postMessage({
                 command: "audioSegmentsUpdated",

@@ -319,12 +319,33 @@ export async function detectSilence(
                     }
                 }
 
-                console.log(`[audioProcessor] Final segments: ${cleanedSegments.length}`);
-                if (cleanedSegments.length > 0) {
-                    console.log(`[audioProcessor] First 5 segments: [${cleanedSegments.slice(0, 5).map(s => `${s.startSec.toFixed(2)}-${s.endSec.toFixed(2)}`).join(', ')}${cleanedSegments.length > 5 ? '...' : ''}]`);
+                // Split segments that exceed 30 seconds maximum length
+                const MAX_SEGMENT_LENGTH = 30;
+                const finalSegments: AudioSegment[] = [];
+                for (const seg of cleanedSegments) {
+                    const duration = seg.endSec - seg.startSec;
+                    if (duration <= MAX_SEGMENT_LENGTH) {
+                        finalSegments.push(seg);
+                    } else {
+                        // Split into multiple segments of max 30 seconds each
+                        let currentStart = seg.startSec;
+                        while (currentStart < seg.endSec) {
+                            const currentEnd = Math.min(currentStart + MAX_SEGMENT_LENGTH, seg.endSec);
+                            finalSegments.push({
+                                startSec: currentStart,
+                                endSec: currentEnd
+                            });
+                            currentStart = currentEnd;
+                        }
+                    }
                 }
 
-                resolve(cleanedSegments);
+                console.log(`[audioProcessor] Final segments: ${finalSegments.length}`);
+                if (finalSegments.length > 0) {
+                    console.log(`[audioProcessor] First 5 segments: [${finalSegments.slice(0, 5).map(s => `${s.startSec.toFixed(2)}-${s.endSec.toFixed(2)}`).join(', ')}${finalSegments.length > 5 ? '...' : ''}]`);
+                }
+
+                resolve(finalSegments);
             } catch (error) {
                 reject(error);
             }
