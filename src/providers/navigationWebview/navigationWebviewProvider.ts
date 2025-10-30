@@ -20,6 +20,7 @@ interface CodexMetadata {
     gitStatus?: string;
     corpusMarker?: string;
     progress?: number;
+    bookDisplayName?: string;
 }
 
 interface BibleBookInfo {
@@ -356,10 +357,11 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             }
             case "editBookName": {
                 try {
-                    await vscode.commands.executeCommand("codex-editor.openBookNameEditor");
+                    const { bookAbbr, newBookName } = message.content;
+                    await this.updateBookName(bookAbbr, newBookName);
                 } catch (error) {
-                    console.error("Error opening book name editor:", error);
-                    vscode.window.showErrorMessage(`Failed to open book name editor: ${error}`);
+                    console.error("Error updating book name:", error);
+                    vscode.window.showErrorMessage(`Failed to update book name: ${error}`);
                 }
                 break;
             }
@@ -516,6 +518,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                     percentFullyValidatedTranslations: fullyValidatedProgress,
                 },
                 sortOrder,
+                bookDisplayName: metadata?.bookDisplayName,
             };
         } catch (error) {
             console.warn(`Failed to read metadata for ${uri.fsPath}:`, error);
@@ -800,6 +803,157 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
         } catch (error) {
             console.error("Error updating corpus markers:", error);
             vscode.window.showErrorMessage(`Failed to update corpus markers: ${error}`);
+        }
+    }
+
+    private async updateBookName(bookAbbr: string, newBookName: string): Promise<void> {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders?.length) {
+            vscode.window.showErrorMessage("No workspace folder found");
+            return;
+        }
+
+        const workspaceRoot = workspaceFolders[0].uri.fsPath;
+        const localizedPath = path.join(workspaceRoot, "localized-books.json");
+
+        // Dynamic import for fs
+        const fs = await import("fs");
+
+        try {
+            // Get default book info to ensure we have ord and testament
+            const defaultBookInfo = this.bibleBookMap.get(bookAbbr);
+            if (!defaultBookInfo) {
+                vscode.window.showErrorMessage(`Book abbreviation "${bookAbbr}" not found`);
+                return;
+            }
+
+            // Load existing localized books
+            let localizedBooks: any[] = [];
+            if (fs.existsSync(localizedPath)) {
+                try {
+                    const raw = fs.readFileSync(localizedPath, "utf8");
+                    localizedBooks = JSON.parse(raw);
+                    if (!Array.isArray(localizedBooks)) {
+                        localizedBooks = [];
+                    }
+                } catch (err) {
+                    console.warn("Error reading localized-books.json, creating new file:", err);
+                    localizedBooks = [];
+                }
+            }
+
+            // Find existing entry or create new one
+            const existingIndex = localizedBooks.findIndex((book: any) => book.abbr === bookAbbr);
+            const bookEntry = {
+                abbr: bookAbbr,
+                name: newBookName,
+                ord: defaultBookInfo.ord,
+                testament: defaultBookInfo.testament,
+            };
+
+            if (existingIndex >= 0) {
+                // Update existing entry
+                localizedBooks[existingIndex] = bookEntry;
+            } else {
+                // Add new entry
+                localizedBooks.push(bookEntry);
+            }
+
+            // Save back to file
+            fs.writeFileSync(localizedPath, JSON.stringify(localizedBooks, null, 2));
+
+            // Update .codex file metadata
+            const rootUri = workspaceFolders[0].uri;
+            const codexPattern = new vscode.RelativePattern(
+                rootUri.fsPath,
+                "files/target/**/*.codex"
+            );
+
+            try {
+                // Find all codex files
+                const codexUris = await vscode.workspace.findFiles(codexPattern);
+                let updatedCount = 0;
+
+                // Show progress
+                await vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: `Updating book name for "${bookAbbr}"`,
+                    cancellable: false
+                }, async (progress) => {
+                    // Filter to only files matching the book abbreviation
+                    const matchingUris = codexUris.filter(uri => {
+                        const fileNameAbbr = path.basename(uri.fsPath, ".codex");
+                        return fileNameAbbr === bookAbbr;
+                    });
+
+                    const total = matchingUris.length;
+
+                    for (let i = 0; i < matchingUris.length; i++) {
+                        const uri = matchingUris[i];
+                        progress.report({
+                            increment: (100 / total),
+                            message: `Processing ${path.basename(uri.fsPath)}...`
+                        });
+
+                        try {
+                            // Read the codex file
+                            const content = await vscode.workspace.fs.readFile(uri);
+                            const notebookData = await this.serializer.deserializeNotebook(
+                                content,
+                                new vscode.CancellationTokenSource().token
+                            );
+
+                            // Update metadata to add bookDisplayName (preserve originalName)
+                            const metadata = notebookData.metadata as any;
+                            (notebookData.metadata as any) = {
+                                ...metadata,
+                                bookDisplayName: newBookName,
+                                // Preserve originalName if it exists, don't modify it
+                            };
+
+                            // Serialize and save the updated notebook
+                            const updatedContent = await this.serializer.serializeNotebook(
+                                notebookData,
+                                new vscode.CancellationTokenSource().token
+                            );
+
+                            await vscode.workspace.fs.writeFile(uri, updatedContent);
+                            updatedCount++;
+                        } catch (error) {
+                            console.error(`Error updating ${uri.fsPath}:`, error);
+                            // Continue with other files even if one fails
+                        }
+                    }
+                });
+
+                // Reload bible book map to reflect changes
+                this.loadBibleBookMap();
+
+                // Refresh navigation view
+                await this.buildInitialData();
+
+                if (updatedCount > 0) {
+                    vscode.window.showInformationMessage(
+                        `Book name updated: "${bookAbbr}" → "${newBookName}" (${updatedCount} file(s) updated)`
+                    );
+                } else {
+                    vscode.window.showInformationMessage(
+                        `Book name updated: "${bookAbbr}" → "${newBookName}" (no matching codex files found)`
+                    );
+                }
+            } catch (error) {
+                console.error("Error updating codex files:", error);
+                // Still show success for localized-books.json update
+                vscode.window.showWarningMessage(
+                    `Book name updated in localized-books.json, but failed to update codex files: ${error}`
+                );
+                // Reload bible book map and refresh navigation view anyway
+                this.loadBibleBookMap();
+                await this.buildInitialData();
+            }
+        } catch (error) {
+            console.error("Error updating book name:", error);
+            vscode.window.showErrorMessage(`Failed to update book name: ${error}`);
         }
     }
 

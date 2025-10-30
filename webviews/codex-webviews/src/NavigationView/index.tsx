@@ -38,6 +38,11 @@ interface State {
         item: CodexItem | null;
         newName: string;
     };
+    bookNameModal: {
+        isOpen: boolean;
+        item: CodexItem | null;
+        newName: string;
+    };
 }
 
 // Redesigned styles following Jobs/DHH principles: clean, purposeful, delightful
@@ -207,6 +212,11 @@ function NavigationView() {
 
         hasReceivedInitialData: false,
         renameModal: {
+            isOpen: false,
+            item: null,
+            newName: "",
+        },
+        bookNameModal: {
             isOpen: false,
             item: null,
             newName: "",
@@ -447,10 +457,15 @@ function NavigationView() {
     };
 
     const handleEditBookName = (item: CodexItem) => {
-        vscode.postMessage({
-            command: "editBookName",
-            content: { bookAbbr: item.label },
-        });
+        const currentDisplayName = formatLabel(item.label, state.bibleBookMap || new Map());
+        setState((prev) => ({
+            ...prev,
+            bookNameModal: {
+                isOpen: true,
+                item: item,
+                newName: currentDisplayName,
+            },
+        }));
     };
 
     const handleEditCorpusMarker = (item: CodexItem) => {
@@ -507,6 +522,52 @@ function NavigationView() {
         }
     };
 
+    const handleBookNameModalClose = () => {
+        setState((prev) => ({
+            ...prev,
+            bookNameModal: {
+                isOpen: false,
+                item: null,
+                newName: "",
+            },
+        }));
+    };
+
+    const handleBookNameModalInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setState((prev) => ({
+            ...prev,
+            bookNameModal: {
+                ...prev.bookNameModal,
+                newName: e.target.value,
+            },
+        }));
+    };
+
+    const handleBookNameModalConfirm = () => {
+        const { item, newName } = state.bookNameModal;
+        if (item && newName.trim() !== "") {
+            const currentDisplayName = formatLabel(item.label, state.bibleBookMap || new Map());
+            if (newName.trim() !== currentDisplayName) {
+                vscode.postMessage({
+                    command: "editBookName",
+                    content: {
+                        bookAbbr: item.label,
+                        newBookName: newName.trim(),
+                    },
+                });
+            }
+        }
+        handleBookNameModalClose();
+    };
+
+    const handleBookNameModalKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === "Enter") {
+            handleBookNameModalConfirm();
+        } else if (e.key === "Escape") {
+            handleBookNameModalClose();
+        }
+    };
+
     const openFile = (item: CodexItem) => {
         // Get the file system path from the URI
         const uri = item.uri as string;
@@ -530,10 +591,9 @@ function NavigationView() {
                 if (item.type === "corpus" && item.children) {
                     const filteredChildren = item.children
                         .filter((child) => {
-                            const displayName = formatLabel(
-                                child.label,
-                                state.bibleBookMap || new Map()
-                            );
+                            const displayName =
+                                child.bookDisplayName ||
+                                formatLabel(child.label, state.bibleBookMap || new Map());
                             return displayName.toLowerCase().includes(searchLower);
                         })
                         .sort(sortItems);
@@ -547,7 +607,9 @@ function NavigationView() {
                     return null;
                 }
 
-                const displayName = formatLabel(item.label, state.bibleBookMap || new Map());
+                const displayName =
+                    item.bookDisplayName ||
+                    formatLabel(item.label, state.bibleBookMap || new Map());
                 return displayName.toLowerCase().includes(searchLower) ? item : null;
             })
             .filter((item): item is CodexItem => item !== null);
@@ -574,7 +636,8 @@ function NavigationView() {
         const isGroup = item.type === "corpus";
         const isExpanded = state.expandedGroups.has(item.label);
         const icon = isGroup ? "library" : item.type === "dictionary" ? "book" : "file";
-        const displayLabel = formatLabel(item.label || "", state.bibleBookMap || new Map());
+        const displayLabel =
+            item.bookDisplayName || formatLabel(item.label || "", state.bibleBookMap || new Map());
         const itemId = `${item.label || "unknown"}-${item.uri || ""}`;
 
         const isProjectDict = item.isProjectDictionary;
@@ -777,6 +840,19 @@ function NavigationView() {
         );
     }, [state.renameModal.newName, renameModalOriginalLabel]);
 
+    const bookNameModalOriginalLabel = useMemo(() => {
+        if (!state.bookNameModal.item) return "";
+        return formatLabel(state.bookNameModal.item.label, state.bibleBookMap || new Map());
+    }, [state.bookNameModal.item, state.bibleBookMap]);
+
+    const disableBookNameButton = useMemo(() => {
+        return (
+            !state.bookNameModal.newName.trim() ||
+            state.bookNameModal.newName.trim() === bookNameModalOriginalLabel ||
+            state.bookNameModal.newName.trim() === state.bookNameModal.item?.label
+        );
+    }, [state.bookNameModal.newName, state.bookNameModal.item?.label, bookNameModalOriginalLabel]);
+
     // Separate project dictionary from other dictionaries
     const projectDictionary = filteredDictionaryItems.find((item) => item.isProjectDictionary);
     const otherDictionaries = filteredDictionaryItems.filter((item) => !item.isProjectDictionary);
@@ -891,6 +967,40 @@ function NavigationView() {
                                 disabled={disableRenameButton}
                             >
                                 Rename
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Book Name Modal */}
+            {state.bookNameModal.isOpen && (
+                <div style={styles.modalOverlay} onClick={handleBookNameModalClose}>
+                    <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+                        <div style={styles.modalTitle}>Edit Book Name</div>
+                        <div style={styles.modalDescription}>
+                            Enter new name for "{bookNameModalOriginalLabel}
+                            ":
+                        </div>
+                        <input
+                            type="text"
+                            className="w-full p-2 text-sm bg-vscode-input-background text-vscode-input-foreground border border-vscode-input-border rounded-md mb-5 outline-none"
+                            value={state.bookNameModal.newName}
+                            onChange={handleBookNameModalInputChange}
+                            onKeyDown={handleBookNameModalKeyPress}
+                            placeholder="Enter new book name"
+                            autoFocus
+                        />
+                        <div className="flex gap-3 justify-end">
+                            <Button variant="secondary" onClick={handleBookNameModalClose}>
+                                Cancel
+                            </Button>
+                            <Button
+                                variant="default"
+                                onClick={handleBookNameModalConfirm}
+                                disabled={disableBookNameButton}
+                            >
+                                Save
                             </Button>
                         </div>
                     </div>
