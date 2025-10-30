@@ -1553,7 +1553,7 @@ interface CodexItem {
     isProjectDictionary?: boolean;
     wordCount?: number;
     isEnabled?: boolean;
-    bookDisplayName?: string;
+    fileDisplayName?: string;
 }
 type EditorReceiveMessages =
     | {

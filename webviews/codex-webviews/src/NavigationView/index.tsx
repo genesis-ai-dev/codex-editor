@@ -424,9 +424,9 @@ function NavigationView() {
     };
 
     const handleEditBookName = (item: CodexItem) => {
-        // Use bookDisplayName from metadata if available, otherwise fall back to formatted label
+        // Use fileDisplayName from metadata if available, otherwise fall back to formatted label
         const currentDisplayName =
-            item.bookDisplayName || formatLabel(item.label, state.bibleBookMap || new Map());
+            item.fileDisplayName || formatLabel(item.label, state.bibleBookMap || new Map());
         setState((prev) => ({
             ...prev,
             bookNameModal: {
@@ -509,9 +509,9 @@ function NavigationView() {
     const handleBookNameModalConfirm = () => {
         const { item, newName } = state.bookNameModal;
         if (item && newName.trim() !== "") {
-            // Use bookDisplayName from metadata if available, otherwise fall back to formatted label
+            // Use fileDisplayName from metadata if available, otherwise fall back to formatted label
             const currentDisplayName =
-                item.bookDisplayName || formatLabel(item.label, state.bibleBookMap || new Map());
+                item.fileDisplayName || formatLabel(item.label, state.bibleBookMap || new Map());
             if (newName.trim() !== currentDisplayName) {
                 vscode.postMessage({
                     command: "editBookName",
@@ -549,7 +549,7 @@ function NavigationView() {
                     const filteredChildren = item.children
                         .filter((child) => {
                             const displayName =
-                                child.bookDisplayName ||
+                                child.fileDisplayName ||
                                 formatLabel(child.label, state.bibleBookMap || new Map());
                             return displayName.toLowerCase().includes(searchLower);
                         })
@@ -565,7 +565,7 @@ function NavigationView() {
                 }
 
                 const displayName =
-                    item.bookDisplayName ||
+                    item.fileDisplayName ||
                     formatLabel(item.label, state.bibleBookMap || new Map());
                 return displayName.toLowerCase().includes(searchLower) ? item : null;
             })
@@ -699,7 +699,7 @@ function NavigationView() {
         const isExpanded = state.expandedGroups.has(item.label);
         const icon = isGroup ? "library" : item.type === "dictionary" ? "book" : "file";
         const displayLabel =
-            item.bookDisplayName || formatLabel(item.label || "", state.bibleBookMap || new Map());
+            item.fileDisplayName || formatLabel(item.label || "", state.bibleBookMap || new Map());
         const itemId = `${item.label || "unknown"}-${item.uri || ""}`;
 
         const isProjectDict = item.isProjectDictionary;
@@ -904,9 +904,9 @@ function NavigationView() {
 
     const bookNameModalOriginalLabel = useMemo(() => {
         if (!state.bookNameModal.item) return "";
-        // Use bookDisplayName from metadata if available, otherwise fall back to formatted label
+        // Use fileDisplayName from metadata if available, otherwise fall back to formatted label
         return (
-            state.bookNameModal.item.bookDisplayName ||
+            state.bookNameModal.item.fileDisplayName ||
             formatLabel(state.bookNameModal.item.label, state.bibleBookMap || new Map())
         );
     }, [state.bookNameModal.item, state.bibleBookMap]);

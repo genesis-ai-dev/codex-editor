@@ -94,14 +94,14 @@ export async function getBookDisplayName(usfmCode: string): Promise<string> {
                 const serializer = new (await import("../serializer")).CodexContentSerializer();
                 const content = await vscode.workspace.fs.readFile(matches[0]);
                 const notebookData = await serializer.deserializeNotebook(content, new vscode.CancellationTokenSource().token);
-                const dn = (notebookData.metadata as any)?.bookDisplayName;
+                const dn = (notebookData.metadata as any)?.fileDisplayName;
                 if (typeof dn === "string" && dn.trim()) {
                     return dn.trim();
                 }
             }
         }
     } catch (error) {
-        console.warn("Error reading bookDisplayName from metadata:", error);
+        console.warn("Error reading fileDisplayName from metadata:", error);
     }
 
     // Fallback to English name

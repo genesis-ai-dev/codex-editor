@@ -52,7 +52,7 @@ suite("bookNameSettings Test Suite", () => {
 
     async function createCodexFileWithMetadata(
         usfmCode: string,
-        metadata: { bookDisplayName?: string;[key: string]: any; }
+        metadata: { fileDisplayName?: string;[key: string]: any; }
     ): Promise<vscode.Uri> {
         if (!workspaceFolder) {
             throw new Error("No workspace folder found");
@@ -84,7 +84,7 @@ suite("bookNameSettings Test Suite", () => {
         return codexUri;
     }
 
-    test("openBookNameEditor reads bookDisplayName from codex metadata files", async () => {
+    test("openBookNameEditor reads fileDisplayName from codex metadata files", async () => {
         // Skip if no workspace folder
         if (!vscode.workspace.workspaceFolders?.[0]) {
             return;
@@ -95,11 +95,11 @@ suite("bookNameSettings Test Suite", () => {
         // we'll test the metadata reading logic indirectly through importBookNamesFromXmlContent
         // which uses similar logic.
 
-        // Create codex files with bookDisplayName
+        // Create codex files with fileDisplayName
         await createCodexFileWithMetadata("GEN", {
-            bookDisplayName: "Custom Genesis",
+            fileDisplayName: "Custom Genesis",
         });
-        await createCodexFileWithMetadata("EXO", {}); // No bookDisplayName
+        await createCodexFileWithMetadata("EXO", {}); // No fileDisplayName
 
         // The actual verification would happen if we could test openBookNameEditor directly
         // For now, we verify that the codex files exist and can be read
@@ -126,9 +126,9 @@ suite("bookNameSettings Test Suite", () => {
             const abbr = path.basename(uri.fsPath, ".codex");
             if (abbr === "GEN") {
                 assert.strictEqual(
-                    (notebookData.metadata as any).bookDisplayName,
+                    (notebookData.metadata as any).fileDisplayName,
                     "Custom Genesis",
-                    "GEN should have bookDisplayName"
+                    "GEN should have fileDisplayName"
                 );
             }
         }
@@ -180,9 +180,9 @@ suite("bookNameSettings Test Suite", () => {
                 new vscode.CancellationTokenSource().token
             );
             assert.strictEqual(
-                (genData.metadata as any).bookDisplayName,
+                (genData.metadata as any).fileDisplayName,
                 "Custom Genesis Name",
-                "GEN should have updated bookDisplayName"
+                "GEN should have updated fileDisplayName"
             );
 
             const exoUri = tempCodexFiles.find((uri) => path.basename(uri.fsPath, ".codex") === "EXO");
@@ -194,9 +194,9 @@ suite("bookNameSettings Test Suite", () => {
                 new vscode.CancellationTokenSource().token
             );
             assert.strictEqual(
-                (exoData.metadata as any).bookDisplayName,
+                (exoData.metadata as any).fileDisplayName,
                 "Custom Exodus Name",
-                "EXO should have updated bookDisplayName"
+                "EXO should have updated fileDisplayName"
             );
         } finally {
             showInfoStub.restore();
@@ -257,7 +257,7 @@ suite("bookNameSettings Test Suite", () => {
         await createCodexFileWithMetadata("NUM", {});
         await createCodexFileWithMetadata("DEU", {});
 
-        // Simulate the save logic: update bookDisplayName in codex files
+        // Simulate the save logic: update fileDisplayName in codex files
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
             return;
@@ -285,7 +285,7 @@ suite("bookNameSettings Test Suite", () => {
 
             (notebookData.metadata as any) = {
                 ...(notebookData.metadata || {}),
-                bookDisplayName: newName,
+                fileDisplayName: newName,
             };
 
             const updatedContent = await serializer.serializeNotebook(
@@ -308,9 +308,9 @@ suite("bookNameSettings Test Suite", () => {
             );
 
             assert.strictEqual(
-                (notebookData.metadata as any).bookDisplayName,
+                (notebookData.metadata as any).fileDisplayName,
                 expectedName,
-                `${abbr} should have updated bookDisplayName`
+                `${abbr} should have updated fileDisplayName`
             );
         }
     });

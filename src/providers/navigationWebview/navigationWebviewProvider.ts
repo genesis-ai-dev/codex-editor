@@ -20,7 +20,7 @@ interface CodexMetadata {
     gitStatus?: string;
     corpusMarker?: string;
     progress?: number;
-    bookDisplayName?: string;
+    fileDisplayName?: string;
 }
 
 interface BibleBookInfo {
@@ -58,7 +58,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
     private loadBibleBookMap(): void {
         console.log("Loading bible book map for Navigation...");
-        // Build the book map from default data only; display names come from metadata.bookDisplayName
+        // Build the book map from default data only; display names come from metadata.fileDisplayName
         const defaultBooks: any[] = [...bibleData];
         this.bibleBookMap.clear();
         defaultBooks.forEach((book) => {
@@ -523,7 +523,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                     requiredAudioValidations: minimumAudioValidationsRequired,
                 },
                 sortOrder,
-                bookDisplayName: metadata?.bookDisplayName,
+                fileDisplayName: metadata?.fileDisplayName,
             };
         } catch (error) {
             console.warn(`Failed to read metadata for ${uri.fsPath}:`, error);
@@ -900,11 +900,11 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                                 new vscode.CancellationTokenSource().token
                             );
 
-                            // Update metadata to add bookDisplayName (preserve originalName)
+                            // Update metadata to add fileDisplayName (preserve originalName)
                             const metadata = notebookData.metadata as any;
                             (notebookData.metadata as any) = {
                                 ...metadata,
-                                bookDisplayName: newBookName,
+                                fileDisplayName: newBookName,
                                 // Preserve originalName if it exists, don't modify it
                             };
 

@@ -56,7 +56,7 @@ export async function openBookNameEditor() {
         return;
     }
 
-    // Build current overrides from codex metadata (bookDisplayName) instead of localized-books.json
+    // Build current overrides from codex metadata (fileDisplayName) instead of localized-books.json
     const displayNameByAbbr: Record<string, string> = {};
     try {
         const codexUris = await vscode.workspace.findFiles(new vscode.RelativePattern(workspaceRoot, "files/target/**/*.codex"));
@@ -66,19 +66,19 @@ export async function openBookNameEditor() {
                 const content = await vscode.workspace.fs.readFile(uri);
                 const notebookData = await serializer.deserializeNotebook(content, new vscode.CancellationTokenSource().token);
                 const abbr = path.basename(uri.fsPath, ".codex");
-                const dn = (notebookData.metadata as any)?.bookDisplayName;
+                const dn = (notebookData.metadata as any)?.fileDisplayName;
                 if (abbr && typeof dn === "string" && dn.trim()) {
                     displayNameByAbbr[abbr] = dn.trim();
                 }
             } catch (error) {
-                console.error(`Error reading bookDisplayName from ${uri.fsPath}:`, error);
+                console.error(`Error reading fileDisplayName from ${uri.fsPath}:`, error);
             }
         }
     } catch (error) {
-        console.error(`Error reading bookDisplayName from codex files:`, error);
+        console.error(`Error reading fileDisplayName from codex files:`, error);
     }
 
-    // Merge for UI: always show all books, use bookDisplayName from metadata if present
+    // Merge for UI: always show all books, use fileDisplayName from metadata if present
     const mergedBooks = defaultBooks.map((book: any) => ({
         abbr: book.abbr,
         defaultName: book.name,
@@ -129,7 +129,7 @@ export async function openBookNameEditor() {
                                 const notebookData = await serializer.deserializeNotebook(content, new vscode.CancellationTokenSource().token);
                                 (notebookData.metadata as any) = {
                                     ...(notebookData.metadata || {}),
-                                    bookDisplayName: newName,
+                                    fileDisplayName: newName,
                                 };
                                 const updatedContent = await serializer.serializeNotebook(notebookData as any, new vscode.CancellationTokenSource().token);
                                 await vscode.workspace.fs.writeFile(uri, updatedContent);
@@ -469,7 +469,7 @@ export async function importBookNamesFromXmlContent(
                             const notebookData = await serializer.deserializeNotebook(content, new vscode.CancellationTokenSource().token);
                             (notebookData.metadata as any) = {
                                 ...(notebookData.metadata || {}),
-                                bookDisplayName: customName,
+                                fileDisplayName: customName,
                             };
                             const updatedContent = await serializer.serializeNotebook(notebookData as any, new vscode.CancellationTokenSource().token);
                             await vscode.workspace.fs.writeFile(uri, updatedContent);

@@ -53,7 +53,7 @@ suite("NavigationWebviewProvider Test Suite", () => {
 
     async function createCodexFileWithMetadata(
         usfmCode: string,
-        metadata: { bookDisplayName?: string;[key: string]: any; }
+        metadata: { fileDisplayName?: string;[key: string]: any; }
     ): Promise<vscode.Uri> {
         if (!workspaceFolder) {
             throw new Error("No workspace folder found");
@@ -139,7 +139,7 @@ suite("NavigationWebviewProvider Test Suite", () => {
         );
     });
 
-    test("updateBookName updates bookDisplayName in codex metadata", async () => {
+    test("updateBookName updates fileDisplayName in codex metadata", async () => {
         // Skip if no workspace folder
         if (!vscode.workspace.workspaceFolders?.[0]) {
             return;
@@ -174,9 +174,9 @@ suite("NavigationWebviewProvider Test Suite", () => {
             );
 
             assert.strictEqual(
-                (notebookData.metadata as any).bookDisplayName,
+                (notebookData.metadata as any).fileDisplayName,
                 "Custom Genesis Name",
-                "bookDisplayName should be updated in metadata"
+                "fileDisplayName should be updated in metadata"
             );
         } finally {
             showErrorMessageStub.restore();
@@ -234,15 +234,15 @@ suite("NavigationWebviewProvider Test Suite", () => {
         }
     });
 
-    test("makeCodexItem uses bookDisplayName from metadata when present", async () => {
+    test("makeCodexItem uses fileDisplayName from metadata when present", async () => {
         // Skip if no workspace folder
         if (!vscode.workspace.workspaceFolders?.[0]) {
             return;
         }
 
-        // Create a codex file with bookDisplayName
+        // Create a codex file with fileDisplayName
         const codexUri = await createCodexFileWithMetadata("LEV", {
-            bookDisplayName: "Custom Leviticus Name",
+            fileDisplayName: "Custom Leviticus Name",
         });
 
         // Load bible book map
@@ -254,19 +254,19 @@ suite("NavigationWebviewProvider Test Suite", () => {
         const codexItem = await makeCodexItemWithMetadata(codexUri);
 
         assert.strictEqual(
-            codexItem.bookDisplayName,
+            codexItem.fileDisplayName,
             "Custom Leviticus Name",
-            "CodexItem should have bookDisplayName from metadata"
+            "CodexItem should have fileDisplayName from metadata"
         );
     });
 
-    test("makeCodexItem handles missing bookDisplayName gracefully", async () => {
+    test("makeCodexItem handles missing fileDisplayName gracefully", async () => {
         // Skip if no workspace folder
         if (!vscode.workspace.workspaceFolders?.[0]) {
             return;
         }
 
-        // Create a codex file without bookDisplayName
+        // Create a codex file without fileDisplayName
         const codexUri = await createCodexFileWithMetadata("NUM", {});
 
         // Load bible book map
@@ -279,9 +279,9 @@ suite("NavigationWebviewProvider Test Suite", () => {
 
         assert.ok(codexItem, "CodexItem should be created");
         assert.strictEqual(
-            codexItem.bookDisplayName,
+            codexItem.fileDisplayName,
             undefined,
-            "CodexItem should not have bookDisplayName when metadata is missing"
+            "CodexItem should not have fileDisplayName when metadata is missing"
         );
     });
 });

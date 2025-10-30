@@ -35,7 +35,7 @@ suite("bookNameUtils Test Suite", () => {
 
     async function createCodexFileWithMetadata(
         usfmCode: string,
-        metadata: { bookDisplayName?: string;[key: string]: any; }
+        metadata: { fileDisplayName?: string;[key: string]: any; }
     ): Promise<vscode.Uri> {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
@@ -68,15 +68,15 @@ suite("bookNameUtils Test Suite", () => {
         return codexUri;
     }
 
-    test("getBookDisplayName reads from metadata.bookDisplayName", async () => {
+    test("getBookDisplayName reads from metadata.fileDisplayName", async () => {
         // Skip if no workspace folder
         if (!vscode.workspace.workspaceFolders?.[0]) {
             return;
         }
 
-        // Create a codex file with custom bookDisplayName
+        // Create a codex file with custom fileDisplayName
         await createCodexFileWithMetadata("GEN", {
-            bookDisplayName: "Custom Genesis Name",
+            fileDisplayName: "Custom Genesis Name",
         });
 
         const displayName = await getBookDisplayName("GEN");
@@ -93,14 +93,14 @@ suite("bookNameUtils Test Suite", () => {
             return;
         }
 
-        // Create a codex file without bookDisplayName
+        // Create a codex file without fileDisplayName
         await createCodexFileWithMetadata("EXO", {});
 
         const displayName = await getBookDisplayName("EXO");
         assert.strictEqual(
             displayName,
             "Exodus",
-            "Should fall back to default English name when bookDisplayName is missing"
+            "Should fall back to default English name when fileDisplayName is missing"
         );
     });
 
@@ -123,41 +123,41 @@ suite("bookNameUtils Test Suite", () => {
         );
     });
 
-    test("getBookDisplayName handles empty bookDisplayName string", async () => {
+    test("getBookDisplayName handles empty fileDisplayName string", async () => {
         // Skip if no workspace folder
         if (!vscode.workspace.workspaceFolders?.[0]) {
             return;
         }
 
-        // Create a codex file with empty bookDisplayName
+        // Create a codex file with empty fileDisplayName
         await createCodexFileWithMetadata("NUM", {
-            bookDisplayName: "",
+            fileDisplayName: "",
         });
 
         const displayName = await getBookDisplayName("NUM");
         assert.strictEqual(
             displayName,
             "Numbers",
-            "Should fall back to default when bookDisplayName is empty string"
+            "Should fall back to default when fileDisplayName is empty string"
         );
     });
 
-    test("getBookDisplayName handles whitespace-only bookDisplayName", async () => {
+    test("getBookDisplayName handles whitespace-only fileDisplayName", async () => {
         // Skip if no workspace folder
         if (!vscode.workspace.workspaceFolders?.[0]) {
             return;
         }
 
-        // Create a codex file with whitespace-only bookDisplayName
+        // Create a codex file with whitespace-only fileDisplayName
         await createCodexFileWithMetadata("DEU", {
-            bookDisplayName: "   ",
+            fileDisplayName: "   ",
         });
 
         const displayName = await getBookDisplayName("DEU");
         assert.strictEqual(
             displayName,
             "Deuteronomy",
-            "Should fall back to default when bookDisplayName is whitespace-only"
+            "Should fall back to default when fileDisplayName is whitespace-only"
         );
     });
 
