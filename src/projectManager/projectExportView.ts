@@ -294,6 +294,10 @@ function getWebviewContent(
                                 <div>
                                     <strong>Plaintext</strong>
                                     <p>Export as plain text files with minimal formatting</p>
+                                    <div style="margin-top: 6px; display: flex; align-items: center; gap: 6px;">
+                                        <input type="checkbox" id="togglePlainTextIds" />
+                                        <label for="togglePlainTextIds">Remove IDs from plaintext exports</label>
+                                    </div>
                                 </div>
                             </div>
                             <div class="format-option" data-format="usfm" style="flex: 1;">
@@ -330,12 +334,15 @@ function getWebviewContent(
                                 <i class="codicon codicon-refresh"></i>
                                 <div>
                                     <strong>Rebuild Export</strong>
-                                    <p>Intelligently detects file type and exports back to original format (DOCX, IDML, Biblica, PDF)</p>
+                                    <p>Intelligently detects file type and exports back to original format (DOCX, IDML, Biblica, PDF, OBS, TMS)</p>
                                     <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem; flex-wrap: wrap;">
-                                        <span class="format-tag" style="background-color: var(--vscode-charts-green);">DOCX</span>
-                                        <span class="format-tag" style="background-color: var(--vscode-charts-green);">IDML</span>
-                                        <span class="format-tag" style="background-color: var(--vscode-charts-green);">Biblica</span>
-                                        <span class="format-tag" style="background-color: var(--vscode-charts-green);">PDF</span>
+                                        <span class="format-tag" style="background-color: var(--vscode-charts-blue);">DOCX</span>
+                                        <span class="format-tag" style="background-color: var(--vscode-charts-blue);">IDML</span>
+                                        <span class="format-tag" style="background-color: var(--vscode-charts-blue);">Biblica</span>
+                                        <span class="format-tag" style="background-color: var(--vscode-charts-blue);">PDF</span>
+                                        <!-- <span class="format-tag" style="background-color: var(--vscode-charts-blue);">RTF</span> -->
+                                        <span class="format-tag" style="background-color: var(--vscode-charts-blue);">OBS</span>
+                                        <span class="format-tag" style="background-color: var(--vscode-charts-blue);">TMS</span>
                                     </div>
                                 </div>
                             </div>
@@ -609,6 +616,10 @@ function getWebviewContent(
                     // Add Audio-specific options
                     if (selectedFormat === 'audio') {
                         options.includeTimestamps = document.getElementById('audioIncludeTimestamps').checked;
+                    }
+                    // Add Plaintext-specific option to remove IDs
+                    if (selectedFormat === 'plaintext') {
+                        options.removeIds = document.getElementById('togglePlainTextIds').checked;
                     }
                     
                     vscode.postMessage({

@@ -138,3 +138,71 @@ export const shouldDisableValidation = (
 ): boolean => {
     return !hasTextContent(htmlContent);
 };
+
+// Progress helpers shared across provider and webviews
+export const cellHasAudioUsingAttachments = (
+    attachments: Record<string, any> | undefined,
+    selectedAudioId?: string
+): boolean => {
+    const atts = attachments;
+    if (!atts || Object.keys(atts).length === 0) return false;
+
+    if (selectedAudioId && atts[selectedAudioId]) {
+        const att = atts[selectedAudioId];
+        return att && att.type === "audio" && att.isDeleted === false && att.isMissing !== true;
+    }
+
+    return Object.values(atts).some(
+        (att: any) => att && att.type === "audio" && att.isDeleted === false && att.isMissing !== true
+    );
+};
+
+export const computeValidationStats = (
+    cellValueData: Array<{ validatedBy?: ValidationEntry[]; audioValidatedBy?: ValidationEntry[]; }>,
+    minimumValidationsRequired: number,
+    minimumAudioValidationsRequired: number
+): {
+    validatedCells: number;
+    audioValidatedCells: number;
+    fullyValidatedCells: number;
+} => {
+    const validatedCells = cellValueData.filter((cell) => {
+        return (cell.validatedBy?.filter((v) => !v.isDeleted).length || 0) >= minimumValidationsRequired;
+    }).length;
+
+    const audioValidatedCells = cellValueData.filter((cell) => {
+        return (cell.audioValidatedBy?.filter((v) => !v.isDeleted).length || 0) >= minimumAudioValidationsRequired;
+    }).length;
+
+    const fullyValidatedCells = cellValueData.filter((cell) => {
+        const textOk = (cell.validatedBy?.filter((v) => !v.isDeleted).length || 0) >= minimumValidationsRequired;
+        const audioOk = (cell.audioValidatedBy?.filter((v) => !v.isDeleted).length || 0) >= minimumAudioValidationsRequired;
+        return textOk && audioOk;
+    }).length;
+
+    return { validatedCells, audioValidatedCells, fullyValidatedCells };
+};
+
+export const computeProgressPercents = (
+    totalCells: number,
+    cellsWithValues: number,
+    cellsWithAudioValues: number,
+    validatedCells: number,
+    audioValidatedCells: number,
+    fullyValidatedCells: number
+): {
+    percentTranslationsCompleted: number;
+    percentAudioTranslationsCompleted: number;
+    percentFullyValidatedTranslations: number;
+    percentAudioValidatedTranslations: number;
+    percentTextValidatedTranslations: number;
+} => {
+    const safeDiv = (num: number) => (totalCells > 0 ? (num / totalCells) * 100 : 0);
+    return {
+        percentTranslationsCompleted: safeDiv(cellsWithValues),
+        percentAudioTranslationsCompleted: safeDiv(cellsWithAudioValues),
+        percentFullyValidatedTranslations: safeDiv(fullyValidatedCells),
+        percentAudioValidatedTranslations: safeDiv(audioValidatedCells),
+        percentTextValidatedTranslations: safeDiv(validatedCells),
+    };
+};
