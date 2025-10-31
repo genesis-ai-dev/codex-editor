@@ -124,12 +124,8 @@ export const defaultCellAligner: CellAligner = async (
         }
     });
 
-    // Process each imported content item
+    // Process each imported content item (including empty cells to preserve order)
     for (const importedItem of importedContent) {
-        if (!importedItem.content.trim()) {
-            continue; // Skip empty content
-        }
-
         // Look for exact ID match in target cells
         const targetCell = targetCellsMap.get(importedItem.id);
 
@@ -142,8 +138,8 @@ export const defaultCellAligner: CellAligner = async (
                 confidence: 1.0 // High confidence for exact matches
             });
             totalMatches++;
-        } else {
-            // No matching cell found - treat as paratext
+        } else if (importedItem.content.trim()) {
+            // No matching cell found AND has content - treat as paratext
             alignedCells.push({
                 notebookCell: null,
                 importedContent: {
@@ -155,6 +151,7 @@ export const defaultCellAligner: CellAligner = async (
                 confidence: 0.0 // No confidence for unmatched content
             });
         }
+        // Skip empty cells that don't match any target cell (trailing blanks from Excel)
     }
 
     // Log matching statistics
