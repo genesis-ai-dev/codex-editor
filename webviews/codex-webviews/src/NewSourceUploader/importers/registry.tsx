@@ -24,7 +24,6 @@ import { obsImporterPlugin } from "./obs/index.tsx";
 import { smartSegmenterPlugin } from "./recursiveTextSplitter/index.tsx";
 import { paratextImporterPlugin } from "./paratext/index.tsx";
 import { spreadsheetImporterPlugin } from "./spreadsheet/index.tsx";
-import { audioImporterPlugin } from "./audio/index.tsx";
 import { audioImporter2Plugin } from "./audio2/index.tsx";
 import { biblicaImporterPlugin } from "./biblica/index.tsx";
 import { tmsImporterPlugin } from "./tms/index.tsx";
@@ -57,14 +56,8 @@ export const importerPlugins: ImporterPlugin[] = [
         tags: [...(smartSegmenterPlugin.tags || []), "Essential", "Universal", "Text"],
     },
     {
-        ...audioImporterPlugin,
-        name: "Audio",
-        description: "Import audio files and segment by timestamps",
-        tags: [...(audioImporterPlugin.tags || []), "Essential", "Media", "Audio"],
-    },
-    {
         ...audioImporter2Plugin,
-        name: "Audio 2",
+        name: "Audio",
         description: "Import audio files with backend processing - supports large files",
         tags: [...(audioImporter2Plugin.tags || []), "Essential", "Media", "Audio"],
     },

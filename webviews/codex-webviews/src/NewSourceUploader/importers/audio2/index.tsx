@@ -5,7 +5,7 @@ import { AudioImporter2Form } from "./AudioImporter2Form";
 
 export const audioImporter2Plugin: ImporterPlugin = {
     id: "audio2",
-    name: "Audio 2",
+    name: "Audio",
     description: "Import audio files with backend processing - supports large files",
     icon: Music as any,
     component: AudioImporter2Form,

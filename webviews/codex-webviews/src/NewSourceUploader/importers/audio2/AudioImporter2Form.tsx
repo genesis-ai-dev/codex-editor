@@ -703,9 +703,13 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
     // For long files, reduce zoom; for short files, increase zoom
     // Default zoom is 3x (150 pixels per second instead of 50)
     const canvasWidth = React.useMemo(() => {
-        if (!audioFile) return minCanvasWidth;
+        if (!audioFile || !isFinite(audioFile.durationSec) || audioFile.durationSec <= 0) return minCanvasWidth;
         const pixelsPerSecond = Math.min(150, maxCanvasWidth / audioFile.durationSec);
-        return Math.min(maxCanvasWidth, Math.max(minCanvasWidth, audioFile.durationSec * pixelsPerSecond));
+        const calculated = audioFile.durationSec * pixelsPerSecond;
+        const clamped = Math.min(maxCanvasWidth, Math.max(minCanvasWidth, calculated));
+        // Ensure integer and safe array size (max ~2^31-1)
+        const safeMax = Math.min(maxCanvasWidth, 2147483647);
+        return Math.floor(Math.min(safeMax, Math.max(minCanvasWidth, clamped)));
     }, [audioFile]);
 
     // Debug logging
@@ -939,10 +943,19 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
         // Only draw waveform if we have valid peaks
         // Waveform now covers the entire file duration at lower resolution
         if (waveformPeaks.length > 0 && maxPeak > 0) {
-            const peaksPerPixel = waveformPeaks.length / width;
-            const amplitudes: number[] = new Array(width).fill(0);
+            // Ensure width is a safe integer for array creation
+            const safeWidth = Math.floor(Math.max(1, Math.min(width, 2147483647)));
+            if (!isFinite(safeWidth) || safeWidth <= 0) {
+                ctx.fillStyle = "#9ca3af";
+                ctx.font = "12px sans-serif";
+                ctx.textAlign = "center";
+                ctx.fillText("Invalid canvas width", width / 2, centerY);
+                return;
+            }
+            const peaksPerPixel = waveformPeaks.length / safeWidth;
+            const amplitudes: number[] = new Array(safeWidth).fill(0);
 
-            for (let x = 0; x < width; x++) {
+            for (let x = 0; x < safeWidth; x++) {
                 const startPeak = Math.floor(x * peaksPerPixel);
                 if (startPeak >= waveformPeaks.length) {
                     amplitudes[x] = 0;
@@ -966,11 +979,11 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
             // Filled waveform area
             ctx.beginPath();
             ctx.moveTo(0, centerY);
-            for (let x = 0; x < width; x++) {
+            for (let x = 0; x < safeWidth; x++) {
                 ctx.lineTo(x, centerY - amplitudes[x]);
             }
-            ctx.lineTo(width, centerY);
-            for (let x = width - 1; x >= 0; x--) {
+            ctx.lineTo(safeWidth, centerY);
+            for (let x = safeWidth - 1; x >= 0; x--) {
                 ctx.lineTo(x, centerY + amplitudes[x]);
             }
             ctx.closePath();
@@ -980,7 +993,7 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
             // Outline for upper and lower envelopes
             ctx.beginPath();
             ctx.moveTo(0, centerY - amplitudes[0]);
-            for (let x = 0; x < width; x++) {
+            for (let x = 0; x < safeWidth; x++) {
                 ctx.lineTo(x, centerY - amplitudes[x]);
             }
             ctx.strokeStyle = "#2563eb";
@@ -989,7 +1002,7 @@ export const AudioImporter2Form: React.FC<ImporterComponentProps> = ({
 
             ctx.beginPath();
             ctx.moveTo(0, centerY + amplitudes[0]);
-            for (let x = 0; x < width; x++) {
+            for (let x = 0; x < safeWidth; x++) {
                 ctx.lineTo(x, centerY + amplitudes[x]);
             }
             ctx.strokeStyle = "#2563eb";
