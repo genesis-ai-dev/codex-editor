@@ -121,6 +121,17 @@ export async function openBookNameEditor() {
                         title: "Saving book name overrides",
                         cancellable: false,
                     }, async () => {
+                        // Get current user for edit history
+                        let currentUser = "anonymous";
+                        try {
+                            const { getAuthApi } = await import("@/extension");
+                            const authApi = getAuthApi();
+                            const userInfo = await authApi?.getUserInfo();
+                            currentUser = userInfo?.username || "anonymous";
+                        } catch (error) {
+                            console.warn("[bookNameSettings] Could not get user info, using 'anonymous'");
+                        }
+
                         for (const uri of codexUris) {
                             const abbr = path.basename(uri.fsPath, ".codex");
                             const newName = updates.get(abbr);
@@ -128,8 +139,24 @@ export async function openBookNameEditor() {
                             try {
                                 const content = await vscode.workspace.fs.readFile(uri);
                                 const notebookData = await serializer.deserializeNotebook(content, new vscode.CancellationTokenSource().token);
-                                (notebookData.metadata as CustomNotebookMetadata) = {
-                                    ...(notebookData.metadata || {}),
+
+                                // Ensure metadata exists
+                                if (!notebookData.metadata) {
+                                    notebookData.metadata = {} as CustomNotebookMetadata;
+                                }
+
+                                const metadata = notebookData.metadata as CustomNotebookMetadata;
+                                const oldValue = metadata.fileDisplayName;
+
+                                // Only add edit if value is actually changing
+                                if (oldValue !== newName) {
+                                    // Add edit history entry before updating metadata
+                                    const { addMetadataEdit } = await import("@/utils/editMapUtils");
+                                    addMetadataEdit(metadata, "fileDisplayName", newName, currentUser);
+                                }
+
+                                notebookData.metadata = {
+                                    ...metadata,
                                     fileDisplayName: newName,
                                 };
                                 const updatedContent = await serializer.serializeNotebook(notebookData, new vscode.CancellationTokenSource().token);

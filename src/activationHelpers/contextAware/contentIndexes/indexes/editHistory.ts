@@ -6,6 +6,7 @@ import { EditMapUtils } from "../../../../utils/editMapUtils";
 interface Edit {
     value: string;
     timestamp: number;
+    updatedTimestamp?: number; // Optional for backward compatibility with different edit formats
     type: EditType;
     author?: string;
     editMap?: readonly string[];
@@ -197,7 +198,8 @@ export async function analyzeEditHistory(): Promise<{
 
                 if (edit.type === "llm-generation") {
                     currentLLM = edit.value;
-                    currentLLMTimestamp = edit.timestamp;
+                    // Support both old (timestamp) and new (updatedTimestamp) formats
+                    currentLLMTimestamp = edit.updatedTimestamp || edit.timestamp || null;
                     continue;
                 }
                 if (edit.type === "user-edit") {

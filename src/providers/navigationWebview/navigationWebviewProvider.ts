@@ -8,6 +8,9 @@ import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToView } from "../../utils/webviewUtils";
 import { CodexItem } from "types";
 import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents } from "../../../sharedUtils";
+import { addMetadataEdit } from "../../utils/editMapUtils";
+import { getAuthApi } from "../../extension";
+import { CustomNotebookMetadata } from "../../../types";
 
 interface CodexMetadata {
     id: string;
@@ -900,8 +903,31 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                                 new vscode.CancellationTokenSource().token
                             );
 
+                            // Get current user for edit history
+                            let currentUser = "anonymous";
+                            try {
+                                const authApi = getAuthApi();
+                                const userInfo = await authApi?.getUserInfo();
+                                currentUser = userInfo?.username || "anonymous";
+                            } catch (error) {
+                                console.warn("[updateBookName] Could not get user info, using 'anonymous'");
+                            }
+
+                            // Ensure metadata exists
+                            if (!notebookData.metadata) {
+                                notebookData.metadata = {} as CustomNotebookMetadata;
+                            }
+
+                            const metadata = notebookData.metadata as CustomNotebookMetadata;
+                            const oldValue = metadata.fileDisplayName;
+
+                            // Only add edit if value is actually changing
+                            if (oldValue !== newBookName) {
+                                // Add edit history entry before updating metadata
+                                addMetadataEdit(metadata, "fileDisplayName", newBookName, currentUser);
+                            }
+
                             // Update metadata to add fileDisplayName (preserve originalName)
-                            const metadata = notebookData.metadata;
                             notebookData.metadata = {
                                 ...metadata,
                                 fileDisplayName: newBookName,

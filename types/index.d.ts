@@ -783,6 +783,16 @@ type EditMapValueType<T extends readonly string[]> =
     : T extends readonly ["metadata", "data", "merged"] ? boolean
     : T extends readonly ["metadata", "selectedAudioId"] ? string
     : T extends readonly ["metadata", "selectionTimestamp"] ? number
+    // File-level metadata fields
+    : T extends readonly ["metadata", "videoUrl"] ? string
+    : T extends readonly ["metadata", "textDirection"] ? "ltr" | "rtl"
+    : T extends readonly ["metadata", "lineNumbersEnabled"] ? boolean
+    : T extends readonly ["metadata", "fontSize"] ? number
+    : T extends readonly ["metadata", "autoDownloadAudioOnOpen"] ? boolean
+    : T extends readonly ["metadata", "showInlineBacktranslations"] ? boolean
+    : T extends readonly ["metadata", "fileDisplayName"] ? string
+    : T extends readonly ["metadata", "cellDisplayMode"] ? "inline" | "one-line-per-cell"
+    : T extends readonly ["metadata", "audioOnly"] ? boolean
     // Fallback for unmatched paths
     : string | number | boolean | object;
 
@@ -812,6 +822,17 @@ export type EditFor<TEditMap extends readonly string[]> = {
     timestamp: number;
     type: import("./enums").EditType;
     validatedBy?: ValidationEntry[];
+};
+
+// File-level edit type for metadata edits (separate from EditHistory)
+export type FileEditHistory<TEditMap extends readonly string[] = readonly string[]> = {
+    editMap: TEditMap;
+    value: EditMapValueType<TEditMap>;
+    creationTimestamp: number;
+    updatedTimestamp: number;
+    isDeleted: boolean;
+    type: import("./enums").EditType;
+    author: string;
 };
 
 
@@ -883,6 +904,7 @@ export interface CustomNotebookMetadata {
     /** When true, backtranslations will be displayed inline below cells */
     showInlineBacktranslations?: boolean;
     fileDisplayName?: string;
+    edits?: FileEditHistory[];
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {

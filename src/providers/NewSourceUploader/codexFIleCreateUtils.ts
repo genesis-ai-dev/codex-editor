@@ -32,6 +32,7 @@ export async function writeNotebook(uri: vscode.Uri, notebook: NotebookPreview):
                 videoUrl: notebook.metadata.videoUrl || "",
                 lineNumbersEnabled: notebook.metadata.lineNumbersEnabled ?? true,
                 lineNumbersEnabledSource: notebook.metadata.lineNumbersEnabledSource || "global",
+                edits: notebook.metadata.edits || [],
                 ...notebook.metadata,
             },
         },
