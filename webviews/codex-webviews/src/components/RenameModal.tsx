@@ -72,7 +72,7 @@ export const RenameModal: React.FC<RenameModalProps> = ({
                     borderColor: "var(--vscode-editorWidget-border)",
                 }}
             >
-                <DialogHeader>
+                <DialogHeader className="text-left">
                     <DialogTitle
                         className="text-base font-semibold mb-4"
                         style={{
@@ -85,17 +85,16 @@ export const RenameModal: React.FC<RenameModalProps> = ({
                         {title}
                     </DialogTitle>
                     <DialogDescription
-                        className="text-sm mb-5 leading-relaxed"
+                        className="text-sm text-left leading-relaxed"
                         style={{
                             fontSize: "14px",
                             color: "var(--vscode-descriptionForeground)",
-                            marginBottom: "20px",
                             lineHeight: "1.5",
                         }}
                     >
                         {description.includes("{label}")
                             ? description.replace("{label}", originalLabel)
-                            : `${description} "${originalLabel}":`}
+                            : `${description} "${originalLabel}"`}
                     </DialogDescription>
                 </DialogHeader>
                 <Input
