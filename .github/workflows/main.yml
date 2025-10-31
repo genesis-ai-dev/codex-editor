@@ -53,12 +53,27 @@ jobs:
                     fi
                   fi
 
-                  echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
-                  echo "action=$ACTION" >> "$GITHUB_OUTPUT"
-                  echo "state=$STATE" >> "$GITHUB_OUTPUT"
-                  echo "title=$TITLE" >> "$GITHUB_OUTPUT"
-                  echo "body=$BODY" >> "$GITHUB_OUTPUT"
-                  echo "html_url=$HTML_URL" >> "$GITHUB_OUTPUT"
+                  # Use delimiter to safely handle multiline and special characters
+                  {
+                    echo "issue_number<<EOF"
+                    echo "$ISSUE_NUMBER"
+                    echo "EOF"
+                    echo "action<<EOF"
+                    echo "$ACTION"
+                    echo "EOF"
+                    echo "state<<EOF"
+                    echo "$STATE"
+                    echo "EOF"
+                    echo "title<<EOF"
+                    echo "$TITLE"
+                    echo "EOF"
+                    echo "body<<EOF"
+                    echo "$BODY"
+                    echo "EOF"
+                    echo "html_url<<EOF"
+                    echo "$HTML_URL"
+                    echo "EOF"
+                  } >> "$GITHUB_OUTPUT"
 
             - name: Send to n8n webhook
               if: steps.issue_info.outputs.skip != 'true'
