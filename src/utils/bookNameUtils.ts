@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "path";
+import { CustomNotebookMetadata } from "@types";
 
 interface BookInfo {
     name: string;
@@ -61,28 +62,6 @@ export async function getUsfmCodeFromBookName(bookName: string): Promise<string 
         return exactMatch.abbr;
     }
 
-    // Try to match against localized book names if they exist
-    try {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (workspaceFolders) {
-            const workspaceRoot = workspaceFolders[0].uri.fsPath;
-            const localizedPath = path.join(workspaceRoot, "localized-books.json");
-
-            const fs = await import("fs");
-            if (fs.existsSync(localizedPath)) {
-                const localizedContent = fs.readFileSync(localizedPath, "utf8");
-                const localizedBooks = JSON.parse(localizedContent);
-
-                const localizedMatch = localizedBooks.find((book: any) => book.name === bookName);
-                if (localizedMatch && localizedMatch.abbr) {
-                    return localizedMatch.abbr;
-                }
-            }
-        }
-    } catch (error) {
-        console.warn("Error reading localized book names:", error);
-    }
-
     // Fallback: try partial matching or common patterns
     const normalizedBookName = bookName.toLowerCase().trim();
 
@@ -105,26 +84,25 @@ export async function getUsfmCodeFromBookName(bookName: string): Promise<string 
  * Get book display name from USFM code (uses localized names if available)
  */
 export async function getBookDisplayName(usfmCode: string): Promise<string> {
-    // First check for localized names
+    // First check codex metadata for a saved display name
     try {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (workspaceFolders) {
-            const workspaceRoot = workspaceFolders[0].uri.fsPath;
-            const localizedPath = path.join(workspaceRoot, "localized-books.json");
-
-            const fs = await import("fs");
-            if (fs.existsSync(localizedPath)) {
-                const localizedContent = fs.readFileSync(localizedPath, "utf8");
-                const localizedBooks = JSON.parse(localizedContent);
-
-                const localizedBook = localizedBooks.find((book: any) => book.abbr === usfmCode);
-                if (localizedBook && localizedBook.name) {
-                    return localizedBook.name;
+            const rootUri = workspaceFolders[0].uri;
+            const codexPattern = new vscode.RelativePattern(rootUri.fsPath, `files/target/**/${usfmCode}.codex`);
+            const matches = await vscode.workspace.findFiles(codexPattern, undefined, 1);
+            if (matches.length > 0) {
+                const serializer = new (await import("../serializer")).CodexContentSerializer();
+                const content = await vscode.workspace.fs.readFile(matches[0]);
+                const notebookData = await serializer.deserializeNotebook(content, new vscode.CancellationTokenSource().token);
+                const dn = (notebookData.metadata as CustomNotebookMetadata)?.fileDisplayName;
+                if (typeof dn === "string" && dn.trim()) {
+                    return dn.trim();
                 }
             }
         }
     } catch (error) {
-        console.warn("Error reading localized book names:", error);
+        console.warn("Error reading fileDisplayName from metadata:", error);
     }
 
     // Fallback to English name
@@ -208,4 +186,20 @@ export async function getAllUsfmCodes(): Promise<string[]> {
 export async function isValidUsfmCode(code: string): Promise<boolean> {
     const validCodes = await getAllUsfmCodes();
     return validCodes.includes(code);
-} 
+}
+
+/**
+ * Determines the corpus marker for a given book code
+ * Returns standardized "NT" or "OT" markers that match navigation expectations
+ * 
+ * This is a wrapper around the shared utility that returns a Promise for consistency
+ * with other async functions in this file.
+ * 
+ * @param bookCode - 3-letter USFM book code (e.g., "GEN", "MAT") or book name
+ * @returns Promise<"NT" | "OT" | null>
+ */
+export async function getCorpusMarkerForBook(bookCode: string): Promise<string | null> {
+    // Import the shared utility
+    const { getCorpusMarkerForBook: sharedGetCorpusMarkerForBook } = await import("../../sharedUtils/corpusUtils");
+    return sharedGetCorpusMarkerForBook(bookCode);
+}

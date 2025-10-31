@@ -11,8 +11,9 @@ import {
     repairDictionaryContent,
 } from "./dictionaryUtils/common";
 import { readDictionaryClient, saveDictionaryClient } from "./dictionaryUtils/client";
-import { CustomNotebookMetadata } from "../../types";
+import { CustomNotebookCellData, CustomNotebookMetadata } from "../../types";
 import { getWorkSpaceUri } from "./index";
+import { getCorpusMarkerForBook } from "../../sharedUtils/corpusUtils";
 
 const DEBUG_MODE = false; // Set to true to enable debug logging
 
@@ -268,6 +269,50 @@ export class NotebookMetadataManager {
                         if (JSON.stringify(metadata) !== JSON.stringify(newMetadata)) {
                             metadata = newMetadata;
                             hasChanges = true;
+                        }
+                    }
+
+                    // Fix ebibleCorpus markers by converting them to NT or OT based on book code
+                    if (metadata?.corpusMarker === "ebibleCorpus" && metadata?.originalName) {
+                        const correctCorpusMarker = getCorpusMarkerForBook(metadata.originalName);
+                        if (correctCorpusMarker && correctCorpusMarker !== metadata.corpusMarker) {
+                            debugLog(
+                                `Fixing corpusMarker for ${metadata.originalName}: ${metadata.corpusMarker} -> ${correctCorpusMarker}`
+                            );
+                            metadata.corpusMarker = correctCorpusMarker;
+                            hasChanges = true;
+
+                            // Update the notebook file with the corrected metadata
+                            try {
+                                notebookData.metadata = {
+                                    ...notebookData.metadata,
+                                    corpusMarker: correctCorpusMarker,
+                                };
+
+                                // Convert CodexNotebookAsJSONData to vscode.NotebookData format for serialization
+                                const notebookDataForSerialization: vscode.NotebookData = {
+                                    cells: notebookData.cells.map((cell: CustomNotebookCellData) => {
+                                        const cellData = new vscode.NotebookCellData(
+                                            cell.kind,
+                                            cell.value,
+                                            cell.languageId || "plaintext"
+                                        );
+                                        cellData.metadata = cell.metadata || {};
+                                        return cellData;
+                                    }),
+                                    metadata: notebookData.metadata,
+                                };
+
+                                const serialized = await serializer.serializeNotebook(
+                                    notebookDataForSerialization,
+                                    new vscode.CancellationTokenSource().token
+                                );
+                                await vscode.workspace.fs.writeFile(file, serialized);
+                                debugLog(`Updated notebook file ${file.fsPath} with corrected corpusMarker`);
+                            } catch (error) {
+                                debugLog(`Error updating notebook file ${file.fsPath}:`, error);
+                                // Continue even if file update fails - metadata is still updated in memory
+                            }
                         }
                     }
 
