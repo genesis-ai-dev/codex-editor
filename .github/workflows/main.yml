@@ -1,0 +1,99 @@
+name: Sync GitHub Issues to Airtable
+
+on:
+    issues:
+        types: [closed, reopened]
+    pull_request:
+        types: [closed]
+
+permissions:
+    issues: read
+    pull-requests: read
+
+jobs:
+    sync-to-airtable:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Determine issue number and action
+              id: issue_info
+              run: |
+                  if [ "${{ github.event_name }}" = "issues" ]; then
+                    ISSUE_NUMBER="${{ github.event.issue.number }}"
+                    ACTION="${{ github.event.action }}"
+                    STATE="${{ github.event.issue.state }}"
+                    TITLE="${{ github.event.issue.title }}"
+                    BODY="${{ github.event.issue.body }}"
+                    HTML_URL="${{ github.event.issue.html_url }}"
+                  elif [ "${{ github.event_name }}" = "pull_request" ]; then
+                    # For PRs, check if it's merged
+                    if [ "${{ github.event.pull_request.merged }}" = "true" ]; then
+                      # Extract issue numbers from PR body or title (Fixes #123, Closes #456, etc.)
+                      PR_BODY="${{ github.event.pull_request.body }}"
+                      PR_TITLE="${{ github.event.pull_request.title }}"
+                      # Extract issue numbers from PR body/title
+                      ISSUE_REFS=$(echo -e "${PR_BODY}\n${PR_TITLE}" | grep -oE '#[0-9]+' | grep -oE '[0-9]+' | sort -u || true)
+                      
+                      if [ -z "$ISSUE_REFS" ]; then
+                        echo "PR merged but no issue references found, skipping"
+                        echo "skip=true" >> "$GITHUB_OUTPUT"
+                        exit 0
+                      fi
+                      
+                      # Take the first issue number (or we could send all, but for now just one)
+                      ISSUE_NUMBER=$(echo "$ISSUE_REFS" | head -n1)
+                      ACTION="merged"
+                      STATE="closed"
+                      TITLE="$PR_TITLE"
+                      BODY="$PR_BODY"
+                      HTML_URL="${{ github.event.pull_request.html_url }}"
+                    else
+                      echo "PR closed but not merged, skipping"
+                      echo "skip=true" >> "$GITHUB_OUTPUT"
+                      exit 0
+                    fi
+                  fi
+
+                  echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
+                  echo "action=$ACTION" >> "$GITHUB_OUTPUT"
+                  echo "state=$STATE" >> "$GITHUB_OUTPUT"
+                  echo "title=$TITLE" >> "$GITHUB_OUTPUT"
+                  echo "body=$BODY" >> "$GITHUB_OUTPUT"
+                  echo "html_url=$HTML_URL" >> "$GITHUB_OUTPUT"
+
+            - name: Send to n8n webhook
+              if: steps.issue_info.outputs.skip != 'true'
+              env:
+                  N8N_WEBHOOK_URL: ${{ secrets.N8N_GITHUB_ISSUE_SYNC_WEBHOOK_URL }}
+              run: |
+                  if [ -z "${N8N_WEBHOOK_URL:-}" ]; then
+                    echo "N8N_GITHUB_ISSUE_SYNC_WEBHOOK_URL is not set; skipping sync." >&2
+                    exit 0
+                  fi
+
+                  # Build payload
+                  PAYLOAD=$(jq -n \
+                    --arg number "${{ steps.issue_info.outputs.issue_number }}" \
+                    --arg action "${{ steps.issue_info.outputs.action }}" \
+                    --arg state "${{ steps.issue_info.outputs.state }}" \
+                    --arg title "${{ steps.issue_info.outputs.title }}" \
+                    --arg body "${{ steps.issue_info.outputs.body }}" \
+                    --arg html_url "${{ steps.issue_info.outputs.html_url }}" \
+                    --arg repo "${{ github.repository }}" \
+                    --arg event_name "${{ github.event_name }}" \
+                    '{
+                      issue_number: $number,
+                      action: $action,
+                      state: $state,
+                      title: $title,
+                      body: $body,
+                      html_url: $html_url,
+                      repository: $repo,
+                      event_name: $event_name
+                    }')
+
+                  curl -sS -X POST \
+                    -H 'Content-Type: application/json' \
+                    -d "$PAYLOAD" \
+                    "$N8N_WEBHOOK_URL"
+
+                  echo "Sent issue #${{ steps.issue_info.outputs.issue_number }} (${{ steps.issue_info.outputs.action }}) to n8n."
