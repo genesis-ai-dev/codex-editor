@@ -378,6 +378,41 @@ export async function searchAllCells(
     includeIncomplete: boolean = true,
     options?: any
 ): Promise<TranslationPair[]> {
+    const replaceMode = options?.replaceMode || false;
+
+    // In replace mode, only search target cells
+    if (replaceMode && translationPairsIndex instanceof SQLiteIndexManager) {
+        const targetCells = await translationPairsIndex.searchCells(query, "target", k * 2, options?.isParallelPassagesWebview || false);
+        
+        const results: TranslationPair[] = [];
+        for (const cell of targetCells) {
+            const translationPair = await getTranslationPairFromProject(
+                translationPairsIndex,
+                sourceTextIndex,
+                cell.cell_id,
+                options
+            );
+            if (translationPair && translationPair.targetCell.content) {
+                // Verify the target content actually contains the query
+                const stripHtml = (html: string): string => {
+                    let strippedText = html.replace(/<[^>]*>/g, "");
+                    strippedText = strippedText.replace(/&nbsp; ?/g, " ");
+                    strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
+                    strippedText = strippedText.replace(/&#\d+;/g, "");
+                    strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
+                    return strippedText.toLowerCase();
+                };
+                const cleanTarget = stripHtml(translationPair.targetCell.content);
+                const queryLower = query.toLowerCase();
+                if (cleanTarget.includes(queryLower)) {
+                    results.push(translationPair);
+                }
+            }
+        }
+        
+        return results.slice(0, k);
+    }
+
     // Search translation pairs with boosted weights for complete pairs and target content
     const translationPairs = await searchTranslationPairs(
         translationPairsIndex as any,
@@ -389,8 +424,9 @@ export async function searchAllCells(
 
     let combinedResults: TranslationPair[] = translationPairs;
 
-    if (includeIncomplete) {
+    if (includeIncomplete && !replaceMode) {
         // If we're including incomplete pairs, also search source-only cells
+        // Skip this in replace mode since we only want target cells
         const sourceOnlyCells = sourceTextIndex
             .search(query, {
                 fields: ["content"],
@@ -418,6 +454,27 @@ export async function searchAllCells(
             }));
 
         combinedResults = [...translationPairs, ...sourceOnlyCells];
+    }
+
+    // In replace mode, filter to only cells with target content that actually contains the query
+    if (replaceMode) {
+        const stripHtml = (html: string): string => {
+            let strippedText = html.replace(/<[^>]*>/g, "");
+            strippedText = strippedText.replace(/&nbsp; ?/g, " ");
+            strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
+            strippedText = strippedText.replace(/&#\d+;/g, "");
+            strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
+            return strippedText.toLowerCase();
+        };
+        
+        const queryLower = query.toLowerCase();
+        combinedResults = combinedResults.filter(pair => {
+            if (!pair.targetCell.content || !pair.targetCell.content.trim()) {
+                return false;
+            }
+            const cleanTarget = stripHtml(pair.targetCell.content);
+            return cleanTarget.includes(queryLower);
+        });
     }
 
     // Remove duplicates based on cellId

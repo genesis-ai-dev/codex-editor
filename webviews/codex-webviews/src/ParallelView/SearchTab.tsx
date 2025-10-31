@@ -6,18 +6,24 @@ import { Input } from "../components/ui/input";
 import { Card, CardContent } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { LoadingSpinner } from "../components/LoadingSpinner";
+import { Textarea } from "../components/ui/textarea";
 
 interface SearchTabProps {
     verses: TranslationPair[];
     pinnedVerses: TranslationPair[];
     lastQuery: string;
     onQueryChange: (query: string) => void;
-    onSearch: (query: string, event?: React.FormEvent) => void;
+    onSearch: (query: string, replaceText?: string, event?: React.FormEvent) => void;
     onPinToggle: (item: TranslationPair, isPinned: boolean) => void;
     onUriClick: (uri: string, word: string) => void;
     completeOnly: boolean;
     onCompleteOnlyChange: (checked: boolean) => void;
     onPinAll: () => void;
+    onReplaceAll?: () => void;
+    replaceText?: string;
+    onReplaceTextChange?: (text: string) => void;
+    onReplaceCell?: (cellId: string) => void;
+    vscode: any;
 }
 
 function SearchTab({
@@ -31,12 +37,19 @@ function SearchTab({
     completeOnly,
     onCompleteOnlyChange,
     onPinAll,
+    onReplaceAll,
+    replaceText = "",
+    onReplaceTextChange,
+    onReplaceCell,
+    vscode,
 }: SearchTabProps) {
     const [isSettingsExpanded, setIsSettingsExpanded] = useState(false);
+    const [isReplaceExpanded, setIsReplaceExpanded] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [recentSearches, setRecentSearches] = useState<string[]>([]);
     const [showRecentSearches, setShowRecentSearches] = useState(false);
     const searchInputRef = useRef<HTMLInputElement>(null);
+    const replaceTextareaRef = useRef<HTMLTextAreaElement>(null);
 
     // Focus the search input on component mount
     useEffect(() => {
@@ -58,7 +71,7 @@ function SearchTab({
         if (!lastQuery.trim()) return;
 
         setIsLoading(true);
-        onSearch(lastQuery, event);
+        onSearch(lastQuery, replaceText, event);
 
         // Save to recent searches
         const newRecentSearches = [
@@ -72,6 +85,22 @@ function SearchTab({
 
         // Shorter loading time for better UX
         setTimeout(() => setIsLoading(false), 600);
+    };
+
+    const handleReplaceTextChange = (value: string) => {
+        if (onReplaceTextChange) {
+            onReplaceTextChange(value);
+        }
+        if (value && !isReplaceExpanded) {
+            setIsReplaceExpanded(true);
+        }
+    };
+
+
+    const handleReplaceAll = () => {
+        if (onReplaceAll && replaceText.trim() && lastQuery.trim()) {
+            onReplaceAll();
+        }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -195,6 +224,24 @@ function SearchTab({
                                 type="button"
                                 variant="outline"
                                 size="sm"
+                                onClick={() => setIsReplaceExpanded(!isReplaceExpanded)}
+                                aria-label="Toggle replace"
+                                aria-expanded={isReplaceExpanded}
+                                className="parallel-action-button flex-1 min-w-0"
+                            >
+                                <span className="codicon codicon-find-replace flex-shrink-0"></span>
+                                <span className="parallel-button-text ml-2">Replace</span>
+                                <span
+                                    className={`codicon codicon-chevron-${
+                                        isReplaceExpanded ? "up" : "down"
+                                    } ml-2 flex-shrink-0`}
+                                ></span>
+                            </Button>
+
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
                                 onClick={() => setIsSettingsExpanded(!isSettingsExpanded)}
                                 aria-label="Toggle search settings"
                                 aria-expanded={isSettingsExpanded}
@@ -223,6 +270,38 @@ function SearchTab({
                                 </Button>
                             )}
                         </div>
+
+                        {isReplaceExpanded && (
+                            <div className="border-t pt-4 space-y-3">
+                                <div>
+                                    <label htmlFor="replace-text" className="text-sm font-medium mb-2 block">
+                                        Replace with
+                                    </label>
+                                    <Textarea
+                                        ref={replaceTextareaRef}
+                                        id="replace-text"
+                                        placeholder="Enter replacement text..."
+                                        value={replaceText}
+                                        onChange={(e) => handleReplaceTextChange(e.target.value)}
+                                        className="min-h-[60px] resize-none"
+                                        aria-label="Replace text"
+                                    />
+                                </div>
+                                {replaceText.trim() && lastQuery.trim() && verses.length > 0 && (
+                                    <Button
+                                        type="button"
+                                        variant="default"
+                                        size="sm"
+                                        onClick={handleReplaceAll}
+                                        className="w-full"
+                                        aria-label="Replace all matches"
+                                    >
+                                        <span className="codicon codicon-find-replace mr-2"></span>
+                                        Replace All ({verses.length})
+                                    </Button>
+                                )}
+                            </div>
+                        )}
 
                         {isSettingsExpanded && (
                             <div className="border-t pt-4">
@@ -283,6 +362,16 @@ function SearchTab({
                                 isPinned={isPinned}
                                 onPinToggle={onPinToggle}
                                 onUriClick={onUriClick}
+                                searchQuery={lastQuery}
+                                replaceText={replaceText}
+                                onReplace={onReplaceCell || ((cellId) => {
+                                    vscode.postMessage({
+                                        command: "replaceCell",
+                                        cellId: cellId,
+                                        query: lastQuery,
+                                        replaceText: replaceText,
+                                    });
+                                })}
                             />
                         );
                     })

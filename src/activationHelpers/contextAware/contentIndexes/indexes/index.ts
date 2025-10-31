@@ -674,16 +674,49 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                 // Use the reliable database-direct search for complete translation pairs
                 let searchResults: any[] = [];
+                const replaceMode = options?.replaceMode || false;
+                
                 if (translationPairsIndex instanceof SQLiteIndexManager) {
-                    // Use the new, reliable database-direct search with validation filtering
-                    // For searchParallelCells, we always want only complete pairs (both source and target)
-                    // and we can optionally filter by validation status if needed
-                    searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
-                        query,
-                        k,
-                        options?.isParallelPassagesWebview || false, // return raw content for webview display
-                        false // onlyValidated - for now, show all complete pairs regardless of validation
-                    );
+                    if (replaceMode) {
+                        // In replace mode, search only target cells
+                        const targetCells = await translationPairsIndex.searchCells(query, "target", k * 2, options?.isParallelPassagesWebview || false);
+                        const results: TranslationPair[] = [];
+                        for (const cell of targetCells) {
+                            const translationPair = await getTranslationPairFromProject(
+                                translationPairsIndex,
+                                sourceTextIndex,
+                                cell.cell_id,
+                                options
+                            );
+                            if (translationPair && translationPair.targetCell.content && translationPair.sourceCell.content) {
+                                // Verify the target content actually contains the query
+                                const stripHtml = (html: string): string => {
+                                    let strippedText = html.replace(/<[^>]*>/g, "");
+                                    strippedText = strippedText.replace(/&nbsp; ?/g, " ");
+                                    strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
+                                    strippedText = strippedText.replace(/&#\d+;/g, "");
+                                    strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
+                                    return strippedText.toLowerCase();
+                                };
+                                const cleanTarget = stripHtml(translationPair.targetCell.content);
+                                const queryLower = query.toLowerCase();
+                                if (cleanTarget.includes(queryLower)) {
+                                    results.push(translationPair);
+                                }
+                            }
+                        }
+                        searchResults = results.slice(0, k);
+                    } else {
+                        // Use the new, reliable database-direct search with validation filtering
+                        // For searchParallelCells, we always want only complete pairs (both source and target)
+                        // and we can optionally filter by validation status if needed
+                        searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
+                            query,
+                            k,
+                            options?.isParallelPassagesWebview || false, // return raw content for webview display
+                            false // onlyValidated - for now, show all complete pairs regardless of validation
+                        );
+                    }
                 } else {
                     console.warn("[searchParallelCells] Non-SQLite index detected, using fallback");
                     // Fallback to old method for non-SQLite indexes
