@@ -621,15 +621,43 @@ export class MainMenuProvider extends BaseWebviewProvider {
                         const authStatus = frontierApi.getAuthStatus();
                         if (authStatus.isAuthenticated) {
                             const asrEndpoint = await frontierApi.getAsrEndpoint();
-                            if (asrEndpoint) {
-                                endpoint = asrEndpoint;
+                            // Validate endpoint URL before using it
+                            if (asrEndpoint && asrEndpoint.trim()) {
+                                try {
+                                    new URL(asrEndpoint);
+                                    endpoint = asrEndpoint;
+                                } catch (urlError) {
+                                    console.warn("Invalid ASR endpoint URL from auth API:", asrEndpoint, urlError);
+                                    // Fall back to default endpoint
+                                }
                             }
                             // Get auth token for authenticated requests
-                            authToken = await frontierApi.authProvider.getToken();
+                            try {
+                                authToken = await frontierApi.authProvider.getToken();
+                                if (!authToken) {
+                                    console.warn("ASR endpoint requires authentication but token retrieval returned empty value");
+                                }
+                            } catch (tokenError) {
+                                console.warn("Could not get auth token for ASR endpoint:", tokenError);
+                            }
                         }
                     }
                 } catch (error) {
                     console.debug("Could not get ASR endpoint from auth API:", error);
+                }
+
+                // Final validation: ensure endpoint is a valid URL
+                try {
+                    new URL(endpoint);
+                } catch (urlError) {
+                    console.error("Invalid ASR endpoint configuration:", endpoint, urlError);
+                    endpoint = "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe";
+                }
+
+                // Warn if using authenticated endpoint without token
+                const isAuthenticatedEndpoint = endpoint.includes('api.frontierrnd.com') || endpoint.includes('frontier');
+                if (isAuthenticatedEndpoint && !authToken) {
+                    console.warn(`ASR endpoint appears to require authentication but no token was retrieved. Endpoint: ${endpoint}`);
                 }
 
                 const settings = {
