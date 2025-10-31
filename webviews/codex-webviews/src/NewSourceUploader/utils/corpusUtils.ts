@@ -8,4 +8,4 @@ export {
     getCorpusDisplayName,
     isNewTestamentBook,
     isOldTestamentBook,
-} from "@sharedUtils/corpusUtils";
+} from "../../../../../sharedUtils/corpusUtils";
