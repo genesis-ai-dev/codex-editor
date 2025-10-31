@@ -186,4 +186,20 @@ export async function getAllUsfmCodes(): Promise<string[]> {
 export async function isValidUsfmCode(code: string): Promise<boolean> {
     const validCodes = await getAllUsfmCodes();
     return validCodes.includes(code);
-} 
+}
+
+/**
+ * Determines the corpus marker for a given book code
+ * Returns standardized "NT" or "OT" markers that match navigation expectations
+ * 
+ * This is a wrapper around the shared utility that returns a Promise for consistency
+ * with other async functions in this file.
+ * 
+ * @param bookCode - 3-letter USFM book code (e.g., "GEN", "MAT") or book name
+ * @returns Promise<"NT" | "OT" | null>
+ */
+export async function getCorpusMarkerForBook(bookCode: string): Promise<string | null> {
+    // Import the shared utility
+    const { getCorpusMarkerForBook: sharedGetCorpusMarkerForBook } = await import("../../sharedUtils/corpusUtils");
+    return sharedGetCorpusMarkerForBook(bookCode);
+}
