@@ -879,12 +879,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const currentTimestamp = Date.now();
 
         // Track which fields are editable (exclude system fields like id, sourceFsPath, etc.)
+        // Note: autoDownloadAudioOnOpen is excluded as it's a project-level setting stored in localProjectSettings.json,
+        // not a file-level metadata field
         const editableFields = [
             "videoUrl",
             "textDirection",
             "lineNumbersEnabled",
             "fontSize",
-            "autoDownloadAudioOnOpen",
             "showInlineBacktranslations",
             "fileDisplayName",
             "cellDisplayMode",
@@ -915,9 +916,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     break;
                 case "fontSize":
                     editMap = EditMapUtils.metadataFontSize();
-                    break;
-                case "autoDownloadAudioOnOpen":
-                    editMap = EditMapUtils.metadataAutoDownloadAudioOnOpen();
                     break;
                 case "showInlineBacktranslations":
                     editMap = EditMapUtils.metadataShowInlineBacktranslations();
