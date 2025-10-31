@@ -1,5 +1,4 @@
 import { NotebookPair } from '../../types/common';
-import { CodexCellTypes } from 'types/enums';
 
 /**
  * Asserts that source and codex notebooks have matching cell counts
@@ -8,7 +7,7 @@ export function assertMatchingCellCounts(pair: NotebookPair): void {
     const count = (notebook: typeof pair.source) => {
         const parts = { topLevel: 0, paratext: 0, child: 0 };
         for (const cell of notebook.cells) {
-            const isParatext = cell.metadata?.type === CodexCellTypes.PARATEXT || cell.metadata?.type === 'paratext';
+            const isParatext = cell.metadata?.type === 'paratext';
             const isChild = cell.metadata?.isChild === true || cell.id.split(':').length > 2;
             if (isParatext) parts.paratext++;
             else if (isChild) parts.child++;
