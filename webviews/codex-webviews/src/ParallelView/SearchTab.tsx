@@ -126,9 +126,16 @@ function SearchTab({
     };
 
     const handleRecentSearchClick = (search: string) => {
-        onQueryChange(search);
         setShowRecentSearches(false);
-        setTimeout(() => handleSearch(), 0);
+        onQueryChange(search);
+        // Search immediately with the selected term
+        onSearch(search, replaceText);
+        // Focus after React updates
+        requestAnimationFrame(() => {
+            if (searchInputRef.current) {
+                searchInputRef.current.focus();
+            }
+        });
     };
 
     const handleSearchFocus = () => {
@@ -207,7 +214,11 @@ function SearchTab({
                                                     key={`recent-${index}`}
                                                     variant="ghost"
                                                     className="w-full justify-start gap-2 h-auto p-3 recent-search-item"
-                                                    onClick={() => handleRecentSearchClick(search)}
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        handleRecentSearchClick(search);
+                                                    }}
                                                 >
                                                     <span className="codicon codicon-history text-muted-foreground"></span>
                                                     <span>{search}</span>
@@ -229,7 +240,7 @@ function SearchTab({
                                 aria-expanded={isReplaceExpanded}
                                 className="parallel-action-button flex-1 min-w-0"
                             >
-                                <span className="codicon codicon-find-replace flex-shrink-0"></span>
+                                <span className="codicon codicon-replace flex-shrink-0"></span>
                                 <span className="parallel-button-text ml-2">Replace</span>
                                 <span
                                     className={`codicon codicon-chevron-${
@@ -296,7 +307,7 @@ function SearchTab({
                                         className="w-full"
                                         aria-label="Replace all matches"
                                     >
-                                        <span className="codicon codicon-find-replace mr-2"></span>
+                                        <span className="codicon codicon-replace mr-2"></span>
                                         Replace All ({verses.length})
                                     </Button>
                                 )}

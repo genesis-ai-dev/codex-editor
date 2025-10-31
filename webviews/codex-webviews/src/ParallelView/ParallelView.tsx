@@ -44,6 +44,40 @@ function ParallelView() {
         prevReplaceTextRef.current = replaceText;
     }, [replaceText]);
 
+    // Re-search when query changes (if we already have results)
+    const prevQueryRef = useRef<string>("");
+    useEffect(() => {
+        const queryChanged = prevQueryRef.current !== lastQuery;
+        const hasQuery = lastQuery.trim().length > 0;
+        const hasResults = verses.length > 0;
+        
+        // Auto-search if query changed and we either have results or had a previous query
+        if (queryChanged && hasQuery && (hasResults || prevQueryRef.current.trim().length > 0)) {
+            const timeoutId = setTimeout(() => {
+                searchBoth(lastQuery, replaceText);
+            }, 300); // Debounce by 300ms
+            
+            return () => clearTimeout(timeoutId);
+        }
+        
+        prevQueryRef.current = lastQuery;
+    }, [lastQuery, verses.length, replaceText]);
+
+    // Re-search when completeOnly setting changes (if we already have search results)
+    const prevCompleteOnlyRef = useRef<boolean>(false);
+    useEffect(() => {
+        const settingChanged = prevCompleteOnlyRef.current !== completeOnly;
+        const hasQuery = lastQuery.trim().length > 0;
+        const hasResults = verses.length > 0;
+        
+        // Auto-search if setting changed and we have an active search
+        if (settingChanged && hasQuery && hasResults) {
+            searchBoth(lastQuery, replaceText);
+        }
+        
+        prevCompleteOnlyRef.current = completeOnly;
+    }, [completeOnly, lastQuery, verses.length, replaceText]);
+
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;

@@ -6,24 +6,7 @@ import {
 import { BaseWebviewProvider } from "../../globalProvider";
 import { safePostMessageToView } from "../../utils/webviewUtils";
 import { CodexCellEditorProvider } from "../codexCellEditorProvider/codexCellEditorProvider";
-
-async function openFileAtLocation(uri: string, cellId: string) {
-    try {
-        const parsedUri = vscode.Uri.parse(uri);
-        const stringUri = parsedUri.toString();
-        // This is a quick fix to open the correct uri.
-        if (stringUri.includes(".codex") || stringUri.includes(".source")) {
-            await vscode.commands.executeCommand("vscode.openWith", parsedUri, "codex.cellEditor");
-            // After opening the file, we need to navigate to the specific cell
-            // This might require an additional step or command
-            // For example:
-            // await vscode.commands.executeCommand("codex.navigateToCell", cellId);
-        }
-    } catch (error) {
-        console.error(`Failed to open file: ${uri}`, error);
-        vscode.window.showErrorMessage(`Failed to open file: ${uri}`);
-    }
-}
+import { updateWorkspaceState } from "../../utils/workspaceEventListener";
 
 
 
@@ -96,10 +79,27 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         }
     }
 
+    private async openFileAtLocation(uri: string, cellId: string) {
+        try {
+            const parsedUri = vscode.Uri.parse(uri);
+            const stringUri = parsedUri.toString();
+            if (stringUri.includes(".codex") || stringUri.includes(".source")) {
+                await vscode.commands.executeCommand("vscode.openWith", parsedUri, "codex.cellEditor");
+                updateWorkspaceState(this._context, {
+                    key: "cellToJumpTo",
+                    value: cellId,
+                });
+            }
+        } catch (error) {
+            console.error(`Failed to open file: ${uri}`, error);
+            vscode.window.showErrorMessage(`Failed to open file: ${uri}`);
+        }
+    }
+
     protected async handleMessage(message: any): Promise<void> {
         switch (message.command) {
             case "openFileAtLocation":
-                await openFileAtLocation(message.uri, message.word);
+                await this.openFileAtLocation(message.uri, message.word);
                 break;
             case "requestPinning":
                 await this.pinCellById(message.content.cellId);
@@ -158,6 +158,13 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     const success = await provider.updateCellContentDirect(targetUri, cellId, newContent);
 
                     if (success) {
+                        // Flush index writes to ensure search results update immediately
+                        const { getSQLiteIndexManager } = await import("../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager");
+                        const indexManager = getSQLiteIndexManager();
+                        if (indexManager) {
+                            await indexManager.flushPendingWrites();
+                        }
+
                         const updatedPair: TranslationPair = {
                             ...translationPair,
                             targetCell: {
@@ -221,6 +228,13 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                         } catch (error) {
                             console.error(`Error replacing cell ${replacement.cellId}:`, error);
                         }
+                    }
+
+                    // Flush index writes after all replacements to ensure search results update immediately
+                    const { getSQLiteIndexManager } = await import("../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager");
+                    const indexManager = getSQLiteIndexManager();
+                    if (indexManager) {
+                        await indexManager.flushPendingWrites();
                     }
 
                     vscode.window.showInformationMessage(`Replaced ${successCount} of ${replacements.length} cells`);

@@ -118,6 +118,18 @@ const CellItem: React.FC<CellItemProps> = ({
         return uri.replace(".source", ".codex").replace(".project/sourceTexts/", "files/target/");
     };
 
+    const hasSourceContent = useMemo(() => {
+        const content = item.sourceCell.content || "";
+        const cleanContent = stripHtml(content).trim();
+        return cleanContent.length > 0;
+    }, [item.sourceCell.content]);
+
+    const hasTargetContent = useMemo(() => {
+        const content = item.targetCell.content || "";
+        const cleanContent = stripHtml(content).trim();
+        return cleanContent.length > 0;
+    }, [item.targetCell.content]);
+
     const targetContentDisplay = useMemo(() => {
         const targetContent = item.targetCell.content || "";
         if (!targetContent) return null;
@@ -167,99 +179,97 @@ const CellItem: React.FC<CellItemProps> = ({
                 </div>
 
                 <div className="space-y-4">
-                    <div>
-                        <div className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">
-                            Source Text
-                        </div>
-                        <p className="text-sm leading-relaxed mb-3">
-                            {item.sourceCell.content}
-                        </p>
-                        <div className="flex gap-2 mt-3">
-                            <Button 
-                                variant="secondary"
-                                size="sm"
-                                onClick={handleSourceCopy}
-                                aria-label="Copy text"
-                            >
-                                <span className="codicon codicon-copy mr-2"></span>
-                                Copy
-                            </Button>
-                            <Button
-                                variant="secondary"
-                                size="sm"
-                                onClick={() =>
-                                    onUriClick(item.sourceCell.uri || "", `${item.cellId}`)
-                                }
-                                aria-label="Open source text"
-                            >
-                                <span className="codicon codicon-open-preview mr-2"></span>
-                                Open
-                            </Button>
-                        </div>
-                    </div>
-
-                    <Separator />
-
-                    <div>
-                        <div className="flex items-center justify-between mb-2">
-                            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                                Target Text
+                    {hasSourceContent && (
+                        <div>
+                            <div className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">
+                                Source Text
                             </div>
-                            {hasMatch && replaceText && (
-                                <Badge variant="outline" className="text-xs">
-                                    Match
-                                </Badge>
-                            )}
+                            <p className="text-sm leading-relaxed mb-3">
+                                {item.sourceCell.content}
+                            </p>
+                            <div className="flex gap-2 mt-3">
+                                <Button 
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={handleSourceCopy}
+                                    aria-label="Copy text"
+                                >
+                                    <span className="codicon codicon-copy mr-2"></span>
+                                    Copy
+                                </Button>
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() =>
+                                        onUriClick(item.sourceCell.uri || "", `${item.cellId}`)
+                                    }
+                                    aria-label="Open source text"
+                                >
+                                    <span className="codicon codicon-open-preview mr-2"></span>
+                                    Open
+                                </Button>
+                            </div>
                         </div>
-                        {item.targetCell.content ? (
+                    )}
+
+                    {hasSourceContent && hasTargetContent && <Separator />}
+
+                    {hasTargetContent && (
+                        <div>
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                                    Target Text
+                                </div>
+                                {hasMatch && replaceText && (
+                                    <Badge variant="outline" className="text-xs">
+                                        Match
+                                    </Badge>
+                                )}
+                            </div>
                             <p
                                 className="text-sm leading-relaxed mb-3"
                                 dangerouslySetInnerHTML={{
-                                    __html: targetContentDisplay || item.targetCell.content,
+                                    __html: targetContentDisplay || item.targetCell.content || "",
                                 }}
                             />
-                        ) : (
-                            <p className="text-sm text-muted-foreground italic mb-3">
-                                No translation yet
-                            </p>
-                        )}
-                        <div className="flex gap-2 mt-3">
-                            <Button 
-                                variant="secondary"
-                                size="sm"
-                                onClick={handleTargetCopy}
-                                aria-label="Copy text"
-                            >
-                                <span className="codicon codicon-copy mr-2"></span>
-                                Copy
-                            </Button>
-                            <Button
-                                variant="secondary"
-                                size="sm"
-                                onClick={() =>
-                                    onUriClick(
-                                        getTargetUri(item.targetCell.uri || ""),
-                                        `${item.cellId}`
-                                    )
-                                }
-                                aria-label="Open target text"
-                            >
-                                <span className="codicon codicon-open-preview mr-2"></span>
-                                Open
-                            </Button>
-                            {hasMatch && replaceText && onReplace && (
-                                <Button
-                                    variant="default"
+                            <div className="flex gap-2 mt-3">
+                                <Button 
+                                    variant="secondary"
                                     size="sm"
-                                    onClick={() => onReplace(item.cellId, item.targetCell.content || "")}
-                                    aria-label="Replace this match"
+                                    onClick={handleTargetCopy}
+                                    aria-label="Copy text"
                                 >
-                                    <span className="codicon codicon-find-replace mr-2"></span>
-                                    Replace
+                                    <span className="codicon codicon-copy mr-2"></span>
+                                    Copy
                                 </Button>
-                            )}
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() =>
+                                        onUriClick(
+                                            getTargetUri(item.targetCell.uri || ""),
+                                            `${item.cellId}`
+                                        )
+                                    }
+                                    aria-label="Open target text"
+                                >
+                                    <span className="codicon codicon-open-preview mr-2"></span>
+                                    Open
+                                </Button>
+                                {hasMatch && replaceText && onReplace && (
+                                    <Button
+                                        variant="default"
+                                        size="sm"
+                                        onClick={() => onReplace(item.cellId, item.targetCell.content || "")}
+                                        aria-label="Replace this match"
+                                    >
+                                        <span className="codicon codicon-replace mr-2"></span>
+                                        Replace
+                                    </Button>
+                                )}
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
             </CardContent>
         </Card>
