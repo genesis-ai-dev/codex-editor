@@ -3768,4 +3768,90 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         debug("Completed audio attachment refresh after sync");
     }
+
+    public async updateCellContentDirect(
+        uri: string,
+        cellId: string,
+        newContent: string
+    ): Promise<boolean> {
+        try {
+            const documentUri = vscode.Uri.parse(uri);
+            
+            // Read file
+            const fileData = await vscode.workspace.fs.readFile(documentUri);
+            const decoder = new TextDecoder("utf-8");
+            const fileContent = decoder.decode(fileData);
+            const notebook = JSON.parse(fileContent);
+            
+            // Find cell
+            const cell = notebook.cells?.find((c: any) => c.metadata?.id === cellId);
+            if (!cell) {
+                return false;
+            }
+
+            // Update cell value and add edit history
+            cell.value = newContent;
+            
+            const currentTimestamp = Date.now();
+            if (!cell.metadata.edits) {
+                cell.metadata.edits = [];
+            }
+            
+            const authApi = await this.getAuthApi();
+            const userInfo = authApi ? await authApi.getUserInfo() : null;
+            const author = userInfo?.username || "anonymous";
+            
+            cell.metadata.edits.push({
+                editMap: ["value"],
+                value: newContent,
+                timestamp: currentTimestamp,
+                type: EditType.USER_EDIT,
+                author: author,
+                validatedBy: [{
+                    username: author,
+                    creationTimestamp: currentTimestamp,
+                    updatedTimestamp: currentTimestamp,
+                    isDeleted: false,
+                }],
+            });
+
+            // Write to file
+            const encoder = new TextEncoder();
+            await vscode.workspace.fs.writeFile(documentUri, encoder.encode(JSON.stringify(notebook, null, 2)));
+            
+            // Update index
+            const { getSQLiteIndexManager } = await import("../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager");
+            const indexManager = getSQLiteIndexManager();
+            if (indexManager) {
+                const fileId = indexManager.upsertFileSync(documentUri.fsPath, "codex", currentTimestamp);
+                const cellIndex = notebook.cells.findIndex((c: any) => c.metadata?.id === cellId);
+                let lineNumber: number | undefined = undefined;
+                if (cellIndex >= 0) {
+                    let logicalPosition = 1;
+                    for (let i = 0; i < cellIndex; i++) {
+                        if (notebook.cells[i].metadata?.type !== "paratext") {
+                            logicalPosition++;
+                        }
+                    }
+                    if (cell.metadata?.type !== "paratext") {
+                        lineNumber = logicalPosition;
+                    }
+                }
+                
+                await indexManager.upsertCellWithFTSSync(cellId, fileId, "target", newContent, lineNumber, cell.metadata, newContent);
+            }
+            
+            // Refresh webview if open
+            const webviewPanel = this.webviewPanels.get(documentUri.toString());
+            if (webviewPanel) {
+                const document = await this.openCustomDocument(documentUri, {}, new vscode.CancellationTokenSource().token);
+                await this.refreshWebview(webviewPanel, document);
+            }
+            
+            return true;
+        } catch (error) {
+            console.error("Error updating cell content:", error);
+            return false;
+        }
+    }
 }

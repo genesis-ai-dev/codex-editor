@@ -2383,14 +2383,19 @@ export class SQLiteIndexManager {
         // Force FTS synchronization for immediate search visibility
         if (result.contentChanged) {
             try {
-                // Manually sync this specific cell to FTS if triggers didn't work
+                // Sanitize content for FTS search (same as upsertCell does)
+                const sanitizedContent = this.sanitizeContent(content);
                 const actualRawContent = rawContent || content;
+                
+                // Manually sync this specific cell to FTS if triggers didn't work
+                // Use sanitized content for the content field (for searching) and raw content for raw_content field
                 this.db!.run(`
                     INSERT OR REPLACE INTO cells_fts(cell_id, content, raw_content, content_type) 
                     VALUES (?, ?, ?, ?)
-                `, [cellId, content, actualRawContent, cellType]);
+                `, [cellId, sanitizedContent, actualRawContent, cellType]);
             } catch (error) {
-                // Trigger should have handled it, continue silently
+                console.error("Error syncing cell to FTS index:", error);
+                // Trigger should have handled it, but log the error for debugging
             }
         }
 
