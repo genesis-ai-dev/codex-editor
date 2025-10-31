@@ -10,6 +10,7 @@ import { CodexCellTypes } from "../../../types/enums";
 import { importBookNamesFromXmlContent } from "../../bookNameSettings/bookNameSettings";
 import { createStandardizedFilename } from "../../utils/bookNameUtils";
 import { CodexContentSerializer } from "../../serializer";
+import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
 
 const DEBUG_NEW_SOURCE_UPLOADER_PROVIDER = false;
 function debug(message: string, ...args: any[]): void {
@@ -321,6 +322,15 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             }
         }));
 
+        // Determine corpus marker - fix "ebibleCorpus" to NT/OT if needed
+        let corpusMarker = processedNotebook.metadata.corpusMarker || processedNotebook.metadata.importerType;
+        if (corpusMarker === "ebibleCorpus" && processedNotebook.metadata.originalFileName) {
+            const correctMarker = getCorpusMarkerForBook(processedNotebook.metadata.originalFileName);
+            if (correctMarker) {
+                corpusMarker = correctMarker;
+            }
+        }
+
         const metadata: CustomNotebookMetadata = {
             id: processedNotebook.metadata.id,
             originalName: processedNotebook.metadata.originalFileName,
@@ -328,7 +338,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             codexFsPath: "",
             navigation: [],
             sourceCreatedAt: processedNotebook.metadata.createdAt,
-            corpusMarker: processedNotebook.metadata.corpusMarker || processedNotebook.metadata.importerType,
+            corpusMarker: corpusMarker,
             textDirection: "ltr",
             ...(processedNotebook.metadata.videoUrl && { videoUrl: processedNotebook.metadata.videoUrl }),
             ...(processedNotebook.metadata)?.audioOnly !== undefined
