@@ -1058,7 +1058,6 @@ ChapterNavigationHeaderProps) {
                                                                 completedPercent:
                                                                     percentages.textCompletedPercent,
                                                             }}
-                                                            onlyShowCompleted
                                                         />
                                                     );
                                                 })()}
