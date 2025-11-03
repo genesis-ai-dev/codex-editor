@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import SearchTab from "./SearchTab";
 import { TranslationPair } from "../../../../types";
 import { WebviewHeader } from "../components/WebviewHeader";
+import { stripHtml, escapeRegex } from "./utils";
 import "./ParallelView.css";
 
 const vscode = acquireVsCodeApi();
@@ -27,6 +28,8 @@ function ParallelView() {
     const [searchScope, setSearchScope] = useState<"both" | "source" | "target">("both");
     const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
     const [selectedFiles, setSelectedFiles] = useState<string[]>([]); // Array of file URIs
+    const [replaceProgress, setReplaceProgress] = useState<{ completed: number; total: number } | null>(null);
+    const [replaceErrors, setReplaceErrors] = useState<Array<{ cellId: string; error: string }>>([]);
 
     const dedupeByCellId = (items: TranslationPair[]) => {
         const seen = new Set<string>();
@@ -45,18 +48,13 @@ function ParallelView() {
         const hadReplaceText = prevReplaceTextRef.current.trim();
         const hasReplaceText = replaceText.trim();
         
-        // When replace text is entered, automatically scope to target text
-        if (!hadReplaceText && hasReplaceText && searchScope !== "target") {
-            setSearchScope("target");
-        }
-        
         // Only re-search when transitioning from no replace text to having replace text
         if (!hadReplaceText && hasReplaceText && lastQuery.trim() && verses.length > 0) {
             searchBoth(lastQuery, replaceText);
         }
         
         prevReplaceTextRef.current = replaceText;
-    }, [replaceText, searchScope]);
+    }, [replaceText]);
 
     // Re-search when query changes (if we already have results)
     const prevQueryRef = useRef<string>("");
@@ -166,13 +164,35 @@ function ParallelView() {
                     break;
                 }
                 case "cellReplaced": {
-                    const { cellId, translationPair } = message.data;
-                    setVerses((prev) =>
-                        prev.map((v) => (v.cellId === cellId ? translationPair : v))
-                    );
-                    setPinnedVerses((prev) =>
-                        prev.map((v) => (v.cellId === cellId ? translationPair : v))
-                    );
+                    const { cellId, translationPair, success, error } = message.data;
+                    if (success && translationPair) {
+                        setVerses((prev) =>
+                            prev.map((v) => (v.cellId === cellId ? translationPair : v))
+                        );
+                        setPinnedVerses((prev) =>
+                            prev.map((v) => (v.cellId === cellId ? translationPair : v))
+                        );
+                    }
+                    break;
+                }
+                case "replaceAllProgress": {
+                    const { completed, total } = message.data;
+                    setReplaceProgress({ completed, total });
+                    break;
+                }
+                case "replaceAllComplete": {
+                    const { successCount, totalCount, updatedPairs, errors } = message.data;
+                    setReplaceProgress(null);
+                    setReplaceErrors(errors || []);
+                    if (updatedPairs && updatedPairs.length > 0) {
+                        const updatedMap = new Map(updatedPairs.map((p: TranslationPair) => [p.cellId, p]));
+                        setVerses((prev) =>
+                            prev.map((v) => updatedMap.get(v.cellId) || v)
+                        );
+                        setPinnedVerses((prev) =>
+                            prev.map((v) => updatedMap.get(v.cellId) || v)
+                        );
+                    }
                     break;
                 }
                 case "cellsReplaced": {
@@ -247,27 +267,18 @@ function ParallelView() {
         });
     };
 
+    const computeReplacement = (content: string, query: string, replacement: string): string => {
+        const cleanContent = stripHtml(content);
+        return cleanContent.replace(new RegExp(escapeRegex(query), "gi"), replacement);
+    };
+
     const handleReplaceAll = () => {
         if (!replaceText.trim() || !lastQuery.trim() || verses.length === 0) return;
         
-        const stripHtml = (text: string): string => {
-            let strippedText = text.replace(/<[^>]*>/g, "");
-            strippedText = strippedText.replace(/&nbsp; ?/g, " ");
-            strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
-            strippedText = strippedText.replace(/&#\d+;/g, "");
-            strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
-            return strippedText;
-        };
-        
-        const escapeRegex = (str: string): string => {
-            return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        };
-        
-        const replacements = verses.map(v => {
-            const cleanTarget = stripHtml(v.targetCell.content || "");
-            const newContent = cleanTarget.replace(new RegExp(escapeRegex(lastQuery), "gi"), replaceText);
-            return { cellId: v.cellId, newContent };
-        });
+        const replacements = verses.map(v => ({
+            cellId: v.cellId,
+            newContent: computeReplacement(v.targetCell.content || "", lastQuery, replaceText)
+        }));
         
         vscode.postMessage({
             command: "replaceAll",
@@ -279,22 +290,7 @@ function ParallelView() {
     const handleReplaceCell = (cellId: string, currentContent: string) => {
         if (!replaceText.trim() || !lastQuery.trim()) return;
         
-        // Compute the replacement using same logic as diff display
-        const stripHtml = (text: string): string => {
-            let strippedText = text.replace(/<[^>]*>/g, "");
-            strippedText = strippedText.replace(/&nbsp; ?/g, " ");
-            strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
-            strippedText = strippedText.replace(/&#\d+;/g, "");
-            strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
-            return strippedText;
-        };
-        
-        const escapeRegex = (str: string): string => {
-            return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        };
-        
-        const cleanTarget = stripHtml(currentContent);
-        const newContent = cleanTarget.replace(new RegExp(escapeRegex(lastQuery), "gi"), replaceText);
+        const newContent = computeReplacement(currentContent, lastQuery, replaceText);
         
         vscode.postMessage({
             command: "replaceCell",
@@ -342,6 +338,9 @@ function ParallelView() {
                 replaceText={replaceText}
                 onReplaceTextChange={setReplaceText}
                 onReplaceCell={handleReplaceCell}
+                replaceProgress={replaceProgress}
+                replaceErrors={replaceErrors}
+                onClearReplaceErrors={() => setReplaceErrors([])}
                 vscode={vscode}
             />
         </div>

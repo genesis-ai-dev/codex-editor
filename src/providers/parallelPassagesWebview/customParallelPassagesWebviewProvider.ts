@@ -8,6 +8,29 @@ import { safePostMessageToView } from "../../utils/webviewUtils";
 import { CodexCellEditorProvider } from "../codexCellEditorProvider/codexCellEditorProvider";
 import { updateWorkspaceState } from "../../utils/workspaceEventListener";
 
+function normalizeUri(uri: string): string {
+    if (!uri) return "";
+    try {
+        return vscode.Uri.parse(uri).toString();
+    } catch {
+        return uri;
+    }
+}
+
+function isCellInSelectedFiles(pair: TranslationPair, selectedFiles: string[]): boolean {
+    if (!selectedFiles || selectedFiles.length === 0) return true;
+    
+    const sourceUri = pair.sourceCell?.uri || "";
+    const targetUri = pair.targetCell?.uri || "";
+    const normalizedSource = normalizeUri(sourceUri);
+    const normalizedTarget = normalizeUri(targetUri);
+    
+    return selectedFiles.some(selectedUri => {
+        const normalizedSelected = normalizeUri(selectedUri);
+        return normalizedSource === normalizedSelected || normalizedTarget === normalizedSelected;
+    });
+}
+
 
 
 export class CustomWebviewProvider extends BaseWebviewProvider {
@@ -206,31 +229,8 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
                     const targetUri = translationPair.targetCell.uri.replace(".source", ".codex").replace(".project/sourceTexts/", "files/target/");
                     
-                    // Check if cell is in selected files (if files are selected)
-                    if (selectedFiles && selectedFiles.length > 0) {
-                        try {
-                            const cellFileUri = vscode.Uri.parse(targetUri).toString();
-                            const sourceUri = translationPair.sourceCell?.uri || "";
-                            const normalizedSourceUri = sourceUri ? vscode.Uri.parse(sourceUri).toString() : "";
-                            
-                            // Check if either source or target file is selected
-                            const isSelected = selectedFiles.some((selectedUri: string) => {
-                                try {
-                                    const normalizedSelected = vscode.Uri.parse(selectedUri).toString();
-                                    return cellFileUri === normalizedSelected || normalizedSourceUri === normalizedSelected;
-                                } catch {
-                                    return targetUri === selectedUri || sourceUri === selectedUri;
-                                }
-                            });
-                            
-                            if (!isSelected) {
-                                // Skip replacement if file is not selected
-                                return;
-                            }
-                        } catch (error) {
-                            console.error("Error checking file selection:", error);
-                            // Continue with replacement if we can't parse URIs
-                        }
+                    if (!isCellInSelectedFiles(translationPair, selectedFiles)) {
+                        return;
                     }
 
                     const provider = CodexCellEditorProvider.getInstance();
@@ -259,12 +259,21 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
                         safePostMessageToView(this._view, {
                             command: "cellReplaced",
-                            data: { cellId, translationPair: updatedPair },
+                            data: { cellId, translationPair: updatedPair, success: true },
+                        });
+                    } else {
+                        safePostMessageToView(this._view, {
+                            command: "cellReplaced",
+                            data: { cellId, success: false, error: "Failed to update cell content" },
                         });
                     }
                 } catch (error) {
                     console.error("Error replacing cell:", error);
-                    vscode.window.showErrorMessage(`Failed to replace cell: ${error}`);
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    safePostMessageToView(this._view, {
+                        command: "cellReplaced",
+                        data: { cellId: message.cellId, success: false, error: errorMessage },
+                    });
                 }
                 break;
 
@@ -275,12 +284,16 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
                     const provider = CodexCellEditorProvider.getInstance();
                     if (!provider) {
-                        vscode.window.showErrorMessage("Codex editor provider not available");
+                        safePostMessageToView(this._view, {
+                            command: "replaceAllComplete",
+                            data: { successCount: 0, totalCount: replacements.length, errors: ["Codex editor provider not available"] },
+                        });
                         return;
                     }
 
                     let successCount = 0;
                     const updatedPairs: TranslationPair[] = [];
+                    const errors: Array<{ cellId: string; error: string }> = [];
 
                     for (const replacement of replacements) {
                         try {
@@ -293,37 +306,16 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                             );
 
                             if (!translationPair || !translationPair.targetCell.uri) {
+                                errors.push({ cellId, error: "Cell not found" });
                                 continue;
                             }
 
                             const targetUri = translationPair.targetCell.uri.replace(".source", ".codex").replace(".project/sourceTexts/", "files/target/");
                             
-                            // Check if cell is in selected files (if files are selected)
-                            if (selectedFiles && selectedFiles.length > 0) {
-                                try {
-                                    const cellFileUri = vscode.Uri.parse(targetUri).toString();
-                                    const sourceUri = translationPair.sourceCell?.uri || "";
-                                    const normalizedSourceUri = sourceUri ? vscode.Uri.parse(sourceUri).toString() : "";
-                                    
-                                    // Check if either source or target file is selected
-                                    const isSelected = selectedFiles.some((selectedUri: string) => {
-                                        try {
-                                            const normalizedSelected = vscode.Uri.parse(selectedUri).toString();
-                                            return cellFileUri === normalizedSelected || normalizedSourceUri === normalizedSelected;
-                                        } catch {
-                                            return targetUri === selectedUri || sourceUri === selectedUri;
-                                        }
-                                    });
-                                    
-                                    if (!isSelected) {
-                                        // Skip replacement if file is not selected
-                                        continue;
-                                    }
-                                } catch (error) {
-                                    console.error("Error checking file selection:", error);
-                                    // Continue with replacement if we can't parse URIs
-                                }
+                            if (!isCellInSelectedFiles(translationPair, selectedFiles)) {
+                                continue;
                             }
+                            
                             const success = await provider.updateCellContentDirect(targetUri, cellId, newContent);
 
                             if (success) {
@@ -336,9 +328,18 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                                     },
                                 };
                                 updatedPairs.push(updatedPair);
+                                
+                                safePostMessageToView(this._view, {
+                                    command: "replaceAllProgress",
+                                    data: { completed: successCount, total: replacements.length },
+                                });
+                            } else {
+                                errors.push({ cellId, error: "Failed to update cell content" });
                             }
                         } catch (error) {
+                            const errorMessage = error instanceof Error ? error.message : String(error);
                             console.error(`Error replacing cell ${replacement.cellId}:`, error);
+                            errors.push({ cellId: replacement.cellId, error: errorMessage });
                         }
                     }
 
@@ -349,17 +350,17 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                         await indexManager.flushPendingWrites();
                     }
 
-                    vscode.window.showInformationMessage(`Replaced ${successCount} of ${replacements.length} cells`);
-
-                    if (updatedPairs.length > 0) {
-                        safePostMessageToView(this._view, {
-                            command: "cellsReplaced",
-                            data: updatedPairs,
-                        });
-                    }
+                    safePostMessageToView(this._view, {
+                        command: "replaceAllComplete",
+                        data: { successCount, totalCount: replacements.length, updatedPairs, errors },
+                    });
                 } catch (error) {
                     console.error("Error replacing all cells:", error);
-                    vscode.window.showErrorMessage(`Failed to replace cells: ${error}`);
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    safePostMessageToView(this._view, {
+                        command: "replaceAllComplete",
+                        data: { successCount: 0, totalCount: 0, errors: [errorMessage] },
+                    });
                 }
                 break;
 

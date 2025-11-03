@@ -34,6 +34,9 @@ interface SearchTabProps {
     replaceText?: string;
     onReplaceTextChange?: (text: string) => void;
     onReplaceCell?: (cellId: string) => void;
+    replaceProgress?: { completed: number; total: number } | null;
+    replaceErrors?: Array<{ cellId: string; error: string }>;
+    onClearReplaceErrors?: () => void;
     vscode: any;
 }
 
@@ -57,6 +60,9 @@ function SearchTab({
     replaceText = "",
     onReplaceTextChange,
     onReplaceCell,
+    replaceProgress,
+    replaceErrors = [],
+    onClearReplaceErrors,
     vscode,
 }: SearchTabProps) {
     const [isSettingsExpanded, setIsSettingsExpanded] = useState(false);
@@ -117,9 +123,14 @@ function SearchTab({
 
 
     const handleReplaceAll = () => {
-        if (onReplaceAll && replaceText.trim() && lastQuery.trim()) {
-            onReplaceAll();
+        if (!onReplaceAll || !replaceText.trim() || !lastQuery.trim() || verses.length === 0) return;
+        
+        if (verses.length >= 5) {
+            const confirmed = window.confirm(`Replace all ${verses.length} matches?`);
+            if (!confirmed) return;
         }
+        
+        onReplaceAll();
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -343,17 +354,62 @@ function SearchTab({
                                     />
                                 </div>
                                 {replaceText.trim() && lastQuery.trim() && verses.length > 0 && (
-                                    <Button
-                                        type="button"
-                                        variant="default"
-                                        size="sm"
-                                        onClick={handleReplaceAll}
-                                        className="w-full"
-                                        aria-label="Replace all matches"
-                                    >
-                                        <span className="codicon codicon-replace mr-2"></span>
-                                        Replace All ({verses.length})
-                                    </Button>
+                                    <div className="space-y-2">
+                                        {replaceProgress && (
+                                            <div className="space-y-1">
+                                                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                                    <span>Replacing...</span>
+                                                    <span>{replaceProgress.completed} of {replaceProgress.total}</span>
+                                                </div>
+                                                <div className="w-full bg-muted rounded-full h-2">
+                                                    <div 
+                                                        className="bg-primary h-2 rounded-full transition-all duration-300"
+                                                        style={{ width: `${(replaceProgress.completed / replaceProgress.total) * 100}%` }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+                                        <Button
+                                            type="button"
+                                            variant="default"
+                                            size="sm"
+                                            onClick={handleReplaceAll}
+                                            className="w-full"
+                                            disabled={!!replaceProgress}
+                                            aria-label="Replace all matches"
+                                        >
+                                            <span className="codicon codicon-replace mr-2"></span>
+                                            Replace All ({verses.length})
+                                        </Button>
+                                        {replaceErrors.length > 0 && (
+                                            <div className="text-xs text-destructive space-y-1">
+                                                <div className="flex items-center justify-between">
+                                                    <span>{replaceErrors.length} error(s) occurred</span>
+                                                    {onClearReplaceErrors && (
+                                                        <Button
+                                                            type="button"
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={onClearReplaceErrors}
+                                                            className="h-4 px-2 text-xs"
+                                                        >
+                                                            Dismiss
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                                {replaceErrors.slice(0, 3).map((err, idx) => (
+                                                    <div key={idx} className="text-muted-foreground">
+                                                        {err.cellId}: {err.error}
+                                                    </div>
+                                                ))}
+                                                {replaceErrors.length > 3 && (
+                                                    <div className="text-muted-foreground">
+                                                        ...and {replaceErrors.length - 3} more
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
                                 )}
                             </div>
                         )}
@@ -389,6 +445,11 @@ function SearchTab({
                                         <option value="source">Source text only</option>
                                         <option value="target">Target text only</option>
                                     </select>
+                                    {replaceText && replaceText.trim() && searchScope !== "target" && (
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            Note: Replace only works on target text. Set scope to "Target text only" to replace matches.
+                                        </p>
+                                    )}
                                 </div>
                                 {projectFiles.length > 0 && (
                                     <div className="space-y-2 file-selector-container relative">

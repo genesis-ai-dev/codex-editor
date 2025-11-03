@@ -1,10 +1,11 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { TranslationPair } from "../../../../types";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Separator } from "../components/ui/separator";
 import { diffWords } from "diff";
+import { stripHtml, escapeRegex, escapeHtml } from "./utils";
 
 interface CellItemProps {
     item: TranslationPair;
@@ -17,23 +18,7 @@ interface CellItemProps {
 }
 
 const stripHtmlTags = (html: string) => {
-    const doc = new DOMParser().parseFromString(html, "text/html");
-    return doc.body.textContent || "";
-};
-
-const stripHtml = (text: string): string => {
-    let strippedText = text.replace(/<[^>]*>/g, "");
-    strippedText = strippedText.replace(/&nbsp; ?/g, " ");
-    strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
-    strippedText = strippedText.replace(/&#\d+;/g, "");
-    strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
-    return strippedText;
-};
-
-const escapeHtml = (text: string): string => {
-    const div = document.createElement("div");
-    div.textContent = text;
-    return div.innerHTML;
+    return stripHtml(html);
 };
 
 const highlightSearchMatches = (htmlText: string, query: string): string => {
@@ -73,9 +58,6 @@ const highlightSearchMatches = (htmlText: string, query: string): string => {
     return result;
 };
 
-const escapeRegex = (str: string): string => {
-    return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-};
 
 const computeDiffHtml = (oldText: string, newText: string, searchQuery: string): string => {
     const cleanOld = stripHtml(oldText);
@@ -109,6 +91,15 @@ const CellItem: React.FC<CellItemProps> = ({
     replaceText = "",
     onReplace 
 }) => {
+    const [replaceSuccess, setReplaceSuccess] = useState(false);
+    
+    useEffect(() => {
+        if (replaceSuccess) {
+            const timer = setTimeout(() => setReplaceSuccess(false), 2000);
+            return () => clearTimeout(timer);
+        }
+    }, [replaceSuccess]);
+    
     const handleSourceCopy = () => navigator.clipboard.writeText(stripHtmlTags(item.sourceCell.content || ""));
     
     const handleTargetCopy = () => navigator.clipboard.writeText(stripHtmlTags(item.targetCell.content || ""));
@@ -260,11 +251,24 @@ const CellItem: React.FC<CellItemProps> = ({
                                     <Button
                                         variant="default"
                                         size="sm"
-                                        onClick={() => onReplace(item.cellId, item.targetCell.content || "")}
+                                        onClick={() => {
+                                            onReplace(item.cellId, item.targetCell.content || "");
+                                            setReplaceSuccess(true);
+                                        }}
                                         aria-label="Replace this match"
+                                        disabled={replaceSuccess}
                                     >
-                                        <span className="codicon codicon-replace mr-2"></span>
-                                        Replace
+                                        {replaceSuccess ? (
+                                            <>
+                                                <span className="codicon codicon-check mr-2"></span>
+                                                Replaced
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span className="codicon codicon-replace mr-2"></span>
+                                                Replace
+                                            </>
+                                        )}
                                     </Button>
                                 )}
                             </div>

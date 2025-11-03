@@ -11,6 +11,15 @@ const debug = (message: string, ...args: any[]) => {
     DEBUG_SEARCH && debug(`[Search] ${message}`, ...args);
 };
 
+function stripHtml(html: string): string {
+    let strippedText = html.replace(/<[^>]*>/g, "");
+    strippedText = strippedText.replace(/&nbsp; ?/g, " ");
+    strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
+    strippedText = strippedText.replace(/&#\d+;/g, "");
+    strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
+    return strippedText.toLowerCase();
+}
+
 export function searchTargetCellsByQuery(
     translationPairsIndex: IndexType,
     query: string,
@@ -382,69 +391,28 @@ export async function searchAllCells(
     const searchScope = options?.searchScope || "both"; // "both" | "source" | "target"
     const selectedFiles = options?.selectedFiles || []; // Array of file URIs to filter by
 
-    // Helper function to normalize URIs for file comparison
-    // Handles both .source and .codex files by converting to a canonical form
-    const normalizeUriForComparison = (uri: string): string => {
+    function normalizeUri(uri: string): string {
         if (!uri) return "";
         try {
-            const parsed = vscode.Uri.parse(uri);
-            return parsed.toString();
+            return vscode.Uri.parse(uri).toString();
         } catch {
             return uri;
         }
-    };
+    }
 
-    // Helper function to get source file URI from a target URI (or vice versa)
-    const getSourceUriFromTarget = (targetUri: string): string => {
-        return targetUri.replace(".codex", ".source").replace("files/target/", ".project/sourceTexts/");
-    };
-
-    const getTargetUriFromSource = (sourceUri: string): string => {
-        return sourceUri.replace(".source", ".codex").replace(".project/sourceTexts/", "files/target/");
-    };
-
-    // Helper function to check if a translation pair matches selected files
-    const matchesSelectedFiles = (pair: TranslationPair): boolean => {
+    function matchesSelectedFiles(pair: TranslationPair): boolean {
         if (!selectedFiles || selectedFiles.length === 0) return true;
         
         const sourceUri = pair.sourceCell?.uri || "";
         const targetUri = pair.targetCell?.uri || "";
+        const normalizedSource = normalizeUri(sourceUri);
+        const normalizedTarget = normalizeUri(targetUri);
         
-        // Normalize all URIs for comparison
-        const normalizedSourceUri = normalizeUriForComparison(sourceUri);
-        const normalizedTargetUri = normalizeUriForComparison(targetUri);
-        
-        return selectedFiles.some((selectedUri: string) => {
-            const normalizedSelected = normalizeUriForComparison(selectedUri);
-            
-            // Direct match
-            if (normalizedSourceUri === normalizedSelected || normalizedTargetUri === normalizedSelected) {
-                return true;
-            }
-            
-            // Check if selected file is source and matches source, or if selected is target and matches target
-            // Also check cross-references (if source file selected, check if it matches source URI)
-            if (selectedUri.includes(".source")) {
-                // Selected is a source file - check if it matches the pair's source URI
-                if (normalizedSourceUri === normalizedSelected) {
-                    return true;
-                }
-            }
-            if (selectedUri.includes(".codex")) {
-                // Selected is a target file - check if it matches the pair's target URI
-                if (normalizedTargetUri === normalizedSelected) {
-                    return true;
-                }
-                // Also check if the corresponding source file matches
-                const correspondingSource = getSourceUriFromTarget(selectedUri);
-                if (normalizeUriForComparison(correspondingSource) === normalizedSourceUri) {
-                    return true;
-                }
-            }
-            
-            return false;
+        return selectedFiles.some(selectedUri => {
+            const normalizedSelected = normalizeUri(selectedUri);
+            return normalizedSource === normalizedSelected || normalizedTarget === normalizedSelected;
         });
-    };
+    }
 
     // Handle explicit search scope (source or target only)
     if (searchScope === "source" && translationPairsIndex instanceof SQLiteIndexManager) {
@@ -461,14 +429,6 @@ export async function searchAllCells(
             );
             if (translationPair && translationPair.sourceCell.content) {
                 // Verify the source content actually contains the query
-                const stripHtml = (html: string): string => {
-                    let strippedText = html.replace(/<[^>]*>/g, "");
-                    strippedText = strippedText.replace(/&nbsp; ?/g, " ");
-                    strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
-                    strippedText = strippedText.replace(/&#\d+;/g, "");
-                    strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
-                    return strippedText.toLowerCase();
-                };
                 const cleanSource = stripHtml(translationPair.sourceCell.content);
                 const queryLower = query.toLowerCase();
                 if (cleanSource.includes(queryLower) && matchesSelectedFiles(translationPair)) {
@@ -494,14 +454,6 @@ export async function searchAllCells(
             );
             if (translationPair && translationPair.targetCell.content) {
                 // Verify the target content actually contains the query
-                const stripHtml = (html: string): string => {
-                    let strippedText = html.replace(/<[^>]*>/g, "");
-                    strippedText = strippedText.replace(/&nbsp; ?/g, " ");
-                    strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
-                    strippedText = strippedText.replace(/&#\d+;/g, "");
-                    strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
-                    return strippedText.toLowerCase();
-                };
                 const cleanTarget = stripHtml(translationPair.targetCell.content);
                 const queryLower = query.toLowerCase();
                 if (cleanTarget.includes(queryLower) && matchesSelectedFiles(translationPair)) {
@@ -527,14 +479,6 @@ export async function searchAllCells(
             );
             if (translationPair && translationPair.targetCell.content) {
                 // Verify the target content actually contains the query
-                const stripHtml = (html: string): string => {
-                    let strippedText = html.replace(/<[^>]*>/g, "");
-                    strippedText = strippedText.replace(/&nbsp; ?/g, " ");
-                    strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
-                    strippedText = strippedText.replace(/&#\d+;/g, "");
-                    strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
-                    return strippedText.toLowerCase();
-                };
                 const cleanTarget = stripHtml(translationPair.targetCell.content);
                 const queryLower = query.toLowerCase();
                 if (cleanTarget.includes(queryLower) && matchesSelectedFiles(translationPair)) {
@@ -560,14 +504,6 @@ export async function searchAllCells(
     // Filter translation pairs based on search scope (if not "both")
     if (searchScope === "source") {
         // Only include pairs where source matches
-        const stripHtml = (html: string): string => {
-            let strippedText = html.replace(/<[^>]*>/g, "");
-            strippedText = strippedText.replace(/&nbsp; ?/g, " ");
-            strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
-            strippedText = strippedText.replace(/&#\d+;/g, "");
-            strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
-            return strippedText.toLowerCase();
-        };
         const queryLower = query.toLowerCase();
         combinedResults = translationPairs.filter(pair => {
             if (!pair.sourceCell.content) return false;
@@ -576,14 +512,6 @@ export async function searchAllCells(
         });
     } else if (searchScope === "target") {
         // Only include pairs where target matches
-        const stripHtml = (html: string): string => {
-            let strippedText = html.replace(/<[^>]*>/g, "");
-            strippedText = strippedText.replace(/&nbsp; ?/g, " ");
-            strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
-            strippedText = strippedText.replace(/&#\d+;/g, "");
-            strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
-            return strippedText.toLowerCase();
-        };
         const queryLower = query.toLowerCase();
         combinedResults = translationPairs.filter(pair => {
             if (!pair.targetCell.content) return false;
