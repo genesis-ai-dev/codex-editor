@@ -563,6 +563,9 @@ function applyEditToMetadata(metadata: CustomNotebookMetadata, edit: FileEditHis
                 case 'audioOnly':
                     metadata.audioOnly = value as boolean;
                     break;
+                case 'corpusMarker':
+                    metadata.corpusMarker = value as string;
+                    break;
                 default:
                     // Generic field assignment for other metadata fields
                     (metadata as any)[field] = value;

@@ -811,7 +811,35 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                         if (resolved === "New Testament") resolved = "NT";
 
                         if (resolved === oldCorpusLabel) {
-                            notebookData.metadata = { ...notebookData.metadata, corpusMarker: newCorpusName };
+                            // Ensure metadata exists
+                            if (!notebookData.metadata) {
+                                notebookData.metadata = {} as CustomNotebookMetadata;
+                            }
+
+                            const metadata = notebookData.metadata as CustomNotebookMetadata;
+                            const oldValue = metadata.corpusMarker;
+
+                            // Only add edit if value is actually changing
+                            if (oldValue !== newCorpusName) {
+                                // Get current user for edit history
+                                let currentUser = "anonymous";
+                                try {
+                                    const authApi = getAuthApi();
+                                    const userInfo = await authApi?.getUserInfo();
+                                    currentUser = userInfo?.username || "anonymous";
+                                } catch (error) {
+                                    console.warn("[updateCorpusMarker] Could not get user info, using 'anonymous'");
+                                }
+
+                                // Add edit history entry before updating metadata
+                                addMetadataEdit(metadata, "corpusMarker", newCorpusName, currentUser);
+                            }
+
+                            // Update metadata with new corpusMarker
+                            notebookData.metadata = {
+                                ...metadata,
+                                corpusMarker: newCorpusName,
+                            };
 
                             // Serialize and save the updated notebook
                             const updatedContent = await this.serializer.serializeNotebook(

@@ -890,6 +890,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             "fileDisplayName",
             "cellDisplayMode",
             "audioOnly",
+            "corpusMarker",
         ] as const;
 
         // Compare old vs new values and create edit history entries for each changed field
@@ -928,6 +929,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     break;
                 case "audioOnly":
                     editMap = EditMapUtils.metadataAudioOnly();
+                    break;
+                case "corpusMarker":
+                    editMap = EditMapUtils.metadataCorpusMarker();
                     break;
                 default:
                     editMap = EditMapUtils.metadataField(field);

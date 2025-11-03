@@ -17,6 +17,7 @@ type MetadataShowInlineBacktranslationsEditMap = ["metadata", "showInlineBacktra
 type MetadataFileDisplayNameEditMap = ["metadata", "fileDisplayName"];
 type MetadataCellDisplayModeEditMap = ["metadata", "cellDisplayMode"];
 type MetadataAudioOnlyEditMap = ["metadata", "audioOnly"];
+type MetadataCorpusMarkerEditMap = ["metadata", "corpusMarker"];
 
 import { EditType } from "../../types/enums";
 
@@ -99,6 +100,10 @@ export const EditMapUtils = {
 
     metadataAudioOnly(): MetadataAudioOnlyEditMap {
         return ["metadata", "audioOnly"];
+    },
+
+    metadataCorpusMarker(): MetadataCorpusMarkerEditMap {
+        return ["metadata", "corpusMarker"];
     },
 
     // Generic helper for any file-level metadata field
@@ -197,6 +202,9 @@ export function addMetadataEdit(
             break;
         case "audioOnly":
             editMap = EditMapUtils.metadataAudioOnly();
+            break;
+        case "corpusMarker":
+            editMap = EditMapUtils.metadataCorpusMarker();
             break;
         default:
             editMap = EditMapUtils.metadataField(field);
