@@ -24,6 +24,7 @@ interface CodexMetadata {
     corpusMarker?: string;
     progress?: number;
     fileDisplayName?: string;
+    fileDisplayName?: string;
 }
 
 interface BibleBookInfo {
@@ -62,11 +63,17 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
     private loadBibleBookMap(): void {
         console.log("Loading bible book map for Navigation...");
         // Build the book map from default data only; display names come from metadata.fileDisplayName
+        // Build the book map from default data only; display names come from metadata.fileDisplayName
         const defaultBooks: any[] = [...bibleData];
         this.bibleBookMap.clear();
         defaultBooks.forEach((book) => {
             if (book.abbr) {
                 this.bibleBookMap.set(book.abbr, {
+                    name: book.name,
+                    abbr: book.abbr,
+                    ord: book.ord,
+                    testament: book.testament,
+                    osisId: book.osisId,
                     name: book.name,
                     abbr: book.abbr,
                     ord: book.ord,
@@ -314,7 +321,11 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 try {
                     const { bookAbbr, newBookName } = message.content;
                     await this.updateBookName(bookAbbr, newBookName);
+                    const { bookAbbr, newBookName } = message.content;
+                    await this.updateBookName(bookAbbr, newBookName);
                 } catch (error) {
+                    console.error("Error updating book name:", error);
+                    vscode.window.showErrorMessage(`Failed to update book name: ${error}`);
                     console.error("Error updating book name:", error);
                     vscode.window.showErrorMessage(`Failed to update book name: ${error}`);
                 }
@@ -452,12 +463,15 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                         attachments: cell.metadata.attachments,
                         metadata: { selectedAudioId: cell?.metadata?.selectedAudioId },
                     });
+                        metadata: { selectedAudioId: cell?.metadata?.selectedAudioId },
+                    });
                     return cellValueData;
                 }
             );
 
             // Compute audio completion based on attachments (mirrors editor logic)
             const cellsWithAudioValues = unmergedCells.filter((cell) =>
+                cellHasAudioUsingAttachments(cell?.metadata?.attachments, cell?.metadata?.selectedAudioId)
                 cellHasAudioUsingAttachments(cell?.metadata?.attachments, cell?.metadata?.selectedAudioId)
             ).length;
 
@@ -474,6 +488,8 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
             // Compute per-level validation percentages for text and audio
             const countNonDeleted = (arr: any[] | undefined) => (arr || []).filter((v: any) => !v.isDeleted).length;
+            const textValidationCounts = cellWithValidatedData.map((c) => countNonDeleted(c.validatedBy));
+            const audioValidationCounts = cellWithValidatedData.map((c) => countNonDeleted(c.audioValidatedBy));
             const textValidationCounts = cellWithValidatedData.map((c) => countNonDeleted(c.validatedBy));
             const audioValidationCounts = cellWithValidatedData.map((c) => countNonDeleted(c.audioValidatedBy));
 
@@ -508,6 +524,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const label = fileNameAbbr;
             const sortOrder = bookInfo?.ord;
             const corpusMarker = metadata?.corpusMarker || bookInfo?.testament;
+            const corpusMarker = metadata?.corpusMarker || bookInfo?.testament;
 
             return {
                 uri,
@@ -526,6 +543,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                     requiredAudioValidations: minimumAudioValidationsRequired,
                 },
                 sortOrder,
+                fileDisplayName: metadata?.fileDisplayName,
                 fileDisplayName: metadata?.fileDisplayName,
             };
         } catch (error) {
@@ -577,6 +595,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 const sums = new Array(len).fill(0);
                 let count = 0;
                 itemsInGroup.forEach((it) => {
+                    const arr = it.progress?.[key] as number[] | undefined;
                     const arr = it.progress?.[key] as number[] | undefined;
                     if (arr && arr.length === len) {
                         for (let i = 0; i < len; i++) sums[i] += arr[i];
@@ -800,6 +819,18 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                         );
 
                         // Check if this file's corpus marker matches the old label
+                        const metadata = notebookData.metadata;
+
+                        const fileNameAbbr = path.basename(uri.fsPath, ".codex");
+                        const bookInfo = this.bibleBookMap.get(fileNameAbbr);
+
+                        // Resolve corpus marker using same logic as grouping
+                        let resolved = (metadata?.corpusMarker ?? bookInfo?.testament) as string | undefined;
+                        if (resolved === "Old Testament") resolved = "OT";
+                        if (resolved === "New Testament") resolved = "NT";
+
+                        if (resolved === oldCorpusLabel) {
+                            notebookData.metadata = { ...notebookData.metadata, corpusMarker: newCorpusName };
                         const metadata = notebookData.metadata;
 
                         const fileNameAbbr = path.basename(uri.fsPath, ".codex");

@@ -639,6 +639,7 @@ export type EditorPostMessages =
     }
     | { command: "openBookNameEditor"; }
     | { command: "editBookName"; content: { bookAbbr: string; newBookName: string; }; }
+    | { command: "editBookName"; content: { bookAbbr: string; newBookName: string; }; }
     | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
     | { command: "closeCurrentDocument"; content?: { isSource: boolean; uri?: string; }; }
     | { command: "triggerSync"; }

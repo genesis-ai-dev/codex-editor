@@ -1,4 +1,5 @@
 import { CustomNotebookMetadata } from "@types";
+import { CustomNotebookMetadata } from "@types";
 import * as vscode from "vscode";
 import * as xml2js from "xml2js";
 
@@ -59,7 +60,19 @@ export async function openBookNameEditor() {
 
     // Build current overrides from codex metadata (fileDisplayName) instead of localized-books.json
     const displayNameByAbbr: Record<string, string> = {};
+    // Build current overrides from codex metadata (fileDisplayName) instead of localized-books.json
+    const displayNameByAbbr: Record<string, string> = {};
     try {
+        const codexUris = await vscode.workspace.findFiles(new vscode.RelativePattern(workspaceRoot, "files/target/**/*.codex"));
+        const serializer = new (await import("../serializer")).CodexContentSerializer();
+        for (const uri of codexUris) {
+            try {
+                const content = await vscode.workspace.fs.readFile(uri);
+                const notebookData = await serializer.deserializeNotebook(content, new vscode.CancellationTokenSource().token);
+                const abbr = path.basename(uri.fsPath, ".codex");
+                const dn = (notebookData.metadata as CustomNotebookMetadata)?.fileDisplayName;
+                if (abbr && typeof dn === "string" && dn.trim()) {
+                    displayNameByAbbr[abbr] = dn.trim();
         const codexUris = await vscode.workspace.findFiles(new vscode.RelativePattern(workspaceRoot, "files/target/**/*.codex"));
         const serializer = new (await import("../serializer")).CodexContentSerializer();
         for (const uri of codexUris) {
@@ -77,12 +90,20 @@ export async function openBookNameEditor() {
         }
     } catch (error) {
         console.error(`Error reading fileDisplayName from codex files:`, error);
+            } catch (error) {
+                console.error(`Error reading fileDisplayName from ${uri.fsPath}:`, error);
+            }
+        }
+    } catch (error) {
+        console.error(`Error reading fileDisplayName from codex files:`, error);
     }
 
+    // Merge for UI: always show all books, use fileDisplayName from metadata if present
     // Merge for UI: always show all books, use fileDisplayName from metadata if present
     const mergedBooks = defaultBooks.map((book: any) => ({
         abbr: book.abbr,
         defaultName: book.name,
+        name: displayNameByAbbr[book.abbr] || "",
         name: displayNameByAbbr[book.abbr] || "",
         ord: book.ord,
         testament: book.testament,
@@ -481,6 +502,33 @@ export async function importBookNamesFromXmlContent(
                     const raw = fs.readFileSync(defaultBooksPath, "utf8");
                     const defaultBooks = JSON.parse(raw);
 
+                    // Apply overrides directly to codex metadata
+                    const rootUri = vscode.Uri.file(workspaceRoot);
+                    const codexPattern = new vscode.RelativePattern(rootUri.fsPath, "files/target/**/*.codex");
+                    const codexUris = await vscode.workspace.findFiles(codexPattern);
+                    const serializer = new (await import("../serializer")).CodexContentSerializer();
+                    let updatedCount = 0;
+
+                    for (const uri of codexUris) {
+                        try {
+                            const abbr = path.basename(uri.fsPath, ".codex");
+                            const customName = xmlBooks[abbr];
+                            if (!customName) continue;
+                            const content = await vscode.workspace.fs.readFile(uri);
+                            const notebookData = await serializer.deserializeNotebook(content, new vscode.CancellationTokenSource().token);
+                            (notebookData.metadata) = {
+                                ...(notebookData.metadata || {}),
+                                fileDisplayName: customName,
+                            };
+                            const updatedContent = await serializer.serializeNotebook(notebookData, new vscode.CancellationTokenSource().token);
+                            await vscode.workspace.fs.writeFile(uri, updatedContent);
+                            updatedCount++;
+                        } catch (error) {
+                            console.error(`Error applying book names to ${uri.fsPath}:`, error);
+                        }
+                    }
+
+                    vscode.window.showInformationMessage(`Imported book names applied to ${updatedCount} file(s)`);
                     // Apply overrides directly to codex metadata
                     const rootUri = vscode.Uri.file(workspaceRoot);
                     const codexPattern = new vscode.RelativePattern(rootUri.fsPath, "files/target/**/*.codex");
