@@ -12,12 +12,21 @@ export interface OpenFileMessage {
     word: string;
 }
 
+interface ProjectFile {
+    uri: string;
+    name: string;
+    type: "source" | "target";
+}
+
 function ParallelView() {
     const [verses, setVerses] = useState<TranslationPair[]>([]);
     const [pinnedVerses, setPinnedVerses] = useState<TranslationPair[]>([]);
     const [lastQuery, setLastQuery] = useState<string>("");
     const [replaceText, setReplaceText] = useState<string>("");
     const [completeOnly, setCompleteOnly] = useState<boolean>(false);
+    const [searchScope, setSearchScope] = useState<"both" | "source" | "target">("both");
+    const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
+    const [selectedFiles, setSelectedFiles] = useState<string[]>([]); // Array of file URIs
 
     const dedupeByCellId = (items: TranslationPair[]) => {
         const seen = new Set<string>();
@@ -36,13 +45,18 @@ function ParallelView() {
         const hadReplaceText = prevReplaceTextRef.current.trim();
         const hasReplaceText = replaceText.trim();
         
+        // When replace text is entered, automatically scope to target text
+        if (!hadReplaceText && hasReplaceText && searchScope !== "target") {
+            setSearchScope("target");
+        }
+        
         // Only re-search when transitioning from no replace text to having replace text
         if (!hadReplaceText && hasReplaceText && lastQuery.trim() && verses.length > 0) {
             searchBoth(lastQuery, replaceText);
         }
         
         prevReplaceTextRef.current = replaceText;
-    }, [replaceText]);
+    }, [replaceText, searchScope]);
 
     // Re-search when query changes (if we already have results)
     const prevQueryRef = useRef<string>("");
@@ -61,7 +75,7 @@ function ParallelView() {
         }
         
         prevQueryRef.current = lastQuery;
-    }, [lastQuery, verses.length, replaceText]);
+    }, [lastQuery, verses.length, replaceText, searchScope]);
 
     // Re-search when completeOnly setting changes (if we already have search results)
     const prevCompleteOnlyRef = useRef<boolean>(false);
@@ -76,12 +90,58 @@ function ParallelView() {
         }
         
         prevCompleteOnlyRef.current = completeOnly;
-    }, [completeOnly, lastQuery, verses.length, replaceText]);
+    }, [completeOnly, lastQuery, verses.length, replaceText, searchScope]);
+
+    // Re-search when searchScope setting changes (if we already have search results)
+    const prevSearchScopeRef = useRef<"both" | "source" | "target">("both");
+    useEffect(() => {
+        const settingChanged = prevSearchScopeRef.current !== searchScope;
+        const hasQuery = lastQuery.trim().length > 0;
+        const hasResults = verses.length > 0;
+        
+        // Auto-search if setting changed and we have an active search
+        if (settingChanged && hasQuery && hasResults) {
+            searchBoth(lastQuery, replaceText);
+        }
+        
+        prevSearchScopeRef.current = searchScope;
+    }, [searchScope, lastQuery, verses.length, replaceText]);
+
+    // Re-search when selectedFiles changes (if we already have search results)
+    const prevSelectedFilesRef = useRef<string[]>([]);
+    useEffect(() => {
+        const filesChanged = JSON.stringify(prevSelectedFilesRef.current) !== JSON.stringify(selectedFiles);
+        const hasQuery = lastQuery.trim().length > 0;
+        const hasResults = verses.length > 0;
+        
+        // Auto-search if files changed and we have an active search
+        if (filesChanged && hasQuery && hasResults) {
+            searchBoth(lastQuery, replaceText);
+        }
+        
+        prevSelectedFilesRef.current = selectedFiles;
+    }, [selectedFiles, lastQuery, verses.length, replaceText]);
+
+    // Request project files on mount
+    useEffect(() => {
+        vscode.postMessage({
+            command: "getProjectFiles",
+        });
+    }, []);
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
             switch (message.command) {
+                case "projectFiles": {
+                    const files = message.data as ProjectFile[];
+                    setProjectFiles(files);
+                    // Default: select all files (only if we haven't initialized yet)
+                    if (files.length > 0) {
+                        setSelectedFiles(prev => prev.length === 0 ? files.map(f => f.uri) : prev);
+                    }
+                    break;
+                }
                 case "searchResults": {
                     let results = message.data as TranslationPair[];
                     results = dedupeByCellId(results);
@@ -182,6 +242,8 @@ function ParallelView() {
             query: query,
             replaceText: replaceText || "",
             completeOnly: completeOnly,
+            searchScope: searchScope,
+            selectedFiles: selectedFiles.length === projectFiles.length ? [] : selectedFiles, // Empty = all files
         });
     };
 
@@ -210,6 +272,7 @@ function ParallelView() {
         vscode.postMessage({
             command: "replaceAll",
             replacements: replacements,
+            selectedFiles: selectedFiles.length === projectFiles.length ? [] : selectedFiles, // Empty = all files
         });
     };
 
@@ -237,6 +300,7 @@ function ParallelView() {
             command: "replaceCell",
             cellId: cellId,
             newContent: newContent,
+            selectedFiles: selectedFiles.length === projectFiles.length ? [] : selectedFiles, // Empty = all files
         });
     };
 
@@ -268,6 +332,11 @@ function ParallelView() {
                 onUriClick={handleUriClick}
                 completeOnly={completeOnly}
                 onCompleteOnlyChange={setCompleteOnly}
+                searchScope={searchScope}
+                onSearchScopeChange={setSearchScope}
+                projectFiles={projectFiles}
+                selectedFiles={selectedFiles}
+                onSelectedFilesChange={setSelectedFiles}
                 onPinAll={handlePinAll}
                 onReplaceAll={handleReplaceAll}
                 replaceText={replaceText}

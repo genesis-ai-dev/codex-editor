@@ -3777,74 +3777,36 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         try {
             const documentUri = vscode.Uri.parse(uri);
             
-            // Read file
-            const fileData = await vscode.workspace.fs.readFile(documentUri);
-            const decoder = new TextDecoder("utf-8");
-            const fileContent = decoder.decode(fileData);
-            const notebook = JSON.parse(fileContent);
+            // Use document model for proper undo support
+            // Open/get the document instance (VS Code manages lifecycle)
+            const document = await this.openCustomDocument(
+                documentUri,
+                {},
+                new vscode.CancellationTokenSource().token
+            );
             
-            // Find cell
-            const cell = notebook.cells?.find((c: any) => c.metadata?.id === cellId);
-            if (!cell) {
+            // Verify cell exists in document
+            const existingCell = document.getCellContent(cellId);
+            if (!existingCell) {
+                console.warn(`Cell ${cellId} not found in document ${uri}`);
                 return false;
             }
-
-            // Update cell value and add edit history
-            cell.value = newContent;
             
-            const currentTimestamp = Date.now();
-            if (!cell.metadata.edits) {
-                cell.metadata.edits = [];
-            }
+            // Use document's updateCellContent method which properly tracks changes for undo
+            // This marks the document dirty and fires change events that VS Code tracks
+            await document.updateCellContent(cellId, newContent, EditType.USER_EDIT);
             
-            const authApi = await this.getAuthApi();
-            const userInfo = authApi ? await authApi.getUserInfo() : null;
-            const author = userInfo?.username || "anonymous";
+            // Fire custom document change event so VS Code can track for undo/redo
+            this._onDidChangeCustomDocument.fire({ document });
             
-            cell.metadata.edits.push({
-                editMap: ["value"],
-                value: newContent,
-                timestamp: currentTimestamp,
-                type: EditType.USER_EDIT,
-                author: author,
-                validatedBy: [{
-                    username: author,
-                    creationTimestamp: currentTimestamp,
-                    updatedTimestamp: currentTimestamp,
-                    isDeleted: false,
-                }],
-            });
-
-            // Write to file
-            const encoder = new TextEncoder();
-            await vscode.workspace.fs.writeFile(documentUri, encoder.encode(JSON.stringify(notebook, null, 2)));
-            
-            // Update index
-            const { getSQLiteIndexManager } = await import("../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager");
-            const indexManager = getSQLiteIndexManager();
-            if (indexManager) {
-                const fileId = indexManager.upsertFileSync(documentUri.fsPath, "codex", currentTimestamp);
-                const cellIndex = notebook.cells.findIndex((c: any) => c.metadata?.id === cellId);
-                let lineNumber: number | undefined = undefined;
-                if (cellIndex >= 0) {
-                    let logicalPosition = 1;
-                    for (let i = 0; i < cellIndex; i++) {
-                        if (notebook.cells[i].metadata?.type !== "paratext") {
-                            logicalPosition++;
-                        }
-                    }
-                    if (cell.metadata?.type !== "paratext") {
-                        lineNumber = logicalPosition;
-                    }
-                }
-                
-                await indexManager.upsertCellWithFTSSync(cellId, fileId, "target", newContent, lineNumber, cell.metadata, newContent);
-            }
+            // Save the document (VS Code will auto-save, but we ensure it's saved for immediate persistence)
+            // Use a cancellation token that won't cancel immediately
+            const cancellationToken = new vscode.CancellationTokenSource().token;
+            await this.saveCustomDocument(document, cancellationToken);
             
             // Refresh webview if open
             const webviewPanel = this.webviewPanels.get(documentUri.toString());
             if (webviewPanel) {
-                const document = await this.openCustomDocument(documentUri, {}, new vscode.CancellationTokenSource().token);
                 await this.refreshWebview(webviewPanel, document);
             }
             

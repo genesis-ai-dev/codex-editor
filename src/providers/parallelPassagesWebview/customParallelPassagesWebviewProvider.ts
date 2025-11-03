@@ -96,8 +96,60 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         }
     }
 
+    private async getProjectFiles(): Promise<Array<{ uri: string; name: string; type: "source" | "target" }>> {
+        try {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                return [];
+            }
+
+            const [sourceFileUris, codexFileUris] = await Promise.all([
+                vscode.workspace.findFiles(".project/sourceTexts/*.source"),
+                vscode.workspace.findFiles("files/target/*.codex")
+            ]);
+
+            const files: Array<{ uri: string; name: string; type: "source" | "target" }> = [];
+
+            // Add source files
+            for (const uri of sourceFileUris) {
+                const fileName = uri.path.split('/').pop()?.replace('.source', '') || 'Unknown';
+                files.push({
+                    uri: uri.toString(),
+                    name: fileName,
+                    type: "source"
+                });
+            }
+
+            // Add target files
+            for (const uri of codexFileUris) {
+                const fileName = uri.path.split('/').pop()?.replace('.codex', '') || 'Unknown';
+                files.push({
+                    uri: uri.toString(),
+                    name: fileName,
+                    type: "target"
+                });
+            }
+
+            return files.sort((a, b) => a.name.localeCompare(b.name));
+        } catch (error) {
+            console.error("Error getting project files:", error);
+            return [];
+        }
+    }
+
     protected async handleMessage(message: any): Promise<void> {
         switch (message.command) {
+            case "getProjectFiles":
+                try {
+                    const files = await this.getProjectFiles();
+                    safePostMessageToView(this._view, {
+                        command: "projectFiles",
+                        data: files,
+                    });
+                } catch (error) {
+                    console.error("Error getting project files:", error);
+                }
+                break;
             case "openFileAtLocation":
                 await this.openFileAtLocation(message.uri, message.word);
                 break;
@@ -107,10 +159,12 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             case "search":
                 try {
                     const replaceMode = !!(message.replaceText && message.replaceText.trim());
+                    const searchScope = message.searchScope || "both"; // "both" | "source" | "target"
                     const command = message.completeOnly
                         ? "codex-editor-extension.searchParallelCells"
                         : "codex-editor-extension.searchAllCells";
 
+                    const selectedFiles = message.selectedFiles || []; // Array of file URIs
                     const results = await vscode.commands.executeCommand<TranslationPair[]>(
                         command,
                         message.query,
@@ -119,7 +173,9 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                         false, // showInfo
                         { 
                             isParallelPassagesWebview: true,
-                            replaceMode: replaceMode // Pass replace mode flag
+                            replaceMode: replaceMode, // Pass replace mode flag
+                            searchScope: searchScope, // Pass search scope: "both" | "source" | "target"
+                            selectedFiles: selectedFiles // Pass selected file URIs for filtering
                         }
                     );
                     if (results) {
@@ -135,7 +191,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
             case "replaceCell":
                 try {
-                    const { cellId, newContent } = message;
+                    const { cellId, newContent, selectedFiles } = message;
 
                     const translationPair = await vscode.commands.executeCommand<TranslationPair>(
                         "codex-editor-extension.getTranslationPairFromProject",
@@ -148,13 +204,41 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                         return;
                     }
 
+                    const targetUri = translationPair.targetCell.uri.replace(".source", ".codex").replace(".project/sourceTexts/", "files/target/");
+                    
+                    // Check if cell is in selected files (if files are selected)
+                    if (selectedFiles && selectedFiles.length > 0) {
+                        try {
+                            const cellFileUri = vscode.Uri.parse(targetUri).toString();
+                            const sourceUri = translationPair.sourceCell?.uri || "";
+                            const normalizedSourceUri = sourceUri ? vscode.Uri.parse(sourceUri).toString() : "";
+                            
+                            // Check if either source or target file is selected
+                            const isSelected = selectedFiles.some((selectedUri: string) => {
+                                try {
+                                    const normalizedSelected = vscode.Uri.parse(selectedUri).toString();
+                                    return cellFileUri === normalizedSelected || normalizedSourceUri === normalizedSelected;
+                                } catch {
+                                    return targetUri === selectedUri || sourceUri === selectedUri;
+                                }
+                            });
+                            
+                            if (!isSelected) {
+                                // Skip replacement if file is not selected
+                                return;
+                            }
+                        } catch (error) {
+                            console.error("Error checking file selection:", error);
+                            // Continue with replacement if we can't parse URIs
+                        }
+                    }
+
                     const provider = CodexCellEditorProvider.getInstance();
                     if (!provider) {
                         vscode.window.showErrorMessage("Codex editor provider not available");
                         return;
                     }
 
-                    const targetUri = translationPair.targetCell.uri.replace(".source", ".codex").replace(".project/sourceTexts/", "files/target/");
                     const success = await provider.updateCellContentDirect(targetUri, cellId, newContent);
 
                     if (success) {
@@ -187,6 +271,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             case "replaceAll":
                 try {
                     const replacements = message.replacements || [];
+                    const selectedFiles = message.selectedFiles || [];
 
                     const provider = CodexCellEditorProvider.getInstance();
                     if (!provider) {
@@ -212,6 +297,33 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                             }
 
                             const targetUri = translationPair.targetCell.uri.replace(".source", ".codex").replace(".project/sourceTexts/", "files/target/");
+                            
+                            // Check if cell is in selected files (if files are selected)
+                            if (selectedFiles && selectedFiles.length > 0) {
+                                try {
+                                    const cellFileUri = vscode.Uri.parse(targetUri).toString();
+                                    const sourceUri = translationPair.sourceCell?.uri || "";
+                                    const normalizedSourceUri = sourceUri ? vscode.Uri.parse(sourceUri).toString() : "";
+                                    
+                                    // Check if either source or target file is selected
+                                    const isSelected = selectedFiles.some((selectedUri: string) => {
+                                        try {
+                                            const normalizedSelected = vscode.Uri.parse(selectedUri).toString();
+                                            return cellFileUri === normalizedSelected || normalizedSourceUri === normalizedSelected;
+                                        } catch {
+                                            return targetUri === selectedUri || sourceUri === selectedUri;
+                                        }
+                                    });
+                                    
+                                    if (!isSelected) {
+                                        // Skip replacement if file is not selected
+                                        continue;
+                                    }
+                                } catch (error) {
+                                    console.error("Error checking file selection:", error);
+                                    // Continue with replacement if we can't parse URIs
+                                }
+                            }
                             const success = await provider.updateCellContentDirect(targetUri, cellId, newContent);
 
                             if (success) {
