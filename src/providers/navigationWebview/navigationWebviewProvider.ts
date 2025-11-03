@@ -8,6 +8,7 @@ import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToView } from "../../utils/webviewUtils";
 import { CodexItem } from "types";
 import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents } from "../../../sharedUtils";
+import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
 import { addMetadataEdit } from "../../utils/editMapUtils";
 import { getAuthApi } from "../../extension";
 import { CustomNotebookMetadata } from "../../../types";
@@ -883,11 +884,17 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
         }
 
         try {
-            // Get default book info to ensure we have ord and testament
-            const defaultBookInfo = this.bibleBookMap.get(bookAbbr);
-            if (!defaultBookInfo) {
-                vscode.window.showErrorMessage(`Book abbreviation "${bookAbbr}" not found`);
-                return;
+            // Check if this is a biblical book - only validate against bibleBookMap for biblical books
+            const corpusMarker = getCorpusMarkerForBook(bookAbbr);
+            const isBiblicalBook = corpusMarker === "NT" || corpusMarker === "OT";
+
+            if (isBiblicalBook) {
+                // For biblical books, validate against bibleBookMap
+                const defaultBookInfo = this.bibleBookMap.get(bookAbbr);
+                if (!defaultBookInfo) {
+                    vscode.window.showErrorMessage(`Book abbreviation "${bookAbbr}" not found`);
+                    return;
+                }
             }
 
             // Update .codex file metadata
