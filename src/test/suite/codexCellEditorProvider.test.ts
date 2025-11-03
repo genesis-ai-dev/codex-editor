@@ -1933,6 +1933,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 fileDisplayName: "Test File",
                 cellDisplayMode: "one-line-per-cell" as const,
                 audioOnly: true,
+                corpusMarker: "NT",
             };
 
             document.updateNotebookMetadata(metadataUpdates);
@@ -1951,6 +1952,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataFileDisplayName())), "Should have fileDisplayName edit");
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataCellDisplayMode())), "Should have cellDisplayMode edit");
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataAudioOnly())), "Should have audioOnly edit");
+            assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataCorpusMarker())), "Should have corpusMarker edit");
 
             // Verify autoDownloadAudioOnOpen is NOT tracked as a file-level edit (it's a project-level setting)
             assert.ok(!edits.some((e) => isEditPath(e, EditMapUtils.metadataAutoDownloadAudioOnOpen())), "Should NOT have autoDownloadAudioOnOpen edit (it's project-level, not file-level)");
@@ -2084,6 +2086,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             document.updateNotebookMetadata({
                 videoUrl: "https://example.com/test.mp4",
                 fontSize: 14,
+                corpusMarker: "OT",
             });
 
             const after = JSON.parse(document.getText());

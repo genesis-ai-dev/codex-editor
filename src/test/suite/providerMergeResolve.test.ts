@@ -785,6 +785,8 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
             const ourInitialFileDisplayName = "Our File";
             const theirFileDisplayName = "Their File";
             const ourLatestFileDisplayName = "Our File V2";
+            const earlierCorpusMarker = "OT";
+            const latestCorpusMarker = "NT";
 
             // VideoUrl: ours first, theirs later -> theirs should win
             oursDoc.updateNotebookMetadata({ videoUrl: earlierVideoUrl });
@@ -800,6 +802,12 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
             await sleep(SLEEP_MS);
             oursDoc.updateNotebookMetadata({ fileDisplayName: ourLatestFileDisplayName });
 
+            // CorpusMarker: ours first, theirs later -> theirs should win
+            await sleep(SLEEP_MS);
+            oursDoc.updateNotebookMetadata({ corpusMarker: earlierCorpusMarker });
+            await sleep(SLEEP_MS);
+            theirsDoc.updateNotebookMetadata({ corpusMarker: latestCorpusMarker });
+
             // Build content strings
             const ourJson = (oursDoc as any).getText() as string;
             const theirJson = (theirsDoc as any).getText() as string;
@@ -813,7 +821,10 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
             // FileDisplayName should be from the latest edit (ours v2)
             assert.strictEqual(notebook.metadata.fileDisplayName, ourLatestFileDisplayName, "FileDisplayName should be from latest edit");
 
-            // Edit history should include both videoUrl edits and both fileDisplayName edits
+            // CorpusMarker should be from the later edit (theirs)
+            assert.strictEqual(notebook.metadata.corpusMarker, latestCorpusMarker, "CorpusMarker should be from latest edit");
+
+            // Edit history should include both videoUrl edits, both fileDisplayName edits, and both corpusMarker edits
             const edits: FileEditHistory[] = notebook.metadata.edits || [];
             const isEditPath = (e: FileEditHistory, path: readonly string[]) => {
                 return Array.isArray(e.editMap) && e.editMap.length === path.length &&
@@ -830,6 +841,10 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
                 "Should contain their fileDisplayName edit");
             assert.ok(edits.some((e) => isEditPath(e, ["metadata", "fileDisplayName"]) && e.value === ourLatestFileDisplayName),
                 "Should contain latest fileDisplayName edit");
+            assert.ok(edits.some((e) => isEditPath(e, ["metadata", "corpusMarker"]) && e.value === earlierCorpusMarker),
+                "Should contain earlier corpusMarker edit");
+            assert.ok(edits.some((e) => isEditPath(e, ["metadata", "corpusMarker"]) && e.value === latestCorpusMarker),
+                "Should contain latest corpusMarker edit");
 
             // Assert that each edit we performed produced an edit record with the correct editMap
             const expectEditRecord = (path: readonly string[], value: string | number | boolean) => {
@@ -850,6 +865,10 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
             expectEditRecord(["metadata", "fileDisplayName"], ourInitialFileDisplayName);
             expectEditRecord(["metadata", "fileDisplayName"], theirFileDisplayName);
             expectEditRecord(["metadata", "fileDisplayName"], ourLatestFileDisplayName);
+
+            // CorpusMarker edit records
+            expectEditRecord(["metadata", "corpusMarker"], earlierCorpusMarker);
+            expectEditRecord(["metadata", "corpusMarker"], latestCorpusMarker);
         } finally {
             await deleteIfExists(oursTmp);
             await deleteIfExists(theirsTmp);
