@@ -6,7 +6,7 @@ import { Input } from "../../../components/ui/input";
 import { Label } from "../../../components/ui/label";
 import { Progress } from "../../../components/ui/progress";
 import { Alert, AlertDescription } from "../../../components/ui/alert";
-import { Upload, Music, Play, Pause, ArrowLeft, Check, AlertTriangle, Settings, ChevronDown, ChevronRight, Trash2, Plus } from "lucide-react";
+import { Upload, Music, Play, Pause, ArrowLeft, Check, AlertTriangle, Settings, Trash2, Plus } from "lucide-react";
 import { Slider } from "../../../components/ui/slider";
 import { NotebookPair, ProcessedCell } from "../../types/common";
 import { createProcessedCell } from "../../utils/workflowHelpers";
@@ -109,7 +109,6 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
     // VAD settings
     const [thresholdDb, setThresholdDb] = useState(-40);
     const [minDuration, setMinDuration] = useState(0.5);
-    const [showVADSettings, setShowVADSettings] = useState(false);
     const [appliedThresholdDb, setAppliedThresholdDb] = useState(-40);
     const [appliedMinDuration, setAppliedMinDuration] = useState(0.5);
     
@@ -1128,57 +1127,45 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                     </div>
 
                     {/* VAD Settings */}
-                    <div className="space-y-2 border rounded p-3">
-                        <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            className="w-full justify-between p-0 h-auto"
-                            onClick={() => setShowVADSettings(!showVADSettings)}
-                        >
-                            <span className="flex items-center gap-2">
-                                <Settings className="h-4 w-4" />
-                                Voice Activity Detection Settings
-                            </span>
-                            {showVADSettings ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                        </Button>
-                        {showVADSettings && (
-                            <div className="space-y-4 pt-2">
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <Label>Silence Threshold: {thresholdDb} dB</Label>
-                                        <span className="text-xs text-muted-foreground">{thresholdDb >= -35 ? "Less sensitive" : thresholdDb <= -45 ? "More sensitive" : "Balanced"}</span>
-                                    </div>
-                                    <Slider
-                                        value={[thresholdDb]}
-                                        onValueChange={([val]) => setThresholdDb(val)}
-                                        min={-60}
-                                        max={-20}
-                                        step={1}
-                                        disabled={isLoading || isImporting}
-                                    />
-                                    <p className="text-xs text-muted-foreground">
-                                        Lower values detect quieter sounds as speech (range: -60 to -20 dB)
-                                    </p>
-                                </div>
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <Label>Min Silence Duration: {minDuration.toFixed(1)}s</Label>
-                                        <span className="text-xs text-muted-foreground">{minDuration <= 0.3 ? "More segments" : minDuration >= 1.0 ? "Fewer segments" : "Balanced"}</span>
-                                    </div>
-                                    <Slider
-                                        value={[minDuration]}
-                                        onValueChange={([val]) => setMinDuration(val)}
-                                        min={0.1}
-                                        max={2.0}
-                                        step={0.1}
-                                        disabled={isLoading || isImporting}
-                                    />
-                                    <p className="text-xs text-muted-foreground">
-                                        Minimum silence duration to split segments (range: 0.1 to 2.0 seconds)
-                                    </p>
-                                </div>
+                    <div className="space-y-4 border rounded p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                            <Settings className="h-4 w-4" />
+                            <h3 className="font-medium">Voice Activity Detection</h3>
+                        </div>
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <Label>Silence Threshold: {thresholdDb} dB</Label>
+                                <span className="text-xs text-muted-foreground">{thresholdDb >= -35 ? "Less sensitive" : thresholdDb <= -45 ? "More sensitive" : "Balanced"}</span>
                             </div>
-                        )}
+                            <Slider
+                                value={[thresholdDb]}
+                                onValueChange={([val]) => setThresholdDb(val)}
+                                min={-60}
+                                max={-20}
+                                step={1}
+                                disabled={isLoading || isImporting}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                Lower values detect quieter sounds as speech
+                            </p>
+                        </div>
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <Label>Min Silence Duration: {minDuration.toFixed(1)}s</Label>
+                                <span className="text-xs text-muted-foreground">{minDuration <= 0.3 ? "More segments" : minDuration >= 1.0 ? "Fewer segments" : "Balanced"}</span>
+                            </div>
+                            <Slider
+                                value={[minDuration]}
+                                onValueChange={([val]) => setMinDuration(val)}
+                                min={0.1}
+                                max={2.0}
+                                step={0.1}
+                                disabled={isLoading || isImporting}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                Minimum silence duration to split segments
+                            </p>
+                        </div>
                     </div>
 
                     {!audioFile && (
