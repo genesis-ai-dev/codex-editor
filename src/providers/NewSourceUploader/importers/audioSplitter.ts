@@ -135,7 +135,7 @@ class AudioSplitter {
                 });
             }
         } catch (error) {
-            console.error("[AudioImporter2] Error selecting audio file:", error);
+            console.error("[AudioImporter] Error selecting audio file:", error);
             webviewPanel.webview.postMessage({
                 command: "audioFileSelected",
                 sessionId: "",
@@ -186,7 +186,7 @@ class AudioSplitter {
                 minDuration: message.minDuration,
             });
         } catch (error) {
-            console.error("[AudioImporter2] Error reprocessing audio file:", error);
+            console.error("[AudioImporter] Error reprocessing audio file:", error);
             webviewPanel.webview.postMessage({
                 command: "audioFileSelected",
                 sessionId: message.sessionId,
@@ -228,7 +228,7 @@ class AudioSplitter {
                 audioUri,
             });
         } catch (error) {
-            console.error("[AudioImporter2] Error extracting segment:", error);
+            console.error("[AudioImporter] Error extracting segment:", error);
             webviewPanel.webview.postMessage({
                 command: "audioSegmentResponse",
                 segmentId: message.segmentId,
@@ -301,7 +301,7 @@ class AudioSplitter {
             }));
 
             console.log(
-                `[AudioImporter2] Updated ${processedSegments.length} segments (from ${message.segments.length} input segments) for session ${message.sessionId}`
+                `[AudioImporter] Updated ${processedSegments.length} segments (from ${message.segments.length} input segments) for session ${message.sessionId}`
             );
 
             webviewPanel.webview.postMessage({
@@ -310,7 +310,7 @@ class AudioSplitter {
                 success: true,
             });
         } catch (error) {
-            console.error("[AudioImporter2] Error updating segments:", error);
+            console.error("[AudioImporter] Error updating segments:", error);
             webviewPanel.webview.postMessage({
                 command: "audioSegmentsUpdated",
                 sessionId: message.sessionId,
@@ -438,7 +438,7 @@ class AudioSplitter {
                     command: "writeNotebooks",
                     notebookPairs: message.notebookPairs,
                     metadata: {
-                        importerType: "audio2",
+                        importerType: "audio",
                         timestamp: new Date().toISOString(),
                     },
                 },
@@ -474,7 +474,7 @@ class AudioSplitter {
                 message: "Audio import completed successfully!",
             });
         } catch (error) {
-            console.error("[AudioImporter2] Error finalizing import:", error);
+            console.error("[AudioImporter] Error finalizing import:", error);
             webviewPanel.webview.postMessage({
                 command: "audioImportComplete",
                 sessionId: message.sessionId,

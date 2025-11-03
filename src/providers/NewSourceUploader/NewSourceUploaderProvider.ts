@@ -308,7 +308,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         message as FinalizeAudioImportMessage,
                         token,
                         webviewPanel,
-                        (msg, tkn, panel) => this.handleWriteNotebooks(msg as WriteNotebooksMessage, tkn, panel)
+                        (msg, tkn, panel) => this.handleWriteNotebooksForced(msg as WriteNotebooksMessage, tkn, panel)
                     );
                 } else if (message.command === "updateAudioSegments") {
                     await handleUpdateAudioSegments(message as UpdateAudioSegmentsMessage, webviewPanel);
@@ -391,18 +391,23 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         token: vscode.CancellationToken,
         webviewPanel: vscode.WebviewPanel
     ): Promise<void> {
-        // Check for file conflicts before proceeding
-        const conflicts = await this.checkForFileConflicts(message.notebookPairs.map(pair => pair.source));
+        // Skip conflict check for audio imports (they handle their own flow)
+        const isAudioImport = message.metadata?.importerType === "audio";
+        
+        if (!isAudioImport) {
+            // Check for file conflicts before proceeding
+            const conflicts = await this.checkForFileConflicts(message.notebookPairs.map(pair => pair.source));
 
-        if (conflicts.length > 0) {
-            const confirmed = await this.confirmOverwriteWithTruncation(conflicts);
-            if (!confirmed) {
-                webviewPanel.webview.postMessage({
-                    command: "notification",
-                    type: "info",
-                    message: "Import cancelled by user"
-                });
-                return;
+            if (conflicts.length > 0) {
+                const confirmed = await this.confirmOverwriteWithTruncation(conflicts);
+                if (!confirmed) {
+                    webviewPanel.webview.postMessage({
+                        command: "notification",
+                        type: "info",
+                        message: "Import cancelled by user"
+                    });
+                    return;
+                }
             }
         }
 
@@ -516,19 +521,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         token: vscode.CancellationToken,
         webviewPanel: vscode.WebviewPanel
     ): Promise<void> {
-        // Reuse conflict checks from handleWriteNotebooks
-        const conflicts = await this.checkForFileConflicts(message.notebookPairs.map(pair => pair.source));
-        if (conflicts.length > 0) {
-            const confirmed = await this.confirmOverwriteWithTruncation(conflicts);
-            if (!confirmed) {
-                webviewPanel.webview.postMessage({
-                    command: "notification",
-                    type: "info",
-                    message: "Import cancelled by user"
-                });
-                return;
-            }
-        }
+        // No conflict check - force write
 
         // 1) Convert to NotebookPreview and write notebooks
         const sourceNotebooks = message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.source));
