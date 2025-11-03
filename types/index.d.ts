@@ -638,7 +638,7 @@ export type EditorPostMessages =
         };
     }
     | { command: "openBookNameEditor"; }
-    | { command: "editBookName"; content: { bookAbbr: string; }; }
+    | { command: "editBookName"; content: { bookAbbr: string; newBookName: string; }; }
     | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
     | { command: "closeCurrentDocument"; content?: { isSource: boolean; uri?: string; }; }
     | { command: "triggerSync"; }
@@ -882,6 +882,7 @@ export interface CustomNotebookMetadata {
     autoDownloadAudioOnOpen?: boolean;
     /** When true, backtranslations will be displayed inline below cells */
     showInlineBacktranslations?: boolean;
+    fileDisplayName?: string;
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
@@ -1197,7 +1198,7 @@ type ProjectManagerMessageFromWebview =
     }
     | { command: "triggerSync"; }
     | { command: "openBookNameEditor"; }
-    | { command: "editBookName"; content: { bookAbbr: string; }; }
+    | { command: "editBookName"; content: { bookAbbr: string; newBookName: string; }; }
     | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
     | { command: "openCellLabelImporter"; }
     | { command: "navigateToMainMenu"; }
@@ -1553,6 +1554,7 @@ interface CodexItem {
     isProjectDictionary?: boolean;
     wordCount?: number;
     isEnabled?: boolean;
+    fileDisplayName?: string;
 }
 type EditorReceiveMessages =
     | {
@@ -1698,7 +1700,7 @@ type EditorReceiveMessages =
     }
     | {
         type: "providerSendsBatchBacktranslations";
-        content: { [cellId: string]: SavedBacktranslation | null };
+        content: { [cellId: string]: SavedBacktranslation | null; };
     }
     | {
         type: "singleCellTranslationStarted";

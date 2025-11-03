@@ -20,6 +20,7 @@ interface CodexMetadata {
     gitStatus?: string;
     corpusMarker?: string;
     progress?: number;
+    fileDisplayName?: string;
 }
 
 interface BibleBookInfo {
@@ -30,18 +31,6 @@ interface BibleBookInfo {
     osisId: string;
 }
 
-// export interface CodexItem {
-//     uri: vscode.Uri;
-//     label: string;
-//     type: "corpus" | "codexDocument" | "dictionary";
-//     children?: CodexItem[];
-//     corpusMarker?: string;
-//     progress?: number;
-//     sortOrder?: string;
-//     isProjectDictionary?: boolean;
-//     wordCount?: number;
-//     isEnabled?: boolean;
-// }
 
 export class NavigationWebviewProvider extends BaseWebviewProvider {
     public static readonly viewType = "codex-editor.navigation";
@@ -69,53 +58,17 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
     private loadBibleBookMap(): void {
         console.log("Loading bible book map for Navigation...");
-
-        // Start with default Bible data
+        // Build the book map from default data only; display names come from metadata.fileDisplayName
         const defaultBooks: any[] = [...bibleData];
-        const localizedOverrides: Record<string, any> = {};
-
-        try {
-            const workspaceFolders = vscode.workspace.workspaceFolders;
-            if (workspaceFolders && workspaceFolders.length > 0) {
-                const workspaceRoot = workspaceFolders[0].uri.fsPath;
-                const localizedPath = path.join(workspaceRoot, "localized-books.json");
-                if (fs.existsSync(localizedPath)) {
-                    console.log("Navigation: Found localized-books.json, loading...");
-                    const raw = fs.readFileSync(localizedPath, "utf8");
-                    const localizedBooks = JSON.parse(raw);
-
-                    // Only use localized books if the array is not empty
-                    if (Array.isArray(localizedBooks) && localizedBooks.length > 0) {
-                        // Create a map of localized overrides
-                        localizedBooks.forEach((book: any) => {
-                            if (book.abbr) {
-                                localizedOverrides[book.abbr] = book;
-                            }
-                        });
-                        console.log("Navigation: Localized books loaded successfully, overrides:", Object.keys(localizedOverrides).length);
-                    } else {
-                        console.log("Navigation: localized-books.json is empty, using defaults.");
-                    }
-                } else {
-                    console.log("Navigation: localized-books.json not found, using defaults.");
-                }
-            }
-        } catch (err) {
-            console.error("Navigation: Error loading localized-books.json:", err);
-        }
-
-        // Build the final book map, merging defaults with localized overrides
         this.bibleBookMap.clear();
         defaultBooks.forEach((book) => {
             if (book.abbr) {
-                // Use localized override if available, otherwise use default
-                const finalBook = localizedOverrides[book.abbr] || book;
                 this.bibleBookMap.set(book.abbr, {
-                    name: finalBook.name,
-                    abbr: finalBook.abbr,
-                    ord: finalBook.ord || book.ord, // Preserve original order if not overridden
-                    testament: finalBook.testament || book.testament, // Preserve original testament if not overridden
-                    osisId: finalBook.osisId || book.osisId, // Preserve original osisId if not overridden
+                    name: book.name,
+                    abbr: book.abbr,
+                    ord: book.ord,
+                    testament: book.testament,
+                    osisId: book.osisId,
                 });
             }
         });
@@ -356,10 +309,11 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             }
             case "editBookName": {
                 try {
-                    await vscode.commands.executeCommand("codex-editor.openBookNameEditor");
+                    const { bookAbbr, newBookName } = message.content;
+                    await this.updateBookName(bookAbbr, newBookName);
                 } catch (error) {
-                    console.error("Error opening book name editor:", error);
-                    vscode.window.showErrorMessage(`Failed to open book name editor: ${error}`);
+                    console.error("Error updating book name:", error);
+                    vscode.window.showErrorMessage(`Failed to update book name: ${error}`);
                 }
                 break;
             }
@@ -493,15 +447,15 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                         cellLabel: cell.metadata.cellLabel,
                         editHistory: cell.metadata.edits,
                         attachments: cell.metadata.attachments,
-                        metadata: { selectedAudioId: (cell as any)?.metadata?.selectedAudioId },
-                    } as any);
+                        metadata: { selectedAudioId: cell?.metadata?.selectedAudioId },
+                    });
                     return cellValueData;
                 }
             );
 
             // Compute audio completion based on attachments (mirrors editor logic)
             const cellsWithAudioValues = unmergedCells.filter((cell) =>
-                cellHasAudioUsingAttachments((cell as any)?.metadata?.attachments, (cell as any)?.metadata?.selectedAudioId)
+                cellHasAudioUsingAttachments(cell?.metadata?.attachments, cell?.metadata?.selectedAudioId)
             ).length;
 
             // Use project settings for required validation counts
@@ -517,8 +471,8 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
             // Compute per-level validation percentages for text and audio
             const countNonDeleted = (arr: any[] | undefined) => (arr || []).filter((v: any) => !v.isDeleted).length;
-            const textValidationCounts = cellWithValidatedData.map((c) => countNonDeleted((c as any).validatedBy));
-            const audioValidationCounts = cellWithValidatedData.map((c) => countNonDeleted((c as any).audioValidatedBy));
+            const textValidationCounts = cellWithValidatedData.map((c) => countNonDeleted(c.validatedBy));
+            const audioValidationCounts = cellWithValidatedData.map((c) => countNonDeleted(c.audioValidatedBy));
 
             const computeLevelPercents = (counts: number[], maxLevel: number) => {
                 const levels: number[] = [];
@@ -550,7 +504,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const bookInfo = this.bibleBookMap.get(fileNameAbbr);
             const label = fileNameAbbr;
             const sortOrder = bookInfo?.ord;
-            const corpusMarker = bookInfo?.testament || metadata?.corpusMarker;
+            const corpusMarker = metadata?.corpusMarker || bookInfo?.testament;
 
             return {
                 uri,
@@ -569,6 +523,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                     requiredAudioValidations: minimumAudioValidationsRequired,
                 },
                 sortOrder,
+                fileDisplayName: metadata?.fileDisplayName,
             };
         } catch (error) {
             console.warn(`Failed to read metadata for ${uri.fsPath}:`, error);
@@ -619,7 +574,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 const sums = new Array(len).fill(0);
                 let count = 0;
                 itemsInGroup.forEach((it) => {
-                    const arr = (it.progress as any)?.[key] as number[] | undefined;
+                    const arr = it.progress?.[key] as number[] | undefined;
                     if (arr && arr.length === len) {
                         for (let i = 0; i < len; i++) sums[i] += arr[i];
                         count++;
@@ -842,10 +797,18 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                         );
 
                         // Check if this file's corpus marker matches the old label
-                        const metadata = notebookData.metadata as any;
-                        if (metadata && metadata.corpusMarker === oldCorpusLabel) {
-                            // Update the corpus marker
-                            metadata.corpusMarker = newCorpusName;
+                        const metadata = notebookData.metadata;
+
+                        const fileNameAbbr = path.basename(uri.fsPath, ".codex");
+                        const bookInfo = this.bibleBookMap.get(fileNameAbbr);
+
+                        // Resolve corpus marker using same logic as grouping
+                        let resolved = (metadata?.corpusMarker ?? bookInfo?.testament) as string | undefined;
+                        if (resolved === "Old Testament") resolved = "OT";
+                        if (resolved === "New Testament") resolved = "NT";
+
+                        if (resolved === oldCorpusLabel) {
+                            notebookData.metadata = { ...notebookData.metadata, corpusMarker: newCorpusName };
 
                             // Serialize and save the updated notebook
                             const updatedContent = await this.serializer.serializeNotebook(
@@ -878,6 +841,108 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
         } catch (error) {
             console.error("Error updating corpus markers:", error);
             vscode.window.showErrorMessage(`Failed to update corpus markers: ${error}`);
+        }
+    }
+
+    private async updateBookName(bookAbbr: string, newBookName: string): Promise<void> {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders?.length) {
+            vscode.window.showErrorMessage("No workspace folder found");
+            return;
+        }
+
+        try {
+            // Get default book info to ensure we have ord and testament
+            const defaultBookInfo = this.bibleBookMap.get(bookAbbr);
+            if (!defaultBookInfo) {
+                vscode.window.showErrorMessage(`Book abbreviation "${bookAbbr}" not found`);
+                return;
+            }
+
+            // Update .codex file metadata
+            const rootUri = workspaceFolders[0].uri;
+            const codexPattern = new vscode.RelativePattern(
+                rootUri.fsPath,
+                "files/target/**/*.codex"
+            );
+
+            try {
+                // Find all codex files
+                const codexUris = await vscode.workspace.findFiles(codexPattern);
+                let updatedCount = 0;
+
+                // Show progress
+                await vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: `Updating book name for "${bookAbbr}"`,
+                    cancellable: false
+                }, async (progress) => {
+                    // Filter to only files matching the book abbreviation
+                    const matchingUris = codexUris.filter(uri => {
+                        const fileNameAbbr = path.basename(uri.fsPath, ".codex");
+                        return fileNameAbbr === bookAbbr;
+                    });
+
+                    const total = matchingUris.length;
+
+                    for (let i = 0; i < matchingUris.length; i++) {
+                        const uri = matchingUris[i];
+                        progress.report({
+                            increment: (100 / total),
+                            message: `Processing ${path.basename(uri.fsPath)}...`
+                        });
+
+                        try {
+                            // Read the codex file
+                            const content = await vscode.workspace.fs.readFile(uri);
+                            const notebookData = await this.serializer.deserializeNotebook(
+                                content,
+                                new vscode.CancellationTokenSource().token
+                            );
+
+                            // Update metadata to add fileDisplayName (preserve originalName)
+                            const metadata = notebookData.metadata;
+                            notebookData.metadata = {
+                                ...metadata,
+                                fileDisplayName: newBookName,
+                                // Preserve originalName if it exists, don't modify it
+                            };
+
+                            // Serialize and save the updated notebook
+                            const updatedContent = await this.serializer.serializeNotebook(
+                                notebookData,
+                                new vscode.CancellationTokenSource().token
+                            );
+
+                            await vscode.workspace.fs.writeFile(uri, updatedContent);
+                            updatedCount++;
+                        } catch (error) {
+                            console.error(`Error updating ${uri.fsPath}:`, error);
+                            // Continue with other files even if one fails
+                        }
+                    }
+                });
+
+                // Refresh navigation view
+                await this.buildInitialData();
+
+                if (updatedCount > 0) {
+                    vscode.window.showInformationMessage(
+                        `Book name updated: "${bookAbbr}" → "${newBookName}" (${updatedCount} file(s) updated)`
+                    );
+                } else {
+                    vscode.window.showInformationMessage(
+                        `Book name updated: "${bookAbbr}" → "${newBookName}" (no matching codex files found)`
+                    );
+                }
+            } catch (error) {
+                console.error("Error updating codex files:", error);
+                vscode.window.showErrorMessage(`Failed to update book name in codex files: ${error}`);
+                await this.buildInitialData();
+            }
+        } catch (error) {
+            console.error("Error updating book name:", error);
+            vscode.window.showErrorMessage(`Failed to update book name: ${error}`);
         }
     }
 
