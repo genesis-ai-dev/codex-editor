@@ -828,9 +828,7 @@ export type EditFor<TEditMap extends readonly string[]> = {
 export type FileEditHistory<TEditMap extends readonly string[] = readonly string[]> = {
     editMap: TEditMap;
     value: EditMapValueType<TEditMap>;
-    creationTimestamp: number;
-    updatedTimestamp: number;
-    isDeleted: boolean;
+    timestamp: number;
     type: import("./enums").EditType;
     author: string;
 };

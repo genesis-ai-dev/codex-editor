@@ -941,9 +941,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             this._documentData.metadata.edits.push({
                 editMap,
                 value: newValue,
-                creationTimestamp: currentTimestamp,
-                updatedTimestamp: currentTimestamp,
-                isDeleted: false,
+                timestamp: currentTimestamp,
                 type: EditType.USER_EDIT,
                 author: this._author,
             });

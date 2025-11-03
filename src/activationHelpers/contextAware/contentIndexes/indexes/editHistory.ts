@@ -198,8 +198,8 @@ export async function analyzeEditHistory(): Promise<{
 
                 if (edit.type === "llm-generation") {
                     currentLLM = edit.value;
-                    // Support both old (timestamp) and new (updatedTimestamp) formats
-                    currentLLMTimestamp = edit.updatedTimestamp || edit.timestamp || null;
+                    // Support both new (timestamp) and old (updatedTimestamp) formats for backward compatibility
+                    currentLLMTimestamp = edit.timestamp || edit.updatedTimestamp || null;
                     continue;
                 }
                 if (edit.type === "user-edit") {

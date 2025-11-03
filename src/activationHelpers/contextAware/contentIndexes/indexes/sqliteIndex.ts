@@ -3449,14 +3449,12 @@ export class SQLiteIndexManager {
 
             if (valueEdits.length > 0) {
                 const lastEdit = valueEdits[valueEdits.length - 1];
-                // Support both old (timestamp) and new (updatedTimestamp) formats
-                result.currentEditTimestamp = lastEdit.updatedTimestamp || lastEdit.timestamp || null;
+                // Support both new (timestamp) and old (updatedTimestamp) formats for backward compatibility
+                result.currentEditTimestamp = lastEdit.timestamp || lastEdit.updatedTimestamp || null;
 
                 // Note: validatedBy is only present for cell-level edits (EditHistory).
                 // File-level metadata edits (FileEditHistory) do not have validatedBy field.
                 // For file-level metadata edits, validation tracking is not supported.
-                // isDeleted on file-level metadata edits only indicates whether the edit entry
-                // itself has been deleted, NOT validation status.
                 if (lastEdit.validatedBy) {
                     // Cell-level edit with validation tracking
                     const activeValidations = (lastEdit as any).validatedBy.filter((v: any) => v && typeof v === "object" && !v.isDeleted);

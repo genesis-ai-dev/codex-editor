@@ -1903,9 +1903,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             assert.ok(videoUrlEdit, "Should have videoUrl edit entry");
             assert.strictEqual(videoUrlEdit.value, newVideoUrl, "VideoUrl edit should have correct value");
             assert.strictEqual(videoUrlEdit.type, EditType.USER_EDIT, "Edit should be USER_EDIT type");
-            assert.ok(typeof videoUrlEdit.creationTimestamp === "number", "Edit should have creationTimestamp");
-            assert.ok(typeof videoUrlEdit.updatedTimestamp === "number", "Edit should have updatedTimestamp");
-            assert.strictEqual(videoUrlEdit.isDeleted, false, "Edit should not be deleted");
+            assert.ok(typeof videoUrlEdit.timestamp === "number", "Edit should have timestamp");
             assert.ok(typeof videoUrlEdit.author === "string", "Edit should have author");
 
             assert.ok(textDirectionEdit, "Should have textDirection edit entry");
@@ -2033,7 +2031,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             assert.ok(videoUrlEdits.some((e) => e.value === thirdVideoUrl), "Should have third videoUrl edit");
 
             // Verify timestamps are in order (allowing for some timing variance)
-            const sortedEdits = [...videoUrlEdits].sort((a, b) => a.updatedTimestamp - b.updatedTimestamp);
+            const sortedEdits = [...videoUrlEdits].sort((a, b) => a.timestamp - b.timestamp);
             assert.strictEqual(sortedEdits[0].value, firstVideoUrl, "First edit should have earliest timestamp");
             assert.strictEqual(sortedEdits[sortedEdits.length - 1].value, thirdVideoUrl, "Last edit should have latest timestamp");
 
@@ -2098,13 +2096,9 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 assert.ok(edit.editMap.length >= 2, "editMap should have at least 2 elements");
                 assert.strictEqual(edit.editMap[0], "metadata", "First element of editMap should be 'metadata'");
                 assert.ok(typeof edit.value !== "undefined", "value should be defined");
-                assert.ok(typeof edit.creationTimestamp === "number", "creationTimestamp should be a number");
-                assert.ok(typeof edit.updatedTimestamp === "number", "updatedTimestamp should be a number");
-                assert.ok(typeof edit.isDeleted === "boolean", "isDeleted should be a boolean");
-                assert.strictEqual(edit.isDeleted, false, "isDeleted should be false");
+                assert.ok(typeof edit.timestamp === "number", "timestamp should be a number");
                 assert.strictEqual(edit.type, EditType.USER_EDIT, "type should be USER_EDIT");
                 assert.strictEqual(edit.author, "test-author", "author should match");
-                assert.ok(edit.creationTimestamp <= edit.updatedTimestamp, "creationTimestamp should be <= updatedTimestamp");
             });
         });
     });

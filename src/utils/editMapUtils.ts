@@ -214,9 +214,7 @@ export function addMetadataEdit(
     metadata.edits.push({
         editMap,
         value,
-        creationTimestamp: currentTimestamp,
-        updatedTimestamp: currentTimestamp,
-        isDeleted: false,
+        timestamp: currentTimestamp,
         type: EditType.USER_EDIT,
         author,
     });

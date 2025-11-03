@@ -851,9 +851,7 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
                 const match = edits.find((e) => isEditPath(e, path) && e.value === value);
                 assert.ok(match, `Expected edit record for ${path.join(".")} with value ${String(value)}`);
                 assert.ok(Array.isArray(match.editMap), "editMap should be an array");
-                assert.ok(typeof match.creationTimestamp === "number", "Edit should have creationTimestamp");
-                assert.ok(typeof match.updatedTimestamp === "number", "Edit should have updatedTimestamp");
-                assert.strictEqual(match.isDeleted, false, "Edit should not be deleted");
+                assert.ok(typeof match.timestamp === "number", "Edit should have timestamp");
                 assert.ok(typeof match.author === "string", "Edit should have author");
             };
 

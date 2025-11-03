@@ -587,7 +587,7 @@ function resolveMetadataConflictsUsingEditHistoryForFile(
     const allEdits: FileEditHistory[] = [
         ...(ourMetadata.edits || []),
         ...(theirMetadata.edits || [])
-    ].sort((a, b) => a.updatedTimestamp - b.updatedTimestamp);
+    ].sort((a, b) => a.timestamp - b.timestamp);
 
     // Group edits by their editMap path
     const editsByPath = new Map<string, FileEditHistory[]>();
@@ -610,7 +610,7 @@ function resolveMetadataConflictsUsingEditHistoryForFile(
         // Find the most recent edit for this path
         // Tie-breaker: when timestamps are equal, prefer USER_EDIT over INITIAL_IMPORT
         const sorted = edits.sort((a, b) => {
-            const timeDiff = b.updatedTimestamp - a.updatedTimestamp;
+            const timeDiff = b.timestamp - a.timestamp;
             if (timeDiff !== 0) return timeDiff;
             // Same timestamp: prefer USER_EDIT over INITIAL_IMPORT
             const aIsUser = a.type === EditType.USER_EDIT;
@@ -799,33 +799,13 @@ export async function resolveCodexCustomMerge(
     // Resolve metadata conflicts using edit history
     const mergedMetadata = resolveMetadataConflictsUsingEditHistoryForFile(ourMetadata, theirMetadata);
 
-    // Combine and deduplicate metadata edits (FileEditHistory type)
-    const allMetadataEdits: FileEditHistory[] = [
+    // Combine all metadata edits from both branches and sort by timestamp
+    // Since resolveMetadataConflictsUsingEditHistoryForFile already handles conflict resolution,
+    // we just need to preserve all edits for audit/history purposes
+    mergedMetadata.edits = [
         ...(ourMetadata.edits || []),
         ...(theirMetadata.edits || [])
-    ].sort((a, b) => a.updatedTimestamp - b.updatedTimestamp);
-
-    // Remove duplicates based on updatedTimestamp, editMap and value
-    const metadataEditMap = new Map<string, FileEditHistory>();
-    allMetadataEdits.forEach((edit) => {
-        if (edit.editMap && Array.isArray(edit.editMap)) {
-            const editMapKey = edit.editMap.join('.');
-            const key = `${edit.updatedTimestamp}:${editMapKey}:${edit.value}`;
-            if (!metadataEditMap.has(key)) {
-                metadataEditMap.set(key, edit);
-            } else {
-                // If duplicate found, prefer the one with later updatedTimestamp
-                const existingEdit = metadataEditMap.get(key)!;
-                if (edit.updatedTimestamp > existingEdit.updatedTimestamp) {
-                    metadataEditMap.set(key, edit);
-                }
-            }
-        }
-    });
-
-    // Convert map back to array and sort
-    const uniqueMetadataEdits = Array.from(metadataEditMap.values()).sort((a, b) => a.updatedTimestamp - b.updatedTimestamp);
-    mergedMetadata.edits = uniqueMetadataEdits;
+    ].sort((a, b) => a.timestamp - b.timestamp);
 
     debugLog(
         `Processing ${ourCells.length} cells from our version and ${theirCells.length} cells from their version`
@@ -936,6 +916,18 @@ export async function resolveCodexCustomMerge(
     });
 
     debugLog(`Merge complete. Final cell count: ${resultCells.length}`);
+
+    // Final safety check: ensure no string entries remain in any validatedBy arrays
+    for (const cell of resultCells) {
+        if (cell.metadata?.edits) {
+            for (const edit of cell.metadata.edits) {
+                if (edit.validatedBy) {
+                    // Filter to only include proper ValidationEntry objects
+                    edit.validatedBy = edit.validatedBy.filter(isValidValidationEntry);
+                }
+            }
+        }
+    }
 
     // Return the full notebook structure with merged cells and metadata
     return JSON.stringify(
