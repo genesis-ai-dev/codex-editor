@@ -408,7 +408,7 @@ export async function searchAllCells(
         const normalizedSource = normalizeUri(sourceUri);
         const normalizedTarget = normalizeUri(targetUri);
         
-        return selectedFiles.some(selectedUri => {
+        return selectedFiles.some((selectedUri: string) => {
             const normalizedSelected = normalizeUri(selectedUri);
             return normalizedSource === normalizedSelected || normalizedTarget === normalizedSelected;
         });
