@@ -40,20 +40,13 @@ export async function recordVariantSelection(
         // Post selection to external analytics if we have variant names
         try {
             if (Array.isArray(names) && typeof selectedIndex === "number" && names[selectedIndex]) {
-                const { recordAbEvent, recordAbResult } = await import("./abTestingAnalytics");
-                const variantName = names[selectedIndex];
+                const { recordAbResult } = await import("./abTestingAnalytics");
 
                 // Use the test name directly - no pattern matching needed
                 if (!testName) {
                     return; // Skip analytics if no test name provided
                 }
 
-                // Event: selection counts as a conversion for the chosen variant
-                await recordAbEvent({
-                    testName: testName,
-                    variant: variantName,
-                    outcome: true,
-                });
                 // Result: declare the chosen variant as the winner for this run
                 await recordAbResult({
                     category: testName,
