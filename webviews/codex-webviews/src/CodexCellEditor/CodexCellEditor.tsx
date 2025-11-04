@@ -289,7 +289,9 @@ const CodexCellEditor: React.FC = () => {
                             if (ev.data?.type === "asrConfig") {
                                 window.removeEventListener("message", onMsg);
                                 resolved = true;
-                                resolve(ev.data.content);
+                                const config = ev.data.content;
+                                console.log(`[BatchTranscription] Received ASR config: endpoint=${config.endpoint}, hasToken=${!!config.authToken}`);
+                                resolve(config);
                             }
                         };
                         window.addEventListener("message", onMsg);
@@ -398,6 +400,7 @@ const CodexCellEditor: React.FC = () => {
                         }
 
                         // Transcribe
+                        console.log(`[BatchTranscription] Creating client for cell ${cellId}: endpoint=${wsEndpoint}, hasToken=${!!asrConfig.authToken}`);
                         const client = new WhisperTranscriptionClient(
                             wsEndpoint,
                             asrConfig.authToken
