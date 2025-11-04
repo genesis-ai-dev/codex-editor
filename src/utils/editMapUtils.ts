@@ -157,6 +157,36 @@ export function filterEditsByPath<TEditMap extends readonly string[]>(
 }
 
 /**
+ * Deduplicates file-level metadata edits based on timestamp, editMap, and value
+ * Returns sorted array of unique edits
+ */
+export function deduplicateFileMetadataEdits(
+    edits: any[]
+): any[] {
+    if (!edits || edits.length === 0) {
+        return [];
+    }
+
+    // Create a Map to track unique edits by key: timestamp:editMap:value
+    const editMap = new Map<string, any>();
+
+    edits.forEach((edit) => {
+        if (edit.editMap && Array.isArray(edit.editMap)) {
+            const editMapKey = edit.editMap.join('.');
+            const key = `${edit.timestamp}:${editMapKey}:${edit.value}`;
+
+            // Keep the first occurrence of a duplicate (file-level edits don't have validatedBy)
+            if (!editMap.has(key)) {
+                editMap.set(key, edit);
+            }
+        }
+    });
+
+    // Convert map back to array and sort by timestamp
+    return Array.from(editMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+}
+
+/**
  * Helper function to add an edit entry to metadata edits when updating metadata fields directly
  * This is used when updating metadata outside of CodexCellDocument.updateNotebookMetadata()
  */
@@ -210,12 +240,16 @@ export function addMetadataEdit(
             editMap = EditMapUtils.metadataField(field);
     }
 
-    // Add edit history entry with FileEditHistory structure
-    metadata.edits.push({
+    // Create the new edit entry
+    const newEdit = {
         editMap,
         value,
         timestamp: currentTimestamp,
         type: EditType.USER_EDIT,
         author,
-    });
+    };
+
+    // Add the new edit and deduplicate
+    metadata.edits.push(newEdit);
+    metadata.edits = deduplicateFileMetadataEdits(metadata.edits);
 }

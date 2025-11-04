@@ -13,7 +13,7 @@ import {
     ValidationEntry,
     EditMapValueType,
 } from "../../../types";
-import { EditMapUtils } from "../../utils/editMapUtils";
+import { EditMapUtils, deduplicateFileMetadataEdits } from "../../utils/editMapUtils";
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { getAuthApi } from "@/extension";
 import { randomUUID } from "crypto";
@@ -946,6 +946,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 author: this._author,
             });
         }
+
+        // Deduplicate edits before saving
+        this._documentData.metadata.edits = deduplicateFileMetadataEdits(this._documentData.metadata.edits);
 
         // Save the edits array before applying metadata updates (in case newMetadata contains edits field)
         const savedEdits = this._documentData.metadata.edits;

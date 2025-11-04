@@ -9,7 +9,7 @@ import { CommentsMigrator } from "../../../utils/commentsMigrationUtils";
 import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
 import { EditHistory, ValidationEntry, FileEditHistory } from "../../../../types/index.d";
-import { EditMapUtils } from "../../../utils/editMapUtils";
+import { EditMapUtils, deduplicateFileMetadataEdits } from "../../../utils/editMapUtils";
 import { normalizeAttachmentUrl } from "@/utils/pathUtils";
 
 const DEBUG_MODE = false;
@@ -799,13 +799,17 @@ export async function resolveCodexCustomMerge(
     // Resolve metadata conflicts using edit history
     const mergedMetadata = resolveMetadataConflictsUsingEditHistoryForFile(ourMetadata, theirMetadata);
 
-    // Combine all metadata edits from both branches and sort by timestamp
-    // Since resolveMetadataConflictsUsingEditHistoryForFile already handles conflict resolution,
-    // we just need to preserve all edits for audit/history purposes
-    mergedMetadata.edits = [
+    // Combine all metadata edits from both branches and deduplicate
+    // Similar to cell-level edits deduplication, remove duplicates based on timestamp, editMap and value
+    const allMetadataEdits = [
         ...(ourMetadata.edits || []),
         ...(theirMetadata.edits || [])
-    ].sort((a, b) => a.timestamp - b.timestamp);
+    ];
+
+    // Deduplicate edits using the same logic as cell-level edits
+    mergedMetadata.edits = deduplicateFileMetadataEdits(allMetadataEdits);
+
+    debugLog(`Filtered to ${mergedMetadata.edits.length} unique metadata edits`);
 
     debugLog(
         `Processing ${ourCells.length} cells from our version and ${theirCells.length} cells from their version`
