@@ -3449,8 +3449,7 @@ export class SQLiteIndexManager {
 
             if (valueEdits.length > 0) {
                 const lastEdit = valueEdits[valueEdits.length - 1];
-                // Support both new (timestamp) and old (updatedTimestamp) formats for backward compatibility
-                result.currentEditTimestamp = lastEdit.timestamp || lastEdit.updatedTimestamp || null;
+                result.currentEditTimestamp = lastEdit.timestamp || null;
 
                 // Note: validatedBy is only present for cell-level edits (EditHistory).
                 // File-level metadata edits (FileEditHistory) do not have validatedBy field.
