@@ -16,3 +16,8 @@ package-lock.json
 AGENTS.md
 # TypeScript build cache
 .tsbuildinfo
+
+CLAUDE.md
+
+# Vite build cache files
+webviews/codex-webviews/vite.config.ts.timestamp-*.mjs

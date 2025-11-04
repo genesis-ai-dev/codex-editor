@@ -32,10 +32,31 @@ export class WhisperTranscriptionClient {
             try {
                 // Create WebSocket connection with auth token if available
                 const url = new URL(this.url);
+                const isAuthenticatedEndpoint = this.url.includes('api.frontierrnd.com') || this.url.includes('frontier');
+                
+                // Log token status for debugging
+                console.log(`[WhisperTranscriptionClient] Endpoint: ${this.url}`);
+                console.log(`[WhisperTranscriptionClient] Is authenticated endpoint: ${isAuthenticatedEndpoint}`);
+                console.log(`[WhisperTranscriptionClient] Has auth token: ${!!this.authToken}`);
+                console.log(`[WhisperTranscriptionClient] Token length: ${this.authToken?.length || 0}`);
+                
                 if (this.authToken) {
                     url.searchParams.set('token', this.authToken);
+                    console.log(`[WhisperTranscriptionClient] Token added to URL`);
+                } else if (isAuthenticatedEndpoint) {
+                    // Authenticated endpoint but no token - this will likely fail
+                    console.error(`[WhisperTranscriptionClient] ERROR: Authenticated endpoint detected but no auth token provided!`);
+                    console.error(`[WhisperTranscriptionClient] Endpoint: ${this.url}`);
+                    console.error(`[WhisperTranscriptionClient] This connection will likely fail due to missing authentication.`);
                 }
-                this.ws = new WebSocket(url.toString());
+                
+                const finalUrl = url.toString();
+                // Log URL structure without exposing token value
+                const urlWithoutToken = finalUrl.replace(/token=[^&]*/, 'token=***');
+                console.log(`[WhisperTranscriptionClient] Final WebSocket URL: ${urlWithoutToken}`);
+                console.log(`[WhisperTranscriptionClient] URL has token param: ${url.searchParams.has('token')}`);
+                console.log(`[WhisperTranscriptionClient] All query params: ${Array.from(url.searchParams.keys()).join(', ')}`);
+                this.ws = new WebSocket(finalUrl);
 
                 this.ws.onopen = () => {
                     console.log('WebSocket connection opened for transcription');
@@ -70,7 +91,11 @@ export class WhisperTranscriptionClient {
 
                             case 'error': {
                                 this.cleanup();
-                                const errorMsg = message.message || 'Transcription failed';
+                                let errorMsg = message.message || 'Transcription failed';
+                                // Enhance error messages for common DNS/connection issues
+                                if (errorMsg.includes('Name or service not known') || errorMsg.includes('Errno -2')) {
+                                    errorMsg = `Transcription failed: Unable to resolve ASR endpoint hostname. This usually means:\n1. You may be logged out - please check your authentication status\n2. The endpoint URL is invalid or unreachable\n3. There may be a network connectivity issue\n\nOriginal error: ${errorMsg}`;
+                                }
                                 if (this.onError) {
                                     this.onError(errorMsg);
                                 }
@@ -88,9 +113,20 @@ export class WhisperTranscriptionClient {
                 };
 
                 this.ws.onerror = (error) => {
-                    console.error('WebSocket error:', error);
+                    console.error('[WhisperTranscriptionClient] WebSocket error:', error);
                     this.cleanup();
-                    const errorMsg = 'WebSocket connection failed';
+                    const isAuthenticatedEndpoint = this.url.includes('api.frontierrnd.com') || this.url.includes('frontier');
+                    const missingToken = isAuthenticatedEndpoint && !this.authToken;
+                    
+                    let errorMsg: string;
+                    if (missingToken) {
+                        errorMsg = `WebSocket connection failed: Missing authentication token.\n\nThe endpoint requires authentication but no token was provided. This usually means:\n1. Your session may have expired - please check your authentication status\n2. The auth token was not retrieved properly - try refreshing or logging in again\n\nEndpoint: ${this.url}`;
+                    } else if (isAuthenticatedEndpoint) {
+                        // Token is present but connection still failed - likely invalid/expired token
+                        errorMsg = `WebSocket connection failed: Authentication issue.\n\nA token was provided but the server rejected the connection. This usually means:\n1. Your authentication token has expired - please log out and log back in\n2. Your session may have been invalidated - try refreshing your authentication\n3. The token format may be incorrect\n4. There may be a server-side issue\n\nToken was present (length: ${this.authToken?.length || 0}) but connection was rejected.\nEndpoint: ${this.url.split('?')[0]} (token included in query)`; // Don't show full URL with token
+                    } else {
+                        errorMsg = `WebSocket connection failed. This usually means:\n1. You may be logged out - please check your authentication status\n2. The ASR endpoint is unreachable - check your network connection\n3. The endpoint URL may be invalid - check your ASR settings\n4. Your authentication token may be invalid or expired\n\nEndpoint: ${this.url}`;
+                    }
                     if (this.onError) {
                         this.onError(errorMsg);
                     }
@@ -99,8 +135,26 @@ export class WhisperTranscriptionClient {
 
                 this.ws.onclose = (event) => {
                     if (!event.wasClean) {
-                        console.error('WebSocket connection closed unexpectedly:', event);
-                        const errorMsg = `Connection closed: ${event.reason || 'Unknown reason'}`;
+                        console.error('[WhisperTranscriptionClient] WebSocket connection closed unexpectedly:', event);
+                        console.error(`[WhisperTranscriptionClient] Close code: ${event.code}, reason: ${event.reason || '(none)'}`);
+                        const isAuthenticatedEndpoint = this.url.includes('api.frontierrnd.com') || this.url.includes('frontier');
+                        const missingToken = isAuthenticatedEndpoint && !this.authToken;
+                        
+                        let errorMsg: string;
+                        if (event.code === 1006) {
+                            // Code 1006 usually means abnormal closure (no close frame)
+                            // This often happens with auth failures or network issues
+                            if (missingToken) {
+                                errorMsg = `Connection closed abnormally (code 1006): Missing authentication token.\n\nThe endpoint requires authentication but no token was provided. Please check your authentication status.`;
+                            } else if (isAuthenticatedEndpoint) {
+                                // Token was present but connection closed abnormally - likely auth failure
+                                errorMsg = `Connection closed abnormally (code 1006): Authentication failure.\n\nA token was provided (length: ${this.authToken?.length || 0}) but the server rejected the connection. This usually means:\n1. Your authentication token has expired - please log out and log back in\n2. Your session was invalidated - try refreshing your authentication\n3. The server may be experiencing issues\n\nEndpoint: ${this.url.split('?')[0]} (authentication attempted)`;
+                            } else {
+                                errorMsg = `Connection closed abnormally (code 1006). This usually indicates:\n1. Server rejected the connection\n2. Network connectivity issue\n3. Endpoint may be unreachable\n\nEndpoint: ${this.url}`;
+                            }
+                        } else {
+                            errorMsg = `Connection closed: ${event.reason || `Code ${event.code}`}`;
+                        }
                         if (this.onError) {
                             this.onError(errorMsg);
                         }
@@ -122,7 +176,16 @@ export class WhisperTranscriptionClient {
 
             } catch (error) {
                 this.cleanup();
-                reject(error);
+                let errorMsg: string;
+                if (error instanceof TypeError && error.message.includes('Invalid URL')) {
+                    errorMsg = `Invalid ASR endpoint URL: ${this.url}. Please check your ASR settings or authentication status.`;
+                } else {
+                    errorMsg = error instanceof Error ? error.message : String(error);
+                }
+                if (this.onError) {
+                    this.onError(errorMsg);
+                }
+                reject(new Error(errorMsg));
             }
         });
     }

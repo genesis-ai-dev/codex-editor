@@ -115,6 +115,10 @@ export class SyncManager {
     private frontierSyncSubscription: vscode.Disposable | undefined;
     private frontierSyncProgressResolver: ((value: void) => void) | undefined;
     private codexInitiatedSyncCount: number = 0;
+    // Track changes made during active sync
+    private pendingChanges: string[] = [];
+    // Track active progress notification
+    private activeProgressNotification: Promise<void> | undefined;
 
     private constructor() {
         // Initialize with configuration values
@@ -133,8 +137,13 @@ export class SyncManager {
     // (removed) extension context was only used for version checking
 
     // Register a listener for sync status updates
-    public addSyncStatusListener(listener: (isSyncInProgress: boolean, syncStage: string) => void): void {
+    public addSyncStatusListener(listener: (isSyncInProgress: boolean, syncStage: string) => void): vscode.Disposable {
         this.syncStatusListeners.push(listener);
+
+        // Return a Disposable that removes the listener when disposed
+        return new vscode.Disposable(() => {
+            this.removeSyncStatusListener(listener);
+        });
     }
 
     // Remove a sync status listener
@@ -171,11 +180,21 @@ export class SyncManager {
                 return;
             }
 
-            this.frontierSyncSubscription = (authApi as any).onSyncStatusChange((status: { status: 'started' | 'completed' | 'error' | 'skipped', message?: string; }) => {
+            this.frontierSyncSubscription = (authApi as any).onSyncStatusChange((status: {
+                status: 'started' | 'completed' | 'error' | 'skipped' | 'progress',
+                message?: string;
+                progress?: {
+                    phase: string;
+                    loaded?: number;
+                    total?: number;
+                    description?: string;
+                };
+            }) => {
                 debug(`[SyncManager] Received Frontier sync event: ${status.status} - ${status.message || ''}`);
 
                 switch (status.status) {
                     case 'started':
+                        console.log('[Sync] 🔄 Sync operation started');
                         // Only show Frontier progress if this sync wasn't initiated by Codex
                         if (this.codexInitiatedSyncCount === 0) {
                             this.isSyncInProgress = true;
@@ -185,7 +204,31 @@ export class SyncManager {
                             this.showFrontierSyncProgress();
                         }
                         break;
+
+                    case 'progress':
+                        // Update sync stage with detailed progress information
+                        if (status.progress) {
+                            const { phase, loaded, total, description } = status.progress;
+                            if (description) {
+                                this.currentSyncStage = description;
+                            } else if (loaded !== undefined && total !== undefined) {
+                                this.currentSyncStage = `${phase}: ${loaded}/${total}`;
+                            } else {
+                                this.currentSyncStage = phase;
+                            }
+                            this.notifySyncStatusListeners();
+
+                            // Log with appropriate emoji based on phase
+                            const phaseEmoji = phase === 'committing' ? '💾' :
+                                phase === 'fetching' ? '⬇️' :
+                                    phase === 'pushing' ? '⬆️' :
+                                        phase === 'merging' ? '🔀' : '⚙️';
+                            console.log(`[Sync] ${phaseEmoji} ${this.currentSyncStage}`);
+                            debug(`[SyncManager] Progress update: ${this.currentSyncStage}`);
+                        }
+                        break;
                     case 'completed':
+                        console.log('[Sync] ✅ Sync completed successfully');
                         this.isSyncInProgress = false;
                         this.currentSyncStage = status.message || 'Sync complete';
                         this.notifySyncStatusListeners();
@@ -200,6 +243,7 @@ export class SyncManager {
                         }
                         break;
                     case 'error':
+                        console.error(`[Sync] ❌ Sync failed: ${status.message || 'Unknown error'}`);
                         this.isSyncInProgress = false;
                         this.currentSyncStage = status.message || 'Sync failed';
                         this.notifySyncStatusListeners();
@@ -214,6 +258,7 @@ export class SyncManager {
                         }
                         break;
                     case 'skipped':
+                        console.warn(`[Sync] ⏭️  Sync skipped: ${status.message || 'Another sync in progress'}`);
                         this.isSyncInProgress = false;
                         this.currentSyncStage = status.message || 'Sync skipped';
                         this.notifySyncStatusListeners();
@@ -301,6 +346,17 @@ export class SyncManager {
 
     // Schedule a sync operation to occur after the configured delay
     public scheduleSyncOperation(commitMessage: string = "Auto-sync changes"): void {
+        debug(`scheduleSyncOperation called with message: "${commitMessage}"`);
+
+        // If sync is in progress, just track the change, don't touch timer
+        if (this.isSyncInProgress) {
+            debug("Sync in progress, tracking pending change (timer will be set after completion)");
+            if (!this.pendingChanges.includes(commitMessage)) {
+                this.pendingChanges.push(commitMessage);
+            }
+            return; // DON'T touch the timer
+        }
+
         // Check if there's a workspace folder open first
         const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
         if (!hasWorkspace) {
@@ -352,30 +408,87 @@ export class SyncManager {
             return;
         }
 
+        // RACE PREVENTION: Check and set in-memory flag atomically
         if (this.isSyncInProgress) {
-            debug("Sync already in progress, skipping");
+            debug("Sync already in progress (in-memory check), tracking as pending");
+            if (!this.pendingChanges.includes(commitMessage)) {
+                this.pendingChanges.push(commitMessage);
+            }
             if (showInfoOnConnectionIssues) {
                 vscode.window.showInformationMessage(
-                    "Sync already in progress. Please wait for the current synchronization to complete."
-                );
-            }
-            return;
-        }
-        // Check authentication status
-        const authApi = getAuthApi();
-        if (!authApi) {
-            debug("Auth API not available, cannot sync");
-            if (showInfoOnConnectionIssues) {
-                this.showConnectionIssueMessage(
-                    "Unable to sync: Authentication service not available"
+                    "Sync already in progress. Your changes will sync automatically after completion."
                 );
             }
             return;
         }
 
+        // Claim sync immediately (prevents race conditions in same process)
+        this.isSyncInProgress = true;
+
+        // Get auth API for checks
+        const authApi = getAuthApi();
+
+        try {
+            // Check filesystem lock (for crash/restart/multi-window scenarios)
+
+            if (authApi && 'checkSyncLock' in authApi) {
+                try {
+                    const lockStatus = await (authApi as any).checkSyncLock();
+
+                    if (lockStatus.exists && !lockStatus.isDead && !lockStatus.isStuck) {
+                        const ageMinutes = Math.floor((lockStatus.age || 0) / 60000);
+                        debug(`Filesystem lock exists (${ageMinutes}m old, PID: ${lockStatus.pid}), releasing claim and queuing`);
+
+                        // Release our in-memory claim
+                        this.isSyncInProgress = false;
+
+                        // Track as pending
+                        if (!this.pendingChanges.includes(commitMessage)) {
+                            this.pendingChanges.push(commitMessage);
+                        }
+
+                        if (showInfoOnConnectionIssues) {
+                            const progressInfo = lockStatus.progress
+                                ? ` - ${lockStatus.progress.description || `${lockStatus.phase} in progress`}`
+                                : '';
+                            vscode.window.showInformationMessage(
+                                `Sync in progress (started ${ageMinutes} minute${ageMinutes !== 1 ? 's' : ''} ago${progressInfo}). Your changes will sync after completion.`
+                            );
+                        }
+                        return;
+                    }
+
+                    if (lockStatus.exists && (lockStatus.isDead || lockStatus.isStuck)) {
+                        debug("Stale/dead lock detected, will be cleaned up by Frontier");
+                    }
+                } catch (error) {
+                    console.error("Error checking filesystem lock:", error);
+                    // Continue with sync attempt
+                }
+            }
+
+            // Check authentication status
+            if (!authApi) {
+                this.isSyncInProgress = false;
+                debug("Auth API not available, cannot sync");
+                if (showInfoOnConnectionIssues) {
+                    this.showConnectionIssueMessage(
+                        "Unable to sync: Authentication service not available"
+                    );
+                }
+                return;
+            }
+        } catch (error) {
+            // Release claim on error
+            this.isSyncInProgress = false;
+            console.error("Error in executeSync setup:", error);
+            throw error;
+        }
+
         try {
             const authStatus = authApi.getAuthStatus();
             if (!authStatus.isAuthenticated) {
+                this.isSyncInProgress = false;
                 debug("User is not authenticated, cannot sync");
                 if (showInfoOnConnectionIssues) {
                     this.showConnectionIssueMessage(
@@ -385,6 +498,7 @@ export class SyncManager {
                 return;
             }
         } catch (error) {
+            this.isSyncInProgress = false;
             console.error("Error checking authentication status:", error);
             if (showInfoOnConnectionIssues) {
                 this.showConnectionIssueMessage(
@@ -396,7 +510,8 @@ export class SyncManager {
 
         // Enforce Frontier version requirement for sync operations (Git LFS safety gate)
         const versionStatus = await getFrontierVersionStatus();
-        if (!versionStatus.ok) { // ${versionStatus.installedVersion}
+        if (!versionStatus.ok) {
+            this.isSyncInProgress = false;
             debug("Frontier version requirement not met. Blocking sync operation.");
             const details = versionStatus.installedVersion
                 ? `Frontier Authentication version ${versionStatus.requiredVersion} or newer is required to sync.`
@@ -405,11 +520,11 @@ export class SyncManager {
             return;
         }
 
-        // Set sync in progress flag and show immediate feedback
+        // Clear any pending scheduled sync (manual sync takes priority)
         this.clearPendingSync();
-        this.isSyncInProgress = true;
+
+        // Set sync state and show feedback
         this.currentSyncStage = "Starting sync...";
-        // Increment counter to track this Codex-initiated sync
         this.codexInitiatedSyncCount++;
         this.notifySyncStatusListeners();
         debug("Sync operation in background with message:", commitMessage);
@@ -440,7 +555,7 @@ export class SyncManager {
             debug("🔄 Starting background sync operation...");
 
             // Update sync stage and splash screen
-            this.currentSyncStage = "Preparing synchronization...";
+            this.currentSyncStage = "Preparing sync...";
             this.notifySyncStatusListeners();
             updateSplashScreenSync(60, this.currentSyncStage);
 
@@ -488,7 +603,7 @@ export class SyncManager {
             }
 
             // Sync all changes in background
-            this.currentSyncStage = "Synchronizing changes...";
+            this.currentSyncStage = "Starting sync...";
             this.notifySyncStatusListeners();
             const syncResult = await stageAndCommitAllAndSync(commitMessage, false); // Don't show user messages during background sync
             if (syncResult.offline) {
@@ -607,6 +722,54 @@ export class SyncManager {
             this.currentSyncStage = "";
             this.isSyncInProgress = false;
             this.notifySyncStatusListeners();
+
+            // Process pending changes from during the sync
+            if (this.pendingChanges.length > 0) {
+                debug(`Processing ${this.pendingChanges.length} pending change(s) from during sync`);
+
+                // Check if working directory is actually dirty
+                const authApi = getAuthApi();
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+
+                if (authApi && workspaceFolder && 'checkWorkingCopyState' in authApi) {
+                    try {
+                        // Wait a moment for filesystem to settle
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+
+                        const state = await (authApi as any).checkWorkingCopyState(workspaceFolder.uri.fsPath);
+
+                        if (state?.isDirty) {
+                            debug("Working directory is dirty, scheduling sync for pending changes");
+
+                            // Generate appropriate commit message
+                            const message = this.pendingChanges.length === 1
+                                ? this.pendingChanges[0]
+                                : `changes to ${this.pendingChanges.length} files`;
+
+                            this.pendingChanges = []; // Clear before scheduling
+                            this.scheduleSyncOperation(message); // Respects 5-minute delay
+                        } else {
+                            debug("Working directory is clean, pending changes were included in sync");
+                            this.pendingChanges = [];
+                        }
+                    } catch (error) {
+                        console.error("Error checking working copy state:", error);
+                        // Schedule anyway to be safe
+                        const message = this.pendingChanges.length === 1
+                            ? this.pendingChanges[0]
+                            : `changes to ${this.pendingChanges.length} files`;
+                        this.pendingChanges = [];
+                        this.scheduleSyncOperation(message);
+                    }
+                } else {
+                    // No way to check, schedule anyway
+                    const message = this.pendingChanges.length === 1
+                        ? this.pendingChanges[0]
+                        : `changes to ${this.pendingChanges.length} files`;
+                    this.pendingChanges = [];
+                    this.scheduleSyncOperation(message);
+                }
+            }
         }
     }
 
@@ -824,48 +987,140 @@ export class SyncManager {
     }
 
     // Show progress indicator for sync operation
-    private showSyncProgress(commitMessage: string): void {
-        vscode.window.withProgress(
+    private async showSyncProgress(commitMessage: string): Promise<void> {
+        // Wait for previous notification to close
+        if (this.activeProgressNotification) {
+            await this.activeProgressNotification;
+        }
+
+        // Create new notification and track it
+        this.activeProgressNotification = Promise.resolve(vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
                 title: "Synchronizing Project",
                 cancellable: false,
             },
             async (progress, token) => {
-                let progressValue = 0;
+                let lastStage = '';
+                let currentProgress = 0;
+
+                // Map sync stages to progress percentages
+                const getProgressForStage = (stage: string): number => {
+                    // Handle dynamic Git progress messages with counts
+                    if (stage.includes('Receiving objects:')) {
+                        const match = stage.match(/(\d+)\/(\d+)/);
+                        if (match) {
+                            const current = parseInt(match[1]);
+                            const total = parseInt(match[2]);
+                            // Map receiving to 30-55% range
+                            return 30 + Math.floor((current / total) * 25);
+                        }
+                        return 35;
+                    }
+                    if (stage.includes('Resolving deltas:')) {
+                        const match = stage.match(/(\d+)\/(\d+)/);
+                        if (match) {
+                            const current = parseInt(match[1]);
+                            const total = parseInt(match[2]);
+                            // Map resolving to 55-65% range
+                            return 55 + Math.floor((current / total) * 10);
+                        }
+                        return 60;
+                    }
+                    if (stage.includes('Counting objects:') || stage.includes('Compressing objects:')) {
+                        const match = stage.match(/(\d+)\/(\d+)/);
+                        if (match) {
+                            const current = parseInt(match[1]);
+                            const total = parseInt(match[2]);
+                            // Map counting/compressing to 75-85% range
+                            return 75 + Math.floor((current / total) * 10);
+                        }
+                        return 80;
+                    }
+                    if (stage.includes('Writing objects:')) {
+                        const match = stage.match(/(\d+)\/(\d+)/);
+                        if (match) {
+                            const current = parseInt(match[1]);
+                            const total = parseInt(match[2]);
+                            // Map writing to 85-98% range
+                            return 85 + Math.floor((current / total) * 13);
+                        }
+                        return 90;
+                    }
+
+                    // Static stage mappings
+                    const staticProgress: Record<string, number> = {
+                        'Starting sync': 5,
+                        'Preparing sync': 5,
+                        'Committing local changes': 10,
+                        'Local changes committed': 20,
+                        'Checking for remote changes': 25,
+                        'Remote check complete': 65,
+                        'Merging remote changes': 68,
+                        'Merge complete': 72,
+                        'Already up to date': 75,
+                        'Uploading changes': 75,
+                        'Upload complete': 98,
+                    };
+
+                    for (const [key, value] of Object.entries(staticProgress)) {
+                        if (stage.includes(key) || stage.startsWith(key.split(':')[0])) {
+                            return value;
+                        }
+                    }
+
+                    return 0;
+                };
 
                 // Initial progress
                 progress.report({
                     increment: 0,
-                    message: "Checking files are up to date..."
+                    message: this.currentSyncStage || "Starting sync..."
                 });
 
                 // Wait for sync to complete by polling the sync status
                 while (this.isSyncInProgress) {
-                    await new Promise(resolve => setTimeout(resolve, 500)); // Check every 500ms
+                    await new Promise(resolve => setTimeout(resolve, 200)); // Check every 200ms for smooth updates
 
-                    // Update progress message based on current sync stage
-                    if (this.isSyncInProgress && this.currentSyncStage) {
-                        const increment = Math.min(20, 90 - progressValue); // Gradual progress up to 90%
-                        progressValue += increment;
+                    // Update progress when stage changes
+                    if (this.isSyncInProgress && this.currentSyncStage && this.currentSyncStage !== lastStage) {
+                        lastStage = this.currentSyncStage;
 
-                        progress.report({
-                            increment,
-                            message: this.currentSyncStage
-                        });
+                        const targetProgress = getProgressForStage(this.currentSyncStage);
+
+                        // Only increment, never go backwards
+                        if (targetProgress > currentProgress) {
+                            const increment = targetProgress - currentProgress;
+                            currentProgress = targetProgress;
+
+                            progress.report({
+                                increment,
+                                message: this.currentSyncStage
+                            });
+                        } else {
+                            // Just update message without changing progress
+                            progress.report({
+                                increment: 0,
+                                message: this.currentSyncStage
+                            });
+                        }
                     }
                 }
 
                 // Final completion
-                progress.report({
-                    increment: 100 - progressValue,
-                    message: this.currentSyncStage || "Synchronization complete!"
-                });
+                if (currentProgress < 100) {
+                    progress.report({
+                        increment: 100 - currentProgress,
+                        message: this.currentSyncStage || "Synchronization complete!"
+                    });
+                }
 
                 // Brief delay to show completion before closing
                 await new Promise(resolve => setTimeout(resolve, 1500));
             }
-        );
+        )).finally(() => {
+            this.activeProgressNotification = undefined;
+        });
     }
 }
 
