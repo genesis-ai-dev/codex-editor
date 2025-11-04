@@ -671,8 +671,13 @@ export class SyncManager {
                 const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
                 if (workspaceFolder) {
                     const { postSyncCleanup } = await import("../utils/mediaStrategyManager");
-                    await postSyncCleanup(workspaceFolder.uri);
-                    debug("[SyncManager] Post-sync media cleanup completed");
+                    // Pass the list of uploaded LFS files from the sync result for optimized cleanup
+                    await postSyncCleanup(workspaceFolder.uri, syncResult.uploadedLfsFiles);
+                    if (syncResult.uploadedLfsFiles && syncResult.uploadedLfsFiles.length > 0) {
+                        debug(`[SyncManager] Post-sync media cleanup completed for ${syncResult.uploadedLfsFiles.length} uploaded file(s)`);
+                    } else {
+                        debug("[SyncManager] Post-sync media cleanup completed (no LFS uploads)");
+                    }
                 }
             } catch (error) {
                 console.error("[SyncManager] Error in post-sync media cleanup:", error);

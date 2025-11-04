@@ -18,6 +18,56 @@ const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[MediaStrategyManager]", ...args) : () => { };
 
 /**
+ * Replace specific files in attachments/files with their pointer versions
+ * This is optimized for post-sync cleanup where we know exactly which files were uploaded
+ * @param projectPath - Root path of the project
+ * @param uploadedFiles - List of file paths that were uploaded (relative to project root)
+ * @returns Number of files replaced
+ */
+export async function replaceSpecificFilesWithPointers(projectPath: string, uploadedFiles: string[]): Promise<number> {
+    let replacedCount = 0;
+
+    try {
+        // Filter for files that are in the pointers directory
+        const pointerFiles = uploadedFiles.filter(filepath => 
+            filepath.includes(".project/attachments/pointers/") || 
+            filepath.includes(".project\\attachments\\pointers\\")
+        );
+
+        if (pointerFiles.length === 0) {
+            debug("No pointer files in uploaded files list");
+            return 0;
+        }
+
+        debug(`Processing ${pointerFiles.length} uploaded pointer file(s) for replacement`);
+
+        // Process each file without showing progress UI (it's fast for a few files)
+        for (const filepath of pointerFiles) {
+            // Extract the relative path within the pointers directory
+            let relPath = filepath;
+            if (filepath.includes(".project/attachments/pointers/")) {
+                relPath = filepath.split(".project/attachments/pointers/")[1];
+            } else if (filepath.includes(".project\\attachments\\pointers\\")) {
+                relPath = filepath.split(".project\\attachments\\pointers\\")[1];
+            }
+
+            if (relPath) {
+                const success = await replaceFileWithPointer(projectPath, relPath);
+                if (success) {
+                    replacedCount++;
+                }
+            }
+        }
+
+        debug(`Replaced ${replacedCount} file(s) with pointers`);
+        return replacedCount;
+    } catch (error) {
+        console.error("Error replacing specific files with pointers:", error);
+        throw error;
+    }
+}
+
+/**
  * Replace all downloaded files in attachments/files with their pointer versions
  * This is used when switching to stream-only or stream-and-save modes
  * @param projectPath - Root path of the project
@@ -335,8 +385,15 @@ export async function applyMediaStrategy(
 
 /**
  * Clean up media files after sync for stream-only mode
+ * Replaces newly uploaded files in attachments/files with their pointer versions to save disk space
+ * 
+ * Note: Initial cleanup already happens when switching to stream-only mode via applyMediaStrategy.
+ * This function only handles files that were just uploaded during this sync operation.
+ * 
+ * @param projectUri - URI of the project
+ * @param uploadedFiles - List of files that were uploaded during sync. If empty/undefined, nothing to clean up.
  */
-export async function postSyncCleanup(projectUri: vscode.Uri): Promise<void> {
+export async function postSyncCleanup(projectUri: vscode.Uri, uploadedFiles?: string[]): Promise<void> {
     try {
         const mediaStrategy = await getMediaFilesStrategy(projectUri);
 
@@ -345,14 +402,17 @@ export async function postSyncCleanup(projectUri: vscode.Uri): Promise<void> {
             return;
         }
 
-        debug("Running post-sync cleanup for stream-only mode");
+        // Skip if no files were uploaded - nothing to clean up
+        if (!uploadedFiles || uploadedFiles.length === 0) {
+            debug("No files uploaded during sync, skipping post-sync cleanup");
+            return;
+        }
 
-        // After sync, some files in pointers/ are now pointers (were uploaded)
-        // Replace their counterparts in files/ with pointers
-        const replacedCount = await replaceFilesWithPointers(projectUri.fsPath);
-
+        debug(`Post-sync cleanup: processing ${uploadedFiles.length} uploaded file(s)`);
+        const replacedCount = await replaceSpecificFilesWithPointers(projectUri.fsPath, uploadedFiles);
+        
         if (replacedCount > 0) {
-            debug(`Post-sync cleanup: replaced ${replacedCount} files with pointers`);
+            debug(`Post-sync cleanup: replaced ${replacedCount} file(s) with pointers`);
         }
     } catch (error) {
         console.error("Error in post-sync cleanup:", error);
