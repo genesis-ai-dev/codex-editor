@@ -58,7 +58,7 @@ export const importerPlugins: ImporterPlugin[] = [
     {
         ...audioImporterPlugin,
         name: "Audio",
-        description: "Import audio files and segment by timestamps",
+        description: "Import audio files with backend processing - supports large files",
         tags: [...(audioImporterPlugin.tags || []), "Essential", "Media", "Audio"],
     },
     {
