@@ -316,6 +316,52 @@ export class NotebookMetadataManager {
                         }
                     }
 
+                    // Fix corpusMarker if it's a Bible book code (like "1CO", "GEN") by converting to OT/NT
+                    // NOTE: This is a temporary fix to convert corpus markers to OT/NT. We should remove this 
+                    // after projects have been migrated.
+                    if (metadata?.corpusMarker && metadata.corpusMarker !== "OT" && metadata.corpusMarker !== "NT") {
+                        const correctCorpusMarker = getCorpusMarkerForBook(metadata.corpusMarker);
+                        if (correctCorpusMarker && correctCorpusMarker !== metadata.corpusMarker) {
+                            debugLog(
+                                `Converting Bible book corpusMarker for ${metadata.id}: ${metadata.corpusMarker} -> ${correctCorpusMarker}`
+                            );
+                            metadata.corpusMarker = correctCorpusMarker;
+                            hasChanges = true;
+
+                            // Update the notebook file with the corrected metadata
+                            try {
+                                notebookData.metadata = {
+                                    ...notebookData.metadata,
+                                    corpusMarker: correctCorpusMarker,
+                                };
+
+                                // Convert CodexNotebookAsJSONData to vscode.NotebookData format for serialization
+                                const notebookDataForSerialization: vscode.NotebookData = {
+                                    cells: notebookData.cells.map((cell: CustomNotebookCellData) => {
+                                        const cellData = new vscode.NotebookCellData(
+                                            cell.kind,
+                                            cell.value,
+                                            cell.languageId || "plaintext"
+                                        );
+                                        cellData.metadata = cell.metadata || {};
+                                        return cellData;
+                                    }),
+                                    metadata: notebookData.metadata,
+                                };
+
+                                const serialized = await serializer.serializeNotebook(
+                                    notebookDataForSerialization,
+                                    new vscode.CancellationTokenSource().token
+                                );
+                                await vscode.workspace.fs.writeFile(file, serialized);
+                                debugLog(`Updated notebook file ${file.fsPath} with corrected corpusMarker`);
+                            } catch (error) {
+                                debugLog(`Error updating notebook file ${file.fsPath}:`, error);
+                                // Continue even if file update fails - metadata is still updated in memory
+                            }
+                        }
+                    }
+
                     if (metadata) {
                         this.metadataMap.set(id, metadata);
                     }
