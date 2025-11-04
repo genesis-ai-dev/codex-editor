@@ -254,6 +254,7 @@ const CodexCellEditor: React.FC = () => {
         variants: string[];
         cellId: string;
         testId: string;
+        testName?: string;
         names?: string[];
         winRates?: any;
         abProbability?: number;
@@ -289,7 +290,9 @@ const CodexCellEditor: React.FC = () => {
                             if (ev.data?.type === "asrConfig") {
                                 window.removeEventListener("message", onMsg);
                                 resolved = true;
-                                resolve(ev.data.content);
+                                const config = ev.data.content;
+                                console.log(`[BatchTranscription] Received ASR config: endpoint=${config.endpoint}, hasToken=${!!config.authToken}`);
+                                resolve(config);
                             }
                         };
                         window.addEventListener("message", onMsg);
@@ -398,6 +401,7 @@ const CodexCellEditor: React.FC = () => {
                         }
 
                         // Transcribe
+                        console.log(`[BatchTranscription] Creating client for cell ${cellId}: endpoint=${wsEndpoint}, hasToken=${!!asrConfig.authToken}`);
                         const client = new WhisperTranscriptionClient(
                             wsEndpoint,
                             asrConfig.authToken
@@ -497,7 +501,9 @@ const CodexCellEditor: React.FC = () => {
             abTestState.testId,
             selectedIndex,
             abTestState.variants.length,
-            selectionTimeMs
+            selectionTimeMs,
+            abTestState.testName,
+            abTestState.names
         );
 
         // Casual confirmation with variant name if available
@@ -520,6 +526,7 @@ const CodexCellEditor: React.FC = () => {
             variants: [],
             cellId: "",
             testId: "",
+            testName: undefined,
         });
     };
 
@@ -530,7 +537,9 @@ const CodexCellEditor: React.FC = () => {
         testId: string | undefined,
         selectedIndex: number,
         totalVariants: number,
-        selectionTimeMs: number = 0
+        selectionTimeMs: number = 0,
+        testName?: string,
+        names?: string[]
     ) => {
         debug("ab-test", `Applying variant ${selectedIndex} to cell ${cellId}:`, variant);
 
@@ -579,8 +588,9 @@ const CodexCellEditor: React.FC = () => {
                     cellId,
                     selectedIndex,
                     testId,
+                    testName: testName || abTestState.testName,
                     selectionTimeMs: selectionTimeMs || 0,
-                    names: (abTestState as any).names,
+                    names: names || (abTestState as any).names,
                 },
             } as unknown as EditorPostMessages);
         }
@@ -1073,7 +1083,7 @@ const CodexCellEditor: React.FC = () => {
         },
         setAudioAttachments: setAudioAttachments,
         showABTestVariants: (data) => {
-            const { variants, cellId, testId, names, abProbability } = data as any;
+            const { variants, cellId, testId, testName, names, abProbability } = data as any;
             const count = Array.isArray(variants) ? variants.length : 0;
             debug("ab-test", "Received A/B test variants:", { cellId, count });
 
@@ -1085,12 +1095,12 @@ const CodexCellEditor: React.FC = () => {
 
             if (count > 1 && !allIdentical) {
                 // Show A/B selector UI
-                setAbTestState({ isActive: true, variants, cellId, testId, names, abProbability });
+                setAbTestState({ isActive: true, variants, cellId, testId, testName, names, abProbability });
                 return;
             }
 
             // Otherwise, auto-apply first variant quietly (no modal)
-            applyVariantToCell(cellId, variants[0], testId, 0, count);
+            applyVariantToCell(cellId, variants[0], testId, 0, count, 0, testName, names);
         },
     });
 

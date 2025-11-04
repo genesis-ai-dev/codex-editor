@@ -144,23 +144,69 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     const authStatus = frontierApi.getAuthStatus();
                     if (authStatus.isAuthenticated) {
                         const asrEndpoint = await frontierApi.getAsrEndpoint();
-                        if (asrEndpoint) {
-                            endpoint = asrEndpoint;
+                        // Validate endpoint URL before using it
+                        if (asrEndpoint && asrEndpoint.trim()) {
+                            try {
+                                new URL(asrEndpoint);
+                                endpoint = asrEndpoint;
+                            } catch (urlError) {
+                                console.warn("Invalid ASR endpoint URL from auth API:", asrEndpoint, urlError);
+                                // Fall back to default endpoint
+                            }
                         }
                         // Get auth token for authenticated requests
-                        authToken = await frontierApi.authProvider.getToken();
+                        try {
+                            authToken = await frontierApi.authProvider.getToken();
+                            console.log(`[getAsrConfig] Token retrieved: ${authToken ? `present (length: ${authToken.length})` : 'empty/undefined'}`);
+                            if (!authToken) {
+                                console.error("[getAsrConfig] ERROR: ASR endpoint requires authentication but token retrieval returned empty value");
+                            }
+                        } catch (tokenError) {
+                            console.error("[getAsrConfig] ERROR: Could not get auth token for ASR endpoint:", tokenError);
+                        }
                     }
                 }
             } catch (error) {
                 console.debug("Could not get ASR endpoint from auth API:", error);
             }
 
+            // Final validation: ensure endpoint is a valid URL
+            try {
+                new URL(endpoint);
+            } catch (urlError) {
+                console.error("Invalid ASR endpoint configuration:", endpoint, urlError);
+                throw new Error(`Invalid ASR endpoint: ${endpoint}. Please check your ASR settings or login status.`);
+            }
+
+            // Warn if using authenticated endpoint without token
+            const isAuthenticatedEndpoint = endpoint.includes('api.frontierrnd.com') || endpoint.includes('frontier');
+            console.log(`[getAsrConfig] Calculation: isAuthenticatedEndpoint=${isAuthenticatedEndpoint}, hasToken=${!!authToken}`);
+            if (isAuthenticatedEndpoint && !authToken) {
+                console.error(`[getAsrConfig] ERROR: ASR endpoint appears to require authentication but no token was retrieved!`);
+                console.error(`[getAsrConfig] Endpoint: ${endpoint}`);
+                console.error(`[getAsrConfig] This will cause transcription to fail. Please check authentication status.`);
+            }
+
+            console.log(`[getAsrConfig] Sending config: endpoint=${endpoint}, hasToken=${!!authToken}`);
             safePostMessageToPanel(webviewPanel, {
                 type: "asrConfig",
                 content: { endpoint, provider, model, language, phonetic, authToken }
             });
         } catch (error) {
             console.error("Error sending ASR config:", error);
+            // Always provide a valid fallback endpoint
+            const fallbackEndpoint = "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe";
+            safePostMessageToPanel(webviewPanel, {
+                type: "asrConfig",
+                content: {
+                    endpoint: fallbackEndpoint,
+                    provider: "mms",
+                    model: "facebook/mms-1b-all",
+                    language: "eng",
+                    phonetic: false,
+                    authToken: undefined
+                }
+            });
         }
     },
 
