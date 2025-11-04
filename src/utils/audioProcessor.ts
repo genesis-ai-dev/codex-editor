@@ -256,75 +256,40 @@ export async function detectSilence(
                 console.log(`[audioProcessor] Silence regions: [${cleanedRegions.slice(0, 5).map(r => `${r.start.toFixed(2)}-${r.end.toFixed(2)}`).join(', ')}${cleanedRegions.length > 5 ? '...' : ''}]`);
             }
 
-            // Build audio segments (periods between silences)
-            const segments: AudioSegment[] = [];
-            let lastEnd = 0;
-
-            for (const silence of cleanedRegions) {
-                // Add segment from last end to this silence start
-                if (silence.start > lastEnd + 0.1) {
-                    segments.push({
-                        startSec: lastEnd,
-                        endSec: silence.start
-                    });
-                }
-                // Only advance lastEnd if this silence extends further
-                if (silence.end > lastEnd) {
-                    lastEnd = silence.end;
-                }
-            }
-
-            // Add final segment if needed
+            // Breakpoints at midpoint of silence regions
             try {
                 const duration = await getAudioDuration(filePath);
-                if (lastEnd < duration - 0.1) {
+                
+                const breakpoints: number[] = [0];
+                for (const silence of cleanedRegions) {
+                    breakpoints.push((silence.start + silence.end) / 2);
+                }
+                breakpoints.push(duration);
+                
+                breakpoints.sort((a, b) => a - b);
+                const uniqueBreakpoints = breakpoints.filter((bp, i) => 
+                    i === 0 || bp - breakpoints[i - 1] >= 0.01
+                );
+                
+                const segments: AudioSegment[] = [];
+                for (let i = 0; i < uniqueBreakpoints.length - 1; i++) {
                     segments.push({
-                        startSec: lastEnd,
-                        endSec: duration
+                        startSec: uniqueBreakpoints[i],
+                        endSec: uniqueBreakpoints[i + 1]
                     });
                 }
-
+                
                 // If no segments found, use entire file
                 if (segments.length === 0) {
-                    segments.push({
-                        startSec: 0,
-                        endSec: duration
-                    });
-                }
-
-                // Validate and clean up segments
-                const validSegments = segments.filter(seg => {
-                    const isValid = seg.startSec >= 0 && 
-                                   seg.endSec > seg.startSec && 
-                                   seg.endSec <= duration + 0.1; // Allow small rounding errors
-                    if (!isValid) {
-                        console.warn(`[audioProcessor] Invalid segment: ${seg.startSec}-${seg.endSec}`);
-                    }
-                    return isValid;
-                });
-
-                // Remove duplicates and merge adjacent segments that are too small
-                const cleanedSegments: AudioSegment[] = [];
-                for (const seg of validSegments) {
-                    if (cleanedSegments.length === 0) {
-                        cleanedSegments.push({ ...seg });
-                    } else {
-                        const last = cleanedSegments[cleanedSegments.length - 1];
-                        // If segments are too close (< 0.1s gap), merge them
-                        if (seg.startSec - last.endSec < 0.1) {
-                            last.endSec = seg.endSec;
-                        } else {
-                            cleanedSegments.push({ ...seg });
-                        }
-                    }
+                    segments.push({ startSec: 0, endSec: duration });
                 }
 
                 // Split segments that exceed 30 seconds maximum length
                 const MAX_SEGMENT_LENGTH = 30;
                 const finalSegments: AudioSegment[] = [];
-                for (const seg of cleanedSegments) {
-                    const duration = seg.endSec - seg.startSec;
-                    if (duration <= MAX_SEGMENT_LENGTH) {
+                for (const seg of segments) {
+                    const segDuration = seg.endSec - seg.startSec;
+                    if (segDuration <= MAX_SEGMENT_LENGTH) {
                         finalSegments.push(seg);
                     } else {
                         // Split into multiple segments of max 30 seconds each
