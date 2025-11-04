@@ -478,7 +478,7 @@ function NavigationView() {
                 command: "editCorpusMarker",
                 content: {
                     corpusLabel: item.label,
-                    newCorpusName: newName.trim(),
+                    newCorpusName: newName.trim().toLowerCase(),
                 },
             });
         }
