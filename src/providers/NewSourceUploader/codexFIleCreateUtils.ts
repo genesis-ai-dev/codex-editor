@@ -74,7 +74,7 @@ export async function createNoteBookPair({
         }
 
         // Determine if this is biblical content based on the importer type
-        const importerType = sourceNotebook.metadata?.corpusMarker || '';
+        const importerType = sourceNotebook.metadata?.importerType || '';
         const isBiblical = isBiblicalImporterType(importerType);
 
         console.log(`[CODEX FILE CREATE] Importer type: "${importerType}", Biblical: ${isBiblical}`);
