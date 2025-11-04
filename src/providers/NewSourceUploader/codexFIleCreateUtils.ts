@@ -14,6 +14,9 @@ export async function writeNotebook(uri: vscode.Uri, notebook: NotebookPreview):
     // Instead, directly serialize the notebook data
     const cells = notebook.cells.map((cell) => ({
         // need to ensure we spread in incoming metadata while also ensuring critical metadata is otherwise included
+        kind: cell.kind ?? vscode.NotebookCellKind.Code,
+        value: cell.value ?? "",
+        languageId: cell.languageId ?? "html",
         metadata: {
             type: cell.metadata?.type || CodexCellTypes.TEXT,
             id: cell.metadata?.id,
@@ -21,7 +24,6 @@ export async function writeNotebook(uri: vscode.Uri, notebook: NotebookPreview):
             edits: cell.metadata?.edits || [],
             ...cell.metadata,
         },
-        ...cell,
     }));
 
     const serializedData = JSON.stringify(
@@ -39,8 +41,12 @@ export async function writeNotebook(uri: vscode.Uri, notebook: NotebookPreview):
         2
     );
 
+    if (!serializedData) {
+        throw new Error(`Failed to serialize notebook for ${uri.fsPath}`);
+    }
+
     // Write the file directly without opening it
-    await vscode.workspace.fs.writeFile(uri, Buffer.from(serializedData));
+    await vscode.workspace.fs.writeFile(uri, Buffer.from(serializedData, 'utf8'));
 }
 
 export async function createNoteBookPair({

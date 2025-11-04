@@ -172,13 +172,13 @@ function processQuillContentForSaving(htmlContent: string): string {
             const content = p.innerHTML;
             // Only include paragraphs that have actual content beyond spaces
             const hasRealContent = content.trim().length > 0;
-            console.log(`[processQuillContentForSaving] Processing paragraph ${index}:`, content);
+            debug(`[processQuillContentForSaving] Processing paragraph ${index}:`, content);
             if (hasRealContent) {
                 if (index === 0) {
                     // First paragraph becomes a span
                     const spanElement = `<span>${content}</span>`;
                     processedElements.push(spanElement);
-                    console.log(
+                    debug(
                         `[processQuillContentForSaving] First paragraph as span:`,
                         spanElement
                     );
@@ -186,7 +186,7 @@ function processQuillContentForSaving(htmlContent: string): string {
                     // Subsequent paragraphs remain as paragraphs
                     const pElement = `<p>${content}</p>`;
                     processedElements.push(pElement);
-                    console.log(`[processQuillContentForSaving] Subsequent paragraph:`, pElement);
+                    debug(`[processQuillContentForSaving] Subsequent paragraph:`, pElement);
                 }
             }
         });
