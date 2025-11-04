@@ -508,7 +508,9 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const bookInfo = this.bibleBookMap.get(fileNameAbbr);
             const label = fileNameAbbr;
             const sortOrder = bookInfo?.ord;
-            const corpusMarker = metadata?.corpusMarker || bookInfo?.testament;
+            const corpusMarker = metadata?.corpusMarker
+                ? metadata.corpusMarker.trim()
+                : bookInfo?.testament;
 
             return {
                 uri,
@@ -548,10 +550,13 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             if (resolvedCorpusMarker === "Old Testament") resolvedCorpusMarker = "OT";
             if (resolvedCorpusMarker === "New Testament") resolvedCorpusMarker = "NT";
 
-            if (resolvedCorpusMarker) {
-                const group = corpusGroups.get(resolvedCorpusMarker) || [];
+            // Normalize corpusMarker: trim whitespace to ensure consistent grouping
+            const normalizedCorpusMarker = resolvedCorpusMarker ? resolvedCorpusMarker.trim() : undefined;
+
+            if (normalizedCorpusMarker) {
+                const group = corpusGroups.get(normalizedCorpusMarker) || [];
                 group.push(item);
-                corpusGroups.set(resolvedCorpusMarker, group);
+                corpusGroups.set(normalizedCorpusMarker, group);
             } else {
                 ungroupedItems.push(item);
             }
@@ -766,6 +771,9 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             return;
         }
 
+        // Normalize inputs: trim whitespace
+        const normalizedOldLabel = oldCorpusLabel.trim();
+        const normalizedNewName = newCorpusName.trim();
         const rootUri = workspaceFolders[0].uri;
         const codexPattern = new vscode.RelativePattern(
             rootUri.fsPath,
@@ -776,11 +784,12 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             // Find all codex files
             const codexUris = await vscode.workspace.findFiles(codexPattern);
             let updatedCount = 0;
+            const filesWithNewName: string[] = [];
 
             // Show progress
             await vscode.window.withProgress({
                 location: vscode.ProgressLocation.Notification,
-                title: `Updating corpus marker from "${oldCorpusLabel}" to "${newCorpusName}"`,
+                title: `Updating corpus marker from "${normalizedOldLabel}" to "${normalizedNewName}"`,
                 cancellable: false
             }, async (progress) => {
                 const total = codexUris.length;
@@ -811,7 +820,11 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                         if (resolved === "Old Testament") resolved = "OT";
                         if (resolved === "New Testament") resolved = "NT";
 
-                        if (resolved === oldCorpusLabel) {
+                        // Normalize resolved value for comparison
+                        const normalizedResolved = resolved ? resolved.trim() : undefined;
+
+                        // Check if this file matches the old label or already has the new name
+                        if (normalizedResolved === normalizedOldLabel) {
                             // Ensure metadata exists
                             if (!notebookData.metadata) {
                                 notebookData.metadata = {} as CustomNotebookMetadata;
@@ -821,7 +834,9 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                             const oldValue = metadata.corpusMarker;
 
                             // Only add edit if value is actually changing
-                            if (oldValue !== newCorpusName) {
+                            if (oldValue !== normalizedNewName) {
+                                console.log(`[updateCorpusMarker] Updating ${fileNameAbbr}: "${oldValue}" → "${normalizedNewName}"`);
+
                                 // Get current user for edit history
                                 let currentUser = "anonymous";
                                 try {
@@ -833,13 +848,13 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                                 }
 
                                 // Add edit history entry before updating metadata
-                                addMetadataEdit(metadata, "corpusMarker", newCorpusName, currentUser);
+                                addMetadataEdit(metadata, "corpusMarker", normalizedNewName, currentUser);
                             }
 
                             // Update metadata with new corpusMarker
                             notebookData.metadata = {
                                 ...metadata,
-                                corpusMarker: newCorpusName,
+                                corpusMarker: normalizedNewName,
                             };
 
                             // Serialize and save the updated notebook
@@ -850,6 +865,9 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
                             await vscode.workspace.fs.writeFile(uri, updatedContent);
                             updatedCount++;
+                        } else if (normalizedResolved === normalizedNewName) {
+                            // Track files that already have the new name (for merge verification)
+                            filesWithNewName.push(fileNameAbbr);
                         }
                     } catch (error) {
                         console.error(`Error updating ${uri.fsPath}:`, error);
@@ -860,14 +878,17 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
             // Show success message
             if (updatedCount > 0) {
+                const mergeInfo = filesWithNewName.length > 0
+                    ? ` (${filesWithNewName.length} file(s) already had "${normalizedNewName}", will be merged)`
+                    : "";
                 vscode.window.showInformationMessage(
-                    `Successfully updated corpus marker in ${updatedCount} file(s) from "${oldCorpusLabel}" to "${newCorpusName}"`
+                    `Successfully updated corpus marker in ${updatedCount} file(s) from "${normalizedOldLabel}" to "${normalizedNewName}"${mergeInfo}`
                 );
-                // Refresh the navigation view to show the changes
+                // Refresh the navigation view to show the changes and merge groups
                 await this.buildInitialData();
             } else {
                 vscode.window.showInformationMessage(
-                    `No files found with corpus marker "${oldCorpusLabel}"`
+                    `No files found with corpus marker "${normalizedOldLabel}"`
                 );
             }
         } catch (error) {
