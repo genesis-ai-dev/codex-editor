@@ -47,6 +47,92 @@ suite("CodexCellEditorProvider Test Suite", () => {
         assert.ok(provider, "CodexCellEditorProvider should be initialized successfully");
     });
 
+    test("loadBibleBookMap uses only bundled default data", async () => {
+        // Open a document which triggers loadBibleBookMap
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        // loadBibleBookMap is called during resolveCustomEditor, not openCustomDocument
+        // So we need to call it directly for testing
+        const loadBibleBookMap = (provider as any).loadBibleBookMap.bind(provider);
+        await loadBibleBookMap(document);
+
+        // Access the bibleBookMap through the provider instance
+        const bibleBookMap = (provider as any).bibleBookMap;
+
+        // Verify bibleBookMap is populated
+        assert.ok(bibleBookMap, "bibleBookMap should exist");
+        assert.ok(bibleBookMap.size > 0, "bibleBookMap should have entries");
+
+        // Verify it contains expected books from bundled data
+        assert.ok(bibleBookMap.has("GEN"), "Should contain Genesis");
+        assert.ok(bibleBookMap.has("MAT"), "Should contain Matthew");
+
+        // Verify entries use default names from bundled data
+        const genBook = bibleBookMap.get("GEN");
+        assert.ok(genBook, "Genesis entry should exist");
+        assert.strictEqual(genBook.name, "Genesis", "Should use default name from bundled data");
+
+        document.dispose();
+    });
+
+    test("loadBibleBookMap does NOT read localized-books.json", async () => {
+        // Skip if no workspace folder
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            return;
+        }
+
+        // Create localized-books.json file to verify it's ignored
+        const localizedUri = vscode.Uri.joinPath(workspaceFolder.uri, "localized-books.json");
+        const localizedContent = JSON.stringify([
+            {
+                abbr: "GEN",
+                name: "Custom Genesis Name",
+                ord: "01",
+                testament: "OT",
+            },
+        ]);
+        await vscode.workspace.fs.writeFile(localizedUri, Buffer.from(localizedContent, "utf8"));
+
+        try {
+            // Open a document which triggers loadBibleBookMap
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            // loadBibleBookMap is called during resolveCustomEditor, not openCustomDocument
+            // So we need to call it directly for testing
+            const loadBibleBookMap = (provider as any).loadBibleBookMap.bind(provider);
+            await loadBibleBookMap(document);
+
+            // Access the bibleBookMap
+            const bibleBookMap = (provider as any).bibleBookMap;
+            const genBook = bibleBookMap.get("GEN");
+
+            // Verify it did NOT use the custom name from localized-books.json
+            assert.strictEqual(
+                genBook.name,
+                "Genesis",
+                "Should use default name from bundled data, not localized-books.json"
+            );
+
+            document.dispose();
+        } finally {
+            // Clean up localized-books.json
+            try {
+                await vscode.workspace.fs.delete(localizedUri);
+            } catch {
+                // File doesn't exist, ignore
+            }
+        }
+    });
+
     test("openCustomDocument populates sourceCellMap from index", async () => {
         const doc = await provider.openCustomDocument(
             tempUri,

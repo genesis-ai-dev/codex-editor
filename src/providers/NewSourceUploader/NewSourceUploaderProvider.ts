@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import * as fs from "fs";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { createNoteBookPair } from "./codexFIleCreateUtils";
 import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteResponseMessage, WriteNotebooksWithAttachmentsMessage, SelectAudioFileMessage, ReprocessAudioFileMessage, RequestAudioSegmentMessage, FinalizeAudioImportMessage, UpdateAudioSegmentsMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
@@ -18,6 +17,10 @@ import { CodexCellTypes } from "../../../types/enums";
 import { importBookNamesFromXmlContent } from "../../bookNameSettings/bookNameSettings";
 import { createStandardizedFilename } from "../../utils/bookNameUtils";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
+import { CodexContentSerializer } from "../../serializer";
+import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
+import { migrateLocalizedBooksToMetadata as migrateLocalizedBooks } from "./localizedBooksMigration/localizedBooksMigration";
+import { removeLocalizedBooksJsonIfPresent as removeLocalizedBooksJson } from "./localizedBooksMigration/removeLocalizedBooksJson";
 
 const DEBUG_NEW_SOURCE_UPLOADER_PROVIDER = false;
 function debug(message: string, ...args: any[]): void {
@@ -347,6 +350,15 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             }
         }));
 
+        // Determine corpus marker - fix "ebibleCorpus" to NT/OT if needed
+        let corpusMarker = processedNotebook.metadata.corpusMarker || processedNotebook.metadata.importerType;
+        if (corpusMarker === "ebibleCorpus" && processedNotebook.metadata.originalFileName) {
+            const correctMarker = getCorpusMarkerForBook(processedNotebook.metadata.originalFileName);
+            if (correctMarker) {
+                corpusMarker = correctMarker;
+            }
+        }
+
         const metadata: CustomNotebookMetadata = {
             id: processedNotebook.metadata.id,
             originalName: processedNotebook.metadata.originalFileName,
@@ -354,11 +366,11 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             codexFsPath: "",
             navigation: [],
             sourceCreatedAt: processedNotebook.metadata.createdAt,
-            corpusMarker: processedNotebook.metadata.importerType,
+            corpusMarker: corpusMarker,
             textDirection: "ltr",
             ...(processedNotebook.metadata.videoUrl && { videoUrl: processedNotebook.metadata.videoUrl }),
-            ...(processedNotebook.metadata as any)?.audioOnly !== undefined
-                ? { audioOnly: (processedNotebook.metadata as any).audioOnly as boolean }
+            ...(processedNotebook.metadata)?.audioOnly !== undefined
+                ? { audioOnly: processedNotebook.metadata.audioOnly as boolean }
                 : {},
             // Preserve document structure metadata and other custom fields
             ...(processedNotebook.metadata.documentStructure && {
@@ -371,13 +383,13 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 mammothMessages: processedNotebook.metadata.mammothMessages
             }),
             // Preserve DOCX round-trip structure
-            ...((processedNotebook.metadata as any)?.docxDocument && {
-                docxDocument: (processedNotebook.metadata as any).docxDocument
+            ...(processedNotebook.metadata?.docxDocument && {
+                docxDocument: processedNotebook.metadata.docxDocument
             }),
-            ...((processedNotebook.metadata as any)?.originalHash && {
-                originalHash: (processedNotebook.metadata as any).originalHash
+            ...(processedNotebook.metadata?.originalHash && {
+                originalHash: processedNotebook.metadata.originalHash
             }),
-        } as any; // Cast to any to allow custom fields
+        };
 
         return {
             name: processedNotebook.name,
@@ -469,6 +481,14 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             codexNotebooks,
         });
 
+        // Migrate localized-books.json to codex metadata before deleting the file
+        // Pass the newly created codex URIs directly to avoid search issues
+        const createdCodexUris = createdFiles.map(f => f.codexUri);
+        await this.migrateLocalizedBooksToMetadata(createdCodexUris);
+
+        // Remove any localized book overrides to ensure fresh defaults after new source import
+        await this.removeLocalizedBooksJsonIfPresent();
+
         // Show success message
         const count = message.notebookPairs.length;
         const notebooksText = count === 1 ? "notebook" : "notebooks";
@@ -527,7 +547,15 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         const sourceNotebooks = message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.source));
         const codexNotebooks = message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.codex));
 
-        await createNoteBookPair({ token, sourceNotebooks, codexNotebooks });
+        const createdFiles = await createNoteBookPair({ token, sourceNotebooks, codexNotebooks });
+
+        // Migrate localized-books.json to codex metadata before deleting the file
+        // Pass the newly created codex URIs directly to avoid search issues
+        const createdCodexUris = createdFiles.map(f => f.codexUri);
+        await this.migrateLocalizedBooksToMetadata(createdCodexUris);
+
+        // Remove any localized book overrides to ensure fresh defaults after new source import
+        await this.removeLocalizedBooksJsonIfPresent();
 
         // 2) Write video files separately (only once per video)
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -793,6 +821,23 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         webviewPanel.webview.postMessage({ command: "notification", type: "success", message: "Notebooks and attachments created successfully!" });
         const inventory = await this.fetchProjectInventory();
         webviewPanel.webview.postMessage({ command: "projectInventory", inventory });
+    }
+
+    /**
+     * Migrates book display names from localized-books.json into individual codex file metadata.
+     * Reads localized-books.json, finds matching codex files, and updates their fileDisplayName metadata.
+     * @param codexUris Optional array of codex URIs to migrate. If provided, uses these directly instead of searching.
+     */
+    private async migrateLocalizedBooksToMetadata(codexUris?: vscode.Uri[]): Promise<void> {
+        await migrateLocalizedBooks(codexUris);
+    }
+
+    /**
+     * Removes the workspace-level localized-books.json file if present.
+     * This ensures that newly uploaded sources don't inherit stale overrides.
+     */
+    private async removeLocalizedBooksJsonIfPresent(): Promise<void> {
+        await removeLocalizedBooksJson();
     }
 
     private async handleWriteTranslation(
