@@ -10,6 +10,7 @@ import { codexSubtitleContent } from "./mocks/codexSubtitleContent";
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { CodexNotebookAsJSONData, QuillCellContent, Timestamps, FileEditHistory } from "../../../types";
 import { EditMapUtils } from "../../utils/editMapUtils";
+import { CodexContentSerializer } from "../../serializer";
 import { swallowDuplicateCommandRegistrations, createTempCodexFile, deleteIfExists, createMockExtensionContext, primeProviderWorkspaceStateForHtml, sleep } from "../testUtils";
 
 suite("CodexCellEditorProvider Test Suite", () => {
@@ -2100,6 +2101,87 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 assert.strictEqual(edit.type, EditType.USER_EDIT, "type should be USER_EDIT");
                 assert.strictEqual(edit.author, "test-author", "author should match");
             });
+        });
+
+        test("updateNotebookMetadata deduplicates edits with same timestamp, editMap, and value", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Force author for deterministic test
+            (document as any)._author = "test-author";
+
+            const videoUrl = "https://example.com/video.mp4";
+            const timestamp = Date.now();
+
+            // Manually create duplicate edits in the document's metadata
+            const notebookData = JSON.parse(document.getText());
+            notebookData.metadata.edits = [
+                {
+                    editMap: EditMapUtils.metadataVideoUrl(),
+                    value: videoUrl,
+                    timestamp: timestamp,
+                    type: EditType.USER_EDIT,
+                    author: "test-author",
+                },
+                {
+                    editMap: EditMapUtils.metadataVideoUrl(),
+                    value: videoUrl,
+                    timestamp: timestamp,
+                    type: EditType.USER_EDIT,
+                    author: "test-author",
+                },
+            ];
+            // Write back to simulate having duplicates
+            const serializer = new CodexContentSerializer();
+            const content = await serializer.serializeNotebook(notebookData, new vscode.CancellationTokenSource().token);
+            await vscode.workspace.fs.writeFile(tempUri, content);
+
+            // Reload document
+            const reloadedDoc = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Update metadata with a new field to trigger deduplication
+            reloadedDoc.updateNotebookMetadata({
+                textDirection: "rtl",
+            });
+
+            const after = JSON.parse(reloadedDoc.getText());
+            const edits: FileEditHistory[] = after.metadata.edits || [];
+
+            // Should have only one videoUrl edit (duplicate removed) plus one textDirection edit
+            const videoUrlEdits = edits.filter((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metadataVideoUrl()));
+            assert.strictEqual(videoUrlEdits.length, 1, "Should deduplicate identical edits");
+            assert.strictEqual(videoUrlEdits[0].value, videoUrl, "Remaining edit should have correct value");
+        });
+
+        test("updateNotebookMetadata preserves different edits with same editMap but different values", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const firstVideoUrl = "https://example.com/video1.mp4";
+            const secondVideoUrl = "https://example.com/video2.mp4";
+
+            document.updateNotebookMetadata({ videoUrl: firstVideoUrl });
+            await sleep(20);
+            document.updateNotebookMetadata({ videoUrl: secondVideoUrl });
+
+            const after = JSON.parse(document.getText());
+            const edits: FileEditHistory[] = after.metadata.edits || [];
+
+            // Should have two different videoUrl edits (different values)
+            const videoUrlEdits = edits.filter((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metadataVideoUrl()));
+            assert.ok(videoUrlEdits.length >= 2, "Should preserve edits with different values");
+            assert.ok(videoUrlEdits.some((e) => e.value === firstVideoUrl), "Should have first videoUrl edit");
+            assert.ok(videoUrlEdits.some((e) => e.value === secondVideoUrl), "Should have second videoUrl edit");
         });
     });
 });

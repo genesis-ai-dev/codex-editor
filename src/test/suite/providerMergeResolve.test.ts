@@ -872,6 +872,82 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
             await deleteIfExists(theirsTmp);
         }
     });
+
+    test("merge deduplicates file-level metadata edits with same timestamp, editMap, and value", async () => {
+        const oursTmp = await createTempCodexFile(`merge-ours-${Date.now()}.codex`, codexSubtitleContent);
+        const theirsTmp = await createTempCodexFile(`merge-theirs-${Date.now()}.codex`, codexSubtitleContent);
+
+        try {
+            const oursDoc = await provider.openCustomDocument(
+                oursTmp,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const theirsDoc = await provider.openCustomDocument(
+                theirsTmp,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const videoUrl = "https://example.com/video.mp4";
+            const timestamp = Date.now();
+
+            // Add duplicate edits to both documents
+            const oursContent = JSON.parse(oursDoc.getText());
+            oursContent.metadata.edits = [
+                {
+                    editMap: ["metadata", "videoUrl"],
+                    value: videoUrl,
+                    timestamp: timestamp,
+                    type: EditType.USER_EDIT,
+                    author: "user1",
+                },
+                {
+                    editMap: ["metadata", "videoUrl"],
+                    value: videoUrl,
+                    timestamp: timestamp,
+                    type: EditType.USER_EDIT,
+                    author: "user1",
+                },
+            ];
+
+            const theirsContent = JSON.parse(theirsDoc.getText());
+            theirsContent.metadata.edits = [
+                {
+                    editMap: ["metadata", "videoUrl"],
+                    value: videoUrl,
+                    timestamp: timestamp,
+                    type: EditType.USER_EDIT,
+                    author: "user2",
+                },
+            ];
+
+            // Merge the two contents
+            const oursJson = JSON.stringify(oursContent);
+            const theirsJson = JSON.stringify(theirsContent);
+
+            const merged = await resolveCodexCustomMerge(oursJson, theirsJson);
+            const notebook = JSON.parse(merged);
+
+            // Should have deduplicated the duplicate edits
+            const edits: FileEditHistory[] = notebook.metadata.edits || [];
+            const videoUrlEdits = edits.filter((e) => {
+                return Array.isArray(e.editMap) &&
+                    e.editMap.length === 2 &&
+                    e.editMap[0] === "metadata" &&
+                    e.editMap[1] === "videoUrl" &&
+                    e.value === videoUrl &&
+                    e.timestamp === timestamp;
+            });
+
+            assert.strictEqual(videoUrlEdits.length, 1, "Should deduplicate identical edits from merge");
+            assert.strictEqual(videoUrlEdits[0].value, videoUrl, "Remaining edit should have correct value");
+        } finally {
+            await deleteIfExists(oursTmp);
+            await deleteIfExists(theirsTmp);
+        }
+    });
 });
 
 
