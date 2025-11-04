@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import SearchTab from "./SearchTab";
 import { TranslationPair } from "../../../../types";
 import { WebviewHeader } from "../components/WebviewHeader";
-import { stripHtml, escapeRegex } from "./utils";
+import { stripHtml, escapeRegex, replaceTextPreservingHtml, canReplaceInHtml } from "./utils";
 import "./ParallelView.css";
 
 const vscode = acquireVsCodeApi();
@@ -268,17 +268,33 @@ function ParallelView() {
     };
 
     const computeReplacement = (content: string, query: string, replacement: string): string => {
-        const cleanContent = stripHtml(content);
-        return cleanContent.replace(new RegExp(escapeRegex(query), "gi"), replacement);
+        // Use replaceTextPreservingHtml to keep HTML structure intact
+        return replaceTextPreservingHtml(content, query, replacement);
     };
 
     const handleReplaceAll = () => {
         if (!replaceText.trim() || !lastQuery.trim() || verses.length === 0) return;
         
-        const replacements = verses.map(v => ({
-            cellId: v.cellId,
-            newContent: computeReplacement(v.targetCell.content || "", lastQuery, replaceText)
-        }));
+        // Only include replacements that can actually be replaced (not interrupted by HTML)
+        const replacements = verses
+            .filter(v => canReplaceInHtml(v.targetCell.content || "", lastQuery))
+            .map(v => ({
+                cellId: v.cellId,
+                newContent: computeReplacement(v.targetCell.content || "", lastQuery, replaceText)
+            }));
+        
+        const skippedCount = verses.length - replacements.length;
+        
+        if (replacements.length === 0) {
+            alert("No replaceable matches found. Some matches are interrupted by HTML tags.");
+            return;
+        }
+        
+        if (skippedCount > 0) {
+            const message = `Replacing ${replacements.length} match(es). ${skippedCount} match(es) skipped (interrupted by HTML).`;
+            const proceed = window.confirm(`${message}\n\nContinue?`);
+            if (!proceed) return;
+        }
         
         vscode.postMessage({
             command: "replaceAll",

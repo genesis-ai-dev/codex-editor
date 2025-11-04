@@ -5,7 +5,7 @@ import { Card, CardContent } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Separator } from "../components/ui/separator";
 import { diffWords } from "diff";
-import { stripHtml, escapeRegex, escapeHtml } from "./utils";
+import { stripHtml, escapeRegex, escapeHtml, canReplaceInHtml } from "./utils";
 
 interface CellItemProps {
     item: TranslationPair;
@@ -142,6 +142,11 @@ const CellItem: React.FC<CellItemProps> = ({
         return cleanTarget.toLowerCase().includes(searchQuery.toLowerCase());
     }, [item.targetCell.content, searchQuery]);
 
+    const canReplace = useMemo(() => {
+        if (!searchQuery.trim() || !item.targetCell.content || !replaceText) return false;
+        return canReplaceInHtml(item.targetCell.content, searchQuery);
+    }, [item.targetCell.content, searchQuery, replaceText]);
+
     return (
         <Card className={`p-4 ${isPinned ? "border-blue-500" : ""}`}>
             <CardContent className="p-0">
@@ -212,9 +217,16 @@ const CellItem: React.FC<CellItemProps> = ({
                                     Target Text
                                 </div>
                                 {hasMatch && replaceText && (
-                                    <Badge variant="outline" className="text-xs">
-                                        Match
-                                    </Badge>
+                                    <div className="flex items-center gap-2">
+                                        {!canReplace && (
+                                            <Badge variant="outline" className="text-xs text-orange-600" title="HTML interrupts this match - replacement unavailable">
+                                                HTML Interrupts
+                                            </Badge>
+                                        )}
+                                        <Badge variant="outline" className="text-xs">
+                                            Match
+                                        </Badge>
+                                    </div>
                                 )}
                             </div>
                             <p
@@ -248,28 +260,41 @@ const CellItem: React.FC<CellItemProps> = ({
                                     Open
                                 </Button>
                                 {hasMatch && replaceText && onReplace && (
-                                    <Button
-                                        variant="default"
-                                        size="sm"
-                                        onClick={() => {
-                                            onReplace(item.cellId, item.targetCell.content || "");
-                                            setReplaceSuccess(true);
-                                        }}
-                                        aria-label="Replace this match"
-                                        disabled={replaceSuccess}
-                                    >
-                                        {replaceSuccess ? (
-                                            <>
-                                                <span className="codicon codicon-check mr-2"></span>
-                                                Replaced
-                                            </>
-                                        ) : (
-                                            <>
-                                                <span className="codicon codicon-replace mr-2"></span>
-                                                Replace
-                                            </>
-                                        )}
-                                    </Button>
+                                    canReplace ? (
+                                        <Button
+                                            variant="default"
+                                            size="sm"
+                                            onClick={() => {
+                                                onReplace(item.cellId, item.targetCell.content || "");
+                                                setReplaceSuccess(true);
+                                            }}
+                                            aria-label="Replace this match"
+                                            disabled={replaceSuccess}
+                                        >
+                                            {replaceSuccess ? (
+                                                <>
+                                                    <span className="codicon codicon-check mr-2"></span>
+                                                    Replaced
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <span className="codicon codicon-replace mr-2"></span>
+                                                    Replace
+                                                </>
+                                            )}
+                                        </Button>
+                                    ) : (
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            disabled
+                                            title="HTML interrupts this match - replacement unavailable"
+                                            aria-label="Replacement unavailable - HTML interrupts match"
+                                        >
+                                            <span className="codicon codicon-info mr-2"></span>
+                                            Can't Replace
+                                        </Button>
+                                    )
                                 )}
                             </div>
                         </div>

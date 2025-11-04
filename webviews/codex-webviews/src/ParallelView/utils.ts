@@ -51,3 +51,85 @@ export function escapeHtml(text: string): string {
     return div.innerHTML;
 }
 
+/**
+ * Checks if a search query can be replaced in HTML content
+ * Returns true if the query matches within at least one text node (not spanning HTML boundaries)
+ */
+export function canReplaceInHtml(htmlContent: string, searchQuery: string): boolean {
+    if (!htmlContent || !searchQuery) return false;
+    
+    if (typeof document === "undefined") {
+        // Fallback: assume it can be replaced if DOM not available
+        return true;
+    }
+    
+    try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlContent, "text/html");
+        const queryRegex = new RegExp(escapeRegex(searchQuery), "gi");
+        
+        // Check if query matches in any text node
+        const checkTextNodes = (node: Node): boolean => {
+            if (node.nodeType === Node.TEXT_NODE) {
+                const textNode = node as Text;
+                if (textNode.textContent && queryRegex.test(textNode.textContent)) {
+                    return true;
+                }
+            } else {
+                for (const child of Array.from(node.childNodes)) {
+                    if (checkTextNodes(child)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+        
+        return checkTextNodes(doc.body);
+    } catch (error) {
+        // Fallback: assume it can be replaced on error
+        return true;
+    }
+}
+
+/**
+ * Replaces text in HTML content while preserving HTML tags
+ * Only replaces in text nodes - if HTML interrupts the search, it won't match
+ */
+export function replaceTextPreservingHtml(htmlContent: string, searchQuery: string, replacement: string): string {
+    if (!htmlContent || !searchQuery) return htmlContent;
+    
+    if (typeof document === "undefined") {
+        // Fallback: simple string replace if DOM not available
+        const queryRegex = new RegExp(escapeRegex(searchQuery), "gi");
+        return htmlContent.replace(queryRegex, replacement);
+    }
+    
+    try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlContent, "text/html");
+        const queryRegex = new RegExp(escapeRegex(searchQuery), "gi");
+        
+        // Replace only in text nodes
+        const walkTextNodes = (node: Node): void => {
+            if (node.nodeType === Node.TEXT_NODE) {
+                const textNode = node as Text;
+                if (textNode.textContent) {
+                    textNode.textContent = textNode.textContent.replace(queryRegex, replacement);
+                }
+            } else {
+                for (const child of Array.from(node.childNodes)) {
+                    walkTextNodes(child);
+                }
+            }
+        };
+        
+        walkTextNodes(doc.body);
+        return doc.body.innerHTML;
+    } catch (error) {
+        // Fallback: simple string replace on error
+        const queryRegex = new RegExp(escapeRegex(searchQuery), "gi");
+        return htmlContent.replace(queryRegex, replacement);
+    }
+}
+

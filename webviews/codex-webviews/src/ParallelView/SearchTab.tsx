@@ -7,6 +7,7 @@ import { Card, CardContent } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import { Textarea } from "../components/ui/textarea";
+import { canReplaceInHtml } from "./utils";
 
 interface ProjectFile {
     uri: string;
@@ -369,18 +370,28 @@ function SearchTab({
                                                 </div>
                                             </div>
                                         )}
-                                        <Button
-                                            type="button"
-                                            variant="default"
-                                            size="sm"
-                                            onClick={handleReplaceAll}
-                                            className="w-full"
-                                            disabled={!!replaceProgress}
-                                            aria-label="Replace all matches"
-                                        >
-                                            <span className="codicon codicon-replace mr-2"></span>
-                                            Replace All ({verses.length})
-                                        </Button>
+                                        {(() => {
+                                            const replaceableCount = replaceText.trim() && lastQuery.trim()
+                                                ? verses.filter(v => canReplaceInHtml(v.targetCell.content || "", lastQuery)).length
+                                                : verses.length;
+                                            const skippedCount = verses.length - replaceableCount;
+                                            
+                                            return (
+                                                <Button
+                                                    type="button"
+                                                    variant="default"
+                                                    size="sm"
+                                                    onClick={handleReplaceAll}
+                                                    className="w-full"
+                                                    disabled={!!replaceProgress || replaceableCount === 0}
+                                                    aria-label="Replace all matches"
+                                                    title={skippedCount > 0 ? `${skippedCount} match(es) interrupted by HTML - will be skipped` : undefined}
+                                                >
+                                                    <span className="codicon codicon-replace mr-2"></span>
+                                                    Replace All ({replaceableCount}{skippedCount > 0 ? `/${verses.length}` : ''})
+                                                </Button>
+                                            );
+                                        })()}
                                         {replaceErrors.length > 0 && (
                                             <div className="text-xs text-destructive space-y-1">
                                                 <div className="flex items-center justify-between">
