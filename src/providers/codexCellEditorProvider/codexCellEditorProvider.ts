@@ -3771,6 +3771,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 return false;
             }
             
+            // Ensure author is set correctly before creating edit
+            await document.refreshAuthor();
+            
             // Use document's updateCellContent method which properly tracks changes for undo
             // This marks the document dirty and fires change events that VS Code tracks
             await document.updateCellContent(cellId, newContent, EditType.USER_EDIT);

@@ -235,6 +235,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
     }
 
+    // Public method to refresh author info before edits
+    public async refreshAuthor(): Promise<void> {
+        await this.initializeUserInfo();
+    }
+
     // Methods to manipulate the document data
     public async updateCellContent(
         cellId: string,
