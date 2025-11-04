@@ -26,24 +26,6 @@ function getOptionalContext() {
     }
 }
 
-export async function recordAbEvent(args: {
-    testName: string;
-    variant: string;
-    outcome: boolean;
-    userId?: string | number;
-    projectId?: string | number;
-}): Promise<void> {
-    const extras = getOptionalContext();
-    const body: any = {
-        test_name: args.testName,
-        variant: args.variant,
-        outcome: args.outcome,
-    };
-    if (args.userId ?? extras.userId) body.user_id = args.userId ?? extras.userId;
-    if (args.projectId ?? extras.projectId) body.project_id = args.projectId ?? extras.projectId;
-    await postJson("/analytics/event", body);
-}
-
 export async function recordAbResult(args: {
     category: string;
     options: string[];
