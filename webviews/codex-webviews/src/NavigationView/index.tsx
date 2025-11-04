@@ -439,7 +439,8 @@ function NavigationView() {
 
     const handleEditCorpusMarker = (item: CodexItem) => {
         const currentCorpusName =
-            item.corpusMarker || formatLabel(item.label, state.bibleBookMap || new Map());
+            item.children?.[0]?.corpusMarker ||
+            formatLabel(item.label, state.bibleBookMap || new Map());
         setState((prev) => ({
             ...prev,
             renameModal: {
@@ -478,7 +479,7 @@ function NavigationView() {
                 command: "editCorpusMarker",
                 content: {
                     corpusLabel: item.label,
-                    newCorpusName: newName.trim().toLowerCase(),
+                    newCorpusName: newName.trim(),
                 },
             });
         }
@@ -1005,7 +1006,7 @@ function NavigationView() {
                 {projectDictionary && renderItem(projectDictionary)}
             </div>
 
-            {/* Rename Modal */}
+            {/* Corpus Marker Modal */}
             <RenameModal
                 open={state.renameModal.isOpen}
                 title="Rename Corpus"
