@@ -12,6 +12,7 @@ import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
 import { addMetadataEdit } from "../../utils/editMapUtils";
 import { getAuthApi } from "../../extension";
 import { CustomNotebookMetadata } from "../../../types";
+import { getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
 
 interface CodexMetadata {
     id: string;
@@ -998,6 +999,59 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
                             await vscode.workspace.fs.writeFile(uri, updatedContent);
                             updatedCount++;
+
+                            // Also update the corresponding .source file
+                            const sourceUri = getCorrespondingSourceUri(uri);
+                            if (sourceUri) {
+                                try {
+                                    // Check if source file exists
+                                    try {
+                                        await vscode.workspace.fs.stat(sourceUri);
+                                    } catch {
+                                        // Source file doesn't exist, skip updating it
+                                        // Continue to next codex file
+                                        continue;
+                                    }
+
+                                    const sourceContent = await vscode.workspace.fs.readFile(sourceUri);
+                                    const sourceNotebookData = await this.serializer.deserializeNotebook(
+                                        sourceContent,
+                                        new vscode.CancellationTokenSource().token
+                                    );
+
+                                    // Ensure metadata exists
+                                    if (!sourceNotebookData.metadata) {
+                                        sourceNotebookData.metadata = {} as CustomNotebookMetadata;
+                                    }
+
+                                    const sourceMetadata = sourceNotebookData.metadata as CustomNotebookMetadata;
+                                    const sourceOldValue = sourceMetadata.fileDisplayName;
+
+                                    // Only add edit if value is actually changing
+                                    if (sourceOldValue !== newBookName) {
+                                        // Add edit history entry before updating metadata
+                                        addMetadataEdit(sourceMetadata, "fileDisplayName", newBookName, currentUser);
+                                    }
+
+                                    // Update metadata to add fileDisplayName (preserve originalName)
+                                    sourceNotebookData.metadata = {
+                                        ...sourceMetadata,
+                                        fileDisplayName: newBookName,
+                                        // Preserve originalName if it exists, don't modify it
+                                    };
+
+                                    // Serialize and save the updated notebook
+                                    const updatedSourceContent = await this.serializer.serializeNotebook(
+                                        sourceNotebookData,
+                                        new vscode.CancellationTokenSource().token
+                                    );
+
+                                    await vscode.workspace.fs.writeFile(sourceUri, updatedSourceContent);
+                                } catch (error) {
+                                    console.error(`Error updating source file ${sourceUri.fsPath}:`, error);
+                                    // Continue with other files even if source update fails
+                                }
+                            }
                         } catch (error) {
                             console.error(`Error updating ${uri.fsPath}:`, error);
                             // Continue with other files even if one fails

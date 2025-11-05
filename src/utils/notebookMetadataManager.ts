@@ -14,6 +14,7 @@ import { readDictionaryClient, saveDictionaryClient } from "./dictionaryUtils/cl
 import { CustomNotebookCellData, CustomNotebookMetadata } from "../../types";
 import { getWorkSpaceUri } from "./index";
 import { getCorpusMarkerForBook } from "../../sharedUtils/corpusUtils";
+import { extractUsfmCodeFromFilename, getBookDisplayName } from "./bookNameUtils";
 
 const DEBUG_MODE = false; // Set to true to enable debug logging
 
@@ -357,6 +358,74 @@ export class NotebookMetadataManager {
                                 debugLog(`Updated notebook file ${file.fsPath} with corrected corpusMarker`);
                             } catch (error) {
                                 debugLog(`Error updating notebook file ${file.fsPath}:`, error);
+                                // Continue even if file update fails - metadata is still updated in memory
+                            }
+                        }
+                    }
+
+                    // Ensure fileDisplayName exists in metadata
+                    // Check if fileDisplayName is missing or empty in the notebook file metadata
+                    // If it already exists in notebookData.metadata, preserve it and don't overwrite
+                    // NOTE: This is a migration step to ensure fileDisplayName is set for all files.
+                    const existingFileDisplayName = (notebookData.metadata as CustomNotebookMetadata)?.fileDisplayName || metadata?.fileDisplayName;
+                    if (!existingFileDisplayName || typeof existingFileDisplayName !== "string" || existingFileDisplayName.trim() === "") {
+                        // First try to use originalName from metadata if available
+                        const originalName = metadata?.originalName || (notebookData.metadata as CustomNotebookMetadata)?.originalName;
+                        let displayName: string;
+
+                        if (originalName && typeof originalName === "string" && originalName.trim() !== "") {
+                            // Use originalName as display name
+                            displayName = originalName.trim();
+                        } else {
+                            // Derive fileDisplayName from filename
+                            const fileName = path.basename(file.fsPath);
+                            const usfmCode = extractUsfmCodeFromFilename(fileName);
+
+                            if (usfmCode) {
+                                // If USFM code found, use getBookDisplayName to get display name
+                                displayName = await getBookDisplayName(usfmCode);
+                            } else {
+                                // If not found, use filename (without extension) as display name
+                                displayName = path.basename(file.fsPath, path.extname(file.fsPath));
+                            }
+                        }
+
+                        if (metadata) {
+                            debugLog(
+                                `Adding fileDisplayName for ${metadata.id}: ${displayName}`
+                            );
+                            metadata.fileDisplayName = displayName;
+                            hasChanges = true;
+
+                            // Update the notebook file with the fileDisplayName
+                            try {
+                                notebookData.metadata = {
+                                    ...notebookData.metadata,
+                                    fileDisplayName: displayName,
+                                };
+
+                                // Convert CodexNotebookAsJSONData to vscode.NotebookData format for serialization
+                                const notebookDataForSerialization: vscode.NotebookData = {
+                                    cells: notebookData.cells.map((cell: CustomNotebookCellData) => {
+                                        const cellData = new vscode.NotebookCellData(
+                                            cell.kind,
+                                            cell.value,
+                                            cell.languageId || "plaintext"
+                                        );
+                                        cellData.metadata = cell.metadata || {};
+                                        return cellData;
+                                    }),
+                                    metadata: notebookData.metadata,
+                                };
+
+                                const serialized = await serializer.serializeNotebook(
+                                    notebookDataForSerialization,
+                                    new vscode.CancellationTokenSource().token
+                                );
+                                await vscode.workspace.fs.writeFile(file, serialized);
+                                debugLog(`Updated notebook file ${file.fsPath} with fileDisplayName`);
+                            } catch (error) {
+                                debugLog(`Error updating notebook file ${file.fsPath} with fileDisplayName:`, error);
                                 // Continue even if file update fails - metadata is still updated in memory
                             }
                         }

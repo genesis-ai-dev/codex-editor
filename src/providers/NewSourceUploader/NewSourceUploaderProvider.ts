@@ -984,6 +984,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
      */
     private async checkForFileConflicts(sourceNotebooks: ProcessedNotebook[]): Promise<Array<{
         name: string;
+        displayName: string;
         sourceExists: boolean;
         targetExists: boolean;
         hasTranslations: boolean;
@@ -1013,13 +1014,25 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             );
 
             // Check if files exist
+            let sourceDisplayName = "";
             let sourceExists = false;
             let targetExists = false;
             let hasTranslations = false;
 
             try {
-                await vscode.workspace.fs.stat(sourceUri);
+                const sourceStat = await vscode.workspace.fs.stat(sourceUri);
                 sourceExists = true;
+
+                if (sourceStat.size > 0) {
+                    try {
+                        const sourceContent = await vscode.workspace.fs.readFile(sourceUri);
+                        const sourceNotebook = JSON.parse(new TextDecoder().decode(sourceContent));
+
+                        sourceDisplayName = sourceNotebook.metadata.fileDisplayName || "";
+                    } catch {
+                        // Error reading source file, assume no content
+                    }
+                }
             } catch {
                 // File doesn't exist
             }
@@ -1050,6 +1063,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             if (sourceExists || targetExists) {
                 conflicts.push({
                     name: notebook.name,
+                    displayName: sourceDisplayName,
                     sourceExists,
                     targetExists,
                     hasTranslations
@@ -1121,7 +1135,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
     }
 
     // Presents a concise overwrite confirmation with truncation and optional details view
-    private async confirmOverwriteWithTruncation(items: Array<{ name: string; sourceExists: boolean; targetExists: boolean; hasTranslations: boolean; }>): Promise<boolean> {
+    private async confirmOverwriteWithTruncation(items: Array<{ name: string; displayName: string;sourceExists: boolean; targetExists: boolean; hasTranslations: boolean; }>): Promise<boolean> {
         return confirmOverwriteWithDetails(items);
     }
 
@@ -1313,17 +1327,17 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
 // Helper to present a concise overwrite confirmation with truncation and an Output Channel for details
 async function confirmOverwriteWithDetails(
-    items: Array<{ name: string; sourceExists: boolean; targetExists: boolean; hasTranslations: boolean; }>,
+    items: Array<{ name: string; displayName: string; sourceExists: boolean; targetExists: boolean; hasTranslations: boolean; }>,
     options?: { maxItems?: number; }
 ): Promise<boolean> {
     const maxItems = options?.maxItems ?? 15;
 
-    const makeLine = (c: { name: string; sourceExists: boolean; targetExists: boolean; hasTranslations: boolean; }) => {
+    const makeLine = (c: { name: string; displayName: string; sourceExists: boolean; targetExists: boolean; hasTranslations: boolean; }) => {
         const parts: string[] = [];
         if (c.sourceExists) parts.push("source file");
         if (c.targetExists) parts.push("target file");
         if (c.hasTranslations) parts.push("with translations");
-        return `• ${c.name} (${parts.join(", ")})`;
+        return `• ${c.displayName ? `${c.displayName} [${c.name}]` : c.name} (${parts.join(", ")})`;
     };
 
     const fullList = items.map(makeLine).join("\n");
