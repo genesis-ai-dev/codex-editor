@@ -15,7 +15,7 @@ export async function writeNotebook(uri: vscode.Uri, notebook: NotebookPreview):
     const cells = notebook.cells.map((cell: any) => ({
         // need to ensure we spread in incoming metadata while also ensuring critical metadata is otherwise included
         kind: cell.kind ?? vscode.NotebookCellKind.Code,
-        value: cell.value ?? "",
+        value: cell.value ?? cell.content ?? "",
         languageId: cell.languageId ?? "html",
         metadata: {
             type: cell.metadata?.type || CodexCellTypes.TEXT,
@@ -80,7 +80,7 @@ export async function createNoteBookPair({
         }
 
         // Determine if this is biblical content based on the importer type
-        const importerType = sourceNotebook.metadata?.importerType || '';
+        const importerType = sourceNotebook.metadata?.corpusMarker || sourceNotebook.metadata?.importerType || '';
         const isBiblical = isBiblicalImporterType(importerType);
 
         console.log(
