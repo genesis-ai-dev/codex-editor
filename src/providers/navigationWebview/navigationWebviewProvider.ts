@@ -8,6 +8,12 @@ import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToView } from "../../utils/webviewUtils";
 import { CodexItem } from "types";
 import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents } from "../../../sharedUtils";
+import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
+import { normalizeCorpusMarker } from "../../utils/corpusMarkerUtils";
+import { addMetadataEdit } from "../../utils/editMapUtils";
+import { getAuthApi } from "../../extension";
+import { CustomNotebookMetadata } from "../../../types";
+import { getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
 
 interface CodexMetadata {
     id: string;
@@ -504,7 +510,9 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const bookInfo = this.bibleBookMap.get(fileNameAbbr);
             const label = fileNameAbbr;
             const sortOrder = bookInfo?.ord;
-            const corpusMarker = metadata?.corpusMarker || bookInfo?.testament;
+            const corpusMarker = metadata?.corpusMarker
+                ? metadata.corpusMarker.trim()
+                : bookInfo?.testament;
 
             return {
                 uri,
@@ -544,10 +552,16 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             if (resolvedCorpusMarker === "Old Testament") resolvedCorpusMarker = "OT";
             if (resolvedCorpusMarker === "New Testament") resolvedCorpusMarker = "NT";
 
-            if (resolvedCorpusMarker) {
-                const group = corpusGroups.get(resolvedCorpusMarker) || [];
+            // Normalize corpusMarker: trim whitespace and normalize case for consistent grouping
+            // This ensures "subtitle" and "Subtitle" are grouped together
+            const normalizedCorpusMarker = resolvedCorpusMarker
+                ? normalizeCorpusMarker(resolvedCorpusMarker) || resolvedCorpusMarker.trim()
+                : undefined;
+
+            if (normalizedCorpusMarker) {
+                const group = corpusGroups.get(normalizedCorpusMarker) || [];
                 group.push(item);
-                corpusGroups.set(resolvedCorpusMarker, group);
+                corpusGroups.set(normalizedCorpusMarker, group);
             } else {
                 ungroupedItems.push(item);
             }
@@ -762,6 +776,9 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             return;
         }
 
+        // Normalize inputs: trim whitespace
+        const normalizedOldLabel = oldCorpusLabel.trim();
+        const normalizedNewName = newCorpusName.trim();
         const rootUri = workspaceFolders[0].uri;
         const codexPattern = new vscode.RelativePattern(
             rootUri.fsPath,
@@ -772,11 +789,12 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             // Find all codex files
             const codexUris = await vscode.workspace.findFiles(codexPattern);
             let updatedCount = 0;
+            const filesWithNewName: string[] = [];
 
             // Show progress
             await vscode.window.withProgress({
                 location: vscode.ProgressLocation.Notification,
-                title: `Updating corpus marker from "${oldCorpusLabel}" to "${newCorpusName}"`,
+                title: `Updating corpus marker from "${normalizedOldLabel}" to "${normalizedNewName}"`,
                 cancellable: false
             }, async (progress) => {
                 const total = codexUris.length;
@@ -807,8 +825,42 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                         if (resolved === "Old Testament") resolved = "OT";
                         if (resolved === "New Testament") resolved = "NT";
 
-                        if (resolved === oldCorpusLabel) {
-                            notebookData.metadata = { ...notebookData.metadata, corpusMarker: newCorpusName };
+                        // Normalize resolved value for comparison
+                        const normalizedResolved = resolved ? resolved.trim() : undefined;
+
+                        // Check if this file matches the old label or already has the new name
+                        if (normalizedResolved === normalizedOldLabel) {
+                            // Ensure metadata exists
+                            if (!notebookData.metadata) {
+                                notebookData.metadata = {} as CustomNotebookMetadata;
+                            }
+
+                            const metadata = notebookData.metadata as CustomNotebookMetadata;
+                            const oldValue = metadata.corpusMarker;
+
+                            // Only add edit if value is actually changing
+                            if (oldValue !== normalizedNewName) {
+                                console.log(`[updateCorpusMarker] Updating ${fileNameAbbr}: "${oldValue}" → "${normalizedNewName}"`);
+
+                                // Get current user for edit history
+                                let currentUser = "anonymous";
+                                try {
+                                    const authApi = getAuthApi();
+                                    const userInfo = await authApi?.getUserInfo();
+                                    currentUser = userInfo?.username || "anonymous";
+                                } catch (error) {
+                                    console.warn("[updateCorpusMarker] Could not get user info, using 'anonymous'");
+                                }
+
+                                // Add edit history entry before updating metadata
+                                addMetadataEdit(metadata, "corpusMarker", normalizedNewName, currentUser);
+                            }
+
+                            // Update metadata with new corpusMarker
+                            notebookData.metadata = {
+                                ...metadata,
+                                corpusMarker: normalizedNewName,
+                            };
 
                             // Serialize and save the updated notebook
                             const updatedContent = await this.serializer.serializeNotebook(
@@ -818,6 +870,9 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
                             await vscode.workspace.fs.writeFile(uri, updatedContent);
                             updatedCount++;
+                        } else if (normalizedResolved === normalizedNewName) {
+                            // Track files that already have the new name (for merge verification)
+                            filesWithNewName.push(fileNameAbbr);
                         }
                     } catch (error) {
                         console.error(`Error updating ${uri.fsPath}:`, error);
@@ -828,14 +883,17 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
             // Show success message
             if (updatedCount > 0) {
+                const mergeInfo = filesWithNewName.length > 0
+                    ? ` (${filesWithNewName.length} file(s) already had "${normalizedNewName}", will be merged)`
+                    : "";
                 vscode.window.showInformationMessage(
-                    `Successfully updated corpus marker in ${updatedCount} file(s) from "${oldCorpusLabel}" to "${newCorpusName}"`
+                    `Successfully updated corpus marker in ${updatedCount} file(s) from "${normalizedOldLabel}" to "${normalizedNewName}"${mergeInfo}`
                 );
-                // Refresh the navigation view to show the changes
+                // Refresh the navigation view to show the changes and merge groups
                 await this.buildInitialData();
             } else {
                 vscode.window.showInformationMessage(
-                    `No files found with corpus marker "${oldCorpusLabel}"`
+                    `No files found with corpus marker "${normalizedOldLabel}"`
                 );
             }
         } catch (error) {
@@ -852,11 +910,17 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
         }
 
         try {
-            // Get default book info to ensure we have ord and testament
-            const defaultBookInfo = this.bibleBookMap.get(bookAbbr);
-            if (!defaultBookInfo) {
-                vscode.window.showErrorMessage(`Book abbreviation "${bookAbbr}" not found`);
-                return;
+            // Check if this is a biblical book - only validate against bibleBookMap for biblical books
+            const corpusMarker = getCorpusMarkerForBook(bookAbbr);
+            const isBiblicalBook = corpusMarker === "NT" || corpusMarker === "OT";
+
+            if (isBiblicalBook) {
+                // For biblical books, validate against bibleBookMap
+                const defaultBookInfo = this.bibleBookMap.get(bookAbbr);
+                if (!defaultBookInfo) {
+                    vscode.window.showErrorMessage(`Book abbreviation "${bookAbbr}" not found`);
+                    return;
+                }
             }
 
             // Update .codex file metadata
@@ -900,8 +964,31 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                                 new vscode.CancellationTokenSource().token
                             );
 
+                            // Get current user for edit history
+                            let currentUser = "anonymous";
+                            try {
+                                const authApi = getAuthApi();
+                                const userInfo = await authApi?.getUserInfo();
+                                currentUser = userInfo?.username || "anonymous";
+                            } catch (error) {
+                                console.warn("[updateBookName] Could not get user info, using 'anonymous'");
+                            }
+
+                            // Ensure metadata exists
+                            if (!notebookData.metadata) {
+                                notebookData.metadata = {} as CustomNotebookMetadata;
+                            }
+
+                            const metadata = notebookData.metadata as CustomNotebookMetadata;
+                            const oldValue = metadata.fileDisplayName;
+
+                            // Only add edit if value is actually changing
+                            if (oldValue !== newBookName) {
+                                // Add edit history entry before updating metadata
+                                addMetadataEdit(metadata, "fileDisplayName", newBookName, currentUser);
+                            }
+
                             // Update metadata to add fileDisplayName (preserve originalName)
-                            const metadata = notebookData.metadata;
                             notebookData.metadata = {
                                 ...metadata,
                                 fileDisplayName: newBookName,
@@ -916,6 +1003,59 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
                             await vscode.workspace.fs.writeFile(uri, updatedContent);
                             updatedCount++;
+
+                            // Also update the corresponding .source file
+                            const sourceUri = getCorrespondingSourceUri(uri);
+                            if (sourceUri) {
+                                try {
+                                    // Check if source file exists
+                                    try {
+                                        await vscode.workspace.fs.stat(sourceUri);
+                                    } catch {
+                                        // Source file doesn't exist, skip updating it
+                                        // Continue to next codex file
+                                        continue;
+                                    }
+
+                                    const sourceContent = await vscode.workspace.fs.readFile(sourceUri);
+                                    const sourceNotebookData = await this.serializer.deserializeNotebook(
+                                        sourceContent,
+                                        new vscode.CancellationTokenSource().token
+                                    );
+
+                                    // Ensure metadata exists
+                                    if (!sourceNotebookData.metadata) {
+                                        sourceNotebookData.metadata = {} as CustomNotebookMetadata;
+                                    }
+
+                                    const sourceMetadata = sourceNotebookData.metadata as CustomNotebookMetadata;
+                                    const sourceOldValue = sourceMetadata.fileDisplayName;
+
+                                    // Only add edit if value is actually changing
+                                    if (sourceOldValue !== newBookName) {
+                                        // Add edit history entry before updating metadata
+                                        addMetadataEdit(sourceMetadata, "fileDisplayName", newBookName, currentUser);
+                                    }
+
+                                    // Update metadata to add fileDisplayName (preserve originalName)
+                                    sourceNotebookData.metadata = {
+                                        ...sourceMetadata,
+                                        fileDisplayName: newBookName,
+                                        // Preserve originalName if it exists, don't modify it
+                                    };
+
+                                    // Serialize and save the updated notebook
+                                    const updatedSourceContent = await this.serializer.serializeNotebook(
+                                        sourceNotebookData,
+                                        new vscode.CancellationTokenSource().token
+                                    );
+
+                                    await vscode.workspace.fs.writeFile(sourceUri, updatedSourceContent);
+                                } catch (error) {
+                                    console.error(`Error updating source file ${sourceUri.fsPath}:`, error);
+                                    // Continue with other files even if source update fails
+                                }
+                            }
                         } catch (error) {
                             console.error(`Error updating ${uri.fsPath}:`, error);
                             // Continue with other files even if one fails

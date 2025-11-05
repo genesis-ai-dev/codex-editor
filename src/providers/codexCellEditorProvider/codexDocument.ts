@@ -13,7 +13,7 @@ import {
     ValidationEntry,
     EditMapValueType,
 } from "../../../types";
-import { EditMapUtils } from "../../utils/editMapUtils";
+import { EditMapUtils, deduplicateFileMetadataEdits } from "../../utils/editMapUtils";
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { getAuthApi } from "@/extension";
 import { randomUUID } from "crypto";
@@ -88,6 +88,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
             // Initialize validatedBy arrays to ensure proper format
             this.initializeValidatedByArrays();
+
+            // Initialize metadata.edits array if it doesn't exist (backward compatibility)
+            if (!this._documentData.metadata.edits) {
+                this._documentData.metadata.edits = [];
+            }
         } catch (error) {
             console.error("Error parsing document content:", error);
             this._documentData = {
@@ -117,8 +122,17 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     );
                 if (matchingMetadata) {
                     this._documentData.metadata = matchingMetadata;
+                    // Initialize edits array if it doesn't exist
+                    if (!this._documentData.metadata.edits) {
+                        this._documentData.metadata.edits = [];
+                    }
                 }
             });
+        } else {
+            // Initialize edits array if it doesn't exist (backward compatibility)
+            if (!this._documentData.metadata.edits) {
+                this._documentData.metadata.edits = [];
+            }
         }
 
         // Populate sourceCellMap directly from SQLite index for reliability
@@ -855,7 +869,94 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // Initialize metadata if it doesn't exist
             this._documentData.metadata = {} as CustomNotebookMetadata;
         }
+
+        // Initialize edits array if it doesn't exist
+        if (!this._documentData.metadata.edits) {
+            this._documentData.metadata.edits = [];
+        }
+
+        const oldMetadata = { ...this._documentData.metadata };
+        const currentTimestamp = Date.now();
+
+        // Track which fields are editable (exclude system fields like id, sourceFsPath, etc.)
+        // Note: autoDownloadAudioOnOpen is excluded as it's a project-level setting stored in localProjectSettings.json,
+        // not a file-level metadata field
+        const editableFields = [
+            "videoUrl",
+            "textDirection",
+            "lineNumbersEnabled",
+            "fontSize",
+            "showInlineBacktranslations",
+            "fileDisplayName",
+            "cellDisplayMode",
+            "audioOnly",
+            "corpusMarker",
+        ] as const;
+
+        // Compare old vs new values and create edit history entries for each changed field
+        for (const field of editableFields) {
+            const oldValue = oldMetadata[field];
+            const newValue = newMetadata[field];
+
+            // Skip if field wasn't provided in newMetadata or value hasn't changed
+            if (newValue === undefined || oldValue === newValue) {
+                continue;
+            }
+
+            // Determine editMap based on field name
+            let editMap: readonly string[];
+            switch (field) {
+                case "videoUrl":
+                    editMap = EditMapUtils.metadataVideoUrl();
+                    break;
+                case "textDirection":
+                    editMap = EditMapUtils.metadataTextDirection();
+                    break;
+                case "lineNumbersEnabled":
+                    editMap = EditMapUtils.metadataLineNumbersEnabled();
+                    break;
+                case "fontSize":
+                    editMap = EditMapUtils.metadataFontSize();
+                    break;
+                case "showInlineBacktranslations":
+                    editMap = EditMapUtils.metadataShowInlineBacktranslations();
+                    break;
+                case "fileDisplayName":
+                    editMap = EditMapUtils.metadataFileDisplayName();
+                    break;
+                case "cellDisplayMode":
+                    editMap = EditMapUtils.metadataCellDisplayMode();
+                    break;
+                case "audioOnly":
+                    editMap = EditMapUtils.metadataAudioOnly();
+                    break;
+                case "corpusMarker":
+                    editMap = EditMapUtils.metadataCorpusMarker();
+                    break;
+                default:
+                    editMap = EditMapUtils.metadataField(field);
+            }
+
+            // Add edit history entry with new structure
+            this._documentData.metadata.edits.push({
+                editMap,
+                value: newValue,
+                timestamp: currentTimestamp,
+                type: EditType.USER_EDIT,
+                author: this._author,
+            });
+        }
+
+        // Deduplicate edits before saving
+        this._documentData.metadata.edits = deduplicateFileMetadataEdits(this._documentData.metadata.edits);
+
+        // Save the edits array before applying metadata updates (in case newMetadata contains edits field)
+        const savedEdits = this._documentData.metadata.edits;
+
+        // Apply the metadata updates
         this._documentData.metadata = { ...this._documentData.metadata, ...newMetadata };
+        // Restore the edits array (it was updated above with new edits)
+        this._documentData.metadata.edits = savedEdits;
 
         // Record the edit
         this._edits.push({
@@ -949,22 +1050,23 @@ export class CodexCellDocument implements vscode.CustomDocument {
         if (!cellToUpdate.metadata.edits || cellToUpdate.metadata.edits.length === 0) {
             console.warn("No edits found for cell to validate");
             // repair the edit history by adding an llm generation with author unknown, and then a user edit with validation
+            const currentTimestamp = Date.now();
             cellToUpdate.metadata.edits = [
                 {
                     editMap: EditMapUtils.value(),
                     value: cellToUpdate.value,
+                    timestamp: currentTimestamp,
+                    type: EditType.LLM_GENERATION,
                     author: "unknown",
                     validatedBy: [],
-                    timestamp: Date.now(),
-                    type: EditType.LLM_GENERATION,
                 },
                 {
                     editMap: EditMapUtils.value(),
                     value: cellToUpdate.value,
+                    timestamp: currentTimestamp,
+                    type: EditType.USER_EDIT,
                     author: this._author,
                     validatedBy: [],
-                    timestamp: Date.now(),
-                    type: EditType.USER_EDIT,
                 },
             ];
         }
@@ -991,10 +1093,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
             cellToUpdate.metadata.edits.push({
                 editMap: EditMapUtils.value(),
                 value: cellToUpdate.value,
-                author: this._author,
-                validatedBy: [],
                 timestamp: currentTimestamp,
                 type: EditType.USER_EDIT,
+                author: this._author,
+                validatedBy: [],
             } as any);
             targetEditIndex = cellToUpdate.metadata.edits.length - 1;
         }

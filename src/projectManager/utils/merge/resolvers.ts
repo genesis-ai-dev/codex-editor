@@ -4,12 +4,12 @@ import * as path from "path";
 import { ConflictResolutionStrategy, ConflictFile, SmartEdit } from "./types";
 import { determineStrategy } from "./strategies";
 import { getAuthApi } from "../../../extension";
-import { NotebookCommentThread, NotebookComment, CustomNotebookCellData } from "../../../../types";
+import { NotebookCommentThread, NotebookComment, CustomNotebookCellData, CustomNotebookMetadata } from "../../../../types";
 import { CommentsMigrator } from "../../../utils/commentsMigrationUtils";
 import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
-import { EditHistory, ValidationEntry } from "../../../../types/index.d";
-import { EditMapUtils } from "../../../utils/editMapUtils";
+import { EditHistory, ValidationEntry, FileEditHistory } from "../../../../types/index.d";
+import { EditMapUtils, deduplicateFileMetadataEdits } from "../../../utils/editMapUtils";
 import { normalizeAttachmentUrl } from "@/utils/pathUtils";
 
 const DEBUG_MODE = false;
@@ -514,6 +514,125 @@ function mergeValidatedByArrays(existingEdit: EditHistory, newEdit: EditHistory)
 }
 
 /**
+ * Helper function to apply an edit to file-level metadata based on its editMap path
+ */
+function applyEditToMetadata(metadata: CustomNotebookMetadata, edit: FileEditHistory): void {
+    if (!edit.editMap || !Array.isArray(edit.editMap)) {
+        return;
+    }
+
+    const path = edit.editMap;
+    const value = edit.value;
+
+    // Ensure metadata exists
+    if (!metadata) {
+        return;
+    }
+
+    try {
+        if (path.length === 2 && path[0] === 'metadata') {
+            // File-level metadata field edit
+            const field = path[1];
+
+            // Apply edit based on field name
+            switch (field) {
+                case 'videoUrl':
+                    metadata.videoUrl = value as string;
+                    break;
+                case 'textDirection':
+                    metadata.textDirection = value as "ltr" | "rtl";
+                    break;
+                case 'lineNumbersEnabled':
+                    metadata.lineNumbersEnabled = value as boolean;
+                    break;
+                case 'fontSize':
+                    metadata.fontSize = value as number;
+                    break;
+                case 'autoDownloadAudioOnOpen':
+                    metadata.autoDownloadAudioOnOpen = value as boolean;
+                    break;
+                case 'showInlineBacktranslations':
+                    metadata.showInlineBacktranslations = value as boolean;
+                    break;
+                case 'fileDisplayName':
+                    metadata.fileDisplayName = value as string;
+                    break;
+                case 'cellDisplayMode':
+                    metadata.cellDisplayMode = value as "inline" | "one-line-per-cell";
+                    break;
+                case 'audioOnly':
+                    metadata.audioOnly = value as boolean;
+                    break;
+                case 'corpusMarker':
+                    metadata.corpusMarker = value as string;
+                    break;
+                default:
+                    // Generic field assignment for other metadata fields
+                    (metadata as any)[field] = value;
+            }
+        }
+    } catch (error) {
+        debugLog(`Error applying edit to metadata: ${error}`);
+    }
+}
+
+/**
+ * Helper function to resolve conflicts in file-level metadata using edit history
+ */
+function resolveMetadataConflictsUsingEditHistoryForFile(
+    ourMetadata: CustomNotebookMetadata,
+    theirMetadata: CustomNotebookMetadata
+): CustomNotebookMetadata {
+    // Combine all edits from both metadata objects (FileEditHistory type)
+    const allEdits: FileEditHistory[] = [
+        ...(ourMetadata.edits || []),
+        ...(theirMetadata.edits || [])
+    ].sort((a, b) => a.timestamp - b.timestamp);
+
+    // Group edits by their editMap path
+    const editsByPath = new Map<string, FileEditHistory[]>();
+    for (const edit of allEdits) {
+        if (edit.editMap && Array.isArray(edit.editMap)) {
+            const pathKey = edit.editMap.join('.');
+            if (!editsByPath.has(pathKey)) {
+                editsByPath.set(pathKey, []);
+            }
+            editsByPath.get(pathKey)!.push(edit);
+        }
+    }
+
+    const resolvedMetadata = { ...ourMetadata };
+
+    // For each metadata path, apply the most recent edit
+    for (const [pathKey, edits] of editsByPath.entries()) {
+        if (edits.length === 0) continue;
+
+        // Find the most recent edit for this path
+        // Tie-breaker: when timestamps are equal, prefer USER_EDIT over INITIAL_IMPORT
+        const sorted = edits.sort((a, b) => {
+            const timeDiff = b.timestamp - a.timestamp;
+            if (timeDiff !== 0) return timeDiff;
+            // Same timestamp: prefer USER_EDIT over INITIAL_IMPORT
+            const aIsUser = a.type === EditType.USER_EDIT;
+            const bIsUser = b.type === EditType.USER_EDIT;
+            const aIsInitial = a.type === EditType.INITIAL_IMPORT;
+            const bIsInitial = b.type === EditType.INITIAL_IMPORT;
+            if (aIsUser !== bIsUser) return bIsUser ? 1 : -1; // b is USER_EDIT comes first
+            if (aIsInitial !== bIsInitial) return aIsInitial ? 1 : -1; // push INITIAL_IMPORT later
+            return 0;
+        });
+        const mostRecentEdit = sorted[0];
+
+        // Apply the edit to the resolved metadata
+        applyEditToMetadata(resolvedMetadata, mostRecentEdit);
+
+        debugLog(`Applied most recent edit for ${pathKey}: ${mostRecentEdit.value}`);
+    }
+
+    return resolvedMetadata;
+}
+
+/**
  * Helper function to apply an edit to a cell based on its editMap path
  */
 function applyEditToCell(cell: CustomNotebookCellData, edit: EditHistory): void {
@@ -665,6 +784,33 @@ export async function resolveCodexCustomMerge(
     const ourCells: CustomNotebookCellData[] = ourNotebook.cells;
     const theirCells: CustomNotebookCellData[] = theirNotebook.cells;
 
+    // Extract and merge file-level metadata
+    const ourMetadata: CustomNotebookMetadata = ourNotebook.metadata || {};
+    const theirMetadata: CustomNotebookMetadata = theirNotebook.metadata || {};
+
+    // Initialize edits arrays if they don't exist
+    if (!ourMetadata.edits) {
+        ourMetadata.edits = [];
+    }
+    if (!theirMetadata.edits) {
+        theirMetadata.edits = [];
+    }
+
+    // Resolve metadata conflicts using edit history
+    const mergedMetadata = resolveMetadataConflictsUsingEditHistoryForFile(ourMetadata, theirMetadata);
+
+    // Combine all metadata edits from both branches and deduplicate
+    // Similar to cell-level edits deduplication, remove duplicates based on timestamp, editMap and value
+    const allMetadataEdits = [
+        ...(ourMetadata.edits || []),
+        ...(theirMetadata.edits || [])
+    ];
+
+    // Deduplicate edits using the same logic as cell-level edits
+    mergedMetadata.edits = deduplicateFileMetadataEdits(allMetadataEdits);
+
+    debugLog(`Filtered to ${mergedMetadata.edits.length} unique metadata edits`);
+
     debugLog(
         `Processing ${ourCells.length} cells from our version and ${theirCells.length} cells from their version`
     );
@@ -787,11 +933,12 @@ export async function resolveCodexCustomMerge(
         }
     }
 
-    // Return the full notebook structure with merged cells
+    // Return the full notebook structure with merged cells and metadata
     return JSON.stringify(
         {
             ...ourNotebook,
             cells: resultCells,
+            metadata: mergedMetadata,
         },
         null,
         2
