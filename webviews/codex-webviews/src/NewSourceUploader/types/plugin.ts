@@ -401,4 +401,111 @@ export interface StartTranslatingMessage {
     command: 'startTranslating';
 }
 
-export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage | OverwriteConfirmationMessage | OverwriteResponseMessage | DownloadResourceMessage | DownloadResourceProgressMessage | DownloadResourceCompleteMessage | StartTranslatingMessage | SaveFileMessage; 
+export interface SelectAudioFileMessage {
+    command: 'selectAudioFile';
+    thresholdDb?: number;
+    minDuration?: number;
+}
+
+export interface ReprocessAudioFileMessage {
+    command: 'reprocessAudioFile';
+    sessionId: string;
+    thresholdDb: number;
+    minDuration: number;
+}
+
+export interface AudioFileSelectedMessage {
+    command: 'audioFileSelected';
+    sessionId: string;
+    fileName: string;
+    durationSec: number;
+    segments: Array<{ id: string; startSec: number; endSec: number }>;
+    waveformPeaks: number[];
+    fullAudioUri?: string;
+    thresholdDb?: number;
+    minDuration?: number;
+    error?: string;
+}
+
+export interface AudioFilesSelectedMessage {
+    command: 'audioFilesSelected';
+    files: Array<{
+        sessionId: string;
+        fileName: string;
+        durationSec: number;
+        segments: Array<{ id: string; startSec: number; endSec: number }>;
+        waveformPeaks: number[];
+        fullAudioUri?: string;
+    }>;
+    thresholdDb?: number;
+    minDuration?: number;
+    error?: string;
+}
+
+export interface RequestAudioSegmentMessage {
+    command: 'requestAudioSegment';
+    sessionId: string;
+    segmentId: string;
+    startSec: number;
+    endSec: number;
+}
+
+export interface AudioSegmentResponseMessage {
+    command: 'audioSegmentResponse';
+    segmentId: string;
+    audioUri: string;
+    error?: string;
+}
+
+export interface FinalizeAudioImportMessage {
+    command: 'finalizeAudioImport';
+    sessionId: string;
+    documentName: string;
+    notebookPairs: NotebookPair[];
+    segmentMappings: Array<{ segmentId: string; cellId: string; attachmentId: string; fileName: string }>;
+}
+
+export interface AudioImportProgressMessage {
+    command: 'audioImportProgress';
+    sessionId: string;
+    stage: string;
+    message: string;
+    progress?: number; // 0-100
+    currentSegment?: number;
+    totalSegments?: number;
+    etaSeconds?: number; // Estimated time remaining in seconds
+}
+
+export interface AudioImportCompleteMessage {
+    command: 'audioImportComplete';
+    sessionId: string;
+    success: boolean;
+    error?: string;
+}
+
+export interface UpdateAudioSegmentsMessage {
+    command: 'updateAudioSegments';
+    sessionId: string;
+    segments: Array<{ id: string; startSec: number; endSec: number }>;
+}
+
+export interface AudioSegmentsUpdatedMessage {
+    command: 'audioSegmentsUpdated';
+    sessionId: string;
+    success: boolean;
+    error?: string;
+}
+
+export interface RequestAudioUriMessage {
+    command: 'requestAudioUri';
+    sessionId: string;
+}
+
+export interface AudioUriResponseMessage {
+    command: 'audioUriResponse';
+    sessionId: string;
+    fullAudioUri?: string;
+    error?: string;
+}
+
+export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage | OverwriteConfirmationMessage | OverwriteResponseMessage | DownloadResourceMessage | DownloadResourceProgressMessage | DownloadResourceCompleteMessage | StartTranslatingMessage | SaveFileMessage | SelectAudioFileMessage | ReprocessAudioFileMessage | AudioFileSelectedMessage | RequestAudioSegmentMessage | AudioSegmentResponseMessage | RequestAudioUriMessage | AudioUriResponseMessage | FinalizeAudioImportMessage | AudioImportProgressMessage | AudioImportCompleteMessage | UpdateAudioSegmentsMessage | AudioSegmentsUpdatedMessage; 

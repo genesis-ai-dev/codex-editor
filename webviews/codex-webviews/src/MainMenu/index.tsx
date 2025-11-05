@@ -261,7 +261,24 @@ function MainMenu() {
     };
 
     const { projectState } = state;
-    console.log({ projectState });
+
+    // Log only when key properties change (not on every render)
+    useEffect(() => {
+        const keyProps = {
+            isScanning: projectState.isScanning,
+            isSyncInProgress: projectState.isSyncInProgress,
+            syncStage: projectState.syncStage,
+            isInitializing: projectState.isInitializing,
+            updateState: projectState.updateState
+        };
+        console.log("[ProjectState] Key changes:", keyProps);
+    }, [
+        projectState.isScanning,
+        projectState.isSyncInProgress,
+        projectState.syncStage,
+        projectState.isInitializing,
+        projectState.updateState
+    ]);
 
     // Show scanning indicator
     if (projectState.isScanning) {
@@ -274,7 +291,6 @@ function MainMenu() {
             </div>
         );
     }
-    console.log("projectState", projectState);
 
     const getUpdateMessage = () => {
         switch (projectState.updateState) {

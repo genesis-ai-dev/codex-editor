@@ -17,6 +17,8 @@ AGENTS.md
 # TypeScript build cache
 .tsbuildinfo
 
+CLAUDE.md
+
 # Vite build artifacts
 *.timestamp-*.mjs
 webviews/codex-webviews/dist/

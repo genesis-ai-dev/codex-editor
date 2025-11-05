@@ -366,12 +366,12 @@ export const createNotebookPair = (
         name: baseName,
         cells,
         metadata: {
+            ...metadata,
             id: `${importerType}-source-${Date.now()}`,
             originalFileName: baseName,
             importerType,
             createdAt: new Date().toISOString(),
             corpusMarker: getCorpusMarkerForBook(baseName) || metadata.corpusMarker,
-            ...metadata,
         },
     };
 
