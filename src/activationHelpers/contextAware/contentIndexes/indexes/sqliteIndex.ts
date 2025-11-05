@@ -2950,7 +2950,8 @@ export class SQLiteIndexManager {
     async searchCompleteTranslationPairs(
         query: string,
         limit: number = 30,
-        returnRawContent: boolean = false
+        returnRawContent: boolean = false,
+        searchSourceOnly: boolean = true  // true for few-shot examples, false for UI search
     ): Promise<any[]> {
         if (!this.db) throw new Error("Database not initialized");
 
@@ -3054,19 +3055,25 @@ export class SQLiteIndexManager {
             // Always add the full word (exact match is most important)
             searchTerms.push(word);
             
-            // Only generate n-grams for longer words (4+ chars) to avoid noise
-            // Shorter words are better matched exactly
-            if (word.length >= 4) {
+            // For shorter words (2-4 chars), add prefix wildcard to match partial tokens like "ccc" matching "cccb"
+            // This helps with partial matching when FTS5 tokenizes words
+            if (word.length >= 2 && word.length <= 4) {
+                searchTerms.push(word + '*'); // Prefix wildcard for FTS5
+            }
+            
+            // Generate n-grams for partial matching
+            // Generate trigrams for words >= 3 chars (helps match "ccc" in "cccb")
+            if (word.length >= 3) {
                 // Add character trigrams (3-char sequences) - more specific than bigrams
                 const trigrams = generateCharNGrams(word, 3);
                 searchTerms.push(...trigrams);
-                
-                // Add character bigrams only for longer words and filter out common ones
-                if (word.length >= 5) {
-                    const bigrams = generateCharNGrams(word, 2);
-                    const filteredBigrams = bigrams.filter(bg => !commonBigrams.has(bg));
-                    searchTerms.push(...filteredBigrams);
-                }
+            }
+            
+            // Generate bigrams for words >= 2 chars, but filter out common ones to reduce noise
+            if (word.length >= 2) {
+                const bigrams = generateCharNGrams(word, 2);
+                const filteredBigrams = bigrams.filter(bg => !commonBigrams.has(bg));
+                searchTerms.push(...filteredBigrams);
             }
         }
         
@@ -3077,27 +3084,75 @@ export class SQLiteIndexManager {
         
         // Use OR matching: any word or character n-gram can match, BM25 ranks by relevance
         const cleanQuery = finalTerms.join(' OR ');
+        
+        // Simple substring match for the original query - ensures "ccc" matches "cccb"
+        // Escape % and _ for LIKE (SQL wildcards)
+        const escapedQuery = query.replace(/%/g, '\\%').replace(/_/g, '\\_');
+        const likePattern = `%${escapedQuery}%`;
 
-        // Enhanced FTS5 query - search BOTH source AND target content for complete pairs
+        // Enhanced FTS5 query - search source (and optionally target) content for complete pairs
+        // Use UNION to combine FTS5 MATCH results with LIKE substring matching
+        // (FTS5 MATCH can't be combined with OR in WHERE clause)
+        const ftsContentTypeFilter = searchSourceOnly ? "cells_fts.content_type = 'source'" : "(cells_fts.content_type = 'source' OR cells_fts.content_type = 'target')";
+        
+        // Build LIKE conditions - search source always, target only if searchSourceOnly is false
+        const likeConditions = searchSourceOnly 
+            ? "(c.s_content LIKE ? OR c.s_raw_content LIKE ?)"
+            : "(c.s_content LIKE ? OR c.t_content LIKE ? OR c.s_raw_content LIKE ? OR c.t_raw_content LIKE ?)";
+        
         const sql = `
             SELECT DISTINCT 
-                c.cell_id,
-                c.s_content as source_content,
-                c.s_raw_content as raw_source_content,
-                c.t_content as target_content,
-                c.t_raw_content as raw_target_content,
-                c.s_line_number as line,
-                COALESCE(s_file.file_path, t_file.file_path) as uri,
-                bm25(cells_fts) as score
-            FROM cells_fts
-            JOIN cells c ON cells_fts.cell_id = c.cell_id
-            LEFT JOIN files s_file ON c.s_file_id = s_file.id
-            LEFT JOIN files t_file ON c.t_file_id = t_file.id
-            WHERE cells_fts MATCH ?
-                AND c.s_content IS NOT NULL 
-                AND c.s_content != ''
-                AND c.t_content IS NOT NULL 
-                AND c.t_content != ''
+                cell_id,
+                source_content,
+                raw_source_content,
+                target_content,
+                raw_target_content,
+                line,
+                uri,
+                score
+            FROM (
+                -- FTS5 search results
+                SELECT DISTINCT 
+                    c.cell_id,
+                    c.s_content as source_content,
+                    c.s_raw_content as raw_source_content,
+                    c.t_content as target_content,
+                    c.t_raw_content as raw_target_content,
+                    c.s_line_number as line,
+                    COALESCE(s_file.file_path, t_file.file_path) as uri,
+                    bm25(cells_fts) as score
+                FROM cells_fts
+                JOIN cells c ON cells_fts.cell_id = c.cell_id
+                LEFT JOIN files s_file ON c.s_file_id = s_file.id
+                LEFT JOIN files t_file ON c.t_file_id = t_file.id
+                WHERE cells_fts MATCH ?
+                    AND ${ftsContentTypeFilter}
+                    AND c.s_content IS NOT NULL 
+                    AND c.s_content != ''
+                    AND c.t_content IS NOT NULL 
+                    AND c.t_content != ''
+                
+                UNION
+                
+                -- LIKE substring search results (for cases FTS5 might miss)
+                SELECT DISTINCT 
+                    c.cell_id,
+                    c.s_content as source_content,
+                    c.s_raw_content as raw_source_content,
+                    c.t_content as target_content,
+                    c.t_raw_content as raw_target_content,
+                    c.s_line_number as line,
+                    COALESCE(s_file.file_path, t_file.file_path) as uri,
+                    0.0 as score
+                FROM cells c
+                LEFT JOIN files s_file ON c.s_file_id = s_file.id
+                LEFT JOIN files t_file ON c.t_file_id = t_file.id
+                WHERE ${likeConditions}
+                    AND c.s_content IS NOT NULL 
+                    AND c.s_content != ''
+                    AND c.t_content IS NOT NULL 
+                    AND c.t_content != ''
+            )
             ORDER BY score DESC
             LIMIT ?
         `;
@@ -3106,8 +3161,13 @@ export class SQLiteIndexManager {
         const results = [];
 
         try {
-            // Use the clean query directly - let FTS5 do its magic
-            stmt.bind([cleanQuery, limit]);
+            // Use both FTS5 query and LIKE pattern for substring matching
+            // Bind parameters depend on searchSourceOnly
+            if (searchSourceOnly) {
+                stmt.bind([cleanQuery, likePattern, likePattern, limit]);
+            } else {
+                stmt.bind([cleanQuery, likePattern, likePattern, likePattern, likePattern, limit]);
+            }
 
             while (stmt.step()) {
                 const row = stmt.getAsObject();
@@ -3153,11 +3213,12 @@ export class SQLiteIndexManager {
         query: string,
         limit: number = 30,
         returnRawContent: boolean = false,
-        onlyValidated: boolean = false
+        onlyValidated: boolean = false,
+        searchSourceOnly: boolean = true  // true for few-shot examples, false for UI search when searchScope === "both"
     ): Promise<any[]> {
         // If validation filtering is not required, use the existing method
         if (!onlyValidated) {
-            return this.searchCompleteTranslationPairs(query, limit, returnRawContent);
+            return this.searchCompleteTranslationPairs(query, limit, returnRawContent, searchSourceOnly);
         }
 
         if (!this.db) throw new Error("Database not initialized");
@@ -3253,19 +3314,25 @@ export class SQLiteIndexManager {
             // Always add the full word (exact match is most important)
             searchTerms.push(word);
             
-            // Only generate n-grams for longer words (4+ chars) to avoid noise
-            // Shorter words are better matched exactly
-            if (word.length >= 4) {
+            // For shorter words (2-4 chars), add prefix wildcard to match partial tokens like "ccc" matching "cccb"
+            // This helps with partial matching when FTS5 tokenizes words
+            if (word.length >= 2 && word.length <= 4) {
+                searchTerms.push(word + '*'); // Prefix wildcard for FTS5
+            }
+            
+            // Generate n-grams for partial matching
+            // Generate trigrams for words >= 3 chars (helps match "ccc" in "cccb")
+            if (word.length >= 3) {
                 // Add character trigrams (3-char sequences) - more specific than bigrams
                 const trigrams = generateCharNGrams(word, 3);
                 searchTerms.push(...trigrams);
-                
-                // Add character bigrams only for longer words and filter out common ones
-                if (word.length >= 5) {
-                    const bigrams = generateCharNGrams(word, 2);
-                    const filteredBigrams = bigrams.filter(bg => !commonBigrams.has(bg));
-                    searchTerms.push(...filteredBigrams);
-                }
+            }
+            
+            // Generate bigrams for words >= 2 chars, but filter out common ones to reduce noise
+            if (word.length >= 2) {
+                const bigrams = generateCharNGrams(word, 2);
+                const filteredBigrams = bigrams.filter(bg => !commonBigrams.has(bg));
+                searchTerms.push(...filteredBigrams);
             }
         }
         
@@ -3276,28 +3343,62 @@ export class SQLiteIndexManager {
         
         // Use OR matching: any word or character n-gram can match, BM25 ranks by relevance
         const cleanQuery = finalTerms.join(' OR ');
-
-
+        
+        // Simple substring match for the original query - ensures "ccc" matches "cccb"
+        // Escape % and _ for LIKE (SQL wildcards)
+        const escapedQuery = query.replace(/%/g, '\\%').replace(/_/g, '\\_');
+        const likePattern = `%${escapedQuery}%`;
 
         // FTS5 query with validation filtering
+        // Use UNION to combine FTS5 MATCH results with LIKE substring matching
+        // (FTS5 MATCH can't be combined with OR in WHERE clause)
         const sql = `
-            SELECT 
-                c.cell_id,
-                c.s_content as source_content,
-                c.s_raw_content as raw_source_content,
-                c.s_line_number as line,
-                COALESCE(s_file.file_path, t_file.file_path) as uri,
-                bm25(cells_fts) as score
-            FROM cells_fts
-            JOIN cells c ON cells_fts.cell_id = c.cell_id
-            LEFT JOIN files s_file ON c.s_file_id = s_file.id
-            LEFT JOIN files t_file ON c.t_file_id = t_file.id
-            WHERE cells_fts MATCH ?
-                AND cells_fts.content_type = 'source'
-                AND c.s_content IS NOT NULL 
-                AND c.s_content != ''
-                AND c.t_content IS NOT NULL 
-                AND c.t_content != ''
+            SELECT DISTINCT
+                cell_id,
+                source_content,
+                raw_source_content,
+                line,
+                uri,
+                score
+            FROM (
+                -- FTS5 search results
+                SELECT 
+                    c.cell_id,
+                    c.s_content as source_content,
+                    c.s_raw_content as raw_source_content,
+                    c.s_line_number as line,
+                    COALESCE(s_file.file_path, t_file.file_path) as uri,
+                    bm25(cells_fts) as score
+                FROM cells_fts
+                JOIN cells c ON cells_fts.cell_id = c.cell_id
+                LEFT JOIN files s_file ON c.s_file_id = s_file.id
+                LEFT JOIN files t_file ON c.t_file_id = t_file.id
+                WHERE cells_fts MATCH ?
+                    AND cells_fts.content_type = 'source'
+                    AND c.s_content IS NOT NULL 
+                    AND c.s_content != ''
+                    AND c.t_content IS NOT NULL 
+                    AND c.t_content != ''
+                
+                UNION
+                
+                -- LIKE substring search results (for cases FTS5 might miss)
+                SELECT 
+                    c.cell_id,
+                    c.s_content as source_content,
+                    c.s_raw_content as raw_source_content,
+                    c.s_line_number as line,
+                    COALESCE(s_file.file_path, t_file.file_path) as uri,
+                    0.0 as score
+                FROM cells c
+                LEFT JOIN files s_file ON c.s_file_id = s_file.id
+                LEFT JOIN files t_file ON c.t_file_id = t_file.id
+                WHERE (c.s_content LIKE ? OR c.s_raw_content LIKE ?)
+                    AND c.s_content IS NOT NULL 
+                    AND c.s_content != ''
+                    AND c.t_content IS NOT NULL 
+                    AND c.t_content != ''
+            )
             ORDER BY score DESC
             LIMIT ?
         `;
@@ -3306,7 +3407,8 @@ export class SQLiteIndexManager {
         const results = [];
 
         try {
-            stmt.bind([cleanQuery, limit * 3]); // Get more results to account for validation filtering
+            // Use both FTS5 query and LIKE pattern for substring matching
+            stmt.bind([cleanQuery, likePattern, likePattern, limit * 3]); // Get more results to account for validation filtering
 
             while (stmt.step()) {
                 const row = stmt.getAsObject();

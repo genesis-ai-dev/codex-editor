@@ -870,11 +870,14 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     const searchScope = options?.searchScope || "both";
                     // Request more results if we need to filter by searchScope
                     const searchLimit = searchScope !== "both" ? k * 3 : k;
+                    // For UI search, search both source and target when searchScope is "both", otherwise source-only
+                    const searchSourceOnly = searchScope === "both" ? false : true;
                     const searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
                         query,
                         searchLimit,
                         options?.isParallelPassagesWebview || false,
-                        false // onlyValidated - show all complete pairs regardless of validation status
+                        false, // onlyValidated - show all complete pairs regardless of validation status
+                        searchSourceOnly
                     );
 
                     // Convert to TranslationPair format

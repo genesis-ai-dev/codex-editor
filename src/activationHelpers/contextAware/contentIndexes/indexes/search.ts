@@ -232,7 +232,8 @@ export async function getTranslationPairsFromSourceCellQuery(
 
     if (translationPairsIndex instanceof SQLiteIndexManager) {
         debug(`[getTranslationPairsFromSourceCellQuery] Using SQLite searchCompleteTranslationPairsWithValidation with limit: ${initialLimit}`);
-        results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(query, initialLimit, false, onlyValidated);
+        // For few-shot examples, search SOURCE only (target is just returned, not searched)
+        results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(query, initialLimit, false, onlyValidated, true);
         debug(`[getTranslationPairsFromSourceCellQuery] SQLite search returned ${results.length} raw results`);
     } else {
         console.warn("[getTranslationPairsFromSourceCellQuery] Non-SQLite index detected, no fallback available");
@@ -241,7 +242,8 @@ export async function getTranslationPairsFromSourceCellQuery(
 
     if (results.length === 0 && translationPairsIndex instanceof SQLiteIndexManager) {
         debug(`[getTranslationPairsFromSourceCellQuery] No results for specific query, trying empty query fallback`);
-        results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation('', Math.max(k * 2, 10), false, onlyValidated);
+        // For few-shot examples, search SOURCE only
+        results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation('', Math.max(k * 2, 10), false, onlyValidated, true);
         debug(`[getTranslationPairsFromSourceCellQuery] Empty query fallback returned ${results.length} results`);
     }
 
@@ -460,11 +462,14 @@ export async function searchAllCells(
     if (translationPairsIndex instanceof SQLiteIndexManager) {
         // Use the optimized searchCompleteTranslationPairsWithValidation method
         const searchLimit = includeIncomplete ? k * 2 : k; // Request more if we need to add incomplete pairs
+        // For UI search, search both source and target when searchScope is "both", otherwise source-only
+        const searchSourceOnly = searchScope === "both" ? false : true;
         const searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
             query,
             searchLimit,
             options?.isParallelPassagesWebview || false,
-            false // onlyValidated - show all complete pairs
+            false, // onlyValidated - show all complete pairs
+            searchSourceOnly
         );
         
         translationPairs = searchResults.map((result) => ({
