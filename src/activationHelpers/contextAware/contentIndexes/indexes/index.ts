@@ -15,11 +15,11 @@ import {
     getTargetCellByCellId,
     getTranslationPairFromProject,
     handleTextSelection,
-    searchParallelCells,
     searchSimilarCellIds,
     findNextUntranslatedSourceCell,
     searchAllCells,
-    searchTranslationPairs,
+    stripHtml,
+    normalizeUri,
 } from "./search";
 import { SQLiteIndexManager, CURRENT_SCHEMA_VERSION } from "./sqliteIndex";
 import { SearchManager, SearchAlgorithmType } from "../searchAlgorithms";
@@ -896,14 +896,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                     // Apply searchScope filtering if needed
                     if (searchScope === "source" || searchScope === "target") {
-                        const stripHtml = (html: string): string => {
-                            let strippedText = html.replace(/<[^>]*>/g, "");
-                            strippedText = strippedText.replace(/&nbsp; ?/g, " ");
-                            strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
-                            strippedText = strippedText.replace(/&#\d+;/g, "");
-                            strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
-                            return strippedText.toLowerCase();
-                        };
                         const queryLower = query.toLowerCase();
                         translationPairs = translationPairs.filter((pair) => {
                             if (searchScope === "source") {
@@ -920,14 +912,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                     // Apply selectedFiles filtering if needed
                     if (options?.selectedFiles && options.selectedFiles.length > 0) {
-                        const normalizeUri = (uri: string): string => {
-                            if (!uri) return "";
-                            try {
-                                return vscode.Uri.parse(uri).toString();
-                            } catch {
-                                return uri;
-                            }
-                        };
                         const selectedFiles = options.selectedFiles;
                         translationPairs = translationPairs.filter((pair) => {
                             const sourceUri = pair.sourceCell?.uri || "";
@@ -2233,8 +2217,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     const functionsToExpose = {
         handleTextSelection,
         searchAllCells,
-        searchParallelCells,
-        searchTranslationPairs,
     };
 
     return functionsToExpose;

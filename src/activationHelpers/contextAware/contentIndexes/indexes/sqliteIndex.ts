@@ -3022,17 +3022,61 @@ export class SQLiteIndexManager {
             debugStmt.free();
         }
 
-        // Use FTS5's natural fuzzy search - keep it simple and let FTS5 do the work
-        // Clean the query but don't over-process it
-        const cleanQuery = query
+        // Use FTS5 with character-level n-grams (bigrams/trigrams) for fuzzy matching
+        // Extract words and generate character-level bigrams/trigrams from each word
+        const words = query
             .trim()
             .replace(/[^\w\s\u0370-\u03FF\u1F00-\u1FFF]/g, ' ') // Keep Greek characters and basic word chars
             .replace(/\s+/g, ' ') // Normalize whitespace
-            .trim();
-
-        if (!cleanQuery) {
+            .trim()
+            .split(/\s+/)
+            .filter(token => token.length > 1); // Filter out single characters
+        
+        if (words.length === 0) {
             return this.searchCompleteTranslationPairs('', limit, returnRawContent);
         }
+        
+        // Generate character-level n-grams (bigrams and trigrams) from each word
+        const generateCharNGrams = (text: string, n: number): string[] => {
+            const grams: string[] = [];
+            if (text.length < n) return [];
+            for (let i = 0; i <= text.length - n; i++) {
+                grams.push(text.slice(i, i + n));
+            }
+            return grams;
+        };
+        
+        // Common 2-char sequences that are too generic (filter out for performance)
+        const commonBigrams = new Set(['of', 'to', 'in', 'on', 'at', 'he', 'we', 'is', 'it', 'an', 'or', 'as', 'be', 'by', 'if', 'my', 'no', 'so', 'up', 'us', 'th', 'er', 'ed', 'ng', 'en', 'es', 're', 'le', 'te', 'de']);
+        
+        const searchTerms: string[] = [];
+        for (const word of words) {
+            // Always add the full word (exact match is most important)
+            searchTerms.push(word);
+            
+            // Only generate n-grams for longer words (4+ chars) to avoid noise
+            // Shorter words are better matched exactly
+            if (word.length >= 4) {
+                // Add character trigrams (3-char sequences) - more specific than bigrams
+                const trigrams = generateCharNGrams(word, 3);
+                searchTerms.push(...trigrams);
+                
+                // Add character bigrams only for longer words and filter out common ones
+                if (word.length >= 5) {
+                    const bigrams = generateCharNGrams(word, 2);
+                    const filteredBigrams = bigrams.filter(bg => !commonBigrams.has(bg));
+                    searchTerms.push(...filteredBigrams);
+                }
+            }
+        }
+        
+        // Limit total terms to avoid huge queries (keep most relevant)
+        // Prioritize: full words first, then trigrams, then bigrams
+        const maxTerms = 50; // Reasonable limit for FTS5 performance
+        const finalTerms = searchTerms.slice(0, maxTerms);
+        
+        // Use OR matching: any word or character n-gram can match, BM25 ranks by relevance
+        const cleanQuery = finalTerms.join(' OR ');
 
         // Enhanced FTS5 query - search BOTH source AND target content for complete pairs
         const sql = `
@@ -3177,16 +3221,61 @@ export class SQLiteIndexManager {
             return results;
         }
 
-        // Clean query for FTS5 search
-        const cleanQuery = query
+        // Use FTS5 with character-level n-grams (bigrams/trigrams) for fuzzy matching
+        // Extract words and generate character-level bigrams/trigrams from each word
+        const words = query
             .trim()
             .replace(/[^\w\s\u0370-\u03FF\u1F00-\u1FFF]/g, ' ') // Keep Greek characters and basic word chars
             .replace(/\s+/g, ' ') // Normalize whitespace
-            .trim();
-
-        if (!cleanQuery) {
+            .trim()
+            .split(/\s+/)
+            .filter(token => token.length > 1); // Filter out single characters
+        
+        if (words.length === 0) {
             return this.searchCompleteTranslationPairsWithValidation('', limit, returnRawContent, onlyValidated);
         }
+        
+        // Generate character-level n-grams (bigrams and trigrams) from each word
+        const generateCharNGrams = (text: string, n: number): string[] => {
+            const grams: string[] = [];
+            if (text.length < n) return [];
+            for (let i = 0; i <= text.length - n; i++) {
+                grams.push(text.slice(i, i + n));
+            }
+            return grams;
+        };
+        
+        // Common 2-char sequences that are too generic (filter out for performance)
+        const commonBigrams = new Set(['of', 'to', 'in', 'on', 'at', 'he', 'we', 'is', 'it', 'an', 'or', 'as', 'be', 'by', 'if', 'my', 'no', 'so', 'up', 'us', 'th', 'er', 'ed', 'ng', 'en', 'es', 're', 'le', 'te', 'de']);
+        
+        const searchTerms: string[] = [];
+        for (const word of words) {
+            // Always add the full word (exact match is most important)
+            searchTerms.push(word);
+            
+            // Only generate n-grams for longer words (4+ chars) to avoid noise
+            // Shorter words are better matched exactly
+            if (word.length >= 4) {
+                // Add character trigrams (3-char sequences) - more specific than bigrams
+                const trigrams = generateCharNGrams(word, 3);
+                searchTerms.push(...trigrams);
+                
+                // Add character bigrams only for longer words and filter out common ones
+                if (word.length >= 5) {
+                    const bigrams = generateCharNGrams(word, 2);
+                    const filteredBigrams = bigrams.filter(bg => !commonBigrams.has(bg));
+                    searchTerms.push(...filteredBigrams);
+                }
+            }
+        }
+        
+        // Limit total terms to avoid huge queries (keep most relevant)
+        // Prioritize: full words first, then trigrams, then bigrams
+        const maxTerms = 50; // Reasonable limit for FTS5 performance
+        const finalTerms = searchTerms.slice(0, maxTerms);
+        
+        // Use OR matching: any word or character n-gram can match, BM25 ranks by relevance
+        const cleanQuery = finalTerms.join(' OR ');
 
 
 

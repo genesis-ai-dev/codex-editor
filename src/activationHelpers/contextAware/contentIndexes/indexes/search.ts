@@ -1,8 +1,6 @@
 import * as vscode from "vscode";
 import { SourceCellVersions, TranslationPair } from "../../../../../types";
-import { searchTranslationPairs } from "./translationPairsIndex";
 import { SQLiteIndexManager } from "./sqliteIndex";
-import { SearchManager } from "../searchAlgorithms";
 
 type IndexType = SQLiteIndexManager;
 
@@ -11,13 +9,22 @@ const debug = (message: string, ...args: any[]) => {
     DEBUG_SEARCH && debug(`[Search] ${message}`, ...args);
 };
 
-function stripHtml(html: string): string {
+export function stripHtml(html: string): string {
     let strippedText = html.replace(/<[^>]*>/g, "");
     strippedText = strippedText.replace(/&nbsp; ?/g, " ");
     strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
     strippedText = strippedText.replace(/&#\d+;/g, "");
     strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
     return strippedText.toLowerCase();
+}
+
+export function normalizeUri(uri: string): string {
+    if (!uri) return "";
+    try {
+        return vscode.Uri.parse(uri).toString();
+    } catch {
+        return uri;
+    }
 }
 
 export function searchTargetCellsByQuery(
@@ -216,8 +223,7 @@ export async function getTranslationPairsFromSourceCellQuery(
         }
     }
 
-    // Use direct legacy method for more reliable results
-    // SearchManager algorithm switching can be re-enabled once configuration issues are resolved
+    // Use direct SQLite search method for reliable results
     debug(`[getTranslationPairsFromSourceCellQuery] Using direct SQLite search method`);
 
     // Direct SQLite search
@@ -297,15 +303,6 @@ export function handleTextSelection(translationPairsIndex: IndexType, selectedTe
     return searchTargetCellsByQuery(translationPairsIndex, selectedText);
 }
 
-export async function searchParallelCells(
-    translationPairsIndex: IndexType,
-    sourceTextIndex: IndexType,
-    query: string,
-    k: number = 15
-): Promise<TranslationPair[]> {
-    // Search only for complete translation pairs
-    return await searchTranslationPairs(translationPairsIndex as any, query, false, k);
-}
 
 export function searchSimilarCellIds(
     translationPairsIndex: IndexType,
@@ -390,15 +387,6 @@ export async function searchAllCells(
     const searchScope = options?.searchScope || "both"; // "both" | "source" | "target"
     const selectedFiles = options?.selectedFiles || []; // Array of file URIs to filter by
 
-    function normalizeUri(uri: string): string {
-        if (!uri) return "";
-        try {
-            return vscode.Uri.parse(uri).toString();
-        } catch {
-            return uri;
-        }
-    }
-
     function matchesSelectedFiles(pair: TranslationPair): boolean {
         if (!selectedFiles || selectedFiles.length === 0) return true;
         
@@ -465,42 +453,42 @@ export async function searchAllCells(
     }
 
     // Normal search mode - search translation pairs with both source and target
-    const translationPairs = await searchTranslationPairs(
-        translationPairsIndex as any,
-        query,
-        includeIncomplete,
-        k,
-        { 
-            completeBoost: 1.5, 
-            targetContentBoost: 1.2,
-            ...options 
-        }
-    );
+    // Note: searchScope is "both" here since "source" and "target" return early above
+    // Use the optimized SQLite method for complete pairs, then add incomplete pairs if needed
+    let translationPairs: TranslationPair[] = [];
+    
+    if (translationPairsIndex instanceof SQLiteIndexManager) {
+        // Use the optimized searchCompleteTranslationPairsWithValidation method
+        const searchLimit = includeIncomplete ? k * 2 : k; // Request more if we need to add incomplete pairs
+        const searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
+            query,
+            searchLimit,
+            options?.isParallelPassagesWebview || false,
+            false // onlyValidated - show all complete pairs
+        );
+        
+        translationPairs = searchResults.map((result) => ({
+            cellId: result.cellId || result.cell_id,
+            sourceCell: {
+                cellId: result.cellId || result.cell_id,
+                content: result.sourceContent || result.content || "",
+                uri: result.uri || "",
+                line: result.line || 0,
+            },
+            targetCell: {
+                cellId: result.cellId || result.cell_id,
+                content: result.targetContent || "",
+                uri: result.uri || "",
+                line: result.line || 0,
+            },
+        }));
+    }
 
     let combinedResults: TranslationPair[] = translationPairs;
 
-    // Filter translation pairs based on search scope (if not "both")
-    if (searchScope === "source") {
-        // Only include pairs where source matches
-        const queryLower = query.toLowerCase();
-        combinedResults = translationPairs.filter(pair => {
-            if (!pair.sourceCell.content) return false;
-            const cleanSource = stripHtml(pair.sourceCell.content);
-            return cleanSource.includes(queryLower);
-        });
-    } else if (searchScope === "target") {
-        // Only include pairs where target matches
-        const queryLower = query.toLowerCase();
-        combinedResults = translationPairs.filter(pair => {
-            if (!pair.targetCell.content) return false;
-            const cleanTarget = stripHtml(pair.targetCell.content);
-            return cleanTarget.includes(queryLower);
-        });
-    }
-
-    if (includeIncomplete && searchScope !== "target") {
+    if (includeIncomplete) {
         // If we're including incomplete pairs, also search source-only cells
-        // Skip if searchScope is "target" since we only want target cells
+        // Note: searchScope is "both" here since "source" and "target" return early above
         const sourceOnlyCells = sourceTextIndex
             .search(query, {
                 fields: ["content"],
@@ -555,6 +543,4 @@ export async function searchAllCells(
     });
 
     return uniqueResults.slice(0, k);
-}
-
-export { searchTranslationPairs }; 
+} 
