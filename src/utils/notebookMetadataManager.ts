@@ -343,10 +343,18 @@ export class NotebookMetadataManager {
                         const existingFileDisplayName = (notebookData.metadata as CustomNotebookMetadata)?.fileDisplayName || metadata?.fileDisplayName;
                         const needsFileDisplayName = !existingFileDisplayName || typeof existingFileDisplayName !== "string" || existingFileDisplayName.trim() === "";
 
+                        // Check if the display name was cleaned (extension stripped)
+                        const displayNameWasCleaned = !needsFileDisplayName && displayName !== existingFileDisplayName.trim();
+
                         if (metadata) {
                             if (needsFileDisplayName) {
                                 debugLog(
                                     `Adding fileDisplayName for ${metadata.id}: ${displayName}`
+                                );
+                                hasChanges = true;
+                            } else if (displayNameWasCleaned) {
+                                debugLog(
+                                    `Cleaned fileDisplayName for ${metadata.id}: "${existingFileDisplayName}" -> "${displayName}"`
                                 );
                                 hasChanges = true;
                             }
@@ -509,6 +517,28 @@ export class NotebookMetadataManager {
     }
 
     /**
+     * Strips file extensions from a display name if detected.
+     * Common extensions include: .vtt, .mp4, .mp3, .wav, .srt, .codex, .source, etc.
+     * @param displayName - The display name to clean
+     * @returns The display name without file extension
+     */
+    private stripFileExtensionFromDisplayName(displayName: string): string {
+        const trimmed = displayName.trim();
+        if (!trimmed) {
+            return trimmed;
+        }
+
+        // Check if the display name has a file extension
+        const ext = path.extname(trimmed);
+        if (ext && ext.length > 0) {
+            // Strip the extension using path.basename
+            return path.basename(trimmed, ext);
+        }
+
+        return trimmed;
+    }
+
+    /**
      * Derives and ensures fileDisplayName exists in metadata.
      * @param file - The file URI
      * @param metadata - The metadata object
@@ -547,8 +577,12 @@ export class NotebookMetadataManager {
 
             return displayName;
         } else {
-            // Current file has fileDisplayName, return it
-            return existingFileDisplayName.trim();
+            // Current file has fileDisplayName, but check if it contains a file extension and strip it
+            const cleanedDisplayName = this.stripFileExtensionFromDisplayName(existingFileDisplayName);
+            if (cleanedDisplayName !== existingFileDisplayName.trim()) {
+                debugLog(`Stripped file extension from fileDisplayName: "${existingFileDisplayName}" -> "${cleanedDisplayName}"`);
+            }
+            return cleanedDisplayName;
         }
     }
 
