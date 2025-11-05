@@ -705,11 +705,6 @@ function NavigationView() {
 
         const isProjectDict = item.isProjectDictionary;
 
-        // Debug logging (can be removed later)
-        if (!displayLabel || displayLabel.trim() === "") {
-            console.warn("Empty display label for item:", item);
-        }
-
         // Handle click on the entire item container
         const handleItemClick = (e: React.MouseEvent) => {
             // Don't trigger if clicking on menu button

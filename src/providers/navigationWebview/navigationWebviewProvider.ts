@@ -9,6 +9,7 @@ import { safePostMessageToView } from "../../utils/webviewUtils";
 import { CodexItem } from "types";
 import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents } from "../../../sharedUtils";
 import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
+import { normalizeCorpusMarker } from "../../utils/corpusMarkerUtils";
 import { addMetadataEdit } from "../../utils/editMapUtils";
 import { getAuthApi } from "../../extension";
 import { CustomNotebookMetadata } from "../../../types";
@@ -551,8 +552,11 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             if (resolvedCorpusMarker === "Old Testament") resolvedCorpusMarker = "OT";
             if (resolvedCorpusMarker === "New Testament") resolvedCorpusMarker = "NT";
 
-            // Normalize corpusMarker: trim whitespace to ensure consistent grouping
-            const normalizedCorpusMarker = resolvedCorpusMarker ? resolvedCorpusMarker.trim() : undefined;
+            // Normalize corpusMarker: trim whitespace and normalize case for consistent grouping
+            // This ensures "subtitle" and "Subtitle" are grouped together
+            const normalizedCorpusMarker = resolvedCorpusMarker
+                ? normalizeCorpusMarker(resolvedCorpusMarker) || resolvedCorpusMarker.trim()
+                : undefined;
 
             if (normalizedCorpusMarker) {
                 const group = corpusGroups.get(normalizedCorpusMarker) || [];

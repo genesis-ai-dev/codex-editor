@@ -97,7 +97,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         webviewPanel.webview.options = {
             enableScripts: true,
-            localResourceRoots: workspaceFolder 
+            localResourceRoots: workspaceFolder
                 ? [this.context.extensionUri, workspaceFolder.uri]
                 : [this.context.extensionUri],
         };
@@ -357,6 +357,10 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             }
         }
 
+        // Basic normalization (trim whitespace) - full normalization with existing files 
+        // happens in createNoteBookPair to preserve casing from existing files
+        const trimmedCorpusMarker = corpusMarker ? corpusMarker.trim() : undefined;
+
         const metadata: CustomNotebookMetadata = {
             id: processedNotebook.metadata.id,
             originalName: processedNotebook.metadata.originalFileName,
@@ -364,7 +368,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             codexFsPath: "",
             navigation: [],
             sourceCreatedAt: processedNotebook.metadata.createdAt,
-            corpusMarker: corpusMarker,
+            corpusMarker: trimmedCorpusMarker,
             textDirection: "ltr",
             ...(processedNotebook.metadata.videoUrl && { videoUrl: processedNotebook.metadata.videoUrl }),
             ...(processedNotebook.metadata)?.audioOnly !== undefined
@@ -403,7 +407,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
     ): Promise<void> {
         // Skip conflict check for audio imports (they handle their own flow)
         const isAudioImport = message.metadata?.importerType === "audio";
-        
+
         if (!isAudioImport) {
             // Check for file conflicts before proceeding
             const conflicts = await this.checkForFileConflicts(message.notebookPairs.map(pair => pair.source));
@@ -1135,7 +1139,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
     }
 
     // Presents a concise overwrite confirmation with truncation and optional details view
-    private async confirmOverwriteWithTruncation(items: Array<{ name: string; displayName: string;sourceExists: boolean; targetExists: boolean; hasTranslations: boolean; }>): Promise<boolean> {
+    private async confirmOverwriteWithTruncation(items: Array<{ name: string; displayName: string; sourceExists: boolean; targetExists: boolean; hasTranslations: boolean; }>): Promise<boolean> {
         return confirmOverwriteWithDetails(items);
     }
 
