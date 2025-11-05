@@ -7,7 +7,7 @@ import { CodexCellEditorProvider } from "../../providers/codexCellEditorProvider
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { resolveCodexCustomMerge } from "../../../src/projectManager/utils/merge/resolvers";
 import { codexSubtitleContent } from "./mocks/codexSubtitleContent";
-import { CodexNotebookAsJSONData } from "../../../types";
+import { CodexNotebookAsJSONData, FileEditHistory } from "../../../types";
 import { swallowDuplicateCommandRegistrations, createMockExtensionContext, createTempCodexFile, deleteIfExists, sleep } from "../testUtils";
 
 suite("Provider + Merge Integration - multi-user multi-field edits", () => {
@@ -747,6 +747,202 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
             assert.strictEqual(mergeEdits.length, 0, "Resolver should not stamp MERGE edits");
             // And should not set merged flag during plain resolve
             assert.ok(!mergedCell.metadata?.data?.merged, "Resolver should not set merged flag");
+        } finally {
+            await deleteIfExists(oursTmp);
+            await deleteIfExists(theirsTmp);
+        }
+    });
+
+    test("file-level metadata edits by different users merge by most recent per field", async () => {
+        const context = createMockExtensionContext();
+        const providerLocal = new CodexCellEditorProvider(context);
+
+        // Fresh copies for isolation
+        const oursTmp = await createTempCodexFile(`merge-metadata-ours-${Date.now()}.codex`, JSON.parse(JSON.stringify(codexSubtitleContent)));
+        const theirsTmp = await createTempCodexFile(`merge-metadata-theirs-${Date.now()}.codex`, JSON.parse(JSON.stringify(codexSubtitleContent)));
+        try {
+            const oursDoc = await providerLocal.openCustomDocument(
+                oursTmp,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            const theirsDoc = await providerLocal.openCustomDocument(
+                theirsTmp,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Force authors for deterministic edit author fields
+            (oursDoc as any)._author = "user-one";
+            (theirsDoc as any)._author = "user-two";
+
+            // Sequence operations with small delays to enforce timestamp ordering across docs
+            const SLEEP_MS = 30;
+
+            // Test data constants for traceability
+            const earlierVideoUrl = "https://example.com/video1.mp4";
+            const latestVideoUrl = "https://example.com/video2.mp4";
+            const ourInitialFileDisplayName = "Our File";
+            const theirFileDisplayName = "Their File";
+            const ourLatestFileDisplayName = "Our File V2";
+            const earlierCorpusMarker = "OT";
+            const latestCorpusMarker = "NT";
+
+            // VideoUrl: ours first, theirs later -> theirs should win
+            oursDoc.updateNotebookMetadata({ videoUrl: earlierVideoUrl });
+            await sleep(SLEEP_MS);
+            theirsDoc.updateNotebookMetadata({ videoUrl: latestVideoUrl });
+
+            // FileDisplayName: theirs first, ours later -> our latest should win
+            await sleep(SLEEP_MS);
+            oursDoc.updateNotebookMetadata({ fileDisplayName: ourInitialFileDisplayName });
+            await sleep(SLEEP_MS);
+            theirsDoc.updateNotebookMetadata({ fileDisplayName: theirFileDisplayName });
+            // Intentionally make our value the latest by updating once more
+            await sleep(SLEEP_MS);
+            oursDoc.updateNotebookMetadata({ fileDisplayName: ourLatestFileDisplayName });
+
+            // CorpusMarker: ours first, theirs later -> theirs should win
+            await sleep(SLEEP_MS);
+            oursDoc.updateNotebookMetadata({ corpusMarker: earlierCorpusMarker });
+            await sleep(SLEEP_MS);
+            theirsDoc.updateNotebookMetadata({ corpusMarker: latestCorpusMarker });
+
+            // Build content strings
+            const ourJson = (oursDoc as any).getText() as string;
+            const theirJson = (theirsDoc as any).getText() as string;
+
+            const merged = await resolveCodexCustomMerge(ourJson, theirJson);
+            const notebook = JSON.parse(merged);
+
+            // VideoUrl should be from the later edit (theirs)
+            assert.strictEqual(notebook.metadata.videoUrl, latestVideoUrl, "VideoUrl should be from latest edit");
+
+            // FileDisplayName should be from the latest edit (ours v2)
+            assert.strictEqual(notebook.metadata.fileDisplayName, ourLatestFileDisplayName, "FileDisplayName should be from latest edit");
+
+            // CorpusMarker should be from the later edit (theirs)
+            assert.strictEqual(notebook.metadata.corpusMarker, latestCorpusMarker, "CorpusMarker should be from latest edit");
+
+            // Edit history should include both videoUrl edits, both fileDisplayName edits, and both corpusMarker edits
+            const edits: FileEditHistory[] = notebook.metadata.edits || [];
+            const isEditPath = (e: FileEditHistory, path: readonly string[]) => {
+                return Array.isArray(e.editMap) && e.editMap.length === path.length &&
+                    e.editMap.every((val, idx) => val === path[idx]);
+            };
+
+            assert.ok(edits.some((e) => isEditPath(e, ["metadata", "videoUrl"]) && e.value === earlierVideoUrl),
+                "Should contain earlier videoUrl edit");
+            assert.ok(edits.some((e) => isEditPath(e, ["metadata", "videoUrl"]) && e.value === latestVideoUrl),
+                "Should contain latest videoUrl edit");
+            assert.ok(edits.some((e) => isEditPath(e, ["metadata", "fileDisplayName"]) && e.value === ourInitialFileDisplayName),
+                "Should contain initial fileDisplayName edit");
+            assert.ok(edits.some((e) => isEditPath(e, ["metadata", "fileDisplayName"]) && e.value === theirFileDisplayName),
+                "Should contain their fileDisplayName edit");
+            assert.ok(edits.some((e) => isEditPath(e, ["metadata", "fileDisplayName"]) && e.value === ourLatestFileDisplayName),
+                "Should contain latest fileDisplayName edit");
+            assert.ok(edits.some((e) => isEditPath(e, ["metadata", "corpusMarker"]) && e.value === earlierCorpusMarker),
+                "Should contain earlier corpusMarker edit");
+            assert.ok(edits.some((e) => isEditPath(e, ["metadata", "corpusMarker"]) && e.value === latestCorpusMarker),
+                "Should contain latest corpusMarker edit");
+
+            // Assert that each edit we performed produced an edit record with the correct editMap
+            const expectEditRecord = (path: readonly string[], value: string | number | boolean) => {
+                const match = edits.find((e) => isEditPath(e, path) && e.value === value);
+                assert.ok(match, `Expected edit record for ${path.join(".")} with value ${String(value)}`);
+                assert.ok(Array.isArray(match.editMap), "editMap should be an array");
+                assert.ok(typeof match.timestamp === "number", "Edit should have timestamp");
+                assert.ok(typeof match.author === "string", "Edit should have author");
+            };
+
+            // VideoUrl edit records
+            expectEditRecord(["metadata", "videoUrl"], earlierVideoUrl);
+            expectEditRecord(["metadata", "videoUrl"], latestVideoUrl);
+
+            // FileDisplayName edit records
+            expectEditRecord(["metadata", "fileDisplayName"], ourInitialFileDisplayName);
+            expectEditRecord(["metadata", "fileDisplayName"], theirFileDisplayName);
+            expectEditRecord(["metadata", "fileDisplayName"], ourLatestFileDisplayName);
+
+            // CorpusMarker edit records
+            expectEditRecord(["metadata", "corpusMarker"], earlierCorpusMarker);
+            expectEditRecord(["metadata", "corpusMarker"], latestCorpusMarker);
+        } finally {
+            await deleteIfExists(oursTmp);
+            await deleteIfExists(theirsTmp);
+        }
+    });
+
+    test("merge deduplicates file-level metadata edits with same timestamp, editMap, and value", async () => {
+        const oursTmp = await createTempCodexFile(`merge-ours-${Date.now()}.codex`, codexSubtitleContent);
+        const theirsTmp = await createTempCodexFile(`merge-theirs-${Date.now()}.codex`, codexSubtitleContent);
+
+        try {
+            const oursDoc = await provider.openCustomDocument(
+                oursTmp,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const theirsDoc = await provider.openCustomDocument(
+                theirsTmp,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const videoUrl = "https://example.com/video.mp4";
+            const timestamp = Date.now();
+
+            // Add duplicate edits to both documents
+            const oursContent = JSON.parse(oursDoc.getText());
+            oursContent.metadata.edits = [
+                {
+                    editMap: ["metadata", "videoUrl"],
+                    value: videoUrl,
+                    timestamp: timestamp,
+                    type: EditType.USER_EDIT,
+                    author: "user1",
+                },
+                {
+                    editMap: ["metadata", "videoUrl"],
+                    value: videoUrl,
+                    timestamp: timestamp,
+                    type: EditType.USER_EDIT,
+                    author: "user1",
+                },
+            ];
+
+            const theirsContent = JSON.parse(theirsDoc.getText());
+            theirsContent.metadata.edits = [
+                {
+                    editMap: ["metadata", "videoUrl"],
+                    value: videoUrl,
+                    timestamp: timestamp,
+                    type: EditType.USER_EDIT,
+                    author: "user2",
+                },
+            ];
+
+            // Merge the two contents
+            const oursJson = JSON.stringify(oursContent);
+            const theirsJson = JSON.stringify(theirsContent);
+
+            const merged = await resolveCodexCustomMerge(oursJson, theirsJson);
+            const notebook = JSON.parse(merged);
+
+            // Should have deduplicated the duplicate edits
+            const edits: FileEditHistory[] = notebook.metadata.edits || [];
+            const videoUrlEdits = edits.filter((e) => {
+                return Array.isArray(e.editMap) &&
+                    e.editMap.length === 2 &&
+                    e.editMap[0] === "metadata" &&
+                    e.editMap[1] === "videoUrl" &&
+                    e.value === videoUrl &&
+                    e.timestamp === timestamp;
+            });
+
+            assert.strictEqual(videoUrlEdits.length, 1, "Should deduplicate identical edits from merge");
+            assert.strictEqual(videoUrlEdits[0].value, videoUrl, "Remaining edit should have correct value");
         } finally {
             await deleteIfExists(oursTmp);
             await deleteIfExists(theirsTmp);

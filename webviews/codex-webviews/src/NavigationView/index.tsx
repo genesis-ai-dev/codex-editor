@@ -439,7 +439,8 @@ function NavigationView() {
 
     const handleEditCorpusMarker = (item: CodexItem) => {
         const currentCorpusName =
-            item.corpusMarker || formatLabel(item.label, state.bibleBookMap || new Map());
+            item.children?.[0]?.corpusMarker ||
+            formatLabel(item.label, state.bibleBookMap || new Map());
         setState((prev) => ({
             ...prev,
             renameModal: {
@@ -703,11 +704,6 @@ function NavigationView() {
         const itemId = `${item.label || "unknown"}-${item.uri || ""}`;
 
         const isProjectDict = item.isProjectDictionary;
-
-        // Debug logging (can be removed later)
-        if (!displayLabel || displayLabel.trim() === "") {
-            console.warn("Empty display label for item:", item);
-        }
 
         // Handle click on the entire item container
         const handleItemClick = (e: React.MouseEvent) => {
@@ -1005,7 +1001,7 @@ function NavigationView() {
                 {projectDictionary && renderItem(projectDictionary)}
             </div>
 
-            {/* Rename Modal */}
+            {/* Corpus Marker Modal */}
             <RenameModal
                 open={state.renameModal.isOpen}
                 title="Rename Corpus"

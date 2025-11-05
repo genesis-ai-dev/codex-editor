@@ -7,6 +7,19 @@ type DataStartTimeEditMap = ["metadata", "data", "startTime"];
 type DataEndTimeEditMap = ["metadata", "data", "endTime"];
 type SelectedAudioIdEditMap = ["metadata", "selectedAudioId"];
 type SelectionTimestampEditMap = ["metadata", "selectionTimestamp"];
+// File-level metadata editMaps
+type MetadataVideoUrlEditMap = ["metadata", "videoUrl"];
+type MetadataTextDirectionEditMap = ["metadata", "textDirection"];
+type MetadataLineNumbersEnabledEditMap = ["metadata", "lineNumbersEnabled"];
+type MetadataFontSizeEditMap = ["metadata", "fontSize"];
+type MetadataAutoDownloadAudioOnOpenEditMap = ["metadata", "autoDownloadAudioOnOpen"];
+type MetadataShowInlineBacktranslationsEditMap = ["metadata", "showInlineBacktranslations"];
+type MetadataFileDisplayNameEditMap = ["metadata", "fileDisplayName"];
+type MetadataCellDisplayModeEditMap = ["metadata", "cellDisplayMode"];
+type MetadataAudioOnlyEditMap = ["metadata", "audioOnly"];
+type MetadataCorpusMarkerEditMap = ["metadata", "corpusMarker"];
+
+import { EditType } from "../../types/enums";
 
 // Utility functions for working with editMaps
 export const EditMapUtils = {
@@ -52,6 +65,52 @@ export const EditMapUtils = {
         return ["metadata", "selectionTimestamp"];
     },
 
+    // File-level metadata field helpers
+    metadataVideoUrl(): MetadataVideoUrlEditMap {
+        return ["metadata", "videoUrl"];
+    },
+
+    metadataTextDirection(): MetadataTextDirectionEditMap {
+        return ["metadata", "textDirection"];
+    },
+
+    metadataLineNumbersEnabled(): MetadataLineNumbersEnabledEditMap {
+        return ["metadata", "lineNumbersEnabled"];
+    },
+
+    metadataFontSize(): MetadataFontSizeEditMap {
+        return ["metadata", "fontSize"];
+    },
+
+    metadataAutoDownloadAudioOnOpen(): MetadataAutoDownloadAudioOnOpenEditMap {
+        return ["metadata", "autoDownloadAudioOnOpen"];
+    },
+
+    metadataShowInlineBacktranslations(): MetadataShowInlineBacktranslationsEditMap {
+        return ["metadata", "showInlineBacktranslations"];
+    },
+
+    metadataFileDisplayName(): MetadataFileDisplayNameEditMap {
+        return ["metadata", "fileDisplayName"];
+    },
+
+    metadataCellDisplayMode(): MetadataCellDisplayModeEditMap {
+        return ["metadata", "cellDisplayMode"];
+    },
+
+    metadataAudioOnly(): MetadataAudioOnlyEditMap {
+        return ["metadata", "audioOnly"];
+    },
+
+    metadataCorpusMarker(): MetadataCorpusMarkerEditMap {
+        return ["metadata", "corpusMarker"];
+    },
+
+    // Generic helper for any file-level metadata field
+    metadataField(field: string): readonly ["metadata", string] {
+        return ["metadata", field];
+    },
+
     // Compare editMaps
     equals(editMap1: readonly string[], editMap2: readonly string[]): boolean {
         return JSON.stringify(editMap1) === JSON.stringify(editMap2);
@@ -95,4 +154,102 @@ export function filterEditsByPath<TEditMap extends readonly string[]>(
     editMap: TEditMap
 ): Array<{ editMap: TEditMap; value: string | number | boolean | object; timestamp: number; type: any; author?: string; validatedBy?: any[]; }> {
     return edits.filter(isEditWithPath(editMap));
+}
+
+/**
+ * Deduplicates file-level metadata edits based on timestamp, editMap, and value
+ * Returns sorted array of unique edits
+ */
+export function deduplicateFileMetadataEdits(
+    edits: any[]
+): any[] {
+    if (!edits || edits.length === 0) {
+        return [];
+    }
+
+    // Create a Map to track unique edits by key: timestamp:editMap:value
+    const editMap = new Map<string, any>();
+
+    edits.forEach((edit) => {
+        if (edit.editMap && Array.isArray(edit.editMap)) {
+            const editMapKey = edit.editMap.join('.');
+            const key = `${edit.timestamp}:${editMapKey}:${edit.value}`;
+
+            // Keep the first occurrence of a duplicate (file-level edits don't have validatedBy)
+            if (!editMap.has(key)) {
+                editMap.set(key, edit);
+            }
+        }
+    });
+
+    // Convert map back to array and sort by timestamp
+    return Array.from(editMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+}
+
+/**
+ * Helper function to add an edit entry to metadata edits when updating metadata fields directly
+ * This is used when updating metadata outside of CodexCellDocument.updateNotebookMetadata()
+ */
+export function addMetadataEdit(
+    metadata: { edits?: any[]; },
+    field: string,
+    value: any,
+    author: string
+): void {
+    // Initialize edits array if it doesn't exist
+    if (!metadata.edits) {
+        metadata.edits = [];
+    }
+
+    const currentTimestamp = Date.now();
+
+    // Determine editMap based on field name
+    let editMap: readonly string[];
+    switch (field) {
+        case "videoUrl":
+            editMap = EditMapUtils.metadataVideoUrl();
+            break;
+        case "textDirection":
+            editMap = EditMapUtils.metadataTextDirection();
+            break;
+        case "lineNumbersEnabled":
+            editMap = EditMapUtils.metadataLineNumbersEnabled();
+            break;
+        case "fontSize":
+            editMap = EditMapUtils.metadataFontSize();
+            break;
+        case "autoDownloadAudioOnOpen":
+            editMap = EditMapUtils.metadataAutoDownloadAudioOnOpen();
+            break;
+        case "showInlineBacktranslations":
+            editMap = EditMapUtils.metadataShowInlineBacktranslations();
+            break;
+        case "fileDisplayName":
+            editMap = EditMapUtils.metadataFileDisplayName();
+            break;
+        case "cellDisplayMode":
+            editMap = EditMapUtils.metadataCellDisplayMode();
+            break;
+        case "audioOnly":
+            editMap = EditMapUtils.metadataAudioOnly();
+            break;
+        case "corpusMarker":
+            editMap = EditMapUtils.metadataCorpusMarker();
+            break;
+        default:
+            editMap = EditMapUtils.metadataField(field);
+    }
+
+    // Create the new edit entry
+    const newEdit = {
+        editMap,
+        value,
+        timestamp: currentTimestamp,
+        type: EditType.USER_EDIT,
+        author,
+    };
+
+    // Add the new edit and deduplicate
+    metadata.edits.push(newEdit);
+    metadata.edits = deduplicateFileMetadataEdits(metadata.edits);
 }

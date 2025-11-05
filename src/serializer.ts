@@ -61,6 +61,12 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
         });
         const notebookData = new vscode.NotebookData(cells);
         notebookData.metadata = raw.metadata || {};
+
+        // Ensure metadata.edits array exists for backward compatibility
+        if (!notebookData.metadata.edits) {
+            notebookData.metadata.edits = [];
+        }
+
         debug("Notebook deserialization complete", { cellCount: cells.length });
         return notebookData as CodexNotebookAsJSONData;
     }
