@@ -377,7 +377,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // IMMEDIATE INDEXING: Add the cell to the database immediately after translation
         // Fire and forget for non-blocking, but allow await when needed
         if ((editType === EditType.LLM_GENERATION && shouldUpdateValue) || editType === EditType.USER_EDIT) {
-            this.addCellToIndexImmediately(cellId, newContent, editType).catch(error => {
+            Promise.resolve(this.addCellToIndexImmediately(cellId, newContent, editType)).catch(error => {
                 console.error(`[CodexDocument] Async error in immediate indexing for cell ${cellId}:`, error);
             });
         }
