@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { CustomNotebookMetadata } from "../../../types";
+import { CodexContentSerializer } from "../../serializer";
 
 // NOTE: This test avoids calling vscode.workspace.updateWorkspaceFolders() or vscode.commands.executeCommand('vscode.openFolder')
 // as these operations cause the extension host to exit unexpectedly in CI environments.
@@ -201,5 +202,379 @@ suite("NotebookMetadataManager Test Suite", () => {
             // Don't fail the test if file operations fail in CI
             assert.ok(true, "File operations test completed (may have failed due to CI environment)");
         }
+    });
+
+    suite("fileDisplayName migration tests", () => {
+        let workspaceFolder: vscode.WorkspaceFolder | undefined;
+        let tempFiles: vscode.Uri[] = [];
+
+        setup(async () => {
+            workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                return; // Skip tests if no workspace folder
+            }
+
+            // Create necessary directory structure
+            const projectDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project");
+            const sourceDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts");
+            const filesDir = vscode.Uri.joinPath(workspaceFolder.uri, "files");
+            const codexDir = vscode.Uri.joinPath(workspaceFolder.uri, "files", "target");
+            try {
+                await vscode.workspace.fs.createDirectory(projectDir);
+            } catch {
+                // Directory might already exist
+            }
+            try {
+                await vscode.workspace.fs.createDirectory(sourceDir);
+            } catch {
+                // Directory might already exist
+            }
+            try {
+                await vscode.workspace.fs.createDirectory(filesDir);
+            } catch {
+                // Directory might already exist
+            }
+            try {
+                await vscode.workspace.fs.createDirectory(codexDir);
+            } catch {
+                // Directory might already exist
+            }
+        });
+
+        teardown(async () => {
+            // Clean up all temp files
+            for (const uri of tempFiles) {
+                try {
+                    await vscode.workspace.fs.delete(uri);
+                } catch {
+                    // Ignore cleanup errors
+                }
+            }
+            tempFiles = [];
+        });
+
+        async function createNotebookFile(
+            fileName: string,
+            isSource: boolean,
+            metadata: Partial<CustomNotebookMetadata> = {}
+        ): Promise<vscode.Uri> {
+            if (!workspaceFolder) {
+                throw new Error("No workspace folder found");
+            }
+
+            const dir = isSource
+                ? vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts")
+                : vscode.Uri.joinPath(workspaceFolder.uri, "files", "target");
+            const ext = isSource ? ".source" : ".codex";
+            const fileUri = vscode.Uri.joinPath(dir, `${fileName}${ext}`);
+
+            const notebookData = {
+                cells: [
+                    {
+                        kind: vscode.NotebookCellKind.Code,
+                        value: "test content",
+                        languageId: "html",
+                        metadata: { id: "test-1" },
+                    },
+                ],
+                metadata: {
+                    id: fileName,
+                    navigation: [],
+                    sourceCreatedAt: "",
+                    codexLastModified: "",
+                    corpusMarker: "",
+                    ...metadata,
+                    // Set originalName from metadata if provided, otherwise use fileName
+                    originalName: metadata.originalName !== undefined ? metadata.originalName : fileName,
+                },
+            };
+
+            const serializer = new CodexContentSerializer();
+            const serialized = await serializer.serializeNotebook(
+                notebookData,
+                new vscode.CancellationTokenSource().token
+            );
+            await vscode.workspace.fs.writeFile(fileUri, serialized);
+
+            tempFiles.push(fileUri);
+            return fileUri;
+        }
+
+        test("should preserve existing fileDisplayName in .codex file", async () => {
+            if (!workspaceFolder) {
+                return;
+            }
+
+            const codexUri = await createNotebookFile("GEN", false, {
+                fileDisplayName: "Custom Genesis Name",
+            });
+
+            await manager.initialize();
+            await manager.loadMetadata();
+
+            // Verify fileDisplayName was preserved
+            const serializer = new CodexContentSerializer();
+            const content = await vscode.workspace.fs.readFile(codexUri);
+            const notebookData = await serializer.deserializeNotebook(
+                content,
+                new vscode.CancellationTokenSource().token
+            );
+            const metadata = notebookData.metadata as CustomNotebookMetadata;
+
+            assert.strictEqual(
+                metadata.fileDisplayName,
+                "Custom Genesis Name",
+                "fileDisplayName should be preserved"
+            );
+        });
+
+        test("should preserve existing fileDisplayName in .source file", async () => {
+            if (!workspaceFolder) {
+                return;
+            }
+
+            const sourceUri = await createNotebookFile("GEN", true, {
+                fileDisplayName: "Custom Genesis Source Name",
+            });
+
+            await manager.initialize();
+            await manager.loadMetadata();
+
+            // Verify fileDisplayName was preserved
+            const serializer = new CodexContentSerializer();
+            const content = await vscode.workspace.fs.readFile(sourceUri);
+            const notebookData = await serializer.deserializeNotebook(
+                content,
+                new vscode.CancellationTokenSource().token
+            );
+            const metadata = notebookData.metadata as CustomNotebookMetadata;
+
+            assert.strictEqual(
+                metadata.fileDisplayName,
+                "Custom Genesis Source Name",
+                "fileDisplayName should be preserved in source file"
+            );
+        });
+
+        test("should use originalName when fileDisplayName is missing in .codex file", async () => {
+            if (!workspaceFolder) {
+                return;
+            }
+
+            const codexUri = await createNotebookFile("MAT", false, {
+                originalName: "Matthew",
+                // fileDisplayName is intentionally missing
+            });
+
+            await manager.initialize();
+            await manager.loadMetadata();
+
+            // Verify fileDisplayName was set from originalName
+            const serializer = new CodexContentSerializer();
+            const content = await vscode.workspace.fs.readFile(codexUri);
+            const notebookData = await serializer.deserializeNotebook(
+                content,
+                new vscode.CancellationTokenSource().token
+            );
+            const metadata = notebookData.metadata as CustomNotebookMetadata;
+
+            assert.strictEqual(
+                metadata.fileDisplayName,
+                "Matthew",
+                "fileDisplayName should be set from originalName"
+            );
+        });
+
+        test("should use originalName when fileDisplayName is missing in .source file", async () => {
+            if (!workspaceFolder) {
+                return;
+            }
+
+            const sourceUri = await createNotebookFile("MAT", true, {
+                originalName: "Matthew Source",
+                // fileDisplayName is intentionally missing
+            });
+
+            await manager.initialize();
+            await manager.loadMetadata();
+
+            // Verify fileDisplayName was set from originalName
+            const serializer = new CodexContentSerializer();
+            const content = await vscode.workspace.fs.readFile(sourceUri);
+            const notebookData = await serializer.deserializeNotebook(
+                content,
+                new vscode.CancellationTokenSource().token
+            );
+            const metadata = notebookData.metadata as CustomNotebookMetadata;
+
+            assert.strictEqual(
+                metadata.fileDisplayName,
+                "Matthew Source",
+                "fileDisplayName should be set from originalName in source file"
+            );
+        });
+
+        test("should derive fileDisplayName from USFM code for biblical .codex file", async () => {
+            if (!workspaceFolder) {
+                return;
+            }
+
+            const codexUri = await createNotebookFile("REV", false, {
+                originalName: "", // Empty originalName to force derivation from filename
+                // No fileDisplayName
+            });
+
+            await manager.initialize();
+            await manager.loadMetadata();
+
+            // Verify fileDisplayName was derived from USFM code
+            const serializer = new CodexContentSerializer();
+            const content = await vscode.workspace.fs.readFile(codexUri);
+            const notebookData = await serializer.deserializeNotebook(
+                content,
+                new vscode.CancellationTokenSource().token
+            );
+            const metadata = notebookData.metadata as CustomNotebookMetadata;
+
+            assert.ok(
+                metadata.fileDisplayName,
+                "fileDisplayName should be set"
+            );
+            assert.strictEqual(
+                metadata.fileDisplayName,
+                "Revelation",
+                "fileDisplayName should be derived from USFM code"
+            );
+        });
+
+        test("should derive fileDisplayName from filename for non-biblical .codex file", async () => {
+            if (!workspaceFolder) {
+                return;
+            }
+
+            const codexUri = await createNotebookFile("custom-story", false, {
+                // No fileDisplayName or originalName
+            });
+
+            await manager.initialize();
+            await manager.loadMetadata();
+
+            // Verify fileDisplayName was derived from filename
+            const serializer = new CodexContentSerializer();
+            const content = await vscode.workspace.fs.readFile(codexUri);
+            const notebookData = await serializer.deserializeNotebook(
+                content,
+                new vscode.CancellationTokenSource().token
+            );
+            const metadata = notebookData.metadata as CustomNotebookMetadata;
+
+            assert.strictEqual(
+                metadata.fileDisplayName,
+                "custom-story",
+                "fileDisplayName should be derived from filename"
+            );
+        });
+
+        test("should handle empty fileDisplayName string", async () => {
+            if (!workspaceFolder) {
+                return;
+            }
+
+            const codexUri = await createNotebookFile("LEV", false, {
+                fileDisplayName: "",
+                originalName: "Leviticus",
+            });
+
+            await manager.initialize();
+            await manager.loadMetadata();
+
+            // Verify fileDisplayName was set from originalName
+            const serializer = new CodexContentSerializer();
+            const content = await vscode.workspace.fs.readFile(codexUri);
+            const notebookData = await serializer.deserializeNotebook(
+                content,
+                new vscode.CancellationTokenSource().token
+            );
+            const metadata = notebookData.metadata as CustomNotebookMetadata;
+
+            assert.strictEqual(
+                metadata.fileDisplayName,
+                "Leviticus",
+                "fileDisplayName should be set from originalName when empty string"
+            );
+        });
+
+        test("should handle whitespace-only fileDisplayName", async () => {
+            if (!workspaceFolder) {
+                return;
+            }
+
+            const codexUri = await createNotebookFile("NUM", false, {
+                fileDisplayName: "   ",
+                originalName: "Numbers",
+            });
+
+            await manager.initialize();
+            await manager.loadMetadata();
+
+            // Verify fileDisplayName was set from originalName
+            const serializer = new CodexContentSerializer();
+            const content = await vscode.workspace.fs.readFile(codexUri);
+            const notebookData = await serializer.deserializeNotebook(
+                content,
+                new vscode.CancellationTokenSource().token
+            );
+            const metadata = notebookData.metadata as CustomNotebookMetadata;
+
+            assert.strictEqual(
+                metadata.fileDisplayName,
+                "Numbers",
+                "fileDisplayName should be set from originalName when whitespace-only"
+            );
+        });
+
+        test("should update both .codex and .source files for same book", async () => {
+            if (!workspaceFolder) {
+                return;
+            }
+
+            const codexUri = await createNotebookFile("JOH", false, {
+                originalName: "John",
+            });
+            const sourceUri = await createNotebookFile("JOH", true, {
+                originalName: "John",
+            });
+
+            await manager.initialize();
+            await manager.loadMetadata();
+
+            // Verify both files have fileDisplayName set
+            const serializer = new CodexContentSerializer();
+
+            const codexContent = await vscode.workspace.fs.readFile(codexUri);
+            const codexData = await serializer.deserializeNotebook(
+                codexContent,
+                new vscode.CancellationTokenSource().token
+            );
+            const codexMetadata = codexData.metadata as CustomNotebookMetadata;
+
+            const sourceContent = await vscode.workspace.fs.readFile(sourceUri);
+            const sourceData = await serializer.deserializeNotebook(
+                sourceContent,
+                new vscode.CancellationTokenSource().token
+            );
+            const sourceMetadata = sourceData.metadata as CustomNotebookMetadata;
+
+            assert.strictEqual(
+                codexMetadata.fileDisplayName,
+                "John",
+                "codex file should have fileDisplayName set"
+            );
+            assert.strictEqual(
+                sourceMetadata.fileDisplayName,
+                "John",
+                "source file should have fileDisplayName set"
+            );
+        });
     });
 });
