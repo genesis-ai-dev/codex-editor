@@ -8,7 +8,9 @@ import { CodexCellDocument } from "../../providers/codexCellEditorProvider/codex
 import { handleMessages } from "../../providers/codexCellEditorProvider/codexCellEditorMessagehandling";
 import { codexSubtitleContent } from "./mocks/codexSubtitleContent";
 import { CodexCellTypes, EditType } from "../../../types/enums";
-import { CodexNotebookAsJSONData, QuillCellContent, Timestamps } from "../../../types";
+import { CodexNotebookAsJSONData, QuillCellContent, Timestamps, FileEditHistory } from "../../../types";
+import { EditMapUtils } from "../../utils/editMapUtils";
+import { CodexContentSerializer } from "../../serializer";
 import { swallowDuplicateCommandRegistrations, createTempCodexFile, deleteIfExists, createMockExtensionContext, primeProviderWorkspaceStateForHtml, sleep } from "../testUtils";
 
 suite("CodexCellEditorProvider Test Suite", () => {
@@ -1870,5 +1872,316 @@ suite("CodexCellEditorProvider Test Suite", () => {
             llmStub.restore();
             await deleteIfExists(uniqueUri);
         }
+    });
+
+    suite("File-level metadata edits array", () => {
+        test("updateNotebookMetadata creates edit entries in metadata.edits array", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const before = JSON.parse(document.getText());
+            assert.ok(!before.metadata.edits || before.metadata.edits.length === 0, "Metadata should have no prior edits");
+
+            const newVideoUrl = "https://example.com/video.mp4";
+            const newTextDirection = "rtl" as const;
+
+            document.updateNotebookMetadata({
+                videoUrl: newVideoUrl,
+                textDirection: newTextDirection,
+            });
+
+            const after = JSON.parse(document.getText());
+            const edits: FileEditHistory[] = after.metadata.edits || [];
+
+            assert.ok(edits.length >= 2, "Should create edit entries for both fields");
+
+            const videoUrlEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metadataVideoUrl()));
+            const textDirectionEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metadataTextDirection()));
+
+            assert.ok(videoUrlEdit, "Should have videoUrl edit entry");
+            assert.strictEqual(videoUrlEdit.value, newVideoUrl, "VideoUrl edit should have correct value");
+            assert.strictEqual(videoUrlEdit.type, EditType.USER_EDIT, "Edit should be USER_EDIT type");
+            assert.ok(typeof videoUrlEdit.timestamp === "number", "Edit should have timestamp");
+            assert.ok(typeof videoUrlEdit.author === "string", "Edit should have author");
+
+            assert.ok(textDirectionEdit, "Should have textDirection edit entry");
+            assert.strictEqual(textDirectionEdit.value, newTextDirection, "TextDirection edit should have correct value");
+            assert.strictEqual(textDirectionEdit.type, EditType.USER_EDIT, "Edit should be USER_EDIT type");
+
+            // Verify metadata values were updated
+            assert.strictEqual(after.metadata.videoUrl, newVideoUrl, "VideoUrl should be updated");
+            assert.strictEqual(after.metadata.textDirection, newTextDirection, "TextDirection should be updated");
+        });
+
+        test("updateNotebookMetadata creates edit entries for all metadata fields", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const metadataUpdates = {
+                videoUrl: "https://example.com/video.mp4",
+                textDirection: "rtl" as const,
+                lineNumbersEnabled: false,
+                fontSize: 16,
+                showInlineBacktranslations: false,
+                fileDisplayName: "Test File",
+                cellDisplayMode: "one-line-per-cell" as const,
+                audioOnly: true,
+                corpusMarker: "NT",
+            };
+
+            document.updateNotebookMetadata(metadataUpdates);
+
+            const after = JSON.parse(document.getText());
+            const edits: FileEditHistory[] = after.metadata.edits || [];
+
+            // Verify edit entries exist for all fields
+            const isEditPath = (e: FileEditHistory, path: readonly string[]) => EditMapUtils.equals(e.editMap, path);
+
+            assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataVideoUrl())), "Should have videoUrl edit");
+            assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataTextDirection())), "Should have textDirection edit");
+            assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataLineNumbersEnabled())), "Should have lineNumbersEnabled edit");
+            assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataFontSize())), "Should have fontSize edit");
+            assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataShowInlineBacktranslations())), "Should have showInlineBacktranslations edit");
+            assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataFileDisplayName())), "Should have fileDisplayName edit");
+            assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataCellDisplayMode())), "Should have cellDisplayMode edit");
+            assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataAudioOnly())), "Should have audioOnly edit");
+            assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataCorpusMarker())), "Should have corpusMarker edit");
+
+            // Verify autoDownloadAudioOnOpen is NOT tracked as a file-level edit (it's a project-level setting)
+            assert.ok(!edits.some((e) => isEditPath(e, EditMapUtils.metadataAutoDownloadAudioOnOpen())), "Should NOT have autoDownloadAudioOnOpen edit (it's project-level, not file-level)");
+
+            // Verify values match
+            edits.forEach((edit) => {
+                const fieldName = edit.editMap[1];
+                const expectedValue = metadataUpdates[fieldName as keyof typeof metadataUpdates];
+                if (expectedValue !== undefined) {
+                    assert.strictEqual(edit.value, expectedValue, `Edit value for ${fieldName} should match`);
+                }
+            });
+        });
+
+        test("updateNotebookMetadata edits persist after save", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const newVideoUrl = "https://example.com/persisted-video.mp4";
+            const newFileDisplayName = "Persisted File Name";
+
+            document.updateNotebookMetadata({
+                videoUrl: newVideoUrl,
+                fileDisplayName: newFileDisplayName,
+            });
+
+            // Save the document
+            await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+
+            // Read file content from disk to verify persisted state
+            const fileBytes = await vscode.workspace.fs.readFile(tempUri);
+            const persisted = JSON.parse(new TextDecoder().decode(fileBytes));
+
+            assert.ok(persisted.metadata.edits, "Metadata should have edits array");
+            const edits: FileEditHistory[] = persisted.metadata.edits;
+
+            const videoUrlEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metadataVideoUrl()));
+            const fileDisplayNameEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metadataFileDisplayName()));
+
+            assert.ok(videoUrlEdit, "VideoUrl edit should persist after save");
+            assert.strictEqual(videoUrlEdit.value, newVideoUrl, "Persisted videoUrl edit should have correct value");
+            assert.ok(fileDisplayNameEdit, "FileDisplayName edit should persist after save");
+            assert.strictEqual(fileDisplayNameEdit.value, newFileDisplayName, "Persisted fileDisplayName edit should have correct value");
+
+            // Verify metadata values were persisted
+            assert.strictEqual(persisted.metadata.videoUrl, newVideoUrl, "VideoUrl should be persisted");
+            assert.strictEqual(persisted.metadata.fileDisplayName, newFileDisplayName, "FileDisplayName should be persisted");
+        });
+
+        test("updateNotebookMetadata creates separate edit entries for each update", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const firstVideoUrl = "https://example.com/video1.mp4";
+            const secondVideoUrl = "https://example.com/video2.mp4";
+            const thirdVideoUrl = "https://example.com/video3.mp4";
+
+            document.updateNotebookMetadata({ videoUrl: firstVideoUrl });
+            await sleep(20);
+            document.updateNotebookMetadata({ videoUrl: secondVideoUrl });
+            await sleep(20);
+            document.updateNotebookMetadata({ videoUrl: thirdVideoUrl });
+
+            const after = JSON.parse(document.getText());
+            const edits: FileEditHistory[] = after.metadata.edits || [];
+
+            const videoUrlEdits = edits.filter((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metadataVideoUrl()));
+
+            assert.ok(videoUrlEdits.length >= 3, "Should have at least 3 videoUrl edit entries");
+            assert.ok(videoUrlEdits.some((e) => e.value === firstVideoUrl), "Should have first videoUrl edit");
+            assert.ok(videoUrlEdits.some((e) => e.value === secondVideoUrl), "Should have second videoUrl edit");
+            assert.ok(videoUrlEdits.some((e) => e.value === thirdVideoUrl), "Should have third videoUrl edit");
+
+            // Verify timestamps are in order (allowing for some timing variance)
+            const sortedEdits = [...videoUrlEdits].sort((a, b) => a.timestamp - b.timestamp);
+            assert.strictEqual(sortedEdits[0].value, firstVideoUrl, "First edit should have earliest timestamp");
+            assert.strictEqual(sortedEdits[sortedEdits.length - 1].value, thirdVideoUrl, "Last edit should have latest timestamp");
+
+            // Verify metadata value reflects the latest edit
+            assert.strictEqual(after.metadata.videoUrl, thirdVideoUrl, "Metadata should reflect latest edit");
+        });
+
+        test("updateNotebookMetadata only creates edits for changed fields", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const initialVideoUrl = "https://example.com/initial.mp4";
+            document.updateNotebookMetadata({ videoUrl: initialVideoUrl });
+
+            const beforeEdits = JSON.parse(document.getText()).metadata.edits.length;
+
+            // Update with same value
+            document.updateNotebookMetadata({ videoUrl: initialVideoUrl });
+
+            const after = JSON.parse(document.getText());
+            const afterEdits = after.metadata.edits.length;
+
+            // Should not create a new edit for unchanged value
+            assert.strictEqual(afterEdits, beforeEdits, "Should not create edit for unchanged value");
+
+            // Update with different value
+            const newVideoUrl = "https://example.com/different.mp4";
+            document.updateNotebookMetadata({ videoUrl: newVideoUrl });
+
+            const final = JSON.parse(document.getText());
+            const finalEdits = final.metadata.edits.length;
+
+            assert.ok(finalEdits > afterEdits, "Should create edit for changed value");
+            assert.strictEqual(final.metadata.videoUrl, newVideoUrl, "Metadata should reflect new value");
+        });
+
+        test("updateNotebookMetadata edit entries have correct FileEditHistory structure", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Force author for deterministic test
+            (document as any)._author = "test-author";
+
+            document.updateNotebookMetadata({
+                videoUrl: "https://example.com/test.mp4",
+                fontSize: 14,
+                corpusMarker: "OT",
+            });
+
+            const after = JSON.parse(document.getText());
+            const edits: FileEditHistory[] = after.metadata.edits || [];
+
+            edits.forEach((edit) => {
+                // Verify FileEditHistory structure
+                assert.ok(Array.isArray(edit.editMap), "editMap should be an array");
+                assert.ok(edit.editMap.length >= 2, "editMap should have at least 2 elements");
+                assert.strictEqual(edit.editMap[0], "metadata", "First element of editMap should be 'metadata'");
+                assert.ok(typeof edit.value !== "undefined", "value should be defined");
+                assert.ok(typeof edit.timestamp === "number", "timestamp should be a number");
+                assert.strictEqual(edit.type, EditType.USER_EDIT, "type should be USER_EDIT");
+                assert.strictEqual(edit.author, "test-author", "author should match");
+            });
+        });
+
+        test("updateNotebookMetadata deduplicates edits with same timestamp, editMap, and value", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Force author for deterministic test
+            (document as any)._author = "test-author";
+
+            const videoUrl = "https://example.com/video.mp4";
+            const timestamp = Date.now();
+
+            // Manually create duplicate edits in the document's metadata
+            const notebookData = JSON.parse(document.getText());
+            notebookData.metadata.edits = [
+                {
+                    editMap: EditMapUtils.metadataVideoUrl(),
+                    value: videoUrl,
+                    timestamp: timestamp,
+                    type: EditType.USER_EDIT,
+                    author: "test-author",
+                },
+                {
+                    editMap: EditMapUtils.metadataVideoUrl(),
+                    value: videoUrl,
+                    timestamp: timestamp,
+                    type: EditType.USER_EDIT,
+                    author: "test-author",
+                },
+            ];
+            // Write back to simulate having duplicates
+            const serializer = new CodexContentSerializer();
+            const content = await serializer.serializeNotebook(notebookData, new vscode.CancellationTokenSource().token);
+            await vscode.workspace.fs.writeFile(tempUri, content);
+
+            // Reload document
+            const reloadedDoc = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Update metadata with a new field to trigger deduplication
+            reloadedDoc.updateNotebookMetadata({
+                textDirection: "rtl",
+            });
+
+            const after = JSON.parse(reloadedDoc.getText());
+            const edits: FileEditHistory[] = after.metadata.edits || [];
+
+            // Should have only one videoUrl edit (duplicate removed) plus one textDirection edit
+            const videoUrlEdits = edits.filter((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metadataVideoUrl()));
+            assert.strictEqual(videoUrlEdits.length, 1, "Should deduplicate identical edits");
+            assert.strictEqual(videoUrlEdits[0].value, videoUrl, "Remaining edit should have correct value");
+        });
+
+        test("updateNotebookMetadata preserves different edits with same editMap but different values", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const firstVideoUrl = "https://example.com/video1.mp4";
+            const secondVideoUrl = "https://example.com/video2.mp4";
+
+            document.updateNotebookMetadata({ videoUrl: firstVideoUrl });
+            await sleep(20);
+            document.updateNotebookMetadata({ videoUrl: secondVideoUrl });
+
+            const after = JSON.parse(document.getText());
+            const edits: FileEditHistory[] = after.metadata.edits || [];
+
+            // Should have two different videoUrl edits (different values)
+            const videoUrlEdits = edits.filter((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metadataVideoUrl()));
+            assert.ok(videoUrlEdits.length >= 2, "Should preserve edits with different values");
+            assert.ok(videoUrlEdits.some((e) => e.value === firstVideoUrl), "Should have first videoUrl edit");
+            assert.ok(videoUrlEdits.some((e) => e.value === secondVideoUrl), "Should have second videoUrl edit");
+        });
     });
 });

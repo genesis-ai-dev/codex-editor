@@ -78,6 +78,52 @@ export interface NavigationCell {
 }
 
 /**
+ * Gets the corresponding .source file URI for a given .codex file URI.
+ * @param codexUri - The URI of the .codex file
+ * @returns The URI of the corresponding .source file, or null if workspace folder is not available
+ */
+export function getCorrespondingSourceUri(codexUri: vscode.Uri): vscode.Uri | null {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders?.length) {
+        return null;
+    }
+
+    const workspaceRoot = workspaceFolders[0].uri;
+    const fileName = basename(codexUri.fsPath, ".codex");
+    const sourceUri = vscode.Uri.joinPath(
+        workspaceRoot,
+        ".project",
+        "sourceTexts",
+        `${fileName}.source`
+    );
+
+    return sourceUri;
+}
+
+/**
+ * Gets the corresponding .codex file URI for a given .source file URI.
+ * @param sourceUri - The URI of the .source file
+ * @returns The URI of the corresponding .codex file, or null if workspace folder is not available
+ */
+export function getCorrespondingCodexUri(sourceUri: vscode.Uri): vscode.Uri | null {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders?.length) {
+        return null;
+    }
+
+    const workspaceRoot = workspaceFolders[0].uri;
+    const fileName = basename(sourceUri.fsPath, ".source");
+    const codexUri = vscode.Uri.joinPath(
+        workspaceRoot,
+        "files",
+        "target",
+        `${fileName}.codex`
+    );
+
+    return codexUri;
+}
+
+/**
  * Creates a Codex notebook for each book in the Bible.
  *
  * This function generates a Codex notebook for each book in the Bible. If a list of books is provided,
