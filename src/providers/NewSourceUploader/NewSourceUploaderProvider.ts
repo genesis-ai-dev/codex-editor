@@ -361,6 +361,12 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         // happens in createNoteBookPair to preserve casing from existing files
         const trimmedCorpusMarker = corpusMarker ? corpusMarker.trim() : undefined;
 
+        // Derive fileDisplayName from originalName without the file extension
+        const originalName = processedNotebook.metadata.originalFileName;
+        const fileDisplayName = originalName && typeof originalName === "string" && originalName.trim() !== ""
+            ? path.basename(originalName.trim(), path.extname(originalName.trim()))
+            : undefined;
+
         const metadata: CustomNotebookMetadata = {
             id: processedNotebook.metadata.id,
             originalName: processedNotebook.metadata.originalFileName,
@@ -370,6 +376,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             sourceCreatedAt: processedNotebook.metadata.createdAt,
             corpusMarker: trimmedCorpusMarker,
             textDirection: "ltr",
+            ...(fileDisplayName && { fileDisplayName }),
             ...(processedNotebook.metadata.videoUrl && { videoUrl: processedNotebook.metadata.videoUrl }),
             ...(processedNotebook.metadata)?.audioOnly !== undefined
                 ? { audioOnly: processedNotebook.metadata.audioOnly as boolean }
