@@ -387,7 +387,6 @@ export async function searchAllCells(
     includeIncomplete: boolean = true,
     options?: any
 ): Promise<TranslationPair[]> {
-    const replaceMode = options?.replaceMode || false;
     const searchScope = options?.searchScope || "both"; // "both" | "source" | "target"
     const selectedFiles = options?.selectedFiles || []; // Array of file URIs to filter by
 
@@ -440,8 +439,8 @@ export async function searchAllCells(
         return results.slice(0, k);
     }
 
+    // For searchScope === "target", search directly in target cells
     if (searchScope === "target" && translationPairsIndex instanceof SQLiteIndexManager) {
-        // Search only target cells
         const targetCells = await translationPairsIndex.searchCells(query, "target", k * 2, options?.isParallelPassagesWebview || false);
         
         const results: TranslationPair[] = [];
@@ -465,38 +464,17 @@ export async function searchAllCells(
         return results.slice(0, k);
     }
 
-    // In replace mode, only search target cells
-    if (replaceMode && translationPairsIndex instanceof SQLiteIndexManager) {
-        const targetCells = await translationPairsIndex.searchCells(query, "target", k * 2, options?.isParallelPassagesWebview || false);
-        
-        const results: TranslationPair[] = [];
-        for (const cell of targetCells) {
-            const translationPair = await getTranslationPairFromProject(
-                translationPairsIndex,
-                sourceTextIndex,
-                cell.cell_id,
-                options
-            );
-            if (translationPair && translationPair.targetCell.content) {
-                // Verify the target content actually contains the query
-                const cleanTarget = stripHtml(translationPair.targetCell.content);
-                const queryLower = query.toLowerCase();
-                if (cleanTarget.includes(queryLower) && matchesSelectedFiles(translationPair)) {
-                    results.push(translationPair);
-                }
-            }
-        }
-        
-        return results.slice(0, k);
-    }
-
-    // Search translation pairs with boosted weights for complete pairs and target content
+    // Normal search mode - search translation pairs with both source and target
     const translationPairs = await searchTranslationPairs(
         translationPairsIndex as any,
         query,
         includeIncomplete,
         k,
-        { completeBoost: 1.5, targetContentBoost: 1.2, ...options }
+        { 
+            completeBoost: 1.5, 
+            targetContentBoost: 1.2,
+            ...options 
+        }
     );
 
     let combinedResults: TranslationPair[] = translationPairs;
@@ -520,9 +498,8 @@ export async function searchAllCells(
         });
     }
 
-    if (includeIncomplete && !replaceMode && searchScope !== "target") {
+    if (includeIncomplete && searchScope !== "target") {
         // If we're including incomplete pairs, also search source-only cells
-        // Skip this in replace mode since we only want target cells
         // Skip if searchScope is "target" since we only want target cells
         const sourceOnlyCells = sourceTextIndex
             .search(query, {
@@ -550,30 +527,13 @@ export async function searchAllCells(
                 },
                 score: result.score,
             }))
-            .filter((pair: TranslationPair) => matchesSelectedFiles(pair)); // Filter by selected files
+            .filter((pair: TranslationPair) => matchesSelectedFiles(pair)) // Filter by selected files
+            // Only include source-only cells that aren't already in translationPairs
+            .filter((sourcePair: TranslationPair) => 
+                !translationPairs.some(tp => tp.cellId === sourcePair.cellId)
+            );
 
-        combinedResults = [...translationPairs, ...sourceOnlyCells];
-    }
-
-    // In replace mode, filter to only cells with target content that actually contains the query
-    if (replaceMode) {
-        const stripHtml = (html: string): string => {
-            let strippedText = html.replace(/<[^>]*>/g, "");
-            strippedText = strippedText.replace(/&nbsp; ?/g, " ");
-            strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
-            strippedText = strippedText.replace(/&#\d+;/g, "");
-            strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
-            return strippedText.toLowerCase();
-        };
-        
-        const queryLower = query.toLowerCase();
-        combinedResults = combinedResults.filter(pair => {
-            if (!pair.targetCell.content || !pair.targetCell.content.trim()) {
-                return false;
-            }
-            const cleanTarget = stripHtml(pair.targetCell.content);
-            return cleanTarget.includes(queryLower);
-        });
+        combinedResults = [...combinedResults, ...sourceOnlyCells];
     }
 
     // Filter by selected files if specified (using helper function defined above)

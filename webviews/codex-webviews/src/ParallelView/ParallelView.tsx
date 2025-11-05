@@ -120,11 +120,13 @@ function ParallelView() {
         prevSelectedFilesRef.current = selectedFiles;
     }, [selectedFiles, lastQuery, verses.length, replaceText]);
 
-    // Request project files on mount
+    // Request project files on mount and clear replace text
     useEffect(() => {
         vscode.postMessage({
             command: "getProjectFiles",
         });
+        // Clear replace text on webview load
+        setReplaceText("");
     }, []);
 
     useEffect(() => {
@@ -143,19 +145,7 @@ function ParallelView() {
                 case "searchResults": {
                     let results = message.data as TranslationPair[];
                     results = dedupeByCellId(results);
-                    // In replace mode, filter to only cells that actually contain the query in target text
-                    if (replaceText && lastQuery.trim()) {
-                        const stripHtml = (html: string): string => {
-                            const doc = new DOMParser().parseFromString(html, "text/html");
-                            return (doc.body.textContent || "").toLowerCase();
-                        };
-                        const queryLower = lastQuery.toLowerCase();
-                        results = results.filter(pair => {
-                            if (!pair.targetCell.content) return false;
-                            const cleanTarget = stripHtml(pair.targetCell.content);
-                            return cleanTarget.includes(queryLower);
-                        });
-                    }
+                    // Backend already filters for replace mode, so no need to filter again here
                     // Remove duplicates - don't include pinned verses that are already in results
                     const pinnedNotInResults = pinnedVerses.filter(
                         pinned => !results.some(r => r.cellId === pinned.cellId)
@@ -164,14 +154,21 @@ function ParallelView() {
                     break;
                 }
                 case "cellReplaced": {
-                    const { cellId, translationPair, success, error } = message.data;
+                    const { cellId, translationPair, success, error, shouldReSearch } = message.data;
                     if (success && translationPair) {
+                        // Update the cell with new content (it will no longer match the search query)
                         setVerses((prev) =>
                             prev.map((v) => (v.cellId === cellId ? translationPair : v))
                         );
                         setPinnedVerses((prev) =>
                             prev.map((v) => (v.cellId === cellId ? translationPair : v))
                         );
+                        // Re-search after index update to refresh results
+                        if (shouldReSearch && lastQuery.trim()) {
+                            setTimeout(() => {
+                                searchBoth(lastQuery, replaceText);
+                            }, 500);
+                        }
                     }
                     break;
                 }
@@ -184,7 +181,9 @@ function ParallelView() {
                     const { successCount, totalCount, updatedPairs, errors } = message.data;
                     setReplaceProgress(null);
                     setReplaceErrors(errors || []);
+                    
                     if (updatedPairs && updatedPairs.length > 0) {
+                        // Update replaced cells with new content (they will no longer match the search query)
                         const updatedMap = new Map(updatedPairs.map((p: TranslationPair) => [p.cellId, p]));
                         setVerses((prev) =>
                             prev.map((v) => updatedMap.get(v.cellId) || v)
@@ -192,6 +191,13 @@ function ParallelView() {
                         setPinnedVerses((prev) =>
                             prev.map((v) => updatedMap.get(v.cellId) || v)
                         );
+                    }
+                    
+                    // Re-search after index update to refresh results (replaced items won't appear anymore)
+                    if (lastQuery.trim() && successCount > 0) {
+                        setTimeout(() => {
+                            searchBoth(lastQuery, replaceText);
+                        }, 500);
                     }
                     break;
                 }
@@ -241,7 +247,7 @@ function ParallelView() {
 
         window.addEventListener("message", handleMessage);
         return () => window.removeEventListener("message", handleMessage);
-    }, [pinnedVerses]);
+    }, [pinnedVerses, lastQuery, replaceText]);
 
     const handleUriClick = (uri: string, word: string) => {
         console.log("handleUriClick", uri, word);
@@ -286,20 +292,19 @@ function ParallelView() {
         const skippedCount = verses.length - replacements.length;
         
         if (replacements.length === 0) {
-            alert("No replaceable matches found. Some matches are interrupted by HTML tags.");
+            vscode.postMessage({
+                command: "showErrorMessage",
+                message: "No replaceable matches found. Some matches are interrupted by HTML tags.",
+            });
             return;
         }
         
-        if (skippedCount > 0) {
-            const message = `Replacing ${replacements.length} match(es). ${skippedCount} match(es) skipped (interrupted by HTML).`;
-            const proceed = window.confirm(`${message}\n\nContinue?`);
-            if (!proceed) return;
-        }
-        
+        // Proceed with replacement - if some are skipped, we'll show an info message after completion
         vscode.postMessage({
             command: "replaceAll",
             replacements: replacements,
             selectedFiles: selectedFiles.length === projectFiles.length ? [] : selectedFiles, // Empty = all files
+            skippedCount: skippedCount, // Pass skipped count for optional info message
         });
     };
 

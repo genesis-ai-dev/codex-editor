@@ -678,34 +678,40 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 
                 if (translationPairsIndex instanceof SQLiteIndexManager) {
                     if (replaceMode) {
-                        // In replace mode, search only target cells
-                        const targetCells = await translationPairsIndex.searchCells(query, "target", k * 2, options?.isParallelPassagesWebview || false);
-                        const results: TranslationPair[] = [];
-                        for (const cell of targetCells) {
-                            const translationPair = await getTranslationPairFromProject(
-                                translationPairsIndex,
-                                sourceTextIndex,
-                                cell.cell_id,
-                                options
-                            );
-                            if (translationPair && translationPair.targetCell.content && translationPair.sourceCell.content) {
-                                // Verify the target content actually contains the query
-                                const stripHtml = (html: string): string => {
-                                    let strippedText = html.replace(/<[^>]*>/g, "");
-                                    strippedText = strippedText.replace(/&nbsp; ?/g, " ");
-                                    strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
-                                    strippedText = strippedText.replace(/&#\d+;/g, "");
-                                    strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
-                                    return strippedText.toLowerCase();
-                                };
-                                const cleanTarget = stripHtml(translationPair.targetCell.content);
-                                const queryLower = query.toLowerCase();
-                                if (cleanTarget.includes(queryLower)) {
-                                    results.push(translationPair);
-                                }
+                        // In replace mode, use the reliable searchCompleteTranslationPairsWithValidation
+                        // Request a large limit since we'll filter to target-only matches
+                        const searchLimit = Math.max(k * 10, 5000);
+                        const allResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
+                            query,
+                            searchLimit,
+                            options?.isParallelPassagesWebview || false,
+                            false // onlyValidated
+                        );
+                        
+                        // Filter to only pairs where target content contains the query
+                        const stripHtml = (html: string): string => {
+                            let strippedText = html.replace(/<[^>]*>/g, "");
+                            strippedText = strippedText.replace(/&nbsp; ?/g, " ");
+                            strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
+                            strippedText = strippedText.replace(/&#\d+;/g, "");
+                            strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
+                            return strippedText.toLowerCase();
+                        };
+                        
+                        const queryLower = query.toLowerCase();
+                        const filteredResults: any[] = [];
+                        for (const result of allResults) {
+                            const targetContent = result.targetContent || "";
+                            if (!targetContent.trim()) continue;
+                            
+                            const cleanTarget = stripHtml(targetContent);
+                            if (cleanTarget.includes(queryLower)) {
+                                filteredResults.push(result);
                             }
+                            
+                            if (filteredResults.length >= k) break;
                         }
-                        searchResults = results.slice(0, k);
+                        searchResults = filteredResults;
                     } else {
                         // Use the new, reliable database-direct search with validation filtering
                         // For searchParallelCells, we always want only complete pairs (both source and target)
@@ -861,15 +867,18 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                 // If we only want complete pairs and we have SQLite, use the more reliable method
                 if (!includeIncomplete && translationPairsIndex instanceof SQLiteIndexManager) {
+                    const searchScope = options?.searchScope || "both";
+                    // Request more results if we need to filter by searchScope
+                    const searchLimit = searchScope !== "both" ? k * 3 : k;
                     const searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
                         query,
-                        k,
+                        searchLimit,
                         options?.isParallelPassagesWebview || false,
                         false // onlyValidated - show all complete pairs regardless of validation status
                     );
 
                     // Convert to TranslationPair format
-                    results = searchResults.map((result) => ({
+                    let translationPairs = searchResults.map((result) => ({
                         cellId: result.cellId || result.cell_id,
                         sourceCell: {
                             cellId: result.cellId || result.cell_id,
@@ -884,6 +893,55 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                             line: result.line || 0,
                         },
                     }));
+
+                    // Apply searchScope filtering if needed
+                    if (searchScope === "source" || searchScope === "target") {
+                        const stripHtml = (html: string): string => {
+                            let strippedText = html.replace(/<[^>]*>/g, "");
+                            strippedText = strippedText.replace(/&nbsp; ?/g, " ");
+                            strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
+                            strippedText = strippedText.replace(/&#\d+;/g, "");
+                            strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
+                            return strippedText.toLowerCase();
+                        };
+                        const queryLower = query.toLowerCase();
+                        translationPairs = translationPairs.filter((pair) => {
+                            if (searchScope === "source") {
+                                if (!pair.sourceCell.content) return false;
+                                const cleanSource = stripHtml(pair.sourceCell.content);
+                                return cleanSource.includes(queryLower);
+                            } else {
+                                if (!pair.targetCell.content) return false;
+                                const cleanTarget = stripHtml(pair.targetCell.content);
+                                return cleanTarget.includes(queryLower);
+                            }
+                        });
+                    }
+
+                    // Apply selectedFiles filtering if needed
+                    if (options?.selectedFiles && options.selectedFiles.length > 0) {
+                        const normalizeUri = (uri: string): string => {
+                            if (!uri) return "";
+                            try {
+                                return vscode.Uri.parse(uri).toString();
+                            } catch {
+                                return uri;
+                            }
+                        };
+                        const selectedFiles = options.selectedFiles;
+                        translationPairs = translationPairs.filter((pair) => {
+                            const sourceUri = pair.sourceCell?.uri || "";
+                            const targetUri = pair.targetCell?.uri || "";
+                            const normalizedSource = normalizeUri(sourceUri);
+                            const normalizedTarget = normalizeUri(targetUri);
+                            return selectedFiles.some((selectedUri: string) => {
+                                const normalizedSelected = normalizeUri(selectedUri);
+                                return normalizedSource === normalizedSelected || normalizedTarget === normalizedSelected;
+                            });
+                        });
+                    }
+
+                    results = translationPairs.slice(0, k);
                 } else {
                     // Use the original method for incomplete searches or non-SQLite indexes
                     results = await searchAllCells(

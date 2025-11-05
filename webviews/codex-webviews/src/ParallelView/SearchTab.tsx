@@ -122,15 +122,16 @@ function SearchTab({
         }
     };
 
+    // Clear replace text when section is collapsed
+    useEffect(() => {
+        if (!isReplaceExpanded && onReplaceTextChange) {
+            onReplaceTextChange("");
+        }
+    }, [isReplaceExpanded, onReplaceTextChange]);
+
 
     const handleReplaceAll = () => {
         if (!onReplaceAll || !replaceText.trim() || !lastQuery.trim() || verses.length === 0) return;
-        
-        if (verses.length >= 5) {
-            const confirmed = window.confirm(`Replace all ${verses.length} matches?`);
-            if (!confirmed) return;
-        }
-        
         onReplaceAll();
     };
 

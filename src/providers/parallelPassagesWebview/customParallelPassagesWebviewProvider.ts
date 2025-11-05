@@ -183,16 +183,17 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 try {
                     const replaceMode = !!(message.replaceText && message.replaceText.trim());
                     const searchScope = message.searchScope || "both"; // "both" | "source" | "target"
-                    const command = message.completeOnly
-                        ? "codex-editor-extension.searchParallelCells"
-                        : "codex-editor-extension.searchAllCells";
+                    // Always use searchAllCells with includeIncomplete: false to get optimized search results
+                    // This ensures we use the optimized SQLite searchCompleteTranslationPairsWithValidation method
+                    // while still supporting searchScope filtering. The completeOnly checkbox is kept for UI consistency.
+                    const command = "codex-editor-extension.searchAllCells";
 
                     const selectedFiles = message.selectedFiles || []; // Array of file URIs
                     const results = await vscode.commands.executeCommand<TranslationPair[]>(
                         command,
                         message.query,
-                        15, // k value
-                        message.completeOnly ? false : true, // includeIncomplete for searchAllCells
+                        500, // k value - show up to 500 results
+                        false, // includeIncomplete: false - ensures optimized SQLite path is used
                         false, // showInfo
                         { 
                             isParallelPassagesWebview: true,
@@ -242,10 +243,16 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     const success = await provider.updateCellContentDirect(targetUri, cellId, newContent);
 
                     if (success) {
-                        // Flush index writes to ensure search results update immediately
+                        // Re-index the cell to update search index
                         const { getSQLiteIndexManager } = await import("../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager");
                         const indexManager = getSQLiteIndexManager();
                         if (indexManager) {
+                            // Wait for the document save to complete
+                            await new Promise(resolve => setTimeout(resolve, 200));
+                            // Index the specific file to update search results
+                            await vscode.commands.executeCommand("codex-editor-extension.indexSpecificFiles", [targetUri]);
+                            // Wait for indexing to complete
+                            await new Promise(resolve => setTimeout(resolve, 300));
                             await indexManager.flushPendingWrites();
                         }
 
@@ -259,7 +266,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
                         safePostMessageToView(this._view, {
                             command: "cellReplaced",
-                            data: { cellId, translationPair: updatedPair, success: true },
+                            data: { cellId, translationPair: updatedPair, success: true, shouldReSearch: true },
                         });
                     } else {
                         safePostMessageToView(this._view, {
@@ -277,10 +284,15 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 }
                 break;
 
+            case "showErrorMessage":
+                vscode.window.showErrorMessage(message.message || "An error occurred");
+                break;
+
             case "replaceAll":
                 try {
                     const replacements = message.replacements || [];
                     const selectedFiles = message.selectedFiles || [];
+                    const skippedCount = message.skippedCount || 0;
 
                     const provider = CodexCellEditorProvider.getInstance();
                     if (!provider) {
@@ -343,11 +355,45 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                         }
                     }
 
-                    // Flush index writes after all replacements to ensure search results update immediately
+                    // Re-index all modified files and flush writes after all replacements
                     const { getSQLiteIndexManager } = await import("../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager");
                     const indexManager = getSQLiteIndexManager();
                     if (indexManager) {
+                        // Collect unique target URIs that were modified
+                        const modifiedUris = new Set<string>();
+                        for (const replacement of replacements) {
+                            try {
+                                const translationPair = await vscode.commands.executeCommand<TranslationPair>(
+                                    "codex-editor-extension.getTranslationPairFromProject",
+                                    replacement.cellId,
+                                    { isParallelPassagesWebview: true }
+                                );
+                                if (translationPair?.targetCell.uri) {
+                                    const targetUri = translationPair.targetCell.uri.replace(".source", ".codex").replace(".project/sourceTexts/", "files/target/");
+                                    modifiedUris.add(targetUri);
+                                }
+                            } catch (error) {
+                                // Skip if we can't get the URI
+                            }
+                        }
+                        
+                        // Wait a bit for all saves to complete
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                        
+                        // Re-index all modified files
+                        if (modifiedUris.size > 0) {
+                            await vscode.commands.executeCommand("codex-editor-extension.indexSpecificFiles", Array.from(modifiedUris));
+                            await new Promise(resolve => setTimeout(resolve, 300));
+                        }
+                        
                         await indexManager.flushPendingWrites();
+                    }
+
+                    // Show info message if some matches were skipped
+                    if (skippedCount > 0) {
+                        vscode.window.showInformationMessage(
+                            `Replaced ${successCount} match(es). ${skippedCount} match(es) skipped (interrupted by HTML tags).`
+                        );
                     }
 
                     safePostMessageToView(this._view, {
