@@ -117,6 +117,16 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                 setSyncStatus(message.status);
             } else if ((message as any).command === "project.mediaStrategyApplying") {
                 setIsAnyApplying(!!(message as any).applying);
+            } else if ((message as any).command === "project.healingInProgress") {
+                setIsAnyApplying(!!(message as any).healing);
+            } else if ((message as any).command === "project.cloningInProgress") {
+                setIsAnyApplying(!!(message as any).cloning);
+            } else if ((message as any).command === "project.openingInProgress") {
+                setIsAnyApplying(!!(message as any).opening);
+            } else if ((message as any).command === "project.zippingInProgress") {
+                setIsAnyApplying(!!(message as any).zipping);
+            } else if ((message as any).command === "project.cleaningInProgress") {
+                setIsAnyApplying(!!(message as any).cleaning);
             }
         };
 

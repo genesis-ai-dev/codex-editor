@@ -70,6 +70,21 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             if (msg?.command === "project.mediaStrategyApplying") {
                 setIsAnyApplying(!!msg.applying);
             }
+            if (msg?.command === "project.healingInProgress") {
+                setIsAnyApplying(!!msg.healing);
+            }
+            if (msg?.command === "project.cloningInProgress") {
+                setIsAnyApplying(!!msg.cloning);
+            }
+            if (msg?.command === "project.openingInProgress") {
+                setIsAnyApplying(!!msg.opening);
+            }
+            if (msg?.command === "project.zippingInProgress") {
+                setIsAnyApplying(!!msg.zipping);
+            }
+            if (msg?.command === "project.cleaningInProgress") {
+                setIsAnyApplying(!!msg.cleaning);
+            }
         };
         window.addEventListener("message", onMessage);
         return () => window.removeEventListener("message", onMessage);
