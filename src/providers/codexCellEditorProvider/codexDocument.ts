@@ -375,8 +375,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
         });
 
         // IMMEDIATE INDEXING: Add the cell to the database immediately after translation
+        // Fire and forget for non-blocking, but allow await when needed
         if ((editType === EditType.LLM_GENERATION && shouldUpdateValue) || editType === EditType.USER_EDIT) {
-            this.addCellToIndexImmediately(cellId, newContent, editType);
+            this.addCellToIndexImmediately(cellId, newContent, editType).catch(error => {
+                console.error(`[CodexDocument] Async error in immediate indexing for cell ${cellId}:`, error);
+            });
         }
 
     }
@@ -423,85 +426,108 @@ export class CodexCellDocument implements vscode.CustomDocument {
         return cleanContent;
     }
 
+    // Public method to ensure a cell is indexed (useful for waiting after transcription)
+    public async ensureCellIndexed(cellId: string, timeoutMs: number = 5000): Promise<boolean> {
+        if (!this._indexManager) {
+            this._indexManager = getSQLiteIndexManager();
+            if (!this._indexManager) return false;
+        }
+
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+            try {
+                const result = await vscode.commands.executeCommand(
+                    "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+                    cellId
+                ) as { cellId: string; content: string; } | null;
+                
+                if (result && result.content && result.content.replace(/<[^>]*>/g, "").trim() !== "") {
+                    return true;
+                }
+            } catch {
+                // Index command not available
+                return false;
+            }
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        return false;
+    }
+
     // TRUE IMMEDIATE INDEXING - No delays, immediate searchability
-    private addCellToIndexImmediately(
+    private async addCellToIndexImmediately(
         cellId: string,
         content: string,
         editType: EditType
-    ): void {
-        // IMMEDIATE execution - no setImmediate() delay
-        // Use non-blocking pattern that still executes immediately
-        (async () => {
-            try {
-                // Refresh index manager reference if it's not available
+    ): Promise<void> {
+        try {
+            // Refresh index manager reference if it's not available
+            if (!this._indexManager) {
+                this._indexManager = getSQLiteIndexManager();
                 if (!this._indexManager) {
-                    this._indexManager = getSQLiteIndexManager();
-                    if (!this._indexManager) {
-                        console.warn(`[CodexDocument] Index manager not available for immediate indexing of cell ${cellId}`);
-                        return;
-                    }
+                    console.warn(`[CodexDocument] Index manager not available for immediate indexing of cell ${cellId}`);
+                    return;
                 }
-
-                // Use cached file ID or get it once
-                let fileId = this._cachedFileId;
-                if (!fileId) {
-                    fileId = await this._indexManager.upsertFile(
-                        this.uri.toString(),
-                        "codex",
-                        Date.now()
-                    );
-                    this._cachedFileId = fileId;
-                }
-
-                // Calculate logical line position based on cell structure
-                let logicalLinePosition: number | null = null;
-                const cellIndex = this._documentData.cells.findIndex(cell => cell.metadata?.id === cellId);
-
-                if (cellIndex >= 0) {
-                    const currentCell = this._documentData.cells[cellIndex];
-                    const isCurrentCellParatext = currentCell.metadata?.type === "paratext";
-
-                    // Only non-paratext cells get line positions
-                    if (!isCurrentCellParatext) {
-                        // Count all non-paratext cells before this cell to get logical position (1-indexed)
-                        let logicalPosition = 1;
-                        for (let i = 0; i < cellIndex; i++) {
-                            const cell = this._documentData.cells[i];
-                            const isParatext = cell.metadata?.type === "paratext";
-                            if (!isParatext) {
-                                logicalPosition++;
-                            }
-                        }
-                        logicalLinePosition = logicalPosition;
-
-                        // Since this method is only called when content exists,
-                        // we always assign the logical position as the line number
-                    }
-                    // Paratext cells get lineNumber = null
-                }
-
-                // Sanitize content for search while preserving raw content with HTML
-                const sanitizedContent = this.sanitizeContent(content);
-
-                // IMMEDIATE AI KNOWLEDGE UPDATE with FTS synchronization
-                const result = await this._indexManager.upsertCellWithFTSSync(
-                    cellId,
-                    fileId,
-                    this.getContentType(),
-                    sanitizedContent,  // Sanitized content for search
-                    logicalLinePosition ?? undefined, // Convert null to undefined for method signature compatibility
-                    { editType, lastUpdated: Date.now() },
-                    content           // Raw content with HTML tags
-                );
-
-                console.log(`[CodexDocument] ✅ Cell ${cellId} immediately indexed and searchable at logical line ${logicalLinePosition}`);
-
-            } catch (error) {
-                console.error(`[CodexDocument] Error indexing cell ${cellId}:`, error);
             }
-        })().catch(error => {
-            console.error(`[CodexDocument] Async error in immediate indexing for cell ${cellId}:`, error);
-        });
+
+            // Use cached file ID or get it once
+            let fileId = this._cachedFileId;
+            if (!fileId) {
+                const fileType = this.uri.toString().includes(".source") ? "source" : "codex";
+                fileId = await this._indexManager.upsertFile(
+                    this.uri.toString(),
+                    fileType,
+                    Date.now()
+                );
+                this._cachedFileId = fileId;
+            }
+
+            // Calculate logical line position based on cell structure
+            let logicalLinePosition: number | null = null;
+            const cellIndex = this._documentData.cells.findIndex(cell => cell.metadata?.id === cellId);
+
+            if (cellIndex >= 0) {
+                const currentCell = this._documentData.cells[cellIndex];
+                const isCurrentCellParatext = currentCell.metadata?.type === "paratext";
+
+                // Only non-paratext cells get line positions
+                if (!isCurrentCellParatext) {
+                    // Count all non-paratext cells before this cell to get logical position (1-indexed)
+                    let logicalPosition = 1;
+                    for (let i = 0; i < cellIndex; i++) {
+                        const cell = this._documentData.cells[i];
+                        const isParatext = cell.metadata?.type === "paratext";
+                        if (!isParatext) {
+                            logicalPosition++;
+                        }
+                    }
+                    logicalLinePosition = logicalPosition;
+
+                    // Since this method is only called when content exists,
+                    // we always assign the logical position as the line number
+                }
+                // Paratext cells get lineNumber = null
+            }
+
+            // Sanitize content for search while preserving raw content with HTML
+            const sanitizedContent = this.sanitizeContent(content);
+
+            // IMMEDIATE AI KNOWLEDGE UPDATE with FTS synchronization
+            const result = await this._indexManager.upsertCellWithFTSSync(
+                cellId,
+                fileId,
+                this.getContentType(),
+                sanitizedContent,  // Sanitized content for search
+                logicalLinePosition ?? undefined, // Convert null to undefined for method signature compatibility
+                { editType, lastUpdated: Date.now() },
+                content           // Raw content with HTML tags
+            );
+
+            console.log(`[CodexDocument] ✅ Cell ${cellId} immediately indexed and searchable at logical line ${logicalLinePosition}`);
+
+        } catch (error) {
+            console.error(`[CodexDocument] Error indexing cell ${cellId}:`, error);
+            throw error;
+        }
     }
 
     public replaceDuplicateCells(content: QuillCellContent) {
