@@ -182,5 +182,157 @@ suite("NewSourceUploaderProvider Test Suite", () => {
             assert.ok(true, "localized-books.json correctly deleted from workspace root");
         }
     });
+
+    test("convertToNotebookPreview converts USFM codes to full names for NT books during import", async () => {
+        // Skip if no workspace folder
+        if (!vscode.workspace.workspaceFolders?.[0]) {
+            return;
+        }
+
+        // Create a processed notebook with NT corpusMarker and USFM code as originalFileName
+        const processedNotebook = {
+            name: "MAT",
+            cells: [],
+            metadata: {
+                id: "test-mat",
+                originalFileName: "MAT.usfm",
+                createdAt: new Date().toISOString(),
+                corpusMarker: "NT",
+            },
+        };
+
+        // Call convertToNotebookPreview (accessing private method)
+        const convertToNotebookPreview = (provider as any).convertToNotebookPreview.bind(provider);
+        const result = await convertToNotebookPreview(processedNotebook);
+
+        // Verify fileDisplayName was converted from "MAT" to "Matthew"
+        assert.strictEqual(
+            result.metadata.fileDisplayName,
+            "Matthew",
+            "Should convert USFM code MAT to full name Matthew for NT books"
+        );
+        assert.strictEqual(result.metadata.corpusMarker, "NT", "Should preserve corpusMarker");
+    });
+
+    test("convertToNotebookPreview converts USFM codes to full names for OT books during import", async () => {
+        // Skip if no workspace folder
+        if (!vscode.workspace.workspaceFolders?.[0]) {
+            return;
+        }
+
+        // Create a processed notebook with OT corpusMarker and USFM code
+        const processedNotebook = {
+            name: "GEN",
+            cells: [],
+            metadata: {
+                id: "test-gen",
+                originalFileName: "GEN.usfm",
+                createdAt: new Date().toISOString(),
+                corpusMarker: "OT",
+            },
+        };
+
+        // Call convertToNotebookPreview
+        const convertToNotebookPreview = (provider as any).convertToNotebookPreview.bind(provider);
+        const result = await convertToNotebookPreview(processedNotebook);
+
+        // Verify fileDisplayName was converted from "GEN" to "Genesis"
+        assert.strictEqual(
+            result.metadata.fileDisplayName,
+            "Genesis",
+            "Should convert USFM code GEN to full name Genesis for OT books"
+        );
+        assert.strictEqual(result.metadata.corpusMarker, "OT", "Should preserve corpusMarker");
+    });
+
+    test("convertToNotebookPreview does NOT convert non-USFM codes for NT/OT books", async () => {
+        // Skip if no workspace folder
+        if (!vscode.workspace.workspaceFolders?.[0]) {
+            return;
+        }
+
+        // Create a processed notebook with NT corpusMarker but non-USFM originalFileName
+        const processedNotebook = {
+            name: "Matthew",
+            cells: [],
+            metadata: {
+                id: "test-mat",
+                originalFileName: "Matthew.txt",
+                createdAt: new Date().toISOString(),
+                corpusMarker: "NT",
+            },
+        };
+
+        // Call convertToNotebookPreview
+        const convertToNotebookPreview = (provider as any).convertToNotebookPreview.bind(provider);
+        const result = await convertToNotebookPreview(processedNotebook);
+
+        // Verify fileDisplayName was NOT converted (not a USFM code)
+        assert.strictEqual(
+            result.metadata.fileDisplayName,
+            "Matthew",
+            "Should not convert non-USFM codes, keep as-is"
+        );
+    });
+
+    test("convertToNotebookPreview does NOT convert USFM codes for non-biblical books", async () => {
+        // Skip if no workspace folder
+        if (!vscode.workspace.workspaceFolders?.[0]) {
+            return;
+        }
+
+        // Create a processed notebook with audio corpusMarker and USFM-like code
+        const processedNotebook = {
+            name: "MAT",
+            cells: [],
+            metadata: {
+                id: "test-audio",
+                originalFileName: "MAT.audio",
+                createdAt: new Date().toISOString(),
+                corpusMarker: "audio",
+            },
+        };
+
+        // Call convertToNotebookPreview
+        const convertToNotebookPreview = (provider as any).convertToNotebookPreview.bind(provider);
+        const result = await convertToNotebookPreview(processedNotebook);
+
+        // Verify fileDisplayName was NOT converted (not NT/OT)
+        assert.strictEqual(
+            result.metadata.fileDisplayName,
+            "MAT",
+            "Should not convert USFM codes for non-biblical books (corpusMarker=audio)"
+        );
+        assert.strictEqual(result.metadata.corpusMarker, "audio", "Should preserve audio corpusMarker");
+    });
+
+    test("convertToNotebookPreview handles missing originalFileName gracefully", async () => {
+        // Skip if no workspace folder
+        if (!vscode.workspace.workspaceFolders?.[0]) {
+            return;
+        }
+
+        // Create a processed notebook without originalFileName
+        const processedNotebook = {
+            name: "MAT",
+            cells: [],
+            metadata: {
+                id: "test-mat",
+                createdAt: new Date().toISOString(),
+                corpusMarker: "NT",
+            },
+        };
+
+        // Call convertToNotebookPreview
+        const convertToNotebookPreview = (provider as any).convertToNotebookPreview.bind(provider);
+        const result = await convertToNotebookPreview(processedNotebook);
+
+        // Verify fileDisplayName is undefined when originalFileName is missing
+        assert.strictEqual(
+            result.metadata.fileDisplayName,
+            undefined,
+            "Should have undefined fileDisplayName when originalFileName is missing"
+        );
+    });
 });
 
