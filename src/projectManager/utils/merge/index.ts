@@ -36,6 +36,7 @@ export interface SyncResult {
     deletedFiles: string[];
     totalChanges: number;
     offline?: boolean;
+    uploadedLfsFiles?: string[]; // List of LFS files that were uploaded during sync
 }
 
 export async function stageAndCommitAllAndSync(
@@ -120,7 +121,13 @@ export async function stageAndCommitAllAndSync(
         const conflictsResponse = await authApi.syncChanges({ commitMessage });
         if (conflictsResponse?.offline) {
             syncResult.offline = true;
+            syncResult.uploadedLfsFiles = (conflictsResponse as any).uploadedLfsFiles;
             return syncResult;
+        }
+
+        // Capture uploaded LFS files from the sync operation
+        if ((conflictsResponse as any)?.uploadedLfsFiles) {
+            syncResult.uploadedLfsFiles = (conflictsResponse as any).uploadedLfsFiles;
         }
 
         if (conflictsResponse?.hasConflicts) {

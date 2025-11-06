@@ -57,18 +57,27 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         project.mediaStrategy || "auto-download"
     );
     const [pendingStrategy, setPendingStrategy] = useState<MediaFilesStrategy | null>(null);
+    const [previousStrategy, setPreviousStrategy] = useState<MediaFilesStrategy | null>(null);
+    const [isHealing, setIsHealing] = useState<boolean>(false);
+    const [isCloning, setIsCloning] = useState<boolean>(false);
+    const [isOpening, setIsOpening] = useState<boolean>(false);
+    const [isZipping, setIsZipping] = useState<boolean>(false);
+    const [isZippingMini, setIsZippingMini] = useState<boolean>(false);
+    const [isCleaning, setIsCleaning] = useState<boolean>(false);
+    const userInitiatedStrategyChangeRef = React.useRef<boolean>(false);
+    const [isApplyingStrategyDuringOtherOp, setIsApplyingStrategyDuringOtherOp] = useState<boolean>(false);
     const isProjectLocal = ["downloadedAndSynced", "localOnlyNotSynced"].includes(project.syncStatus);
     const isChangingStrategy = isProjectLocal && pendingStrategy !== null;
-    const disableControls = isAnyOperationApplying || isChangingStrategy;
+    const disableControls = isAnyOperationApplying || isChangingStrategy || isHealing || isCloning || isOpening || isZipping || isZippingMini || isCleaning || isApplyingStrategyDuringOtherOp;
 
-    // Keep local strategy in sync with upstream project props when they change
+    // Initialize strategy from project.mediaStrategy (which reads from JSON) on mount only
+    // After mount, the local mediaStrategy state is the source of truth for the UI
+    // The backend will update via messages (project.setMediaStrategyResult) when changes are confirmed
     React.useEffect(() => {
         const incoming = project.mediaStrategy || "auto-download";
-        if (pendingStrategy === null && mediaStrategy !== incoming) {
-            setMediaStrategy(incoming);
-        }
+        setMediaStrategy(incoming);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [project.mediaStrategy, project.name]);
+    }, []); // Only run on mount - UI state is source of truth after that
 
     const getStrategyLabel = (strategy: MediaFilesStrategy): string => {
         switch (strategy) {
@@ -86,9 +95,14 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     const handleMediaStrategyChange = (strategy: MediaFilesStrategy) => {
         const isLocal = ["downloadedAndSynced", "localOnlyNotSynced"].includes(project.syncStatus);
         if (isLocal) {
+            // Store the current strategy before changing (so we can revert on cancel)
+            setPreviousStrategy(mediaStrategy);
+            
             // Update label immediately, but only enter applying state when provider signals start
             setMediaStrategy(strategy);
             project.mediaStrategy = strategy;
+            // Mark that this was a user-initiated change (for highlighting purposes)
+            userInitiatedStrategyChangeRef.current = true;
             vscode.postMessage({
                 command: "project.setMediaStrategy",
                 projectPath: project.path,
@@ -109,51 +123,118 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
             if (msg?.command === "project.mediaStrategyApplying") {
                 if (msg.projectPath === project.path) {
                     if (msg.applying && isProjectLocal) {
-                        if (!pendingStrategy) setPendingStrategy(mediaStrategy);
+                        // Check if this was user-initiated (user changed dropdown) or auto-applied (mismatch detected)
+                        if (userInitiatedStrategyChangeRef.current) {
+                            // User-initiated: highlight dropdown by setting pendingStrategy
+                            if (!pendingStrategy) setPendingStrategy(mediaStrategy);
+                        } else {
+                            // Auto-applied during open/clone: don't highlight dropdown, just disable controls
+                            setIsApplyingStrategyDuringOtherOp(true);
+                        }
                     } else {
+                        // Applying finished or not applying
                         setPendingStrategy(null);
+                        setIsApplyingStrategyDuringOtherOp(false);
+                        userInitiatedStrategyChangeRef.current = false;
                     }
                 }
                 return;
             }
             if (msg?.command === "project.setMediaStrategyResult") {
                 if (!msg.success) {
-                    // Revert to pending (previous) selection
-                    if (pendingStrategy) {
-                        setMediaStrategy(pendingStrategy);
-                        project.mediaStrategy = pendingStrategy;
+                    // Revert to previous strategy (before the change was attempted)
+                    if (previousStrategy) {
+                        setMediaStrategy(previousStrategy);
+                        project.mediaStrategy = previousStrategy;
                     }
+                } else {
+                    // Success: keep the UI state (mediaStrategy) and sync project prop
+                    project.mediaStrategy = mediaStrategy;
                 }
                 setPendingStrategy(null);
+                setPreviousStrategy(null); // Clear previous strategy after handling result
+                userInitiatedStrategyChangeRef.current = false;
+            }
+            if (msg?.command === "project.healingInProgress") {
+                if (msg.projectPath === project.path) {
+                    setIsHealing(msg.healing);
+                }
+                return;
+            }
+            if (msg?.command === "project.cloningInProgress") {
+                // For cloud projects, match by gitOriginUrl since they don't have a local path yet
+                // For local projects, match by path
+                const matchesByUrl = msg.gitOriginUrl && project.gitOriginUrl && msg.gitOriginUrl === project.gitOriginUrl;
+                const matchesByPath = msg.projectPath && project.path && msg.projectPath === project.path;
+                if (matchesByUrl || matchesByPath) {
+                    setIsCloning(msg.cloning);
+                    // Clear strategy applying state when cloning completes
+                    if (!msg.cloning) {
+                        setIsApplyingStrategyDuringOtherOp(false);
+                        userInitiatedStrategyChangeRef.current = false;
+                    }
+                }
+                return;
+            }
+            if (msg?.command === "project.openingInProgress") {
+                if (msg.projectPath === project.path) {
+                    setIsOpening(msg.opening);
+                    // Clear strategy applying state when opening completes
+                    if (!msg.opening) {
+                        setIsApplyingStrategyDuringOtherOp(false);
+                        userInitiatedStrategyChangeRef.current = false;
+                    }
+                }
+                return;
+            }
+            if (msg?.command === "project.zippingInProgress") {
+                if (msg.projectPath === project.path) {
+                    if (msg.zipType === "full") {
+                        setIsZipping(msg.zipping);
+                    } else if (msg.zipType === "mini") {
+                        setIsZippingMini(msg.zipping);
+                    }
+                }
+                return;
+            }
+            if (msg?.command === "project.cleaningInProgress") {
+                if (msg.projectPath === project.path) {
+                    setIsCleaning(msg.cleaning);
+                }
+                return;
             }
         };
         window.addEventListener("message", onMessage);
         return () => window.removeEventListener("message", onMessage);
     }, [pendingStrategy, project, isProjectLocal, mediaStrategy]);
 
-    const renderMediaStrategyDropdown = () => (
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className={cn("h-6 text-xs px-2", isChangingStrategy && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm")}
-                    disabled={disableControls}
-                    title="Media Files Download Strategy"
-                >
-                    {isChangingStrategy ? (
-                        <>
-                            <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
-                            Applying...
-                        </>
-                    ) : (
-                        <>
-                            {getStrategyLabel(mediaStrategy)}
-                            <i className="codicon codicon-chevron-down ml-1 text-[10px]" />
-                        </>
-                    )}
-                </Button>
-            </DropdownMenuTrigger>
+    const renderMediaStrategyDropdown = () => {
+        // Highlight dropdown when strategy is being changed/applied (either explicitly or during open/clone)
+        const isStrategyHighlighted = isChangingStrategy || isApplyingStrategyDuringOtherOp;
+        
+        return (
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className={cn("h-6 text-xs px-2", isStrategyHighlighted && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm")}
+                        disabled={disableControls}
+                        title="Media Files Download Strategy"
+                    >
+                        {isChangingStrategy ? (
+                            <>
+                                <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
+                                Applying...
+                            </>
+                        ) : (
+                            <>
+                                {getStrategyLabel(mediaStrategy)}
+                                <i className="codicon codicon-chevron-down ml-1 text-[10px]" />
+                            </>
+                        )}
+                    </Button>
+                </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
                 <DropdownMenuItem
                     onClick={() => handleMediaStrategyChange("auto-download")}
@@ -190,7 +271,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                 </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>
-    );
+        );
+    };
 
     const renderProjectActions = (project: ProjectWithSyncStatus) => {
         const isLocal = ["downloadedAndSynced", "localOnlyNotSynced"].includes(project.syncStatus);
@@ -204,11 +286,23 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         variant="ghost"
                         size="sm"
                         onClick={() => onOpenProject(project)}
-                        className={cn("h-6 text-xs px-2", isChangingStrategy && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm")}
+                        className={cn(
+                            "h-6 text-xs px-2",
+                            (isChangingStrategy || isOpening) && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
+                        )}
                         disabled={disableControls}
                     >
-                        <i className="codicon codicon-folder-opened mr-1" />
-                        Open
+                        {isOpening ? (
+                            <>
+                                <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
+                                Opening...
+                            </>
+                        ) : (
+                            <>
+                                <i className="codicon codicon-folder-opened mr-1" />
+                                Open
+                            </>
+                        )}
                     </Button>
                 </div>
             );
@@ -222,11 +316,23 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         variant="secondary"
                         size="sm"
                         onClick={() => onCloneProject({ ...project, mediaStrategy })}
-                        className={cn("h-6 text-xs px-2", isChangingStrategy && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm")}
+                        className={cn(
+                            "h-6 text-xs px-2",
+                            (isChangingStrategy || isCloning) && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
+                        )}
                         disabled={disableControls}
                     >
-                        <i className="codicon codicon-arrow-circle-down mr-1" />
-                        Clone
+                        {isCloning ? (
+                            <>
+                                <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
+                                Cloning...
+                            </>
+                        ) : (
+                            <>
+                                <i className="codicon codicon-arrow-circle-down mr-1" />
+                                Clone
+                            </>
+                        )}
                     </Button>
                 </div>
             );
@@ -393,7 +499,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                             <div className="flex gap-2">
                                 {(project.syncStatus === "downloadedAndSynced" ||
                                     project.syncStatus === "error") &&
-                                    mediaStrategy !== "stream-only" && (
+                                    mediaStrategy === "stream-and-save" && (
                                         <Button
                                             variant="outline"
                                             size="sm"
@@ -403,12 +509,24 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                                     projectPath: project.path,
                                                 });
                                             }}
-                                            className="h-6 text-xs text-purple-600 hover:text-purple-700"
+                                            className={cn(
+                                                "h-6 text-xs text-purple-600 hover:text-purple-700",
+                                                isCleaning && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
+                                            )}
                                             disabled={disableControls}
                                             title="Delete downloaded media files to save space"
                                         >
-                                            <i className="codicon codicon-trash mr-1" />
-                                            Clean Media
+                                            {isCleaning ? (
+                                                <>
+                                                    <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
+                                                    Cleaning...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <i className="codicon codicon-trash mr-1" />
+                                                    Clean Media
+                                                </>
+                                            )}
                                         </Button>
                                     )}
                                 <Button
@@ -422,12 +540,24 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                             gitOriginUrl: project.gitOriginUrl,
                                         });
                                     }}
-                                    className="h-6 text-xs text-yellow-600 hover:text-yellow-700"
+                                    className={cn(
+                                        "h-6 text-xs text-yellow-600 hover:text-yellow-700",
+                                        isHealing && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
+                                    )}
                                     disabled={disableControls}
                                     title="Heal project by backing up, re-cloning, and merging local changes"
                                 >
-                                    <i className="codicon codicon-heart mr-1" />
-                                    Heal
+                                    {isHealing ? (
+                                        <>
+                                            <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
+                                            Cloning...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <i className="codicon codicon-heart mr-1" />
+                                            Heal
+                                        </>
+                                    )}
                                 </Button>
                                 <Button
                                     variant="outline"
@@ -440,11 +570,23 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                             includeGit: true,
                                         });
                                     }}
-                                    className="h-6 text-xs"
+                                    className={cn(
+                                        "h-6 text-xs",
+                                        isZipping && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
+                                    )}
                                     disabled={disableControls}
                                 >
-                                    <i className="codicon codicon-package mr-1" />
-                                    ZIP (with git)
+                                    {isZipping ? (
+                                        <>
+                                            <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
+                                            Zipping...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <i className="codicon codicon-package mr-1" />
+                                            ZIP (with git)
+                                        </>
+                                    )}
                                 </Button>
                                 <Button
                                     variant="outline"
@@ -456,11 +598,23 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                             projectPath: project.path,
                                         });
                                     }}
-                                    className="h-6 text-xs"
+                                    className={cn(
+                                        "h-6 text-xs",
+                                        isZippingMini && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
+                                    )}
                                     disabled={disableControls}
                                 >
-                                    <i className="codicon codicon-file-zip mr-1" />
-                                    Mini ZIP
+                                    {isZippingMini ? (
+                                        <>
+                                            <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
+                                            Zipping...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <i className="codicon codicon-file-zip mr-1" />
+                                            Mini ZIP
+                                        </>
+                                    )}
                                 </Button>
                                 {onDeleteProject && (
                                     <Button

@@ -995,6 +995,17 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 const projectPath = message.projectPath;
                 debugLog("Opening project", projectPath);
 
+                // Inform webview that opening is starting
+                try {
+                    this.safeSendMessage({
+                        command: "project.openingInProgress",
+                        projectPath,
+                        opening: true,
+                    } as any);
+                } catch (e) {
+                    // non-fatal
+                }
+
                 try {
                     // If the project is set to auto-download, proactively remove pointer stubs in files/
                     // so that reconciliation will fetch real bytes after open.
@@ -1067,6 +1078,17 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     vscode.window.showErrorMessage(
                         `Failed to open project: ${error instanceof Error ? error.message : String(error)}`
                     );
+                } finally {
+                    // Inform webview that opening is complete
+                    try {
+                        this.safeSendMessage({
+                            command: "project.openingInProgress",
+                            projectPath,
+                            opening: false,
+                        } as any);
+                    } catch (e) {
+                        // non-fatal
+                    }
                 }
                 break;
             }
@@ -1744,18 +1766,16 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             case "project.clone": {
                 debugLog("Cloning repository", message.repoUrl);
 
+                // Extract project name from URL for progress tracking
+                const urlParts = message.repoUrl.split("/");
+                let projectName = urlParts[urlParts.length - 1];
+                if (projectName.endsWith(".git")) {
+                    projectName = projectName.slice(0, -4);
+                }
+
                 try {
                     // Get the .codex-projects directory
                     const codexProjectsDir = await getCodexProjectsDirectory();
-
-                    // Extract project name from URL to use as folder name
-                    const urlParts = message.repoUrl.split("/");
-                    let projectName = urlParts[urlParts.length - 1];
-
-                    // Remove .git extension if present
-                    if (projectName.endsWith(".git")) {
-                        projectName = projectName.slice(0, -4);
-                    }
 
                     // Create a unique folder name if needed
                     let projectDir = vscode.Uri.joinPath(codexProjectsDir, projectName);
@@ -1771,15 +1791,70 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // Directory doesn't exist, which is what we want
                     }
 
-                    // Clone to the .codex-projects directory and await completion
-                    await this.frontierApi?.cloneRepository(
-                        message.repoUrl,
-                        projectDir.fsPath,
-                        undefined,
-                        message.mediaStrategy
-                    );
-                    // Do NOT write localProjectSettings.json here to avoid interfering with checkout.
-                    // We'll persist settings after the project is opened, where we also ensure .gitignore.
+                    // Inform webview that cloning is starting
+                    try {
+                        this.safeSendMessage({
+                            command: "project.cloningInProgress",
+                            projectPath: projectDir.fsPath,
+                            gitOriginUrl: message.repoUrl,
+                            cloning: true,
+                        } as any);
+                    } catch (e) {
+                        // non-fatal
+                    }
+
+                    try {
+                        // Create project and .project directories before cloning
+                        // This ensures localProjectSettings.json can be written early
+                        try {
+                            const fs = await import("fs");
+                            const projectPath = projectDir.fsPath;
+                            const projectDotPath = path.join(projectPath, ".project");
+
+                            if (!fs.existsSync(projectPath)) {
+                                fs.mkdirSync(projectPath, { recursive: true });
+                            }
+                            if (!fs.existsSync(projectDotPath)) {
+                                fs.mkdirSync(projectDotPath, { recursive: true });
+                            }
+
+                            // Write localProjectSettings.json BEFORE cloning starts
+                            // This ensures it's one of the first files written (right after directories are created)
+                            if (message.mediaStrategy) {
+                                const { ensureLocalProjectSettingsExists } = await import("../../utils/localProjectSettings");
+                                await ensureLocalProjectSettingsExists(projectDir, {
+                                    currentMediaFilesStrategy: message.mediaStrategy,
+                                    lastMediaFileStrategyRun: message.mediaStrategy,
+                                    mediaFileStrategyApplyState: "applied",
+                                    autoDownloadAudioOnOpen: false,
+                                });
+                                debugLog(`Wrote localProjectSettings.json with strategy: ${message.mediaStrategy} BEFORE cloning`);
+                            }
+                        } catch (settingsErr) {
+                            debugLog("Failed to write localProjectSettings.json before clone:", settingsErr);
+                            // Non-fatal: continue with clone
+                        }
+
+                        // Clone to the .codex-projects directory and await completion
+                        await this.frontierApi?.cloneRepository(
+                            message.repoUrl,
+                            projectDir.fsPath,
+                            undefined,
+                            message.mediaStrategy
+                        );
+                    } finally {
+                        // Inform webview that cloning is complete
+                        try {
+                            this.safeSendMessage({
+                                command: "project.cloningInProgress",
+                                projectPath: projectDir.fsPath,
+                                gitOriginUrl: message.repoUrl,
+                                cloning: false,
+                            } as any);
+                        } catch (e) {
+                            // non-fatal
+                        }
+                    }
                 } catch (error) {
                     console.error("Error preparing to clone repository:", error);
                     this.frontierApi?.cloneRepository(
@@ -1925,43 +2000,69 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         return;
                     }
 
-                    // Show progress indicator
-                    await vscode.window.withProgress(
-                        {
-                            location: vscode.ProgressLocation.Notification,
-                            title: "Zipping project...",
-                            cancellable: false,
-                        },
-                        async (progress) => {
-                            progress.report({ increment: 0 });
+                    // Inform webview that zipping is starting
+                    try {
+                        this.safeSendMessage({
+                            command: "project.zippingInProgress",
+                            projectPath,
+                            zipType: includeGit ? "full" : "mini",
+                            zipping: true,
+                        } as any);
+                    } catch (e) {
+                        // non-fatal
+                    }
 
-                            // Create JSZip instance
-                            const zip = new JSZip();
+                    try {
+                        // Show progress indicator
+                        await vscode.window.withProgress(
+                            {
+                                location: vscode.ProgressLocation.Notification,
+                                title: "Zipping project...",
+                                cancellable: false,
+                            },
+                            async (progress) => {
+                                progress.report({ increment: 0 });
 
-                            // Use shared method to add files to zip
-                            const projectUri = vscode.Uri.file(projectPath);
-                            await this.addFilesToZip(projectUri, zip, { excludeGit: !includeGit });
+                                // Create JSZip instance
+                                const zip = new JSZip();
 
-                            progress.report({ increment: 50 });
+                                // Use shared method to add files to zip
+                                const projectUri = vscode.Uri.file(projectPath);
+                                await this.addFilesToZip(projectUri, zip, { excludeGit: !includeGit });
 
-                            // Generate zip content with compression and write directly to target location
-                            const zipContent = await zip.generateAsync({
-                                type: "nodebuffer",
-                                compression: "DEFLATE",
-                                compressionOptions: {
-                                    level: 9 // Maximum compression (1-9)
-                                }
-                            });
-                            await vscode.workspace.fs.writeFile(saveUri, zipContent);
+                                progress.report({ increment: 50 });
 
-                            progress.report({ increment: 100 });
+                                // Generate zip content with compression and write directly to target location
+                                const zipContent = await zip.generateAsync({
+                                    type: "nodebuffer",
+                                    compression: "DEFLATE",
+                                    compressionOptions: {
+                                        level: 9 // Maximum compression (1-9)
+                                    }
+                                });
+                                await vscode.workspace.fs.writeFile(saveUri, zipContent);
+
+                                progress.report({ increment: 100 });
+                            }
+                        );
+
+                        const gitMessage = includeGit ? " (including git history)" : "";
+                        vscode.window.showInformationMessage(
+                            `Project "${projectName}" has been zipped successfully${gitMessage}!`
+                        );
+                    } finally {
+                        // Inform webview that zipping is complete
+                        try {
+                            this.safeSendMessage({
+                                command: "project.zippingInProgress",
+                                projectPath,
+                                zipType: includeGit ? "full" : "mini",
+                                zipping: false,
+                            } as any);
+                        } catch (e) {
+                            // non-fatal
                         }
-                    );
-
-                    const gitMessage = includeGit ? " (including git history)" : "";
-                    vscode.window.showInformationMessage(
-                        `Project "${projectName}" has been zipped successfully${gitMessage}!`
-                    );
+                    }
                 } catch (error) {
                     debugLog("Error zipping project:", error);
                     vscode.window.showErrorMessage(
@@ -2012,36 +2113,57 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         return;
                     }
 
+                    // Check if user is switching back to the last applied strategy
+                    // If so, skip the dialog and auto-apply (no file changes needed)
+                    const flags = await getFlags(projectUri);
+                    if (flags?.lastModeRun === mediaStrategy) {
+                        debugLog(`Switching back to last applied strategy "${mediaStrategy}" - auto-applying without dialog`);
+
+                        // Just update the stored strategy without touching files
+                        await setMediaFilesStrategy(mediaStrategy, projectUri);
+                        await setLastModeRun(mediaStrategy, projectUri);
+                        await setChangesApplied(true, projectUri);
+
+                        // Notify webview of success
+                        try {
+                            this.safeSendMessage({
+                                command: "project.setMediaStrategyResult",
+                                success: true,
+                                projectPath,
+                                mediaStrategy,
+                                autoApplied: true,
+                            } as any);
+                        } catch (notifyErr) {
+                            debugLog("Failed to notify webview (auto-applied)", notifyErr);
+                        }
+                        return;
+                    }
+
                     // Show confirmation dialog for strategy changes
                     let confirmMessage = "";
-                    let openButton = "Continue";
-                    const switchOnlyButton = "Switch Only";
+                    const switchButton = "Switch";
 
                     if (mediaStrategy === "auto-download") {
                         confirmMessage =
                             `Switch to "Auto Download Media"?\n\n` +
                             `This will download all media files.\n\n` +
                             `This may use significant disk space and bandwidth.`;
-                        openButton = "Download All & Open";
                     } else if (mediaStrategy === "stream-only") {
                         confirmMessage =
                             `Switch to "Stream Only"?\n\n` +
                             `Media will be streamed from the server when needed.\n\n` +
                             `Requires internet connection to play media.`;
-                        openButton = "Free Space & Open";
                     } else if (mediaStrategy === "stream-and-save") {
                         confirmMessage =
                             `Switch to "Stream & Save"?\n\n` +
                             `Media files will be downloaded & saved when you play them.\n\n` +
                             `Best balance between disk space and offline availability.`;
-                        openButton = currentStrategy === "auto-download" ? "Free Space & Open" : "Switch & Open";
                     }
 
                     const selection = await vscode.window.showInformationMessage(
                         confirmMessage,
                         { modal: true },
-                        openButton,
-                        switchOnlyButton
+                        switchButton
                     );
 
                     if (!selection) {
@@ -2056,7 +2178,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         return;
                     }
 
-                    if (selection === switchOnlyButton) {
+                    if (selection === switchButton) {
                         // Switch but do not open; mark changesApplied=false and only update strategy
                         await setMediaFilesStrategy(mediaStrategy, projectUri);
                         const { lastModeRun } = await getFlags(projectUri);
@@ -2194,31 +2316,55 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         return;
                     }
 
-                    // Find and delete LFS files
-                    await vscode.window.withProgress(
-                        {
-                            location: vscode.ProgressLocation.Notification,
-                            title: `Cleaning media files from "${projectName}"...`,
-                            cancellable: false,
-                        },
-                        async () => {
-                            const projectUri = vscode.Uri.file(projectPath);
-                            // 1) Replace downloaded media bytes in files/ with pointers (only for LFS-tracked media)
-                            try {
-                                const { replaceFilesWithPointers } = await import("../../utils/mediaStrategyManager");
-                                await replaceFilesWithPointers(projectPath);
-                            } catch (e) {
-                                debugLog("Error replacing files with pointers during cleanup:", e);
+                    // Inform webview that cleaning is starting
+                    try {
+                        this.safeSendMessage({
+                            command: "project.cleaningInProgress",
+                            projectPath,
+                            cleaning: true,
+                        } as any);
+                    } catch (e) {
+                        // non-fatal
+                    }
+
+                    try {
+                        // Find and delete LFS files
+                        await vscode.window.withProgress(
+                            {
+                                location: vscode.ProgressLocation.Notification,
+                                title: `Cleaning media files from "${projectName}"...`,
+                                cancellable: false,
+                            },
+                            async () => {
+                                const projectUri = vscode.Uri.file(projectPath);
+                                // 1) Replace downloaded media bytes in files/ with pointers (only for LFS-tracked media)
+                                try {
+                                    const { replaceFilesWithPointers } = await import("../../utils/mediaStrategyManager");
+                                    await replaceFilesWithPointers(projectPath);
+                                } catch (e) {
+                                    debugLog("Error replacing files with pointers during cleanup:", e);
+                                }
+
+                                // 2) Remove any LFS cache directory (.git/lfs) to free space
+                                await this.cleanupLFSFiles(projectUri);
                             }
+                        );
 
-                            // 2) Remove any LFS cache directory (.git/lfs) to free space
-                            await this.cleanupLFSFiles(projectUri);
+                        vscode.window.showInformationMessage(
+                            `Media files cleaned up successfully from "${projectName}"`
+                        );
+                    } finally {
+                        // Inform webview that cleaning is complete
+                        try {
+                            this.safeSendMessage({
+                                command: "project.cleaningInProgress",
+                                projectPath,
+                                cleaning: false,
+                            } as any);
+                        } catch (e) {
+                            // non-fatal
                         }
-                    );
-
-                    vscode.window.showInformationMessage(
-                        `Media files cleaned up successfully from "${projectName}"`
-                    );
+                    }
                 } catch (error) {
                     console.error("Error cleaning up media files:", error);
                     vscode.window.showErrorMessage(
@@ -2258,6 +2404,17 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     return;
                 }
 
+                // Inform webview that healing is starting for this project
+                try {
+                    this.safeSendMessage({
+                        command: "project.healingInProgress",
+                        projectPath,
+                        healing: true,
+                    } as any);
+                } catch (e) {
+                    // non-fatal
+                }
+
                 // Execute the healing process
                 try {
                     await vscode.window.withProgress(
@@ -2270,11 +2427,33 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             await this.performProjectHeal(progress, projectName, projectPath, gitOriginUrl);
                         }
                     );
+
+                    // Inform webview that healing is complete
+                    try {
+                        this.safeSendMessage({
+                            command: "project.healingInProgress",
+                            projectPath,
+                            healing: false,
+                        } as any);
+                    } catch (e) {
+                        // non-fatal
+                    }
                 } catch (error) {
                     console.error("Project healing failed:", error);
                     vscode.window.showErrorMessage(
                         `Failed to heal project: ${error instanceof Error ? error.message : String(error)}`
                     );
+
+                    // Inform webview that healing failed/stopped
+                    try {
+                        this.safeSendMessage({
+                            command: "project.healingInProgress",
+                            projectPath,
+                            healing: false,
+                        } as any);
+                    } catch (e) {
+                        // non-fatal
+                    }
                 }
                 break;
             }
@@ -2547,7 +2726,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 (normalizedPath.startsWith('files/target/') && normalizedPath.endsWith('.codex')) ||
                 // Any content in .project/attachments folder
                 normalizedPath.startsWith('.project/attachments/') ||
-                normalizedPath === '.project/attachments';
+                normalizedPath === '.project/attachments' ||
+                // Preserve user's media strategy settings
+                normalizedPath === '.project/localProjectSettings.json';
 
             debugLog(`Processing entry: ${name}, type: ${type === vscode.FileType.Directory ? 'Directory' : 'File'}, relativeFilePath: ${relativeFilePath}, shouldProcess: ${shouldProcess}`);
 
