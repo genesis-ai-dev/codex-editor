@@ -775,8 +775,8 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             return;
         }
 
-        // Normalize inputs: trim whitespace
-        const normalizedOldLabel = oldCorpusLabel.trim();
+        // Normalize inputs: normalize old label for comparison, preserve user input for new name
+        const normalizedOldLabel = normalizeCorpusMarker(oldCorpusLabel) || oldCorpusLabel.trim();
         const normalizedNewName = newCorpusName.trim();
         const rootUri = workspaceFolders[0].uri;
         const codexPattern = new vscode.RelativePattern(
@@ -824,8 +824,8 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                         if (resolved === "Old Testament") resolved = "OT";
                         if (resolved === "New Testament") resolved = "NT";
 
-                        // Normalize resolved value for comparison
-                        const normalizedResolved = resolved ? resolved.trim() : undefined;
+                        // Normalize resolved value for comparison using normalizeCorpusMarker
+                        const normalizedResolved = resolved ? (normalizeCorpusMarker(resolved) || resolved.trim()) : undefined;
 
                         // Check if this file matches the old label or already has the new name
                         if (normalizedResolved === normalizedOldLabel) {
