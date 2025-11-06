@@ -361,7 +361,12 @@ export type MessagesFromStartupFlowProvider =
     | { command: "project.progressReportSubmitted"; success: boolean; error?: string; }
     | { command: "progressData"; data: any; }
     | { command: "aggregatedProgressData"; data: any; }
-    | { command: "project.nameWillBeSanitized"; original: string; sanitized: string; };
+    | { command: "project.nameWillBeSanitized"; original: string; sanitized: string; }
+    | { command: "project.healingInProgress"; projectPath: string; healing: boolean; }
+    | { command: "project.cloningInProgress"; projectPath: string; gitOriginUrl?: string; cloning: boolean; }
+    | { command: "project.openingInProgress"; projectPath: string; opening: boolean; }
+    | { command: "project.zippingInProgress"; projectPath: string; zipType: "full" | "mini"; zipping: boolean; }
+    | { command: "project.cleaningInProgress"; projectPath: string; cleaning: boolean; };
 
 type DictionaryPostMessages =
     | {
