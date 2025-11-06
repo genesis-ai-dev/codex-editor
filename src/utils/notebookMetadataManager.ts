@@ -455,12 +455,22 @@ export class NotebookMetadataManager {
     }
 
     private isTemporaryPath(path: string): boolean {
-        return (
-            path.includes(".codex-temp") ||
-            path.includes("Untitled") ||
-            path.includes("temp") ||
-            path.includes("tmp")
-        );
+        // Check for actual temporary file patterns, not just any path containing "tmp" or "temp"
+        // This avoids false positives like /tmp/test-workspace which is a legitimate workspace
+        // Patterns to match:
+        // 1. .codex-temp files (specific extension temp files)
+        // 2. Untitled files (VS Code's untitled files)
+        // 3. .tmp-{timestamp} files (atomic write temp files: .tmp-1234567890-abc)
+        // 4. Files in extension storage temp directories (but exclude workspace paths)
+        const isCodexTemp = path.includes(".codex-temp");
+        const isUntitled = path.includes("Untitled");
+        const isAtomicTemp = /\.tmp-\d+/.test(path);
+        // Check for temp files in extension storage, but exclude if it's in a workspace directory structure
+        const isExtensionTemp = path.includes("/temp/") &&
+            !path.includes("/.project/") &&
+            !path.includes("/files/target/");
+
+        return isCodexTemp || isUntitled || isAtomicTemp || isExtensionTemp;
     }
 
     /**
