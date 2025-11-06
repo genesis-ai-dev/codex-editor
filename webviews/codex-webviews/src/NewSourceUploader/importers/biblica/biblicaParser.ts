@@ -532,6 +532,7 @@ export class IDMLParser {
                 beforeVerse: string;
                 verseContent: string;
                 afterVerse: string;
+                footnotes?: string[]; // Array of footnote XML strings for round-trip preservation
             }> = [];
             const csrNodes = Array.from(paragraphElement.getElementsByTagName('CharacterStyleRange')) as Element[];
 
@@ -636,12 +637,31 @@ export class IDMLParser {
                 // Extract verse content (everything until the next meta:v)
                 // Preserve the exact structure: <Content>text</Content><Br/><Content>text</Content>
                 let verseContent = '';
+                const footnotes: string[] = []; // Collect footnotes for this verse
+
                 while (i < csrNodes.length && !isMetaVerseStyle(csrNodes[i]) && !isVerseNumberStyle(csrNodes[i])) {
                     const csrNode = csrNodes[i];
 
                     // Check if this CharacterStyleRange has a special style (not the default)
                     const appliedStyle = csrNode.getAttribute('AppliedCharacterStyle') || '';
                     const isDefaultStyle = appliedStyle.includes('$ID/[No character style]');
+
+                    // Check if this is a footnote call marker (notes%3af_call)
+                    const isFootnoteCall = appliedStyle.includes('notes%3af_call') || appliedStyle.includes('notes:f_call');
+
+                    if (isFootnoteCall) {
+                        // Extract the footnote XML - look for <Footnote> element inside this CharacterStyleRange
+                        const footnoteElement = csrNode.getElementsByTagName('Footnote')[0];
+                        if (footnoteElement) {
+                            // Serialize the entire footnote element for round-trip preservation
+                            const footnoteXml = serializeEl(footnoteElement);
+                            footnotes.push(footnoteXml);
+                            this.debugLog(`Found footnote in verse ${verseNumber}: ${footnoteXml.substring(0, 100)}...`);
+                        }
+                        // Skip the footnote call marker itself - don't add its content to verseContent
+                        i++;
+                        continue;
+                    }
 
                     // Walk through the children in order to preserve Content/Br sequence
                     const children = Array.from(csrNode.childNodes);
@@ -652,7 +672,9 @@ export class IDMLParser {
                                 // Only include content from default styled ranges
                                 // Skip content from special styled ranges (e.g., "source serif" for apostrophes)
                                 if (isDefaultStyle) {
-                                    const text = element.textContent || '';
+                                    let text = element.textContent || '';
+                                    // Replace &nbsp; entities (non-breaking spaces) with regular spaces
+                                    text = text.replace(/&nbsp;/gi, ' ').replace(/\u00A0/g, ' ');
                                     verseContent += text;
                                 }
                             } else if (element.tagName === 'Br') {
@@ -699,9 +721,10 @@ export class IDMLParser {
                         verseNumber,
                         beforeVerse,
                         verseContent: verseContent,
-                        afterVerse
+                        afterVerse,
+                        footnotes: footnotes.length > 0 ? footnotes : undefined
                     });
-                    this.debugLog(`Extracted verse ${currentBook} ${chapterInParagraph}:${verseNumber} - "${verseContent.substring(0, 50)}..."`);
+                    this.debugLog(`Extracted verse ${currentBook} ${chapterInParagraph}:${verseNumber} - "${verseContent.substring(0, 50)}..."${footnotes.length > 0 ? ` with ${footnotes.length} footnote(s)` : ''}`);
                 }
             }
 

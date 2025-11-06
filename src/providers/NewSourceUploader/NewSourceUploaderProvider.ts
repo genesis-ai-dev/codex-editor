@@ -1,5 +1,8 @@
 import * as vscode from "vscode";
 import * as path from "path";
+import * as fs from "fs";
+import { promisify } from "util";
+import { exec } from "child_process";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { createNoteBookPair } from "./codexFIleCreateUtils";
 import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteResponseMessage, WriteNotebooksWithAttachmentsMessage, SelectAudioFileMessage, ReprocessAudioFileMessage, RequestAudioSegmentMessage, FinalizeAudioImportMessage, UpdateAudioSegmentsMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
@@ -16,11 +19,13 @@ import { CodexCell } from "../../utils/codexNotebookUtils";
 import { CodexCellTypes } from "../../../types/enums";
 import { importBookNamesFromXmlContent } from "../../bookNameSettings/bookNameSettings";
 import { createStandardizedFilename } from "../../utils/bookNameUtils";
-import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
-import { CodexContentSerializer } from "../../serializer";
 import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
+import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { migrateLocalizedBooksToMetadata as migrateLocalizedBooks } from "./localizedBooksMigration/localizedBooksMigration";
 import { removeLocalizedBooksJsonIfPresent as removeLocalizedBooksJson } from "./localizedBooksMigration/removeLocalizedBooksJson";
+// import { parseRtfWithPandoc as parseRtfNode } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/pandocNodeBridge";
+
+const execAsync = promisify(exec);
 
 const DEBUG_NEW_SOURCE_UPLOADER_PROVIDER = false;
 function debug(message: string, ...args: any[]): void {
@@ -298,21 +303,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             message: error instanceof Error ? error.message : "Failed to open navigation"
                         });
                     }
-                } else if (message.command === "selectAudioFile") {
-                    await handleSelectAudioFile(message as SelectAudioFileMessage, webviewPanel);
-                } else if (message.command === "reprocessAudioFile") {
-                    await handleReprocessAudioFile(message as ReprocessAudioFileMessage, webviewPanel);
-                } else if (message.command === "requestAudioSegment") {
-                    await handleRequestAudioSegment(message as RequestAudioSegmentMessage, webviewPanel);
-                } else if (message.command === "finalizeAudioImport") {
-                    await handleFinalizeAudioImport(
-                        message as FinalizeAudioImportMessage,
-                        token,
-                        webviewPanel,
-                        (msg, tkn, panel) => this.handleWriteNotebooksForced(msg as WriteNotebooksMessage, tkn, panel)
-                    );
-                } else if (message.command === "updateAudioSegments") {
-                    await handleUpdateAudioSegments(message as UpdateAudioSegmentsMessage, webviewPanel);
                 }
             } catch (error) {
                 console.error("Error handling message:", error);
@@ -374,7 +364,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             codexFsPath: "",
             navigation: [],
             sourceCreatedAt: processedNotebook.metadata.createdAt,
-            corpusMarker: trimmedCorpusMarker,
+            corpusMarker: processedNotebook.metadata.corpusMarker || processedNotebook.metadata.importerType, // Prefer corpusMarker, fallback to importerType for backward compatibility
             textDirection: "ltr",
             ...(fileDisplayName && { fileDisplayName }),
             ...(processedNotebook.metadata.videoUrl && { videoUrl: processedNotebook.metadata.videoUrl }),
@@ -398,7 +388,14 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             ...(processedNotebook.metadata?.originalHash && {
                 originalHash: processedNotebook.metadata.originalHash
             }),
-        };
+            // Preserve RTF Pandoc metadata
+            ...((processedNotebook.metadata as any)?.pandocJson && {
+                pandocJson: (processedNotebook.metadata as any).pandocJson
+            }),
+            ...((processedNotebook.metadata as any)?.importerType && {
+                importerType: (processedNotebook.metadata as any).importerType
+            }),
+        } as any; // Cast to any to allow custom fields
 
         return {
             name: processedNotebook.name,
@@ -1334,6 +1331,211 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         });
     }
 
+    /**
+     * Execute Python script with Pandoc for RTF processing
+     */
+    private async executePythonScript(scriptName: string, args: string[]): Promise<string> {
+        const scriptPath = path.join(
+            this.context.extensionPath,
+            'webviews',
+            'codex-webviews',
+            'src',
+            'NewSourceUploader',
+            'importers',
+            'rtf',
+            scriptName
+        );
+
+        // Build command
+        const command = `python "${scriptPath}" ${args.map(arg => `"${arg}"`).join(' ')}`;
+
+        debug(`Executing Python command: ${command}`);
+
+        try {
+            const { stdout, stderr } = await execAsync(command);
+
+            if (stderr) {
+                console.warn(`Python stderr: ${stderr}`);
+            }
+
+            return stdout;
+        } catch (error) {
+            console.error('Python execution failed:', error);
+            throw new Error(`Failed to execute Python script: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    /**
+     * Handle RTF parsing with Pandoc
+     * COMMENTED OUT - RTF importer disabled
+     */
+    /* private async handleParsertfWithPandoc(message: any, webviewPanel: vscode.WebviewPanel): Promise<void> {
+        try {
+            const { fileName, fileData } = message;
+
+            // Save file to temporary location
+            const tmpDir = path.join(this.context.extensionPath, '.tmp');
+            if (!fs.existsSync(tmpDir)) {
+                fs.mkdirSync(tmpDir, { recursive: true });
+            }
+
+            const tmpFilePath = path.join(tmpDir, `rtf_${Date.now()}_${fileName}`);
+            const buffer = Buffer.from(fileData);
+            fs.writeFileSync(tmpFilePath, buffer);
+
+            debug(`Saved RTF to temporary file: ${tmpFilePath}`);
+
+            try {
+                // Use Node.js bridge (no Python required!)
+                const result = await parseRtfNode(tmpFilePath);
+
+                debug(`RTF parsed successfully:`, result);
+
+                // Send result back to webview
+                webviewPanel.webview.postMessage({
+                    command: 'rtfParsed',
+                    success: result.success,
+                    data: result.data,
+                    error: result.error
+                });
+
+            } finally {
+                // Clean up temporary file
+                if (fs.existsSync(tmpFilePath)) {
+                    fs.unlinkSync(tmpFilePath);
+                    debug(`Cleaned up temporary file: ${tmpFilePath}`);
+                }
+            }
+
+        } catch (error) {
+            console.error('RTF parsing error:', error);
+            webviewPanel.webview.postMessage({
+                command: 'rtfParsed',
+                success: false,
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
+        }
+    } */
+
+    /**
+     * Handle RTF export with Pandoc
+     * COMMENTED OUT - RTF importer disabled
+     */
+    /* private async handleExportRtfWithPandoc(message: any, webviewPanel: vscode.WebviewPanel): Promise<void> {
+        try {
+            const { pandocJson, translations, fileName } = message;
+
+            // Save Pandoc JSON and translations to temporary files
+            const tmpDir = path.join(this.context.extensionPath, '.tmp');
+            if (!fs.existsSync(tmpDir)) {
+                fs.mkdirSync(tmpDir, { recursive: true });
+            }
+
+            const pandocJsonPath = path.join(tmpDir, `pandoc_${Date.now()}.json`);
+            const translationsPath = path.join(tmpDir, `translations_${Date.now()}.json`);
+            const outputPath = path.join(tmpDir, `output_${Date.now()}_${fileName}`);
+
+            fs.writeFileSync(pandocJsonPath, JSON.stringify(pandocJson));
+            fs.writeFileSync(translationsPath, JSON.stringify(translations));
+
+            debug(`Saved Pandoc data for export:`, { pandocJsonPath, translationsPath, outputPath });
+
+            try {
+                // Execute Python script to export RTF
+                const result = await this.executePythonScript('rtfPandocBridge.py', [
+                    'export',
+                    pandocJsonPath,
+                    translationsPath,
+                    outputPath
+                ]);
+
+                // Parse JSON result
+                const exportResult = JSON.parse(result);
+
+                debug(`RTF exported successfully:`, exportResult);
+
+                // Send result back to webview
+                webviewPanel.webview.postMessage({
+                    command: 'rtfExported',
+                    success: exportResult.success,
+                    outputFile: exportResult.output_file,
+                    error: exportResult.error
+                });
+
+            } finally {
+                // Clean up temporary files
+                [pandocJsonPath, translationsPath].forEach(file => {
+                    if (fs.existsSync(file)) {
+                        fs.unlinkSync(file);
+                        debug(`Cleaned up: ${file}`);
+                    }
+                });
+            }
+
+        } catch (error) {
+            console.error('RTF export error:', error);
+            webviewPanel.webview.postMessage({
+                command: 'rtfExported',
+                success: false,
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
+        }
+    } */
+
+    /**
+     * Handle RTF to HTML conversion
+     * COMMENTED OUT - RTF importer disabled
+     */
+    /* private async handleRtfToHtml(message: any, webviewPanel: vscode.WebviewPanel): Promise<void> {
+        try {
+            const { fileName, fileData } = message;
+
+            // Save file to temporary location
+            const tmpDir = path.join(this.context.extensionPath, '.tmp');
+            if (!fs.existsSync(tmpDir)) {
+                fs.mkdirSync(tmpDir, { recursive: true });
+            }
+
+            const tmpFilePath = path.join(tmpDir, `rtf_html_${Date.now()}_${fileName}`);
+            const buffer = Buffer.from(fileData);
+            fs.writeFileSync(tmpFilePath, buffer);
+
+            debug(`Saved RTF for HTML conversion: ${tmpFilePath}`);
+
+            try {
+                // Execute Python script to convert RTF to HTML
+                const result = await this.executePythonScript('rtfPandocBridge.py', ['to_html', tmpFilePath]);
+
+                // Parse JSON result
+                const conversionResult = JSON.parse(result);
+
+                debug(`RTF to HTML conversion successful`);
+
+                // Send result back to webview
+                webviewPanel.webview.postMessage({
+                    command: 'rtfHtmlConverted',
+                    success: conversionResult.success,
+                    html: conversionResult.html,
+                    error: conversionResult.error
+                });
+
+            } finally {
+                // Clean up temporary file
+                if (fs.existsSync(tmpFilePath)) {
+                    fs.unlinkSync(tmpFilePath);
+                    debug(`Cleaned up: ${tmpFilePath}`);
+                }
+            }
+
+        } catch (error) {
+            console.error('RTF to HTML conversion error:', error);
+            webviewPanel.webview.postMessage({
+                command: 'rtfHtmlConverted',
+                success: false,
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
+        }
+    } */
 }
 
 // Helper to present a concise overwrite confirmation with truncation and an Output Channel for details
