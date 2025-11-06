@@ -838,19 +838,19 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                             const metadata = notebookData.metadata as CustomNotebookMetadata;
                             const oldValue = metadata.corpusMarker;
 
+                            // Get current user for edit history (needed for both codex and source files)
+                            let currentUser = "anonymous";
+                            try {
+                                const authApi = getAuthApi();
+                                const userInfo = await authApi?.getUserInfo();
+                                currentUser = userInfo?.username || "anonymous";
+                            } catch (error) {
+                                console.warn("[updateCorpusMarker] Could not get user info, using 'anonymous'");
+                            }
+
                             // Only add edit if value is actually changing
                             if (oldValue !== normalizedNewName) {
                                 console.log(`[updateCorpusMarker] Updating ${fileNameAbbr}: "${oldValue}" → "${normalizedNewName}"`);
-
-                                // Get current user for edit history
-                                let currentUser = "anonymous";
-                                try {
-                                    const authApi = getAuthApi();
-                                    const userInfo = await authApi?.getUserInfo();
-                                    currentUser = userInfo?.username || "anonymous";
-                                } catch (error) {
-                                    console.warn("[updateCorpusMarker] Could not get user info, using 'anonymous'");
-                                }
 
                                 // Add edit history entry before updating metadata
                                 addMetadataEdit(metadata, "corpusMarker", normalizedNewName, currentUser);
@@ -870,6 +870,59 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
                             await vscode.workspace.fs.writeFile(uri, updatedContent);
                             updatedCount++;
+
+                            // Also update the corresponding .source file
+                            const sourceUri = getCorrespondingSourceUri(uri);
+                            if (sourceUri) {
+                                try {
+                                    // Check if source file exists
+                                    try {
+                                        await vscode.workspace.fs.stat(sourceUri);
+                                    } catch {
+                                        // Source file doesn't exist, skip updating it
+                                        // Continue to next codex file
+                                        continue;
+                                    }
+
+                                    const sourceContent = await vscode.workspace.fs.readFile(sourceUri);
+                                    const sourceNotebookData = await this.serializer.deserializeNotebook(
+                                        sourceContent,
+                                        new vscode.CancellationTokenSource().token
+                                    );
+
+                                    // Ensure metadata exists
+                                    if (!sourceNotebookData.metadata) {
+                                        sourceNotebookData.metadata = {} as CustomNotebookMetadata;
+                                    }
+
+                                    const sourceMetadata = sourceNotebookData.metadata as CustomNotebookMetadata;
+                                    const sourceOldValue = sourceMetadata.corpusMarker;
+
+                                    // Only add edit if value is actually changing
+                                    if (sourceOldValue !== normalizedNewName) {
+                                        // Add edit history entry before updating metadata
+                                        addMetadataEdit(sourceMetadata, "corpusMarker", normalizedNewName, currentUser);
+                                    }
+
+                                    // Update metadata with new corpusMarker
+                                    sourceNotebookData.metadata = {
+                                        ...sourceMetadata,
+                                        corpusMarker: normalizedNewName,
+                                    };
+
+                                    // Serialize and save the updated notebook
+                                    const updatedSourceContent = await this.serializer.serializeNotebook(
+                                        sourceNotebookData,
+                                        new vscode.CancellationTokenSource().token
+                                    );
+
+                                    await vscode.workspace.fs.writeFile(sourceUri, updatedSourceContent);
+                                    console.log(`[updateCorpusMarker] Also updated corresponding source file ${path.basename(sourceUri.fsPath)}`);
+                                } catch (error) {
+                                    console.error(`Error updating source file ${sourceUri.fsPath}:`, error);
+                                    // Continue with other files even if source update fails
+                                }
+                            }
                         } else if (normalizedResolved === normalizedNewName) {
                             // Track files that already have the new name (for merge verification)
                             filesWithNewName.push(fileNameAbbr);

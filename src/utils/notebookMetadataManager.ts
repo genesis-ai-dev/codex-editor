@@ -334,6 +334,54 @@ export class NotebookMetadataManager {
                         }
                     }
 
+                    // Update the current notebook file with the corpusMarker (if needed) and sync to corresponding file
+                    if (metadata?.corpusMarker) {
+                        // Sync corpusMarker to the corresponding file (source <-> codex)
+                        let correspondingUri: vscode.Uri | null = null;
+                        if (file.path.endsWith(".source")) {
+                            correspondingUri = getCorrespondingCodexUri(file);
+                        } else if (file.path.endsWith(".codex")) {
+                            correspondingUri = getCorrespondingSourceUri(file);
+                        }
+
+                        if (correspondingUri) {
+                            try {
+                                // Check if corresponding file exists before trying to update it
+                                await vscode.workspace.fs.stat(correspondingUri);
+
+                                // Read the corresponding file
+                                const correspondingContent = await vscode.workspace.fs.readFile(correspondingUri);
+                                let correspondingNotebookData;
+                                try {
+                                    correspondingNotebookData = await serializer.deserializeNotebook(
+                                        correspondingContent,
+                                        new vscode.CancellationTokenSource().token
+                                    );
+                                } catch (error) {
+                                    debugLog("Error deserializing corresponding notebook, trying to parse as JSON:", error);
+                                    try {
+                                        correspondingNotebookData = JSON.parse(new TextDecoder().decode(correspondingContent));
+                                    } catch (jsonError) {
+                                        debugLog("Error parsing corresponding file as JSON:", jsonError);
+                                        throw jsonError;
+                                    }
+                                }
+
+                                const correspondingMetadata = (correspondingNotebookData.metadata as CustomNotebookMetadata) || {};
+                                const existingCorpusMarker = correspondingMetadata.corpusMarker;
+
+                                // Only update if the corpusMarker is different
+                                if (existingCorpusMarker !== metadata.corpusMarker) {
+                                    await this.updateCorpusMarkerInFile(correspondingUri, correspondingNotebookData, metadata.corpusMarker);
+                                    debugLog(`Synced corpusMarker "${metadata.corpusMarker}" to corresponding file ${correspondingUri.fsPath}`);
+                                }
+                            } catch (error) {
+                                // Corresponding file doesn't exist or can't be accessed, skip it
+                                debugLog(`Corresponding file ${correspondingUri.fsPath} not found or inaccessible, skipping corpusMarker sync`);
+                            }
+                        }
+                    }
+
                     // Ensure fileDisplayName exists in metadata
                     // Check if fileDisplayName is missing or empty in the notebook file metadata
                     // If it already exists in notebookData.metadata, preserve it and don't overwrite
@@ -559,8 +607,27 @@ export class NotebookMetadataManager {
             let displayName: string;
 
             if (originalName && typeof originalName === "string" && originalName.trim() !== "") {
-                // Use originalName as display name, but remove the file extension
-                displayName = path.basename(originalName.trim(), path.extname(originalName.trim()));
+                // Remove file extension from originalName
+                const cleanedOriginalName = path.basename(originalName.trim(), path.extname(originalName.trim()));
+
+                // Check if this is a Bible book (corpusMarker is NT or OT)
+                const corpusMarker = metadata?.corpusMarker || (notebookData.metadata as CustomNotebookMetadata)?.corpusMarker;
+                const isBibleBook = corpusMarker === "NT" || corpusMarker === "OT";
+
+                if (isBibleBook) {
+                    // Check if originalName looks like a USFM code (3-4 uppercase letters/numbers)
+                    const usfmCode = extractUsfmCodeFromFilename(cleanedOriginalName);
+                    if (usfmCode) {
+                        // Convert USFM code to full Bible book name
+                        displayName = await getBookDisplayName(usfmCode);
+                    } else {
+                        // Not a USFM code, use cleaned originalName as-is
+                        displayName = cleanedOriginalName;
+                    }
+                } else {
+                    // Not a Bible book, use cleaned originalName as-is
+                    displayName = cleanedOriginalName;
+                }
             } else {
                 // Derive fileDisplayName from filename
                 const fileName = path.basename(file.fsPath);
