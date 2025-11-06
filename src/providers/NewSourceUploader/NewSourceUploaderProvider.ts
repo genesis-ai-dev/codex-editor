@@ -903,6 +903,13 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     const targetId = alignedCell.importedContent.id;
                     const existingCell = existingCellsMap.get(targetId);
 
+                    // Skip cells with empty content - empty cells are parsing errors and should not be included
+                    const importedContentText = alignedCell.importedContent.content || '';
+                    if (!importedContentText.trim() && !existingCell) {
+                        // Skip empty cells that don't already exist
+                        continue;
+                    }
+
                     if (existingCell && existingCell.value && existingCell.value.trim() !== "") {
                         // Keep existing content if cell already has content
                         processedCells.set(targetId, existingCell);
