@@ -366,8 +366,14 @@ suite("NotebookMetadataManager Test Suite", () => {
                 // fileDisplayName is intentionally missing
             });
 
+            // Ensure file is written and visible to findFiles
+            await new Promise(resolve => setTimeout(resolve, 100));
+
             await manager.initialize();
             await manager.loadMetadata();
+
+            // Ensure file writes from loadMetadata have completed
+            await new Promise(resolve => setTimeout(resolve, 100));
 
             // Verify fileDisplayName was set from originalName
             const serializer = new CodexContentSerializer();
@@ -395,8 +401,14 @@ suite("NotebookMetadataManager Test Suite", () => {
                 // fileDisplayName is intentionally missing
             });
 
+            // Ensure file is written and visible to findFiles
+            await new Promise(resolve => setTimeout(resolve, 100));
+
             await manager.initialize();
             await manager.loadMetadata();
+
+            // Ensure file writes from loadMetadata have completed
+            await new Promise(resolve => setTimeout(resolve, 100));
 
             // Verify fileDisplayName was set from originalName
             const serializer = new CodexContentSerializer();
@@ -424,8 +436,14 @@ suite("NotebookMetadataManager Test Suite", () => {
                 // No fileDisplayName
             });
 
+            // Ensure file is written and visible to findFiles
+            await new Promise(resolve => setTimeout(resolve, 100));
+
             await manager.initialize();
             await manager.loadMetadata();
+
+            // Ensure file writes from loadMetadata have completed
+            await new Promise(resolve => setTimeout(resolve, 100));
 
             // Verify fileDisplayName was derived from USFM code
             const serializer = new CodexContentSerializer();
@@ -456,8 +474,14 @@ suite("NotebookMetadataManager Test Suite", () => {
                 // No fileDisplayName or originalName
             });
 
+            // Ensure file is written and visible to findFiles
+            await new Promise(resolve => setTimeout(resolve, 100));
+
             await manager.initialize();
             await manager.loadMetadata();
+
+            // Ensure file writes from loadMetadata have completed
+            await new Promise(resolve => setTimeout(resolve, 100));
 
             // Verify fileDisplayName was derived from filename
             const serializer = new CodexContentSerializer();
@@ -485,8 +509,14 @@ suite("NotebookMetadataManager Test Suite", () => {
                 originalName: "Leviticus",
             });
 
+            // Ensure file is written and visible to findFiles
+            await new Promise(resolve => setTimeout(resolve, 100));
+
             await manager.initialize();
             await manager.loadMetadata();
+
+            // Ensure file writes from loadMetadata have completed
+            await new Promise(resolve => setTimeout(resolve, 100));
 
             // Verify fileDisplayName was set from originalName
             const serializer = new CodexContentSerializer();
@@ -514,8 +544,14 @@ suite("NotebookMetadataManager Test Suite", () => {
                 originalName: "Numbers",
             });
 
+            // Ensure file is written and visible to findFiles
+            await new Promise(resolve => setTimeout(resolve, 100));
+
             await manager.initialize();
             await manager.loadMetadata();
+
+            // Ensure file writes from loadMetadata have completed
+            await new Promise(resolve => setTimeout(resolve, 100));
 
             // Verify fileDisplayName was set from originalName
             const serializer = new CodexContentSerializer();
@@ -545,8 +581,14 @@ suite("NotebookMetadataManager Test Suite", () => {
                 originalName: "John",
             });
 
+            // Ensure files are written and visible to findFiles
+            await new Promise(resolve => setTimeout(resolve, 100));
+
             await manager.initialize();
             await manager.loadMetadata();
+
+            // Ensure file writes from loadMetadata have completed
+            await new Promise(resolve => setTimeout(resolve, 100));
 
             // Verify both files have fileDisplayName set
             const serializer = new CodexContentSerializer();
