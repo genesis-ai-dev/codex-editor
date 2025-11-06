@@ -85,37 +85,6 @@ suite("Audio Processor Test Suite", () => {
         });
     });
 
-    suite("Execute permission handling", () => {
-        test("should detect and set execute permissions", function () {
-            // Skip on Windows - Windows doesn't support Unix-style execute permissions
-            if (process.platform !== "win32") {
-                const testBinaryPath = path.join(tempDir, "test-executable");
-                fs.writeFileSync(testBinaryPath, Buffer.from("fake binary content"));
-
-                // Test permission detection
-                fs.chmodSync(testBinaryPath, 0o644); // No execute
-                let stats = fs.statSync(testBinaryPath);
-                let hasExecute = (stats.mode & 0o111) !== 0;
-                assert.strictEqual(hasExecute, false, "File should not have execute permission");
-
-                // Test setting execute permission
-                fs.chmodSync(testBinaryPath, stats.mode | 0o111);
-                stats = fs.statSync(testBinaryPath);
-                hasExecute = (stats.mode & 0o111) !== 0;
-                assert.strictEqual(hasExecute, true, "File should have execute permission after chmod");
-            }
-        });
-
-        test("should handle permission errors gracefully", () => {
-            // Test that permission errors don't crash
-            const nonExistentPath = path.join(tempDir, "non-existent-binary");
-
-            // Should not throw when file doesn't exist (error handling in ensureExecutePermission)
-            // We can't easily test this without mocking, but the function should handle it
-            assert.ok(true, "Permission error handling should be tested");
-        });
-    });
-
     suite("Audio processing functions", () => {
         test("should handle invalid audio file paths", async () => {
             const invalidPath = path.join(tempDir, "non-existent.mp3");
