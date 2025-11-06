@@ -18,6 +18,56 @@ const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[MediaStrategyManager]", ...args) : () => { };
 
 /**
+ * Replace specific files in attachments/files with their pointer versions
+ * This is optimized for post-sync cleanup where we know exactly which files were uploaded
+ * @param projectPath - Root path of the project
+ * @param uploadedFiles - List of file paths that were uploaded (relative to project root)
+ * @returns Number of files replaced
+ */
+export async function replaceSpecificFilesWithPointers(projectPath: string, uploadedFiles: string[]): Promise<number> {
+    let replacedCount = 0;
+
+    try {
+        // Filter for files that are in the pointers directory
+        const pointerFiles = uploadedFiles.filter(filepath =>
+            filepath.includes(".project/attachments/pointers/") ||
+            filepath.includes(".project\\attachments\\pointers\\")
+        );
+
+        if (pointerFiles.length === 0) {
+            debug("No pointer files in uploaded files list");
+            return 0;
+        }
+
+        debug(`Processing ${pointerFiles.length} uploaded pointer file(s) for replacement`);
+
+        // Process each file without showing progress UI (it's fast for a few files)
+        for (const filepath of pointerFiles) {
+            // Extract the relative path within the pointers directory
+            let relPath = filepath;
+            if (filepath.includes(".project/attachments/pointers/")) {
+                relPath = filepath.split(".project/attachments/pointers/")[1];
+            } else if (filepath.includes(".project\\attachments\\pointers\\")) {
+                relPath = filepath.split(".project\\attachments\\pointers\\")[1];
+            }
+
+            if (relPath) {
+                const success = await replaceFileWithPointer(projectPath, relPath);
+                if (success) {
+                    replacedCount++;
+                }
+            }
+        }
+
+        debug(`Replaced ${replacedCount} file(s) with pointers`);
+        return replacedCount;
+    } catch (error) {
+        console.error("Error replacing specific files with pointers:", error);
+        throw error;
+    }
+}
+
+/**
  * Replace all downloaded files in attachments/files with their pointer versions
  * This is used when switching to stream-only or stream-and-save modes
  * @param projectPath - Root path of the project
@@ -28,6 +78,7 @@ export async function replaceFilesWithPointers(projectPath: string): Promise<num
 
     try {
         const pointersDir = path.join(projectPath, ".project", "attachments", "pointers");
+        const filesDir = path.join(projectPath, ".project", "attachments", "files");
 
         // Find all pointer files
         const pointerFiles = await findAllPointerFiles(pointersDir);
@@ -41,17 +92,77 @@ export async function replaceFilesWithPointers(projectPath: string): Promise<num
             },
             async (progress) => {
                 const total = Math.max(pointerFiles.length, 1);
-                for (let i = 0; i < pointerFiles.length; i++) {
-                    const relPath = pointerFiles[i];
-                    progress.report({
-                        increment: 100 / total,
-                        message: `${i + 1}/${total}: ${path.basename(relPath)}`,
-                    });
-                    const success = await replaceFileWithPointer(projectPath, relPath);
-                    if (success) {
-                        replacedCount++;
-                    }
+                let processed = 0;
+
+                // Process files in parallel batches - optimized
+                const BATCH_SIZE = 100;
+                const batches: string[][] = [];
+                for (let i = 0; i < pointerFiles.length; i += BATCH_SIZE) {
+                    batches.push(pointerFiles.slice(i, i + BATCH_SIZE));
                 }
+
+                for (const batch of batches) {
+                    const results = await Promise.allSettled(
+                        batch.map(async (relPath) => {
+                            const pointerPath = path.join(pointersDir, relPath);
+                            const filesPath = path.join(filesDir, relPath);
+
+                            try {
+                                // CRITICAL: Check if this is a locally recorded, unsynced file
+                                // These files exist in files/ but haven't been uploaded yet
+                                // We MUST NOT replace them with pointers to avoid data loss
+                                const pathParts = relPath.split(path.sep);
+                                if (pathParts.length >= 2) {
+                                    const book = pathParts[0];
+                                    const filename = pathParts.slice(1).join(path.sep);
+                                    const { getFileStatus } = await import("./lfsHelpers");
+                                    const status = await getFileStatus(projectPath, book, filename);
+
+                                    if (status === "local-unsynced") {
+                                        debug(`PROTECTED: Skipping local unsynced recording: ${relPath}`);
+                                        return false; // Do NOT replace local recordings!
+                                    }
+                                }
+
+                                // Quick check: does files/ already exist and is it already a pointer?
+                                try {
+                                    const stat = await vscode.workspace.fs.stat(vscode.Uri.file(filesPath));
+                                    if (stat.size < 200) { // Pointer files are tiny (~130 bytes)
+                                        // Likely already a pointer, skip
+                                        return false;
+                                    }
+                                } catch {
+                                    // files/ doesn't exist, continue
+                                }
+
+                                // Ensure directory exists (batch operation is efficient)
+                                const filesParentDir = path.dirname(filesPath);
+                                await vscode.workspace.fs.createDirectory(vscode.Uri.file(filesParentDir));
+
+                                // Copy pointer to files/ (simple copy, no validation needed)
+                                const pointerContent = await vscode.workspace.fs.readFile(vscode.Uri.file(pointerPath));
+                                await vscode.workspace.fs.writeFile(vscode.Uri.file(filesPath), pointerContent);
+
+                                return true;
+                            } catch {
+                                return false;
+                            }
+                        })
+                    );
+
+                    for (const result of results) {
+                        if (result.status === 'fulfilled' && result.value) {
+                            replacedCount++;
+                        }
+                    }
+
+                    processed += batch.length;
+                    progress.report({
+                        increment: (batch.length / total) * 100,
+                        message: `${processed}/${total}`,
+                    });
+                }
+
                 progress.report({ increment: 100, message: "Complete" });
             }
         );
@@ -107,59 +218,94 @@ export async function downloadAllLFSFiles(projectPath: string): Promise<number> 
                 cancellable: false,
             },
             async (progress) => {
-                for (let i = 0; i < pointerFiles.length; i++) {
-                    const relPath = pointerFiles[i];
-                    const pointerPath = path.join(pointersDir, relPath);
-                    const filesPath = path.join(projectPath, ".project", "attachments", "files", relPath);
+                const total = Math.max(pointerFiles.length, 1);
+                let processed = 0;
 
-                    try {
-                        // Check if files/ version is already a full file
-                        try {
-                            const filesExists = await vscode.workspace.fs.stat(vscode.Uri.file(filesPath));
-                            const isPointer = await isPointerFile(filesPath);
+                // Process downloads in parallel batches (network operations)
+                const BATCH_SIZE = 30; // Conservative batch size for network operations
+                const batches: string[][] = [];
+                for (let i = 0; i < pointerFiles.length; i += BATCH_SIZE) {
+                    batches.push(pointerFiles.slice(i, i + BATCH_SIZE));
+                }
 
-                            if (filesExists && !isPointer) {
-                                // Already have the full file
-                                debug(`File already downloaded: ${relPath}`);
-                                continue;
+                for (const batch of batches) {
+                    const results = await Promise.allSettled(
+                        batch.map(async (relPath) => {
+                            const pointerPath = path.join(pointersDir, relPath);
+                            const filesPath = path.join(projectPath, ".project", "attachments", "files", relPath);
+
+                            try {
+                                // CRITICAL: Check if this is a locally recorded, unsynced file
+                                // We MUST NOT overwrite local recordings with downloaded files!
+                                const pathParts = relPath.split(path.sep);
+                                if (pathParts.length >= 2) {
+                                    const book = pathParts[0];
+                                    const filename = pathParts.slice(1).join(path.sep);
+                                    const { getFileStatus } = await import("./lfsHelpers");
+                                    const status = await getFileStatus(projectPath, book, filename);
+
+                                    if (status === "local-unsynced") {
+                                        debug(`PROTECTED: Skipping local unsynced recording: ${relPath}`);
+                                        return false; // Do NOT overwrite local recordings!
+                                    }
+                                }
+
+                                // Check if files/ version is already a full file
+                                try {
+                                    const filesExists = await vscode.workspace.fs.stat(vscode.Uri.file(filesPath));
+                                    const isPointer = await isPointerFile(filesPath);
+
+                                    if (filesExists && !isPointer) {
+                                        // Already have the full file
+                                        debug(`File already downloaded: ${relPath}`);
+                                        return false;
+                                    }
+                                } catch {
+                                    // File doesn't exist, will download
+                                }
+
+                                // Parse pointer
+                                const { parsePointerFile } = await import("./lfsHelpers");
+                                const pointer = await parsePointerFile(pointerPath);
+
+                                if (!pointer) {
+                                    console.warn(`Invalid pointer file: ${relPath}`);
+                                    return false;
+                                }
+
+                                // Download file
+                                const fileData = await frontierApi.downloadLFSFile(
+                                    projectPath,
+                                    pointer.oid,
+                                    pointer.size
+                                );
+
+                                // Ensure directory exists
+                                const filesDir = path.dirname(filesPath);
+                                await vscode.workspace.fs.createDirectory(vscode.Uri.file(filesDir));
+
+                                // Write file
+                                await vscode.workspace.fs.writeFile(vscode.Uri.file(filesPath), fileData);
+                                debug(`Downloaded: ${relPath}`);
+                                return true;
+                            } catch (error) {
+                                console.error(`Failed to download ${relPath}:`, error);
+                                return false;
                             }
-                        } catch {
-                            // File doesn't exist, will download
+                        })
+                    );
+
+                    for (const result of results) {
+                        if (result.status === 'fulfilled' && result.value) {
+                            downloadedCount++;
                         }
-
-                        // Parse pointer
-                        const { parsePointerFile } = await import("./lfsHelpers");
-                        const pointer = await parsePointerFile(pointerPath);
-
-                        if (!pointer) {
-                            console.warn(`Invalid pointer file: ${relPath}`);
-                            continue;
-                        }
-
-                        // Download file
-                        progress.report({
-                            increment: (100 / pointerFiles.length),
-                            message: `${i + 1}/${pointerFiles.length}: ${path.basename(relPath)}`,
-                        });
-
-                        const fileData = await frontierApi.downloadLFSFile(
-                            projectPath,
-                            pointer.oid,
-                            pointer.size
-                        );
-
-                        // Ensure directory exists
-                        const filesDir = path.dirname(filesPath);
-                        await vscode.workspace.fs.createDirectory(vscode.Uri.file(filesDir));
-
-                        // Write file
-                        await vscode.workspace.fs.writeFile(vscode.Uri.file(filesPath), fileData);
-                        downloadedCount++;
-                        debug(`Downloaded: ${relPath}`);
-                    } catch (error) {
-                        console.error(`Failed to download ${relPath}:`, error);
-                        // Continue with other files even if one fails
                     }
+
+                    processed += batch.length;
+                    progress.report({
+                        increment: (batch.length / total) * 100,
+                        message: `${processed}/${total}`,
+                    });
                 }
 
                 progress.report({ increment: 100, message: "Complete" });
@@ -192,25 +338,62 @@ export async function removeFilesPointerStubs(projectPath: string): Promise<numb
             },
             async (progress) => {
                 const total = Math.max(pointerFiles.length, 1);
-                for (let i = 0; i < pointerFiles.length; i++) {
-                    const relPath = pointerFiles[i];
-                    const filesPath = path.join(projectPath, ".project", "attachments", "files", relPath);
-                    progress.report({
-                        increment: 100 / total,
-                        message: `${i + 1}/${total}: ${path.basename(relPath)}`,
-                    });
-                    try {
-                        const stat = await vscode.workspace.fs.stat(vscode.Uri.file(filesPath));
-                        // Only remove if files/ contains a pointer (do not touch real media bytes)
-                        const isPtr = await isPointerFile(filesPath);
-                        if (stat && isPtr) {
-                            await vscode.workspace.fs.delete(vscode.Uri.file(filesPath));
+                let processed = 0;
+
+                // Process files in parallel batches - optimized
+                const BATCH_SIZE = 100;
+                const batches: string[][] = [];
+                for (let i = 0; i < pointerFiles.length; i += BATCH_SIZE) {
+                    batches.push(pointerFiles.slice(i, i + BATCH_SIZE));
+                }
+
+                for (const batch of batches) {
+                    const results = await Promise.allSettled(
+                        batch.map(async (relPath) => {
+                            const filesPath = path.join(projectPath, ".project", "attachments", "files", relPath);
+                            try {
+                                // CRITICAL: Check if this is a locally recorded, unsynced file
+                                // We MUST NOT delete local recordings!
+                                const pathParts = relPath.split(path.sep);
+                                if (pathParts.length >= 2) {
+                                    const book = pathParts[0];
+                                    const filename = pathParts.slice(1).join(path.sep);
+                                    const { getFileStatus } = await import("./lfsHelpers");
+                                    const status = await getFileStatus(projectPath, book, filename);
+
+                                    if (status === "local-unsynced") {
+                                        debug(`PROTECTED: Skipping local unsynced recording: ${relPath}`);
+                                        return false; // Do NOT delete local recordings!
+                                    }
+                                }
+
+                                const stat = await vscode.workspace.fs.stat(vscode.Uri.file(filesPath));
+                                // Quick size check: pointer files are tiny (~130 bytes)
+                                if (stat && stat.size < 200) {
+                                    // Likely a pointer stub, remove it
+                                    await vscode.workspace.fs.delete(vscode.Uri.file(filesPath));
+                                    return true;
+                                }
+                            } catch {
+                                // files path missing is fine
+                            }
+                            return false;
+                        })
+                    );
+
+                    for (const result of results) {
+                        if (result.status === 'fulfilled' && result.value) {
                             removedCount++;
                         }
-                    } catch {
-                        // files path missing is fine
                     }
+
+                    processed += batch.length;
+                    progress.report({
+                        increment: (batch.length / total) * 100,
+                        message: `${processed}/${total}`,
+                    });
                 }
+
                 progress.report({ increment: 100, message: "Complete" });
             }
         );
@@ -335,8 +518,15 @@ export async function applyMediaStrategy(
 
 /**
  * Clean up media files after sync for stream-only mode
+ * Replaces newly uploaded files in attachments/files with their pointer versions to save disk space
+ * 
+ * Note: Initial cleanup already happens when switching to stream-only mode via applyMediaStrategy.
+ * This function only handles files that were just uploaded during this sync operation.
+ * 
+ * @param projectUri - URI of the project
+ * @param uploadedFiles - List of files that were uploaded during sync. If empty/undefined, nothing to clean up.
  */
-export async function postSyncCleanup(projectUri: vscode.Uri): Promise<void> {
+export async function postSyncCleanup(projectUri: vscode.Uri, uploadedFiles?: string[]): Promise<void> {
     try {
         const mediaStrategy = await getMediaFilesStrategy(projectUri);
 
@@ -345,14 +535,17 @@ export async function postSyncCleanup(projectUri: vscode.Uri): Promise<void> {
             return;
         }
 
-        debug("Running post-sync cleanup for stream-only mode");
+        // Skip if no files were uploaded - nothing to clean up
+        if (!uploadedFiles || uploadedFiles.length === 0) {
+            debug("No files uploaded during sync, skipping post-sync cleanup");
+            return;
+        }
 
-        // After sync, some files in pointers/ are now pointers (were uploaded)
-        // Replace their counterparts in files/ with pointers
-        const replacedCount = await replaceFilesWithPointers(projectUri.fsPath);
+        debug(`Post-sync cleanup: processing ${uploadedFiles.length} uploaded file(s)`);
+        const replacedCount = await replaceSpecificFilesWithPointers(projectUri.fsPath, uploadedFiles);
 
         if (replacedCount > 0) {
-            debug(`Post-sync cleanup: replaced ${replacedCount} files with pointers`);
+            debug(`Post-sync cleanup: replaced ${replacedCount} file(s) with pointers`);
         }
     } catch (error) {
         console.error("Error in post-sync cleanup:", error);
