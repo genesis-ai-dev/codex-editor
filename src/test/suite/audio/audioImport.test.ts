@@ -136,7 +136,12 @@ suite("Audio Import Test Suite", () => {
     });
 
     suite("Execute permission handling", () => {
-        test("should set execute permissions on binary file", () => {
+        test("should set execute permissions on binary file", function () {
+            // Skip on Windows - Windows doesn't support Unix-style execute permissions
+            if (process.platform === "win32") {
+                this.skip();
+            }
+
             // Create a test binary file
             const testBinaryPath = path.join(tempDir, "test-binary");
             fs.writeFileSync(testBinaryPath, Buffer.from("fake binary"));
