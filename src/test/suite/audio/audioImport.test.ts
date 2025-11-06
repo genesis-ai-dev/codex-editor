@@ -138,36 +138,33 @@ suite("Audio Import Test Suite", () => {
     suite("Execute permission handling", () => {
         test("should set execute permissions on binary file", function () {
             // Skip on Windows - Windows doesn't support Unix-style execute permissions
-            if (process.platform === "win32") {
-                // Test passes on Windows since execute permissions aren't applicable
-                return;
+            if (process.platform !== "win32") {
+                // Create a test binary file
+                const testBinaryPath = path.join(tempDir, "test-binary");
+                fs.writeFileSync(testBinaryPath, Buffer.from("fake binary"));
+
+                // Remove execute permissions
+                fs.chmodSync(testBinaryPath, 0o644);
+
+                // Verify permissions were removed
+                const statsBefore = fs.statSync(testBinaryPath);
+                assert.strictEqual(
+                    (statsBefore.mode & 0o111) === 0,
+                    true,
+                    "File should not have execute permissions initially"
+                );
+
+                // Add execute permissions
+                fs.chmodSync(testBinaryPath, statsBefore.mode | 0o111);
+
+                // Verify permissions were added
+                const statsAfter = fs.statSync(testBinaryPath);
+                assert.strictEqual(
+                    (statsAfter.mode & 0o111) !== 0,
+                    true,
+                    "File should have execute permissions after chmod"
+                );
             }
-
-            // Create a test binary file
-            const testBinaryPath = path.join(tempDir, "test-binary");
-            fs.writeFileSync(testBinaryPath, Buffer.from("fake binary"));
-
-            // Remove execute permissions
-            fs.chmodSync(testBinaryPath, 0o644);
-
-            // Verify permissions were removed
-            const statsBefore = fs.statSync(testBinaryPath);
-            assert.strictEqual(
-                (statsBefore.mode & 0o111) === 0,
-                true,
-                "File should not have execute permissions initially"
-            );
-
-            // Add execute permissions
-            fs.chmodSync(testBinaryPath, statsBefore.mode | 0o111);
-
-            // Verify permissions were added
-            const statsAfter = fs.statSync(testBinaryPath);
-            assert.strictEqual(
-                (statsAfter.mode & 0o111) !== 0,
-                true,
-                "File should have execute permissions after chmod"
-            );
         });
     });
 
