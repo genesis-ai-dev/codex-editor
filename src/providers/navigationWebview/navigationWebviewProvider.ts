@@ -8,12 +8,11 @@ import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToView } from "../../utils/webviewUtils";
 import { CodexItem } from "types";
 import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents } from "../../../sharedUtils";
-import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
 import { normalizeCorpusMarker } from "../../utils/corpusMarkerUtils";
 import { addMetadataEdit } from "../../utils/editMapUtils";
 import { getAuthApi } from "../../extension";
 import { CustomNotebookMetadata } from "../../../types";
-import { getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
+import { getCorrespondingSourceUri, findCodexFilesByBookAbbr } from "../../utils/codexNotebookUtils";
 
 interface CodexMetadata {
     id: string;
@@ -963,8 +962,10 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
         }
 
         try {
+            // Find codex files matching the book abbreviation and read metadata from first file
+            const { matchingUris, corpusMarker } = await findCodexFilesByBookAbbr(bookAbbr, { readMetadata: true });
+
             // Check if this is a biblical book - only validate against bibleBookMap for biblical books
-            const corpusMarker = getCorpusMarkerForBook(bookAbbr);
             const isBiblicalBook = corpusMarker === "NT" || corpusMarker === "OT";
 
             if (isBiblicalBook) {
@@ -976,16 +977,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 }
             }
 
-            // Update .codex file metadata
-            const rootUri = workspaceFolders[0].uri;
-            const codexPattern = new vscode.RelativePattern(
-                rootUri.fsPath,
-                "files/target/**/*.codex"
-            );
-
             try {
-                // Find all codex files
-                const codexUris = await vscode.workspace.findFiles(codexPattern);
                 let updatedCount = 0;
 
                 // Show progress
@@ -994,11 +986,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                     title: `Updating book name for "${bookAbbr}"`,
                     cancellable: false
                 }, async (progress) => {
-                    // Filter to only files matching the book abbreviation
-                    const matchingUris = codexUris.filter(uri => {
-                        const fileNameAbbr = path.basename(uri.fsPath, ".codex");
-                        return fileNameAbbr === bookAbbr;
-                    });
 
                     const total = matchingUris.length;
 
