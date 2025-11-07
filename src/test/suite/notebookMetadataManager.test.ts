@@ -208,7 +208,9 @@ suite("NotebookMetadataManager Test Suite", () => {
         let workspaceFolder: vscode.WorkspaceFolder | undefined;
         let tempFiles: vscode.Uri[] = [];
 
-        setup(async () => {
+        setup(async function () {
+            // Increase timeout for file system operations
+            this.timeout(10000);
             workspaceFolder = vscode.workspace.workspaceFolders?.[0];
             if (!workspaceFolder) {
                 return; // Skip tests if no workspace folder
@@ -300,6 +302,111 @@ suite("NotebookMetadataManager Test Suite", () => {
             return fileUri;
         }
 
+        /**
+         * Waits for a file to be discoverable by findFiles, with a timeout
+         */
+        async function waitForFileToBeDiscoverable(fileUri: vscode.Uri, timeoutMs: number = 5000): Promise<void> {
+            const startTime = Date.now();
+            const workspaceUri = workspaceFolder?.uri;
+            if (!workspaceUri) {
+                throw new Error("No workspace folder found");
+            }
+
+            const sourceDir = vscode.Uri.joinPath(workspaceUri, ".project", "sourceTexts");
+            const codexDir = vscode.Uri.joinPath(workspaceUri, "files", "target");
+
+            while (Date.now() - startTime < timeoutMs) {
+                const sourceFiles = await vscode.workspace.findFiles(
+                    new vscode.RelativePattern(sourceDir, "*.source")
+                );
+                const codexFiles = await vscode.workspace.findFiles(
+                    new vscode.RelativePattern(codexDir, "*.codex")
+                );
+                const allFiles = [...sourceFiles, ...codexFiles];
+
+                if (allFiles.some(f => f.fsPath === fileUri.fsPath)) {
+                    return; // File is discoverable
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+
+            throw new Error(`File ${fileUri.fsPath} was not discoverable by findFiles within ${timeoutMs}ms`);
+        }
+
+        /**
+         * Ensures loadMetadata processes a file by calling loadMetadata and verifying it was processed
+         */
+        async function ensureFileProcessedByLoadMetadata(fileUri: vscode.Uri, timeoutMs: number = 5000): Promise<void> {
+            const fileName = path.basename(fileUri.fsPath, path.extname(fileUri.fsPath));
+
+            // Ensure the file exists
+            try {
+                await vscode.workspace.fs.stat(fileUri);
+            } catch (error) {
+                throw new Error(`File ${fileUri.fsPath} does not exist: ${error}`);
+            }
+
+            // Small delay to ensure file system operations are complete
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            // Call loadMetadata to process files
+            await manager.loadMetadata();
+
+            // Check if file was processed
+            const metadata = manager.getMetadataById(fileName);
+            if (!metadata) {
+                throw new Error(
+                    `File ${fileUri.fsPath} was not processed by loadMetadata. ` +
+                    `Expected metadata for file: ${fileName}`
+                );
+            }
+        }
+
+        /**
+         * Waits for a file to have the expected fileDisplayName, with a timeout
+         */
+        async function waitForFileDisplayName(
+            fileUri: vscode.Uri,
+            expectedDisplayName: string | undefined,
+            timeoutMs: number = 2000
+        ): Promise<void> {
+            const startTime = Date.now();
+            const serializer = new CodexContentSerializer();
+
+            while (Date.now() - startTime < timeoutMs) {
+                try {
+                    const content = await vscode.workspace.fs.readFile(fileUri);
+                    const notebookData = await serializer.deserializeNotebook(
+                        content,
+                        new vscode.CancellationTokenSource().token
+                    );
+                    const metadata = notebookData.metadata as CustomNotebookMetadata;
+
+                    if (metadata.fileDisplayName === expectedDisplayName) {
+                        return; // File has the expected display name
+                    }
+                } catch (error) {
+                    // File might not be readable yet, continue waiting
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+
+            // Final check to get a better error message
+            const content = await vscode.workspace.fs.readFile(fileUri);
+            const notebookData = await serializer.deserializeNotebook(
+                content,
+                new vscode.CancellationTokenSource().token
+            );
+            const metadata = notebookData.metadata as CustomNotebookMetadata;
+
+            throw new Error(
+                `File ${fileUri.fsPath} did not have expected fileDisplayName "${expectedDisplayName}" within ${timeoutMs}ms. ` +
+                `Actual value: "${metadata.fileDisplayName}"`
+            );
+        }
+
         test("should preserve existing fileDisplayName in .codex file", async () => {
             if (!workspaceFolder) {
                 return;
@@ -356,7 +463,8 @@ suite("NotebookMetadataManager Test Suite", () => {
             );
         });
 
-        test("should use originalName when fileDisplayName is missing in .codex file", async () => {
+        test("should use originalName when fileDisplayName is missing in .codex file", async function () {
+            this.timeout(5000);
             if (!workspaceFolder) {
                 return;
             }
@@ -367,7 +475,12 @@ suite("NotebookMetadataManager Test Suite", () => {
             });
 
             await manager.initialize();
-            await manager.loadMetadata();
+
+            // Ensure loadMetadata processes the file (this will wait for file to be discoverable and processed)
+            await ensureFileProcessedByLoadMetadata(codexUri);
+
+            // Wait for fileDisplayName to be set in the file
+            await waitForFileDisplayName(codexUri, "Matthew");
 
             // Verify fileDisplayName was set from originalName
             const serializer = new CodexContentSerializer();
@@ -385,7 +498,8 @@ suite("NotebookMetadataManager Test Suite", () => {
             );
         });
 
-        test("should use originalName when fileDisplayName is missing in .source file", async () => {
+        test("should use originalName when fileDisplayName is missing in .source file", async function () {
+            this.timeout(5000);
             if (!workspaceFolder) {
                 return;
             }
@@ -396,7 +510,12 @@ suite("NotebookMetadataManager Test Suite", () => {
             });
 
             await manager.initialize();
-            await manager.loadMetadata();
+
+            // Ensure loadMetadata processes the file (this will wait for file to be discoverable and processed)
+            await ensureFileProcessedByLoadMetadata(sourceUri);
+
+            // Wait for fileDisplayName to be set
+            await waitForFileDisplayName(sourceUri, "Matthew Source");
 
             // Verify fileDisplayName was set from originalName
             const serializer = new CodexContentSerializer();
@@ -414,7 +533,8 @@ suite("NotebookMetadataManager Test Suite", () => {
             );
         });
 
-        test("should derive fileDisplayName from USFM code for biblical .codex file", async () => {
+        test("should derive fileDisplayName from USFM code for biblical .codex file", async function () {
+            this.timeout(5000);
             if (!workspaceFolder) {
                 return;
             }
@@ -425,7 +545,12 @@ suite("NotebookMetadataManager Test Suite", () => {
             });
 
             await manager.initialize();
-            await manager.loadMetadata();
+
+            // Ensure loadMetadata processes the file (this will wait for file to be discoverable and processed)
+            await ensureFileProcessedByLoadMetadata(codexUri);
+
+            // Wait for fileDisplayName to be set (should be "Revelation" from USFM code)
+            await waitForFileDisplayName(codexUri, "Revelation");
 
             // Verify fileDisplayName was derived from USFM code
             const serializer = new CodexContentSerializer();
@@ -447,7 +572,8 @@ suite("NotebookMetadataManager Test Suite", () => {
             );
         });
 
-        test("should derive fileDisplayName from filename for non-biblical .codex file", async () => {
+        test("should derive fileDisplayName from filename for non-biblical .codex file", async function () {
+            this.timeout(5000);
             if (!workspaceFolder) {
                 return;
             }
@@ -457,7 +583,12 @@ suite("NotebookMetadataManager Test Suite", () => {
             });
 
             await manager.initialize();
-            await manager.loadMetadata();
+
+            // Ensure loadMetadata processes the file (this will wait for file to be discoverable and processed)
+            await ensureFileProcessedByLoadMetadata(codexUri);
+
+            // Wait for fileDisplayName to be set (should be "custom-story" from filename)
+            await waitForFileDisplayName(codexUri, "custom-story");
 
             // Verify fileDisplayName was derived from filename
             const serializer = new CodexContentSerializer();
@@ -475,7 +606,8 @@ suite("NotebookMetadataManager Test Suite", () => {
             );
         });
 
-        test("should handle empty fileDisplayName string", async () => {
+        test("should handle empty fileDisplayName string", async function () {
+            this.timeout(5000);
             if (!workspaceFolder) {
                 return;
             }
@@ -486,7 +618,12 @@ suite("NotebookMetadataManager Test Suite", () => {
             });
 
             await manager.initialize();
-            await manager.loadMetadata();
+
+            // Ensure loadMetadata processes the file (this will wait for file to be discoverable and processed)
+            await ensureFileProcessedByLoadMetadata(codexUri);
+
+            // Wait for fileDisplayName to be set from originalName
+            await waitForFileDisplayName(codexUri, "Leviticus");
 
             // Verify fileDisplayName was set from originalName
             const serializer = new CodexContentSerializer();
@@ -504,7 +641,8 @@ suite("NotebookMetadataManager Test Suite", () => {
             );
         });
 
-        test("should handle whitespace-only fileDisplayName", async () => {
+        test("should handle whitespace-only fileDisplayName", async function () {
+            this.timeout(5000);
             if (!workspaceFolder) {
                 return;
             }
@@ -515,7 +653,12 @@ suite("NotebookMetadataManager Test Suite", () => {
             });
 
             await manager.initialize();
-            await manager.loadMetadata();
+
+            // Ensure loadMetadata processes the file (this will wait for file to be discoverable and processed)
+            await ensureFileProcessedByLoadMetadata(codexUri);
+
+            // Wait for fileDisplayName to be set from originalName
+            await waitForFileDisplayName(codexUri, "Numbers");
 
             // Verify fileDisplayName was set from originalName
             const serializer = new CodexContentSerializer();
@@ -533,7 +676,8 @@ suite("NotebookMetadataManager Test Suite", () => {
             );
         });
 
-        test("should update both .codex and .source files for same book", async () => {
+        test("should update both .codex and .source files for same book", async function () {
+            this.timeout(5000);
             if (!workspaceFolder) {
                 return;
             }
@@ -546,7 +690,14 @@ suite("NotebookMetadataManager Test Suite", () => {
             });
 
             await manager.initialize();
-            await manager.loadMetadata();
+
+            // Ensure loadMetadata processes both files (this will wait for files to be discoverable and processed)
+            await ensureFileProcessedByLoadMetadata(codexUri);
+            await ensureFileProcessedByLoadMetadata(sourceUri);
+
+            // Wait for both files to have fileDisplayName set
+            await waitForFileDisplayName(codexUri, "John");
+            await waitForFileDisplayName(sourceUri, "John");
 
             // Verify both files have fileDisplayName set
             const serializer = new CodexContentSerializer();
