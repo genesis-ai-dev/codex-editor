@@ -955,109 +955,99 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                             {lineNumber}
                                         </div>
                                     )}
-                                    {!isSourceText &&
-                                        SHOW_VALIDATION_BUTTON && (
-                                            <>
-                                                <div className="flex items-center justify-center gap-x-px">
-                                                    <AudioValidationButton
-                                                        cellId={cellIds[0]}
-                                                        cell={cell}
-                                                        vscode={vscode}
-                                                        isSourceText={isSourceText}
-                                                        currentUsername={currentUsername}
-                                                        requiredAudioValidations={
-                                                            requiredAudioValidations
-                                                        }
-                                                        setShowSparkleButton={setShowSparkleButton}
-                                                        disabled={
-                                                            isInTranslationProcess ||
-                                                            audioState === "none" ||
-                                                            audioState === "deletedOnly"
-                                                        }
-                                                        disabledReason={
-                                                            isInTranslationProcess
-                                                                ? "Translation in progress"
-                                                                : audioState === "none" ||
-                                                            audioState === "deletedOnly"
-                                                                ? "Audio validation requires audio"
-                                                                : undefined
-                                                        }
-                                                    />
-                                                    {/* Audio Play Button */}
-                                                    {audioAttachments &&
-                                                        audioAttachments[cellIds[0]] !==
-                                                            undefined &&
-                                                        (() => {
-                                                            // For source text: show the button for available or missing; hide when none/deletedOnly
-                                                            if (
-                                                                isSourceText &&
-                                                                !(
-                                                                    audioState === "available" ||
-                                                                    audioState ===
-                                                                        "available-local" ||
-                                                                    audioState ===
-                                                                        "available-pointer" ||
-                                                                    audioState === "missing"
-                                                                )
-                                                            )
-                                                                return null;
+                                    {/* Audio Play Button - show for both source and non-source text */}
+                                    {audioAttachments &&
+                                        audioAttachments[cellIds[0]] !== undefined &&
+                                        (() => {
+                                            // For source text: show the button for available or missing; hide when none/deletedOnly
+                                            if (
+                                                isSourceText &&
+                                                !(
+                                                    audioState === "available" ||
+                                                    audioState === "available-local" ||
+                                                    audioState === "available-pointer" ||
+                                                    audioState === "missing"
+                                                )
+                                            )
+                                                return null;
 
-                                                            return (
-                                                                <AudioPlayButton
-                                                                    cellId={cellIds[0]}
-                                                                    vscode={vscode}
-                                                                    state={audioState}
-                                                                    onOpenCell={(id) => {
-                                                                        // Use force variant to ensure editor opens even with unsaved state
-                                                                        const open =
-                                                                            (window as any)
-                                                                                .openCellByIdForce ||
-                                                                            (window as any)
-                                                                                .openCellById;
-                                                                        if (
-                                                                            typeof open ===
-                                                                            "function"
-                                                                        )
-                                                                            open(id);
-                                                                    }}
-                                                                />
-                                                            );
-                                                        })()}
-                                                </div>
-                                                <div className="flex flex-col items-center justify-center">
-                                                    <ValidationButton
-                                                        cellId={cellIds[0]}
-                                                        cell={cell}
-                                                        vscode={vscode}
-                                                        isSourceText={isSourceText}
-                                                        currentUsername={currentUsername}
-                                                        requiredValidations={requiredValidations}
-                                                        setShowSparkleButton={setShowSparkleButton}
-                                                        disabled={
-                                                            isInTranslationProcess ||
-                                                            shouldDisableValidation(
+                                            return (
+                                                <AudioPlayButton
+                                                    cellId={cellIds[0]}
+                                                    vscode={vscode}
+                                                    state={audioState}
+                                                    onOpenCell={(id) => {
+                                                        // Use force variant to ensure editor opens even with unsaved state
+                                                        const open =
+                                                            (window as any).openCellByIdForce ||
+                                                            (window as any).openCellById;
+                                                        if (typeof open === "function") open(id);
+                                                    }}
+                                                />
+                                            );
+                                        })()}
+                                    {!isSourceText && SHOW_VALIDATION_BUTTON && (
+                                        <>
+                                            <div className="flex items-center justify-center gap-x-px">
+                                                <AudioValidationButton
+                                                    cellId={cellIds[0]}
+                                                    cell={cell}
+                                                    vscode={vscode}
+                                                    isSourceText={isSourceText}
+                                                    currentUsername={currentUsername}
+                                                    requiredAudioValidations={
+                                                        requiredAudioValidations
+                                                    }
+                                                    setShowSparkleButton={setShowSparkleButton}
+                                                    disabled={
+                                                        isInTranslationProcess ||
+                                                        audioState === "none" ||
+                                                        audioState === "deletedOnly"
+                                                    }
+                                                    disabledReason={
+                                                        isInTranslationProcess
+                                                            ? "Translation in progress"
+                                                            : audioState === "none" ||
+                                                              audioState === "deletedOnly"
+                                                            ? "Audio validation requires audio"
+                                                            : undefined
+                                                    }
+                                                />
+                                            </div>
+                                            <div className="flex flex-col items-center justify-center">
+                                                <ValidationButton
+                                                    cellId={cellIds[0]}
+                                                    cell={cell}
+                                                    vscode={vscode}
+                                                    isSourceText={isSourceText}
+                                                    currentUsername={currentUsername}
+                                                    requiredValidations={requiredValidations}
+                                                    setShowSparkleButton={setShowSparkleButton}
+                                                    disabled={
+                                                        isInTranslationProcess ||
+                                                        shouldDisableValidation(
                                                             cell.cellContent,
                                                             audioAttachments?.[cellIds[0]] as any
-                                                            )
+                                                        )
+                                                    }
+                                                    disabledReason={(() => {
+                                                        if (isInTranslationProcess) {
+                                                            return "Translation in progress";
                                                         }
-                                                        disabledReason={(() => {
-                                                            if (isInTranslationProcess) {
-                                                                return "Translation in progress";
-                                                            }
-                                                            const audioState = audioAttachments?.[
-                                                                cellIds[0]
-                                                            ] as any;
-                                                            return shouldDisableValidation(
-                                                                cell.cellContent,
-                                                                audioState
-                                                            )
-                                                                ? "Validation disabled: no text"
-                                                                : undefined;
-                                                        })()}
-                                                    />
-                                                </div>
-                                            </>
-                                        )}
+                                                        const audioState = audioAttachments?.[
+                                                            cellIds[0]
+                                                        ] as any;
+                                                        return shouldDisableValidation(
+                                                            cell.cellContent,
+                                                            audioState
+                                                        )
+                                                            ? "Validation disabled: no text"
+                                                            : undefined;
+                                                    })()}
+                                                />
+                                            </div>
+                                        </>
+                                    )}
 
                                     {/* Merge Button - only show in correction editor mode for source text */}
                                     {isSourceText &&
@@ -1147,7 +1137,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         }`}
                     >
                         {renderContent()}
-                        
+
                         {/* Inline backtranslation display */}
                         {showInlineBacktranslations && backtranslation?.backtranslation && (
                             <div
@@ -1161,7 +1151,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                     borderLeft: "2px solid var(--vscode-editorWidget-border)",
                                 }}
                             >
-                                <ReactMarkdown 
+                                <ReactMarkdown
                                     className="prose prose-sm max-w-none"
                                     components={{
                                         p: ({ children }) => <span>{children}</span>,
