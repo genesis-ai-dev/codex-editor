@@ -1,12 +1,13 @@
 /**
- * Backend audio processing utilities using FFmpeg
+ * Backend audio processing utilities using FFmpeg binaries
  * Handles audio decoding, silence detection, segmentation, and waveform generation
+ * Uses @ffmpeg-installer/ffmpeg for cross-platform FFmpeg binaries
  */
 
 import * as path from 'path';
 import * as fs from 'fs';
 
-// Lazy load spawn to avoid bundling issues
+// Lazy load to avoid bundling issues
 function getFs(): typeof fs {
     try {
         // Use eval to prevent webpack from analyzing
@@ -27,6 +28,83 @@ function getSpawn(): ((command: string, args?: readonly string[]) => any) | null
     }
 }
 
+// Cache for FFmpeg and FFprobe binary paths
+let ffmpegPath: string | null = null;
+let ffprobePath: string | null = null;
+
+/**
+ * Ensure binary has execute permissions
+ */
+function ensureExecutePermission(binaryPath: string): void {
+    const fsModule = getFs();
+    try {
+        // Check if file exists
+        if (!fsModule.existsSync(binaryPath)) {
+            throw new Error(`Binary not found: ${binaryPath}`);
+        }
+
+        // Get current file stats
+        const stats = fsModule.statSync(binaryPath);
+
+        // Check if file has execute permission (for owner, group, or others)
+        const mode = stats.mode;
+        const executeBit = 0o111; // Execute permission bit
+
+        if ((mode & executeBit) === 0) {
+            // File doesn't have execute permission, add it
+            // Add execute permission for owner, group, and others
+            fsModule.chmodSync(binaryPath, mode | 0o111);
+        }
+    } catch (error) {
+        // Log warning but don't throw - the spawn might still work
+        console.warn(`[audioProcessor] Warning: Could not set execute permissions on ${binaryPath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+/**
+ * Get FFmpeg binary path from @ffmpeg-installer/ffmpeg
+ */
+function getFFmpegPath(): string {
+    if (ffmpegPath) {
+        return ffmpegPath;
+    }
+    try {
+        const req = eval('require') as any;
+        const ffmpegInstaller = req('@ffmpeg-installer/ffmpeg');
+        const installerPath: string | null = ffmpegInstaller.path;
+        if (!installerPath) {
+            throw new Error('FFmpeg path is null');
+        }
+        ffmpegPath = installerPath;
+        ensureExecutePermission(ffmpegPath);
+        return ffmpegPath;
+    } catch (error) {
+        throw new Error(`Failed to get FFmpeg path: ${error instanceof Error ? error.message : String(error)}. Make sure @ffmpeg-installer/ffmpeg is installed.`);
+    }
+}
+
+/**
+ * Get FFprobe binary path from @ffprobe-installer/ffprobe
+ */
+function getFFprobePath(): string {
+    if (ffprobePath) {
+        return ffprobePath;
+    }
+    try {
+        const req = eval('require') as any;
+        const ffprobeInstaller = req('@ffprobe-installer/ffprobe');
+        const installerPath: string | null = ffprobeInstaller.path;
+        if (!installerPath) {
+            throw new Error('FFprobe path is null');
+        }
+        ffprobePath = installerPath;
+        ensureExecutePermission(ffprobePath);
+        return ffprobePath;
+    } catch (error) {
+        throw new Error(`Failed to get FFprobe path: ${error instanceof Error ? error.message : String(error)}. Make sure @ffprobe-installer/ffprobe is installed.`);
+    }
+}
+
 export interface AudioFileMetadata {
     id: string;
     name: string;
@@ -34,7 +112,7 @@ export interface AudioFileMetadata {
     durationSec: number;
     sizeBytes: number;
     previewPeaks: number[];
-    segments: Array<{ startSec: number; endSec: number }>;
+    segments: Array<{ startSec: number; endSec: number; }>;
 }
 
 export interface AudioSegment {
@@ -43,7 +121,7 @@ export interface AudioSegment {
 }
 
 /**
- * Get audio duration using FFmpeg
+ * Get audio duration using FFprobe
  */
 async function getAudioDuration(filePath: string): Promise<number> {
     return new Promise((resolve, reject) => {
@@ -52,7 +130,8 @@ async function getAudioDuration(filePath: string): Promise<number> {
             return reject(new Error('child_process.spawn not available'));
         }
 
-        const ffprobe = spawn('ffprobe', [
+        const ffprobePath = getFFprobePath();
+        const ffprobe = spawn(ffprobePath, [
             '-v', 'error',
             '-show_entries', 'format=duration',
             '-of', 'default=noprint_wrappers=1:nokey=1',
@@ -93,6 +172,8 @@ async function generateWaveformPeaks(
             return reject(new Error('child_process.spawn not available'));
         }
 
+        const ffmpegPath = getFFmpegPath();
+
         // Prepare output buckets
         const peaks: number[] = new Array(Math.max(1, targetPoints)).fill(0);
         const totalSamples = Math.max(1, Math.floor(durationSec * sampleRate));
@@ -102,7 +183,7 @@ async function generateWaveformPeaks(
         let leftover: Buffer | null = null;
 
         // Extract audio as 32-bit float, mono, downsampled sampleRate
-        const ffmpeg = spawn('ffmpeg', [
+        const ffmpeg = spawn(ffmpegPath, [
             '-i', filePath,
             '-f', 'f32le',
             '-ac', '1',
@@ -156,7 +237,8 @@ export async function detectSilence(
             return reject(new Error('child_process.spawn not available'));
         }
 
-        const ffmpeg = spawn('ffmpeg', [
+        const ffmpegPath = getFFmpegPath();
+        const ffmpeg = spawn(ffmpegPath, [
             '-i', filePath,
             '-af', `silencedetect=n=${thresholdDb}dB:d=${minDuration}`,
             '-f', 'null',
@@ -171,26 +253,26 @@ export async function detectSilence(
         ffmpeg.on('exit', async (code: number | null) => {
             console.log(`[audioProcessor] FFmpeg silence detection exit code: ${code}`);
             console.log(`[audioProcessor] FFmpeg stderr length: ${stderr.length} chars`);
-            
+
             // Log a sample of the actual output for debugging
-            const sampleLines = stderr.split('\n').filter(line => 
+            const sampleLines = stderr.split('\n').filter(line =>
                 line.includes('silence_start') || line.includes('silence_end')
             ).slice(0, 10);
             if (sampleLines.length > 0) {
                 console.log(`[audioProcessor] Sample FFmpeg output lines:`, sampleLines);
             }
-            
+
             // Parse silence detection output - collect all starts and ends separately
             const silenceStarts: number[] = [];
             const silenceEnds: number[] = [];
-            
+
             // More robust regex that handles FFmpeg's output format
             const lines = stderr.split('\n');
             for (const line of lines) {
                 // Match silence_start: can appear anywhere in the line
                 const startMatch = line.match(/silence_start:\s*([\d.]+)/);
                 const endMatch = line.match(/silence_end:\s*([\d.]+)/);
-                
+
                 if (startMatch) {
                     const time = parseFloat(startMatch[1]);
                     if (!isNaN(time) && time >= 0) {
@@ -208,9 +290,9 @@ export async function detectSilence(
             // Sort and pair up silence regions
             silenceStarts.sort((a, b) => a - b);
             silenceEnds.sort((a, b) => a - b);
-            
-            const silenceRegions: Array<{ start: number; end: number }> = [];
-            
+
+            const silenceRegions: Array<{ start: number; end: number; }> = [];
+
             // Pair up starts and ends - take the earliest end for each start
             let endIndex = 0;
             for (const start of silenceStarts) {
@@ -229,9 +311,9 @@ export async function detectSilence(
 
             // Sort silence regions by start time
             silenceRegions.sort((a, b) => a.start - b.start);
-            
+
             // Remove overlapping regions (keep the first one if they overlap)
-            const cleanedRegions: Array<{ start: number; end: number }> = [];
+            const cleanedRegions: Array<{ start: number; end: number; }> = [];
             for (const region of silenceRegions) {
                 if (cleanedRegions.length === 0) {
                     cleanedRegions.push(region);
@@ -259,18 +341,18 @@ export async function detectSilence(
             // Breakpoints at midpoint of silence regions
             try {
                 const duration = await getAudioDuration(filePath);
-                
+
                 const breakpoints: number[] = [0];
                 for (const silence of cleanedRegions) {
                     breakpoints.push((silence.start + silence.end) / 2);
                 }
                 breakpoints.push(duration);
-                
+
                 breakpoints.sort((a, b) => a - b);
-                const uniqueBreakpoints = breakpoints.filter((bp, i) => 
+                const uniqueBreakpoints = breakpoints.filter((bp, i) =>
                     i === 0 || bp - breakpoints[i - 1] >= 0.01
                 );
-                
+
                 const segments: AudioSegment[] = [];
                 for (let i = 0; i < uniqueBreakpoints.length - 1; i++) {
                     segments.push({
@@ -278,7 +360,7 @@ export async function detectSilence(
                         endSec: uniqueBreakpoints[i + 1]
                     });
                 }
-                
+
                 // If no segments found, use entire file
                 if (segments.length === 0) {
                     segments.push({ startSec: 0, endSec: duration });
@@ -331,13 +413,13 @@ export async function processAudioFile(
 ): Promise<AudioFileMetadata> {
     console.log(`[audioProcessor] Processing file: ${filePath}`);
     const fsModule = getFs();
-    
+
     if (!fsModule.existsSync(filePath)) {
         const error = `Audio file not found: ${filePath}`;
         console.error(`[audioProcessor] ${error}`);
         throw new Error(error);
     }
-    
+
     console.log(`[audioProcessor] File exists, getting stats...`);
     const stats = fsModule.statSync(filePath);
     const fileName = path.basename(filePath, path.extname(filePath));
@@ -345,17 +427,17 @@ export async function processAudioFile(
     console.log(`[audioProcessor] File: ${fileName}, ID: ${fileId}, Size: ${stats.size} bytes`);
 
     console.log(`[audioProcessor] Starting parallel processing (duration, peaks, segments)...`);
-    
+
     // Get duration first to calculate appropriate target points
     const duration = await getAudioDuration(filePath).catch(err => {
         console.error(`[audioProcessor] Error getting duration:`, err);
         throw err;
     });
-    
+
     // Calculate target points: ~50 points per second, capped between 1000-8000
     const targetPoints = Math.max(1000, Math.min(8000, Math.floor(duration * 50)));
     console.log(`[audioProcessor] Duration: ${duration}s, generating ${targetPoints} waveform points`);
-    
+
     const [peaks, segments] = await Promise.all([
         generateWaveformPeaks(filePath, duration, targetPoints).catch(err => {
             console.error(`[audioProcessor] Error generating peaks:`, err);
@@ -368,7 +450,7 @@ export async function processAudioFile(
     ]);
 
     console.log(`[audioProcessor] Processing complete: duration=${duration}s, peaks=${peaks.length}, segments=${segments.length}`);
-    
+
     return {
         id: fileId,
         name: fileName,
@@ -395,6 +477,7 @@ export async function extractSegment(
             return reject(new Error('child_process.spawn not available'));
         }
 
+        const ffmpegPath = getFFmpegPath();
         const duration = endSec - startSec;
         const args = [
             '-i', sourcePath,
@@ -407,7 +490,7 @@ export async function extractSegment(
             outputPath
         ];
 
-        const ffmpeg = spawn('ffmpeg', args);
+        const ffmpeg = spawn(ffmpegPath, args);
 
         let stderr = '';
         ffmpeg.stderr.on('data', (data: Buffer) => {
@@ -436,16 +519,16 @@ export async function extractSegments(
     baseFileName: string
 ): Promise<string[]> {
     const outputPaths: string[] = [];
-    
+
     for (let i = 0; i < segments.length; i++) {
         const segment = segments[i];
         const outputFileName = `${baseFileName}-seg${i + 1}.wav`;
         const outputPath = path.join(outputDir, outputFileName);
-        
+
         await extractSegment(sourcePath, outputPath, segment.startSec, segment.endSec);
         outputPaths.push(outputPath);
     }
-    
+
     return outputPaths;
 }
 
