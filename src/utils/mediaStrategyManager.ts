@@ -482,6 +482,13 @@ export async function applyMediaStrategy(
                 // Quick path: remove pointer stubs from files/ so reconcile/download kicks in after open
                 const removed = await removeFilesPointerStubs(projectPath);
                 debug(`Removed ${removed} pointer stub(s) from files directory.`);
+
+                if (removed > 0) {
+                    vscode.window.showInformationMessage(
+                        `Preparing to download ${removed} media file(s). ` +
+                        "Your media will be automatically downloaded and saved on your device."
+                    );
+                }
                 break;
             }
             case "stream-only":
@@ -490,15 +497,27 @@ export async function applyMediaStrategy(
                 const replacedCount = await replaceFilesWithPointers(projectPath);
 
                 if (newStrategy === "stream-only") {
-                    vscode.window.showInformationMessage(
-                        `Freed disk space by replacing ${replacedCount} file(s) with pointers. ` +
-                        "Media files will be streamed when needed."
-                    );
+                    if (replacedCount > 0) {
+                        vscode.window.showInformationMessage(
+                            `Freed up disk space by removing ${replacedCount} media file(s). ` +
+                            "Your media will be streamed from the cloud when you need it."
+                        );
+                    } else {
+                        vscode.window.showInformationMessage(
+                            "Your media will be streamed from the cloud when you need it."
+                        );
+                    }
                 } else {
-                    vscode.window.showInformationMessage(
-                        `Replaced ${replacedCount} file(s) with pointers. ` +
-                        "Media files will be downloaded when you play them."
-                    );
+                    if (replacedCount > 0) {
+                        vscode.window.showInformationMessage(
+                            `Prepared ${replacedCount} media file(s) for streaming. ` +
+                            "Media will be streamed and saved in the background for offline use when you need it."
+                        );
+                    } else {
+                        vscode.window.showInformationMessage(
+                            "Media will be streamed and saved in the background for offline use when you need it."
+                        );
+                    }
                 }
                 break;
             }
