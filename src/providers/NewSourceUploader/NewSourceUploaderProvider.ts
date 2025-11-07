@@ -1325,6 +1325,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         return getWebviewHtml(webview, this.context, {
             title: "Source File Importer",
             scriptPath: ["NewSourceUploader", "index.js"],
+            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; img-src data: https:; connect-src https: http:; media-src blob: data:;`,
             // Using default CSP which already includes webview.cspSource for media-src
             inlineStyles: "#root { height: 100vh; width: 100vw; overflow-y: auto; }",
             customScript: "window.vscodeApi = acquireVsCodeApi();"
