@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import semver from "semver";
 
 // Required version of Frontier Authentication extension for all syncing operations (based on codex minimum requirements)
-export const REQUIRED_FRONTIER_VERSION = "0.4.16"; // Prevent concurrent metadata.json changes by Frontier Authentication
+export const REQUIRED_FRONTIER_VERSION = "0.4.17"; // Prevent concurrent metadata.json changes by Frontier Authentication
 
 /**
  * Checks if the Frontier Authentication extension meets the minimum version requirement
