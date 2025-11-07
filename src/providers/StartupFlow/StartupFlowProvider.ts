@@ -1065,7 +1065,19 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             const removed = await removeFilesPointerStubs(projectPath);
                             debugLog(`Auto-download open: removed ${removed} pointer stub(s) before opening.`);
                         }
+
+                        // Verify and fix media files folder if needed
+                        console.log("[StartupFlow] BEFORE verifyAndFixMediaFiles call");
+                        try {
+                            const { verifyAndFixMediaFiles } = await import("../../utils/localProjectSettings");
+                            await verifyAndFixMediaFiles(projectUri);
+                            console.log("[StartupFlow] verifyAndFixMediaFiles completed successfully");
+                        } catch (verifyErr) {
+                            console.error("[StartupFlow] verifyAndFixMediaFiles failed:", verifyErr);
+                            debugLog("Media files verification failed:", verifyErr);
+                        }
                     } catch (prepErr) {
+                        console.error("[StartupFlow] prepErr caught:", prepErr);
                         debugLog("Auto-download pre-open pointer cleanup skipped/failed:", prepErr);
                     }
 
@@ -1827,6 +1839,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     lastMediaFileStrategyRun: message.mediaStrategy,
                                     mediaFileStrategyApplyState: "applied",
                                     autoDownloadAudioOnOpen: false,
+                                    mediaFilesVerified: false, // New project needs verification
                                 });
                                 debugLog(`Wrote localProjectSettings.json with strategy: ${message.mediaStrategy} BEFORE cloning`);
                             }
@@ -2181,6 +2194,15 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     if (selection === switchButton) {
                         // Switch but do not open; mark changesApplied=false and only update strategy
                         await setMediaFilesStrategy(mediaStrategy, projectUri);
+                        
+                        // Reset verification flag when switching strategies
+                        try {
+                            const { resetMediaFilesVerified } = await import("../../utils/localProjectSettings");
+                            await resetMediaFilesVerified(projectUri);
+                        } catch (resetErr) {
+                            debugLog("Failed to reset mediaFilesVerified flag", resetErr);
+                        }
+
                         const { lastModeRun } = await getFlags(projectUri);
                         // If switching to same as last mode run, no changes needed
                         if (lastModeRun && lastModeRun === mediaStrategy) {
@@ -2226,6 +2248,14 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             await setLastModeRun(mediaStrategy, projectUri);
                             await setApplyState("applied", projectUri);
                         } else {
+                            // Reset verification flag when switching strategies
+                            try {
+                                const { resetMediaFilesVerified } = await import("../../utils/localProjectSettings");
+                                await resetMediaFilesVerified(projectUri);
+                            } catch (resetErr) {
+                                debugLog("Failed to reset mediaFilesVerified flag", resetErr);
+                            }
+
                             // Mark pending before kicking off apply work
                             try { await setApplyState("pending", projectUri); } catch (pendingErr) { debugLog("Failed to set applyState=pending before apply", pendingErr); }
                             await applyMediaStrategyAndRecord(projectUri, mediaStrategy);
