@@ -19,7 +19,9 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
         swallowDuplicateCommandRegistrations();
     });
 
-    setup(async () => {
+    setup(async function () {
+        // Increase timeout for file operations, especially on Windows CI
+        this.timeout(10000);
         const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         oursUri = await createTempCodexFile(`merge-ours-${suffix}.codex`, codexSubtitleContent);
         theirsUri = await createTempCodexFile(`merge-theirs-${suffix}.codex`, codexSubtitleContent);
