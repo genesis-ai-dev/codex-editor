@@ -1040,6 +1040,8 @@
         "webpack-cli": "^6.0.1"
     },
     "dependencies": {
+        "@ffmpeg-installer/ffmpeg": "^1.1.0",
+        "@ffprobe-installer/ffprobe": "^1.4.0",
         "@types/better-sqlite3": "^7.6.11",
         "@types/csv-parse": "^1.2.5",
         "@types/xml2js": "^0.4.14",

@@ -284,5 +284,164 @@ suite("NavigationWebviewProvider Test Suite", () => {
             "CodexItem should not have fileDisplayName when metadata is missing"
         );
     });
+
+    test("updateBookName reads corpusMarker from file metadata, not book abbreviation", async () => {
+        // Skip if no workspace folder
+        if (!vscode.workspace.workspaceFolders?.[0]) {
+            return;
+        }
+
+        // Create a codex file with corpusMarker="audio" but book abbreviation "MAT" (which would be NT)
+        const codexUri = await createCodexFileWithMetadata("Mateyo_001_001-001_017", {
+            corpusMarker: "audio",
+            fileDisplayName: "Mateyo_001_001-001_017",
+        });
+
+        // Load bible book map
+        const loadBibleBookMap = (provider as any).loadBibleBookMap.bind(provider);
+        loadBibleBookMap();
+
+        // Mock UI methods
+        const showErrorMessageStub = sinon.stub(vscode.window, "showErrorMessage");
+        const showInformationMessageStub = sinon.stub(vscode.window, "showInformationMessage");
+        const withProgressStub = sinon.stub(vscode.window, "withProgress").callsFake(async (options, callback) => {
+            return callback({ report: () => { } } as any, new vscode.CancellationTokenSource().token);
+        });
+
+        try {
+            // Call updateBookName - should NOT validate against bibleBookMap since corpusMarker is "audio"
+            const updateBookName = (provider as any).updateBookName.bind(provider);
+            await updateBookName("Mateyo_001_001-001_017", "Custom Audio Book Name");
+
+            // Verify no error was shown (would show error if it tried to validate against bibleBookMap)
+            assert.ok(
+                !showErrorMessageStub.called,
+                "Should not show error for non-biblical book with audio corpusMarker"
+            );
+
+            // Verify the file was updated
+            const content = await vscode.workspace.fs.readFile(codexUri);
+            const serializer = new CodexContentSerializer();
+            const notebookData = await serializer.deserializeNotebook(
+                content,
+                new vscode.CancellationTokenSource().token
+            );
+
+            assert.strictEqual(
+                (notebookData.metadata as any).fileDisplayName,
+                "Custom Audio Book Name",
+                "fileDisplayName should be updated"
+            );
+        } finally {
+            showErrorMessageStub.restore();
+            showInformationMessageStub.restore();
+            withProgressStub.restore();
+        }
+    });
+
+    test("updateBookName validates against bibleBookMap only for NT/OT corpusMarker", async () => {
+        // Skip if no workspace folder
+        if (!vscode.workspace.workspaceFolders?.[0]) {
+            return;
+        }
+
+        // Create a codex file with corpusMarker="NT"
+        const codexUri = await createCodexFileWithMetadata("MAT", {
+            corpusMarker: "NT",
+        });
+
+        // Load bible book map
+        const loadBibleBookMap = (provider as any).loadBibleBookMap.bind(provider);
+        loadBibleBookMap();
+
+        // Mock UI methods
+        const showErrorMessageStub = sinon.stub(vscode.window, "showErrorMessage");
+        const showInformationMessageStub = sinon.stub(vscode.window, "showInformationMessage");
+        const withProgressStub = sinon.stub(vscode.window, "withProgress").callsFake(async (options, callback) => {
+            return callback({ report: () => { } } as any, new vscode.CancellationTokenSource().token);
+        });
+
+        try {
+            // Call updateBookName with valid biblical book - should succeed
+            const updateBookName = (provider as any).updateBookName.bind(provider);
+            await updateBookName("MAT", "Custom Matthew Name");
+
+            // Verify no error was shown
+            assert.ok(
+                !showErrorMessageStub.called,
+                "Should not show error for valid biblical book"
+            );
+
+            // Now test with invalid book abbreviation
+            const invalidCodexUri = await createCodexFileWithMetadata("INVALID", {
+                corpusMarker: "NT",
+            });
+
+            await updateBookName("INVALID", "Invalid Book Name");
+
+            // Should show error because INVALID is not in bibleBookMap
+            assert.ok(
+                showErrorMessageStub.called,
+                "Should show error for invalid book abbreviation when corpusMarker is NT"
+            );
+        } finally {
+            showErrorMessageStub.restore();
+            showInformationMessageStub.restore();
+            withProgressStub.restore();
+        }
+    });
+
+    test("updateBookName handles missing corpusMarker gracefully", async () => {
+        // Skip if no workspace folder
+        if (!vscode.workspace.workspaceFolders?.[0]) {
+            return;
+        }
+
+        // Create a codex file without corpusMarker
+        const codexUri = await createCodexFileWithMetadata("CUSTOM", {
+            // No corpusMarker
+        });
+
+        // Load bible book map
+        const loadBibleBookMap = (provider as any).loadBibleBookMap.bind(provider);
+        loadBibleBookMap();
+
+        // Mock UI methods
+        const showErrorMessageStub = sinon.stub(vscode.window, "showErrorMessage");
+        const showInformationMessageStub = sinon.stub(vscode.window, "showInformationMessage");
+        const withProgressStub = sinon.stub(vscode.window, "withProgress").callsFake(async (options, callback) => {
+            return callback({ report: () => { } } as any, new vscode.CancellationTokenSource().token);
+        });
+
+        try {
+            // Call updateBookName - should work without corpusMarker
+            const updateBookName = (provider as any).updateBookName.bind(provider);
+            await updateBookName("CUSTOM", "Custom Book Name");
+
+            // Verify no error was shown
+            assert.ok(
+                !showErrorMessageStub.called,
+                "Should not show error when corpusMarker is missing"
+            );
+
+            // Verify the file was updated
+            const content = await vscode.workspace.fs.readFile(codexUri);
+            const serializer = new CodexContentSerializer();
+            const notebookData = await serializer.deserializeNotebook(
+                content,
+                new vscode.CancellationTokenSource().token
+            );
+
+            assert.strictEqual(
+                (notebookData.metadata as any).fileDisplayName,
+                "Custom Book Name",
+                "fileDisplayName should be updated"
+            );
+        } finally {
+            showErrorMessageStub.restore();
+            showInformationMessageStub.restore();
+            withProgressStub.restore();
+        }
+    });
 });
 

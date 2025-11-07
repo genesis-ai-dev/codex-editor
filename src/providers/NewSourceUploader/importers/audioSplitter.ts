@@ -16,6 +16,47 @@ interface AudioImportSession {
     durationSec?: number;
 }
 
+/**
+ * Convert audio file to base64 data URL for CSP compliance
+ * Webview CSP only allows blob: and data: for media sources
+ */
+function fileToDataUrl(filePath: string): string {
+    const fileData = fs.readFileSync(filePath);
+    const base64 = fileData.toString('base64');
+    
+    // Determine MIME type based on file extension
+    const ext = path.extname(filePath).toLowerCase();
+    let mimeType = 'audio/mpeg'; // default
+    
+    switch (ext) {
+        case '.mp3':
+            mimeType = 'audio/mpeg';
+            break;
+        case '.wav':
+            mimeType = 'audio/wav';
+            break;
+        case '.m4a':
+            mimeType = 'audio/mp4';
+            break;
+        case '.aac':
+            mimeType = 'audio/aac';
+            break;
+        case '.ogg':
+            mimeType = 'audio/ogg';
+            break;
+        case '.webm':
+            mimeType = 'audio/webm';
+            break;
+        case '.flac':
+            mimeType = 'audio/flac';
+            break;
+        default:
+            mimeType = 'audio/mpeg';
+    }
+    
+    return `data:${mimeType};base64,${base64}`;
+}
+
 class AudioSplitter {
     private audioImportSessions = new Map<string, AudioImportSession>();
 
@@ -95,7 +136,8 @@ class AudioSplitter {
                     durationSec: metadata.durationSec,
                 });
 
-                const fullAudioUri = webviewPanel.webview.asWebviewUri(tempFileUri).toString();
+                // Convert to data URL for CSP compliance (webview only allows blob: and data: for media)
+                const fullAudioUri = fileToDataUrl(tempFilePath);
 
                 results.push({
                     sessionId,
@@ -172,7 +214,8 @@ class AudioSplitter {
                 session.durationSec = metadata.durationSec;
             }
 
-            const fullAudioUri = webviewPanel.webview.asWebviewUri(vscode.Uri.file(session.filePath)).toString();
+            // Convert to data URL for CSP compliance (webview only allows blob: and data: for media)
+            const fullAudioUri = fileToDataUrl(session.filePath);
 
             webviewPanel.webview.postMessage({
                 command: "audioFileSelected",
@@ -220,7 +263,8 @@ class AudioSplitter {
             const { extractSegment } = await import("../../../utils/audioProcessor");
             await extractSegment(session.filePath, outputPath, message.startSec, message.endSec);
 
-            const audioUri = webviewPanel.webview.asWebviewUri(vscode.Uri.file(outputPath)).toString();
+            // Convert to data URL for CSP compliance (webview only allows blob: and data: for media)
+            const audioUri = fileToDataUrl(outputPath);
 
             webviewPanel.webview.postMessage({
                 command: "audioSegmentResponse",
