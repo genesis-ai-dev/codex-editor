@@ -71,14 +71,16 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     const isChangingStrategy = isProjectLocal && pendingStrategy !== null;
     const disableControls = isAnyOperationApplying || isChangingStrategy || isHealing || isCloning || isOpening || isZipping || isZippingMini || isCleaning || isApplyingStrategyDuringOtherOp;
 
-    // Initialize strategy from project.mediaStrategy (which reads from JSON) on mount only
-    // After mount, the local mediaStrategy state is the source of truth for the UI
-    // The backend will update via messages (project.setMediaStrategyResult) when changes are confirmed
+    // Sync local state with project.mediaStrategy when it changes from backend
+    // This ensures the UI always reflects the persisted value from localProjectSettings.json
     React.useEffect(() => {
         const incoming = project.mediaStrategy || "auto-download";
-        setMediaStrategy(incoming);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); // Only run on mount - UI state is source of truth after that
+        // Always sync from props when they change, but skip if we're actively changing
+        // (pendingStrategy is set during user-initiated changes)
+        if (!pendingStrategy && incoming !== mediaStrategy) {
+            setMediaStrategy(incoming);
+        }
+    }, [project.mediaStrategy, pendingStrategy]);
 
     const getStrategyLabel = (strategy: MediaFilesStrategy): string => {
         switch (strategy) {
@@ -101,7 +103,6 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
             
             // Update label immediately, but only enter applying state when provider signals start
             setMediaStrategy(strategy);
-            project.mediaStrategy = strategy;
             // Mark that this was a user-initiated change (for highlighting purposes)
             userInitiatedStrategyChangeRef.current = true;
             vscode.postMessage({
@@ -113,7 +114,6 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
             // Cloud-only project: store selection for later clone without entering applying state
             setPendingStrategy(null);
             setMediaStrategy(strategy);
-            project.mediaStrategy = strategy;
         }
     };
 
@@ -146,12 +146,9 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                     // Revert to previous strategy (before the change was attempted)
                     if (previousStrategy) {
                         setMediaStrategy(previousStrategy);
-                        project.mediaStrategy = previousStrategy;
                     }
-                } else {
-                    // Success: keep the UI state (mediaStrategy) and sync project prop
-                    project.mediaStrategy = mediaStrategy;
                 }
+                // Success case: parent component will update the project prop via its message handler
                 setPendingStrategy(null);
                 setPreviousStrategy(null); // Clear previous strategy after handling result
                 userInitiatedStrategyChangeRef.current = false;
