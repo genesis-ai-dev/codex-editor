@@ -537,6 +537,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const oldText = oldContent?.cellContent || "";
         const newText = typedEvent.content.cellContent || "";
         const isSourceText = document.uri.toString().includes(".source");
+        const isTranscription = newText.includes('data-transcription="true"');
 
 
         if (oldText !== newText) {
@@ -553,11 +554,25 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         const finalContent = typedEvent.content.cellContent === "<span></span>" ? "" : typedEvent.content.cellContent;
 
-        document.updateCellContent(
-            typedEvent.content.cellMarkers[0],
-            finalContent,
-            EditType.USER_EDIT
-        );
+        const cellId = typedEvent.content.cellMarkers[0];
+        
+        // For source file transcriptions, wait for index update to complete
+        // so that the source content is immediately available for translation
+        if (isSourceText && isTranscription) {
+            document.updateCellContent(
+                cellId,
+                finalContent,
+                EditType.USER_EDIT
+            );
+            // Wait for the index to be updated and verify it's available
+            await document.ensureCellIndexed(cellId, 3000);
+        } else {
+            document.updateCellContent(
+                cellId,
+                finalContent,
+                EditType.USER_EDIT
+            );
+        }
     },
 
     getContent: ({ updateWebview }) => {
@@ -656,6 +671,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         try {
                             const timeoutMs = 40000;
                             const start = Date.now();
+                            let foundText = false;
                             for (; ;) {
                                 let src: { cellId: string; content: string; } | null = null;
                                 try {
@@ -668,7 +684,23 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                     break;
                                 }
                                 const hasText = !!src && !!src.content && src.content.replace(/<[^>]*>/g, "").trim() !== "";
-                                if (hasText) break;
+                                if (hasText) {
+                                    foundText = true;
+                                    // Wait a bit more to ensure index is fully updated and propagated
+                                    await new Promise((r) => setTimeout(r, 500));
+                                    // Verify one more time that source is still available
+                                    try {
+                                        const verifySrc = await vscode.commands.executeCommand(
+                                            "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+                                            cellId
+                                        ) as { cellId: string; content: string; } | null;
+                                        const stillHasText = !!verifySrc && !!verifySrc.content && verifySrc.content.replace(/<[^>]*>/g, "").trim() !== "";
+                                        if (stillHasText) break;
+                                    } catch {
+                                        // If verification fails, proceed anyway since we found text once
+                                        break;
+                                    }
+                                }
                                 if (Date.now() - start > timeoutMs) break;
                                 await new Promise((r) => setTimeout(r, 400));
                             }
