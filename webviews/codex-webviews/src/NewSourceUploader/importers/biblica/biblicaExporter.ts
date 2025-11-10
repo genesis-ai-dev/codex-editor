@@ -555,7 +555,13 @@ export async function exportIdmlRoundtrip(
     const storyIndexToUpdates = new Map<number, ParagraphUpdate[]>();
 
     // Build mapping for verse-based updates (Biblica format)
-    const verseUpdates: Record<string, { content: string; beforeVerse?: string; afterVerse?: string; footnotes?: string[]; }> = {};
+    const verseUpdates: Record<string, {
+        content: string;
+        beforeVerse?: string;
+        afterVerse?: string;
+        footnotes?: string[];
+        verseStructureXml?: string; // Full verse structure XML with footnotes in original positions
+    }> = {};
     let hasVerseBasedCells = false;
 
     // XML escape helper
@@ -624,14 +630,43 @@ export async function exportIdmlRoundtrip(
         // If we have verse metadata, use verse-based replacement
         if (isBibleVerse && verseId) {
             hasVerseBasedCells = true;
-            const footnotes = meta?.footnotes; // Array of footnote XML strings
+            const rawFootnotes = meta?.footnotes; // Array of footnote XML strings (or potentially other types)
+            const verseStructureXml = meta?.verseStructureXml; // Full verse structure XML with footnotes in original positions
+
+            // Normalize footnotes to ensure they're strings (for backward compatibility)
+            let footnotes: string[] | undefined;
+            if (rawFootnotes && Array.isArray(rawFootnotes)) {
+                footnotes = rawFootnotes
+                    .filter(fn => fn != null)
+                    .map(fn => {
+                        if (typeof fn === 'string') {
+                            return fn;
+                        } else if (typeof fn === 'object' && fn !== null) {
+                            // Try to extract XML from object
+                            const fnObj = fn as any;
+                            if ('xml' in fnObj && typeof fnObj.xml === 'string') {
+                                return fnObj.xml;
+                            } else if ('content' in fnObj && typeof fnObj.content === 'string') {
+                                return fnObj.content;
+                            } else {
+                                console.warn(`[Export] Normalizing non-string footnote for ${verseId}: ${JSON.stringify(fn).substring(0, 100)}`);
+                                return String(fn);
+                            }
+                        } else {
+                            return String(fn);
+                        }
+                    })
+                    .filter(fn => fn.length > 0); // Filter out empty strings
+            }
+
             verseUpdates[verseId] = {
                 content: translated,
                 beforeVerse,
                 afterVerse,
-                footnotes // Preserve footnotes for later insertion
+                footnotes, // Preserve footnotes for backward compatibility
+                verseStructureXml: typeof verseStructureXml === 'string' ? verseStructureXml : undefined // Full structure with footnotes
             };
-            console.log(`[Export] Collected verse update: ${verseId}${footnotes && footnotes.length > 0 ? ` with ${footnotes.length} footnote(s)` : ''}`);
+            console.log(`[Export] Collected verse update: ${verseId}${verseStructureXml ? ' (with full structure)' : footnotes && footnotes.length > 0 ? ` with ${footnotes.length} footnote(s)` : ''}`);
             continue;
         }
 
@@ -748,6 +783,23 @@ export async function exportIdmlRoundtrip(
                     console.log(`[Export] Replacing verse ${book} ${chapter}:${verseNumber}`);
                 }
 
+                // NEW APPROACH: If we have the full verse structure XML, use it directly
+                // This preserves footnotes in their original positions
+                if (update.verseStructureXml) {
+                    // The verseStructureXml contains: beforeVerse + verseStructureXml + afterVerse
+                    // where beforeVerse and afterVerse are the meta%3av markers
+                    // The regex matched: cvMarker + spacing + openingMeta + _oldContent + closingMeta
+                    // So we replace the entire match with: cvMarker + spacing + verseStructureXml
+                    // (verseStructureXml already includes the meta markers)
+                    const replacement = `${cvMarker}${spacing}${update.verseStructureXml}`;
+
+                    result = result.replace(fullMatch, replacement);
+                    processedVerses.add(verseNumber);
+                    console.log(`[Export] Replaced verse ${book} ${chapter}:${verseNumber} with full structure (preserving footnotes in original positions)`);
+                    continue;
+                }
+
+                // FALLBACK: Old approach - reconstruct verse content and insert footnotes at end
                 // Extract attributes from the original verse content CharacterStyleRange
                 // Look for the main content CharacterStyleRange (the one with the actual verse text)
                 const originalAttrsMatch = _oldContent.match(
@@ -802,25 +854,56 @@ export async function exportIdmlRoundtrip(
 ${contentXML.map(line => `                    ${line}`).join('\n')}
                 </CharacterStyleRange>`;
 
-                // Insert footnotes if present
+                // Insert footnotes if present (fallback - footnotes at end)
                 // Footnotes should appear after verse content but before closing meta:v
                 // Format: <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/notes%3af_call"><Footnote>...</Footnote></CharacterStyleRange>
                 let footnoteXML = '';
                 if (update.footnotes && Array.isArray(update.footnotes) && update.footnotes.length > 0) {
                     // Wrap each footnote in CharacterStyleRange with notes%3af_call style
-                    const footnoteRanges = update.footnotes.map(footnoteXml => {
-                        // The footnoteXml already contains <Footnote>...</Footnote>
-                        // We need to wrap it in CharacterStyleRange with notes%3af_call style
-                        // Also add spacing CharacterStyleRange before footnote if needed
-                        return `<CharacterStyleRange AppliedCharacterStyle="CharacterStyle/notes%3af_sp">
+                    const footnoteRanges = update.footnotes
+                        .filter(footnote => footnote != null) // Filter out null/undefined
+                        .map(footnoteXml => {
+                            // Ensure footnoteXml is a string
+                            // Handle cases where it might be an object, array, or other type
+                            let footnoteString: string;
+                            if (typeof footnoteXml === 'string') {
+                                footnoteString = footnoteXml;
+                            } else if (typeof footnoteXml === 'object' && footnoteXml !== null) {
+                                // If it's an object, try to stringify it or extract XML
+                                // Check if it has a property that contains the XML
+                                const footnoteObj = footnoteXml as any;
+                                if ('xml' in footnoteObj && typeof footnoteObj.xml === 'string') {
+                                    footnoteString = footnoteObj.xml;
+                                } else if ('content' in footnoteObj && typeof footnoteObj.content === 'string') {
+                                    footnoteString = footnoteObj.content;
+                                } else {
+                                    // Fallback: stringify the object (may not be valid XML)
+                                    console.warn(`[Export] Footnote is not a string, converting: ${JSON.stringify(footnoteXml).substring(0, 100)}`);
+                                    footnoteString = String(footnoteXml);
+                                }
+                            } else {
+                                // Convert to string as fallback
+                                footnoteString = String(footnoteXml);
+                            }
+
+                            // The footnoteString should already contain <Footnote>...</Footnote>
+                            // We need to wrap it in CharacterStyleRange with notes%3af_call style
+                            // Also add spacing CharacterStyleRange before footnote if needed
+                            return `<CharacterStyleRange AppliedCharacterStyle="CharacterStyle/notes%3af_sp">
                     <Content> </Content>
                 </CharacterStyleRange>
                 <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/notes%3af_call">
-${footnoteXml.split('\n').map(line => `                    ${line}`).join('\n')}
+${footnoteString.split('\n').map(line => `                    ${line}`).join('\n')}
                 </CharacterStyleRange>`;
-                    });
-                    footnoteXML = '\n                ' + footnoteRanges.join('\n                ') + '\n                ';
-                    console.log(`[Export] Inserting ${update.footnotes.length} footnote(s) for verse ${book} ${chapter}:${verseNumber}`);
+                        })
+                        .filter(range => range != null); // Filter out any failed conversions
+
+                    if (footnoteRanges.length > 0) {
+                        footnoteXML = '\n                ' + footnoteRanges.join('\n                ') + '\n                ';
+                        console.log(`[Export] Inserting ${footnoteRanges.length} footnote(s) at end for verse ${book} ${chapter}:${verseNumber} (fallback mode)`);
+                    } else {
+                        console.warn(`[Export] No valid footnotes found for verse ${book} ${chapter}:${verseNumber} (filtered out invalid entries)`);
+                    }
                 }
 
                 // Replace the matched section, preserving the meta tags and inserting footnotes

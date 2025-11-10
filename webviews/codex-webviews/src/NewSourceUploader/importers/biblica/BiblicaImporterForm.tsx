@@ -381,7 +381,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                     
                     // Extract verses from this paragraph
                     for (const verse of verseSegments) {
-                        const { bookAbbreviation, chapterNumber, verseNumber, verseContent, footnotes } = verse;
+                        const { bookAbbreviation, chapterNumber, verseNumber, verseContent, verseStructureXml, footnotes, beforeVerse, afterVerse } = verse;
                         
                         // Use book from verse segment if available, otherwise use current book
                         const book = bookAbbreviation || currentBook;
@@ -421,18 +421,44 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                             continue;
                         }
                         
+                        // Build full verse structure XML (beforeVerse + verseStructureXml + afterVerse)
+                        // This preserves footnotes in their original positions
+                        let fullVerseStructureXml: string | undefined;
+                        if (verseStructureXml) {
+                            fullVerseStructureXml = (beforeVerse || '') + verseStructureXml + (afterVerse || '');
+                            if (fullVerseStructureXml) {
+                                addDebugLog(`Preserved full verse structure for ${verseLabel} (${fullVerseStructureXml.length} chars)`);
+                            }
+                        }
+                        
                         // If verse already exists (may span paragraphs), append content
                         if (verseMap.has(verseLabel)) {
                             const existingContent = verseMap.get(verseLabel)!;
                             // Append with space separator if needed
                             verseContentWithBreaks = existingContent + ' ' + verseContentWithBreaks;
                             addDebugLog(`Appending to verse ${verseLabel} (verse spans multiple paragraphs)`);
+                            
+                            // For structure XML, also append if exists
+                            if (fullVerseStructureXml) {
+                                const existingStructure = footnotesMap.get(verseLabel + '_structure');
+                                if (existingStructure && existingStructure.length > 0) {
+                                    fullVerseStructureXml = existingStructure[0] + fullVerseStructureXml;
+                                }
+                            }
                         }
                         
                         // Store verse content (preserving structure)
                         verseMap.set(verseLabel, verseContentWithBreaks);
                         
-                        // Store footnotes if present
+                        // Store full verse structure XML (with footnotes in original positions)
+                        // The structure includes beforeVerse + verseStructureXml + afterVerse
+                        // This will be used to replace the entire verse section in export
+                        if (fullVerseStructureXml && fullVerseStructureXml.length > 0) {
+                            // Use a special key format to store structure separately
+                            footnotesMap.set(verseLabel + '_structure', [fullVerseStructureXml]);
+                        }
+                        
+                        // Store footnotes if present (for backward compatibility)
                         if (footnotes && Array.isArray(footnotes) && footnotes.length > 0) {
                             // If verse already exists, merge footnotes
                             if (footnotesMap.has(verseLabel)) {
@@ -444,7 +470,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                             addDebugLog(`Extracted ${footnotes.length} footnote(s) for verse ${verseLabel}`);
                         }
                         
-                        addDebugLog(`Extracted verse ${verseLabel}: "${verseContentWithBreaks.substring(0, 50)}..."`);
+                        addDebugLog(`Extracted verse ${verseLabel}: "${verseContentWithBreaks.substring(0, 50)}..."${fullVerseStructureXml ? ' (with full structure)' : ''}`);
                         
                         // Update current chapter if this verse has a different chapter
                         if (chapterNumber && chapterNumber !== currentChapter) {
@@ -598,6 +624,8 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                 
                 // Get footnotes for this verse if available
                 const cellFootnotes = isBibleVerse && verseId ? footnotesMap.get(verseId) : undefined;
+                // Get full verse structure XML (with footnotes in original positions)
+                const verseStructureXml = isBibleVerse && verseId ? footnotesMap.get(verseId + '_structure')?.[0] : undefined;
                 
                 return {
                     id: cell.id,
@@ -607,8 +635,10 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                         originalContent: cell.content,
                         // Mark that this came from translated bible
                         translatedBibleFile: translatedBibleFile?.name || null,
-                        // Preserve footnotes from translated Bible
-                        footnotes: cellFootnotes || metadata.footnotes || undefined
+                        // Preserve footnotes from translated Bible (for backward compatibility)
+                        footnotes: cellFootnotes || metadata.footnotes || undefined,
+                        // Preserve full verse structure XML (with footnotes in original positions)
+                        verseStructureXml: verseStructureXml || metadata.verseStructureXml || undefined
                     }
                 };
             });
