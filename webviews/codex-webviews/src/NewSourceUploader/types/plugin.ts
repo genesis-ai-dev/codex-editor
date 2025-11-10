@@ -107,6 +107,7 @@ export const sequentialCellAligner: CellAligner = async (
 /**
  * Default cell aligner that matches imported content IDs exactly with target cell IDs
  * This is used when plugins don't define their own custom alignment algorithm
+ * Enhanced to handle style/paratext cells with fallback positional matching
  */
 export const defaultCellAligner: CellAligner = async (
     targetCells: any[],
@@ -115,8 +116,9 @@ export const defaultCellAligner: CellAligner = async (
 ): Promise<AlignedCell[]> => {
     const alignedCells: AlignedCell[] = [];
     let totalMatches = 0;
+    let positionalMatches = 0;
 
-    // Create a map of target cells for quick lookup
+    // Create a map of target cells for quick lookup by ID
     const targetCellsMap = new Map<string, any>();
     targetCells.forEach((cell) => {
         if (cell.metadata?.id) {
@@ -124,17 +126,41 @@ export const defaultCellAligner: CellAligner = async (
         }
     });
 
+    // Track which target cells have been matched to avoid double-matching
+    const matchedTargetCellIndices = new Set<number>();
+    // Track matched imported items by their index for style/paratext sequential matching
+    const matchedImportedIndices = new Set<number>();
+
+    // Helper function to check if a cell is style or paratext
+    const isStyleOrParatext = (cell: any): boolean => {
+        const cellType = cell?.metadata?.type;
+        return cellType === 'style' || cellType === 'paratext';
+    };
+
+    // Helper function to check if imported content is style or paratext
+    const isImportedStyleOrParatext = (item: ImportedContent): boolean => {
+        // Check both direct type property and metadata.type (since notebookToImportedContent spreads metadata)
+        const cellType = (item as any).type || (item as any).metadata?.type;
+        return cellType === 'style' || cellType === 'paratext';
+    };
+
     // Process each imported content item
-    for (const importedItem of importedContent) {
+    for (let importIndex = 0; importIndex < importedContent.length; importIndex++) {
+        const importedItem = importedContent[importIndex];
+
         if (!importedItem.content.trim()) {
             continue; // Skip empty content
         }
 
-        // Look for exact ID match in target cells
+        // First, try exact ID match in target cells
         const targetCell = targetCellsMap.get(importedItem.id);
 
         if (targetCell) {
-            // Found matching cell - create aligned cell
+            // Found exact matching cell - create aligned cell
+            const targetIndex = targetCells.indexOf(targetCell);
+            matchedTargetCellIndices.add(targetIndex);
+            matchedImportedIndices.add(importIndex);
+
             alignedCells.push({
                 notebookCell: targetCell,
                 importedContent: importedItem,
@@ -143,22 +169,196 @@ export const defaultCellAligner: CellAligner = async (
             });
             totalMatches++;
         } else {
-            // No matching cell found - treat as paratext
-            alignedCells.push({
-                notebookCell: null,
-                importedContent: {
-                    ...importedItem,
-                    id: `paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                },
-                isParatext: true,
-                alignmentMethod: 'exact-id',
-                confidence: 0.0 // No confidence for unmatched content
-            });
+            // No exact ID match - try fallback for style/paratext cells
+            const isStyleParatext = isImportedStyleOrParatext(importedItem);
+
+            if (isStyleParatext) {
+                // Try to find matching style/paratext cell by position relative to verse cells
+                // Style cells should be matched based on their position between verse cells,
+                // not just sequentially within the type group
+                const importedType = (importedItem as any).type || (importedItem as any).metadata?.type;
+                let foundMatch = false;
+
+                // Find the position of this imported item relative to verse cells
+                // Look for the verse cells before and after this item in importedContent
+                let prevVerseIndex = -1;
+                let nextVerseIndex = importedContent.length;
+                for (let i = importIndex - 1; i >= 0; i--) {
+                    const prevItem = importedContent[i];
+                    const prevType = (prevItem as any).type || (prevItem as any).metadata?.type;
+                    if (prevType === 'text' && (prevItem as any).metadata?.verse !== undefined) {
+                        prevVerseIndex = i;
+                        break;
+                    }
+                }
+                for (let i = importIndex + 1; i < importedContent.length; i++) {
+                    const nextItem = importedContent[i];
+                    const nextType = (nextItem as any).type || (nextItem as any).metadata?.type;
+                    if (nextType === 'text' && (nextItem as any).metadata?.verse !== undefined) {
+                        nextVerseIndex = i;
+                        break;
+                    }
+                }
+
+                // Find the corresponding verse cells in target cells
+                let targetPrevVerseId: string | null = null;
+                let targetNextVerseId: string | null = null;
+                if (prevVerseIndex >= 0) {
+                    const prevImportedItem = importedContent[prevVerseIndex];
+                    targetPrevVerseId = prevImportedItem.id;
+                }
+                if (nextVerseIndex < importedContent.length) {
+                    const nextImportedItem = importedContent[nextVerseIndex];
+                    targetNextVerseId = nextImportedItem.id;
+                }
+
+                // Find the target cell that's between the same verse cells
+                let bestMatch: { cell: any; index: number; } | null = null;
+                for (let targetIndex = 0; targetIndex < targetCells.length; targetIndex++) {
+                    if (matchedTargetCellIndices.has(targetIndex)) {
+                        continue; // Already matched
+                    }
+
+                    const candidateCell = targetCells[targetIndex];
+                    const candidateType = candidateCell?.metadata?.type;
+
+                    if (isStyleOrParatext(candidateCell) && candidateType === importedType) {
+                        // Check if this candidate is between the same verse cells
+                        let isBetweenVerses = true;
+
+                        if (targetPrevVerseId) {
+                            // Find the previous verse cell in target
+                            let foundPrevVerse = false;
+                            for (let i = targetIndex - 1; i >= 0; i--) {
+                                const prevTargetCell = targetCells[i];
+                                if (prevTargetCell.metadata?.id === targetPrevVerseId) {
+                                    foundPrevVerse = true;
+                                    break;
+                                }
+                                if (prevTargetCell.metadata?.type === 'text' && prevTargetCell.metadata?.verse !== undefined) {
+                                    // Found a different verse cell before the expected one
+                                    isBetweenVerses = false;
+                                    break;
+                                }
+                            }
+                            if (!foundPrevVerse) {
+                                isBetweenVerses = false;
+                            }
+                        }
+
+                        if (isBetweenVerses && targetNextVerseId) {
+                            // Find the next verse cell in target
+                            let foundNextVerse = false;
+                            for (let i = targetIndex + 1; i < targetCells.length; i++) {
+                                const nextTargetCell = targetCells[i];
+                                if (nextTargetCell.metadata?.id === targetNextVerseId) {
+                                    foundNextVerse = true;
+                                    break;
+                                }
+                                if (nextTargetCell.metadata?.type === 'text' && nextTargetCell.metadata?.verse !== undefined) {
+                                    // Found a different verse cell before the expected one
+                                    isBetweenVerses = false;
+                                    break;
+                                }
+                            }
+                            if (!foundNextVerse) {
+                                isBetweenVerses = false;
+                            }
+                        }
+
+                        if (isBetweenVerses) {
+                            bestMatch = { cell: candidateCell, index: targetIndex };
+                            break; // Found the best match
+                        }
+                    }
+                }
+
+                // If no position-based match found, fall back to sequential matching within type
+                if (!bestMatch) {
+                    const unmatchedCellsOfType: Array<{ cell: any; index: number; }> = [];
+                    for (let targetIndex = 0; targetIndex < targetCells.length; targetIndex++) {
+                        if (matchedTargetCellIndices.has(targetIndex)) {
+                            continue;
+                        }
+                        const candidateCell = targetCells[targetIndex];
+                        const candidateType = candidateCell?.metadata?.type;
+                        if (isStyleOrParatext(candidateCell) && candidateType === importedType) {
+                            unmatchedCellsOfType.push({ cell: candidateCell, index: targetIndex });
+                        }
+                    }
+
+                    let matchedCountOfType = 0;
+                    for (let i = 0; i < importIndex; i++) {
+                        if (matchedImportedIndices.has(i)) {
+                            const prevItem = importedContent[i];
+                            const prevType = (prevItem as any).type || (prevItem as any).metadata?.type;
+                            if (prevType === importedType && isImportedStyleOrParatext(prevItem)) {
+                                matchedCountOfType++;
+                            }
+                        }
+                    }
+
+                    if (matchedCountOfType < unmatchedCellsOfType.length) {
+                        bestMatch = unmatchedCellsOfType[matchedCountOfType];
+                    }
+                }
+
+                if (bestMatch) {
+                    matchedTargetCellIndices.add(bestMatch.index);
+                    matchedImportedIndices.add(importIndex);
+
+                    // Use the target cell's ID to ensure correct positioning
+                    const targetCellId = bestMatch.cell.metadata?.id || importedItem.id;
+                    alignedCells.push({
+                        notebookCell: bestMatch.cell,
+                        importedContent: {
+                            ...importedItem,
+                            id: targetCellId, // Use target cell ID for correct positioning
+                        },
+                        alignmentMethod: 'exact-id',
+                        confidence: 0.8 // High confidence for sequential type-based matches
+                    });
+                    totalMatches++;
+                    positionalMatches++;
+                    foundMatch = true;
+                }
+
+                if (!foundMatch) {
+                    // No matching style/paratext cell found
+                    // Preserve the original type (style or paratext) instead of always creating paratext
+                    const isStyle = importedType === 'style';
+                    alignedCells.push({
+                        notebookCell: null,
+                        importedContent: {
+                            ...importedItem,
+                            id: isStyle
+                                ? `style-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+                                : `paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                            type: importedType, // Preserve the type
+                        },
+                        isParatext: !isStyle, // Only mark as paratext if it's not a style cell
+                        alignmentMethod: 'exact-id',
+                        confidence: 0.0 // No confidence for unmatched content
+                    });
+                }
+            } else {
+                // Not style/paratext and no exact match - treat as paratext
+                alignedCells.push({
+                    notebookCell: null,
+                    importedContent: {
+                        ...importedItem,
+                        id: `paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    },
+                    isParatext: true,
+                    alignmentMethod: 'exact-id',
+                    confidence: 0.0 // No confidence for unmatched content
+                });
+            }
         }
     }
 
     // Log matching statistics
-    console.log(`Default aligner: ${totalMatches} exact matches found out of ${importedContent.length} imported items`);
+    console.log(`Default aligner: ${totalMatches} matches (${totalMatches - positionalMatches} exact, ${positionalMatches} positional) out of ${importedContent.length} imported items`);
 
     return alignedCells;
 };
@@ -422,7 +622,7 @@ export interface AudioFileSelectedMessage {
     sessionId: string;
     fileName: string;
     durationSec: number;
-    segments: Array<{ id: string; startSec: number; endSec: number }>;
+    segments: Array<{ id: string; startSec: number; endSec: number; }>;
     waveformPeaks: number[];
     fullAudioUri?: string;
     thresholdDb?: number;
@@ -436,7 +636,7 @@ export interface AudioFilesSelectedMessage {
         sessionId: string;
         fileName: string;
         durationSec: number;
-        segments: Array<{ id: string; startSec: number; endSec: number }>;
+        segments: Array<{ id: string; startSec: number; endSec: number; }>;
         waveformPeaks: number[];
         fullAudioUri?: string;
     }>;
@@ -465,7 +665,7 @@ export interface FinalizeAudioImportMessage {
     sessionId: string;
     documentName: string;
     notebookPairs: NotebookPair[];
-    segmentMappings: Array<{ segmentId: string; cellId: string; attachmentId: string; fileName: string }>;
+    segmentMappings: Array<{ segmentId: string; cellId: string; attachmentId: string; fileName: string; }>;
 }
 
 export interface AudioImportProgressMessage {
@@ -489,7 +689,7 @@ export interface AudioImportCompleteMessage {
 export interface UpdateAudioSegmentsMessage {
     command: 'updateAudioSegments';
     sessionId: string;
-    segments: Array<{ id: string; startSec: number; endSec: number }>;
+    segments: Array<{ id: string; startSec: number; endSec: number; }>;
 }
 
 export interface AudioSegmentsUpdatedMessage {
