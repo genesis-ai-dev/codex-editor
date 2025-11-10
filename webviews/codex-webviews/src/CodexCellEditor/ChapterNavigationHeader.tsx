@@ -6,6 +6,7 @@ import { AutocompleteModal } from "./modals/AutocompleteModal";
 import { ChapterSelectorModal } from "./modals/ChapterSelectorModal";
 import { MobileHeaderMenu } from "./components/MobileHeaderMenu";
 import { type QuillCellContent, type CustomNotebookMetadata } from "../../../../types";
+import { CodexCellTypes } from "../../../../types/enums";
 import { EditMapUtils } from "../../../../src/utils/editMapUtils";
 import {
     getCellValueData,
@@ -656,10 +657,15 @@ ChapterNavigationHeaderProps) {
         // Get cells for this specific subsection from the full chapter data
         const subsectionCells = allChapterCells.slice(subsection.startIndex, subsection.endIndex);
 
-        // Filter out paratext and merged cells for progress calculation
+        // Filter out paratext, merged, and style cells for progress calculation
         const validCells = subsectionCells.filter((cell) => {
             const cellId = cell?.cellMarkers?.[0];
-            return cellId && !cellId.startsWith("paratext-") && !cell.merged;
+            return (
+                cellId &&
+                !cellId.startsWith("paratext-") &&
+                !cell.merged &&
+                cell.cellType !== CodexCellTypes.STYLE
+            );
         });
 
         const totalCells = validCells.length;

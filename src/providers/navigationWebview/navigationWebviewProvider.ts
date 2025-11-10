@@ -436,9 +436,9 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const fileNameAbbr = path.basename(uri.fsPath, ".codex");
 
             // Calculate progress based on cells with values
-            // Exclude merged cells and paratext cells from progress calculations
+            // Exclude merged cells, paratext cells, and style cells from progress calculations
             const unmergedCells = notebookData.cells.filter((cell) =>
-                !cell.metadata.data?.merged && cell.metadata.type !== CodexCellTypes.PARATEXT
+                !cell.metadata.data?.merged && cell.metadata.type !== CodexCellTypes.PARATEXT && cell.metadata.type !== CodexCellTypes.STYLE
             );
             const totalCells = unmergedCells.length;
             const cellsWithValues = unmergedCells.filter(
