@@ -1,11 +1,12 @@
 /**
  * Audio extraction utilities for extracting audio from video files
- * Uses fluent-ffmpeg if available, otherwise falls back to simple copy
+ * Prefers system PATH FFmpeg, falls back to @ffmpeg-installer/ffmpeg if needed
  */
 
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+
 // Load spawn lazily to avoid bundling 'child_process' in test/browser builds
 function getSpawn(): ((command: string, args?: readonly string[]) => any) | null {
     try {
@@ -19,8 +20,63 @@ function getSpawn(): ((command: string, args?: readonly string[]) => any) | null
     }
 }
 
+// Cache for FFmpeg binary path
+let ffmpegPath: string | null = null;
+
 /**
- * Check if ffmpeg is available on the system
+ * Ensure binary has execute permissions
+ */
+function ensureExecutePermission(binaryPath: string): void {
+    try {
+        // Check if file exists
+        if (!fs.existsSync(binaryPath)) {
+            throw new Error(`Binary not found: ${binaryPath}`);
+        }
+
+        // Get current file stats
+        const stats = fs.statSync(binaryPath);
+
+        // Check if file has execute permission (for owner, group, or others)
+        const mode = stats.mode;
+        const executeBit = 0o111; // Execute permission bit
+
+        if ((mode & executeBit) === 0) {
+            // File doesn't have execute permission, add it
+            // Add execute permission for owner, group, and others
+            fs.chmodSync(binaryPath, mode | 0o111);
+        }
+    } catch (error) {
+        // Log warning but don't throw - the spawn might still work
+        console.warn(`[audioExtractor] Warning: Could not set execute permissions on ${binaryPath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+/**
+ * Get FFmpeg binary path from @ffmpeg-installer/ffmpeg (fallback only)
+ */
+function getInstallerFFmpegPath(): string | null {
+    if (ffmpegPath) {
+        return ffmpegPath;
+    }
+    try {
+        const req = eval('require') as any;
+        const ffmpegInstaller = req('@ffmpeg-installer/ffmpeg');
+        const installerPath: string | null = ffmpegInstaller.path;
+        if (!installerPath) {
+            return null;
+        }
+        ffmpegPath = installerPath;
+        ensureExecutePermission(ffmpegPath);
+        return ffmpegPath;
+    } catch (error) {
+        // Return null if installer package is not available
+        console.warn(`[audioExtractor] Could not get FFmpeg path from installer: ${error instanceof Error ? error.message : String(error)}`);
+        return null;
+    }
+}
+
+/**
+ * Check if ffmpeg is available (tries system PATH first, falls back to installer package)
  */
 async function isFFmpegAvailable(): Promise<boolean> {
     return new Promise((resolve) => {
@@ -31,22 +87,54 @@ async function isFFmpegAvailable(): Promise<boolean> {
             return;
         }
 
-        const ffmpeg = spawn('ffmpeg', ['-version']);
+        // Try system PATH first
+        const systemFFmpeg = spawn('ffmpeg', ['-version']);
 
-        // Set a timeout to avoid hanging
         const timeout = setTimeout(() => {
-            ffmpeg.kill();
-            resolve(false);
+            systemFFmpeg.kill();
+            // System PATH failed, try installer package
+            tryInstallerPackage();
         }, 5000);
 
-        ffmpeg.on('error', () => {
+        systemFFmpeg.on('error', () => {
             clearTimeout(timeout);
-            resolve(false);
+            // System PATH failed, try installer package
+            tryInstallerPackage();
         });
-        ffmpeg.on('exit', (code: number | null) => {
+
+        systemFFmpeg.on('exit', (code: number | null) => {
             clearTimeout(timeout);
-            resolve(code === 0);
+            if (code === 0) {
+                resolve(true);
+            } else {
+                // System PATH failed, try installer package
+                tryInstallerPackage();
+            }
         });
+
+        function tryInstallerPackage() {
+            const installerPath = getInstallerFFmpegPath();
+            if (!installerPath || !spawn) {
+                resolve(false);
+                return;
+            }
+
+            const installerFFmpeg = spawn(installerPath, ['-version']);
+            const installerTimeout = setTimeout(() => {
+                installerFFmpeg.kill();
+                resolve(false);
+            }, 5000);
+
+            installerFFmpeg.on('error', () => {
+                clearTimeout(installerTimeout);
+                resolve(false);
+            });
+
+            installerFFmpeg.on('exit', (code: number | null) => {
+                clearTimeout(installerTimeout);
+                resolve(code === 0);
+            });
+        }
     });
 }
 
@@ -92,38 +180,98 @@ async function extractAudioWithFFmpeg(
 
         args.push('-y', tempAudioPath); // Output file
 
-        const ffmpeg = spawn('ffmpeg', args);
+        // Try system PATH first, fallback to installer package
+        trySystemFFmpeg();
 
-        let stderr = '';
-        ffmpeg.stderr.on('data', (data: Buffer) => {
-            stderr += data.toString();
-        });
+        function trySystemFFmpeg() {
+            if (!spawn) {
+                reject(new Error('child_process.spawn not available'));
+                return;
+            }
+            const ffmpeg = spawn('ffmpeg', args);
+            let stderr = '';
 
-        ffmpeg.on('error', (error: Error) => {
-            // Clean up temp files
-            try { fs.unlinkSync(tempVideoPath); } catch (e) { /* ignore cleanup errors */ }
-            try { fs.unlinkSync(tempAudioPath); } catch (e) { /* ignore cleanup errors */ }
-            reject(new Error(`FFmpeg error: ${error.message}`));
-        });
+            ffmpeg.stderr.on('data', (data: Buffer) => {
+                stderr += data.toString();
+            });
 
-        ffmpeg.on('exit', (code: number | null) => {
-            if (code === 0) {
-                try {
-                    const audioBuffer = fs.readFileSync(tempAudioPath);
+            ffmpeg.on('error', (error: Error) => {
+                // System PATH failed, try installer package
+                const installerPath = getInstallerFFmpegPath();
+                if (installerPath) {
+                    tryInstallerFFmpeg(installerPath);
+                } else {
                     // Clean up temp files
-                    fs.unlinkSync(tempVideoPath);
-                    fs.unlinkSync(tempAudioPath);
-                    resolve(audioBuffer);
-                } catch (error) {
-                    reject(new Error(`Failed to read audio file: ${error}`));
+                    try { fs.unlinkSync(tempVideoPath); } catch (e) { /* ignore cleanup errors */ }
+                    try { fs.unlinkSync(tempAudioPath); } catch (e) { /* ignore cleanup errors */ }
+                    reject(new Error(`FFmpeg error: ${error.message}`));
                 }
-            } else {
+            });
+
+            ffmpeg.on('exit', (code: number | null) => {
+                if (code === 0) {
+                    try {
+                        const audioBuffer = fs.readFileSync(tempAudioPath);
+                        // Clean up temp files
+                        fs.unlinkSync(tempVideoPath);
+                        fs.unlinkSync(tempAudioPath);
+                        resolve(audioBuffer);
+                    } catch (error) {
+                        reject(new Error(`Failed to read audio file: ${error}`));
+                    }
+                } else {
+                    // System PATH failed, try installer package
+                    const installerPath = getInstallerFFmpegPath();
+                    if (installerPath) {
+                        tryInstallerFFmpeg(installerPath);
+                    } else {
+                        // Clean up temp files
+                        try { fs.unlinkSync(tempVideoPath); } catch (e) { /* ignore cleanup errors */ }
+                        try { fs.unlinkSync(tempAudioPath); } catch (e) { /* ignore cleanup errors */ }
+                        reject(new Error(`FFmpeg exited with code ${code}: ${stderr}`));
+                    }
+                }
+            });
+        }
+
+        function tryInstallerFFmpeg(installerPath: string) {
+            if (!spawn) {
+                reject(new Error('child_process.spawn not available'));
+                return;
+            }
+            const ffmpeg = spawn(installerPath, args);
+            let stderr = '';
+
+            ffmpeg.stderr.on('data', (data: Buffer) => {
+                stderr += data.toString();
+            });
+
+            ffmpeg.on('error', (error: Error) => {
                 // Clean up temp files
                 try { fs.unlinkSync(tempVideoPath); } catch (e) { /* ignore cleanup errors */ }
                 try { fs.unlinkSync(tempAudioPath); } catch (e) { /* ignore cleanup errors */ }
-                reject(new Error(`FFmpeg exited with code ${code}: ${stderr}`));
-            }
-        });
+                reject(new Error(`FFmpeg error: ${error.message}`));
+            });
+
+            ffmpeg.on('exit', (code: number | null) => {
+                if (code === 0) {
+                    try {
+                        const audioBuffer = fs.readFileSync(tempAudioPath);
+                        // Clean up temp files
+                        fs.unlinkSync(tempVideoPath);
+                        fs.unlinkSync(tempAudioPath);
+                        resolve(audioBuffer);
+                    } catch (error) {
+                        reject(new Error(`Failed to read audio file: ${error}`));
+                    }
+                } else {
+                    // Clean up temp files
+                    try { fs.unlinkSync(tempVideoPath); } catch (e) { /* ignore cleanup errors */ }
+                    try { fs.unlinkSync(tempAudioPath); } catch (e) { /* ignore cleanup errors */ }
+                    reject(new Error(`FFmpeg exited with code ${code}: ${stderr}`));
+                }
+            });
+        }
     });
 }
 
