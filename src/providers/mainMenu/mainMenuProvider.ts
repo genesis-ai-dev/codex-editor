@@ -6,6 +6,7 @@ import { openProjectExportView } from "../../projectManager/projectExportView";
 import { BaseWebviewProvider } from "../../globalProvider";
 import { safePostMessageToView } from "../../utils/webviewUtils";
 import { MetadataManager } from "../../utils/metadataManager";
+import { EditMapUtils, addProjectMetadataEdit } from "../../utils/editMapUtils";
 import {
     ProjectManagerMessageFromWebview,
     ProjectManagerMessageToWebview,
@@ -1695,6 +1696,34 @@ export class MainMenuProvider extends BaseWebviewProvider {
         }
 
         try {
+            // Get current user name for edit tracking
+            let author = "unknown";
+            try {
+                const authApi = await getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                if (userInfo?.username) {
+                    author = userInfo.username;
+                } else {
+                    // Try git username
+                    const gitUsername = vscode.workspace.getConfiguration("git").get<string>("username");
+                    if (gitUsername) {
+                        author = gitUsername;
+                    } else {
+                        // Try VS Code authentication session
+                        try {
+                            const session = await vscode.authentication.getSession('github', ['user:email'], { createIfNone: false });
+                            if (session && session.account) {
+                                author = session.account.label;
+                            }
+                        } catch (e) {
+                            // Auth provider might not be available
+                        }
+                    }
+                }
+            } catch (error) {
+                // Silent fallback to "unknown"
+            }
+
             // Update workspace configuration
             const config = vscode.workspace.getConfiguration("codex-project-manager");
             await config.update(
@@ -1707,9 +1736,21 @@ export class MainMenuProvider extends BaseWebviewProvider {
             const result = await MetadataManager.safeUpdateMetadata(
                 workspaceFolder,
                 (project: any) => {
+                    const originalProjectName = project.projectName;
                     project.projectName = newProjectName;
+
+                    // Track edit if projectName changed
+                    if (originalProjectName !== newProjectName) {
+                        // Ensure edits array exists
+                        if (!project.edits) {
+                            project.edits = [];
+                        }
+                        addProjectMetadataEdit(project, EditMapUtils.projectName(), newProjectName, author);
+                    }
+
                     return project;
-                }
+                },
+                { author }
             );
 
             if (!result.success) {

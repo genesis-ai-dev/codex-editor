@@ -16,6 +16,7 @@ import { getAuthApi } from "../../extension";
 import { stageAndCommitAllAndSync } from "./merge";
 import { SyncManager } from "../syncManager";
 import { MetadataManager } from "../../utils/metadataManager";
+import { EditMapUtils, addProjectMetadataEdit } from "../../utils/editMapUtils";
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[ProjectUtils]", ...args) : () => { };
@@ -496,6 +497,39 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
     return newProject;
 }
 
+/**
+ * Gets the current user name for edit tracking
+ */
+async function getCurrentUserName(): Promise<string> {
+    try {
+        // Try auth API first
+        const authApi = await getAuthApi();
+        const userInfo = await authApi?.getUserInfo();
+        if (userInfo?.username) {
+            return userInfo.username;
+        }
+
+        // Try git username
+        const gitUsername = vscode.workspace.getConfiguration("git").get<string>("username");
+        if (gitUsername) return gitUsername;
+
+        // Try VS Code authentication session
+        try {
+            const session = await vscode.authentication.getSession('github', ['user:email'], { createIfNone: false });
+            if (session && session.account) {
+                return session.account.label;
+            }
+        } catch (e) {
+            // Auth provider might not be available
+        }
+    } catch (error) {
+        // Silent fallback
+    }
+
+    // Fallback
+    return "unknown";
+}
+
 export async function updateMetadataFile() {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
 
@@ -506,12 +540,25 @@ export async function updateMetadataFile() {
 
     const projectSettings = vscode.workspace.getConfiguration("codex-project-manager");
 
+    // Get current user name for edit tracking
+    const author = await getCurrentUserName();
+
     const result = await MetadataManager.safeUpdateMetadata(
         workspaceFolder,
         (project: any) => {
+            // Store original values for comparison
+            const originalProjectName = project.projectName;
+            const originalGenerator = project.meta?.generator ? { ...project.meta.generator } : undefined;
+            const originalAbbreviation = project.meta?.abbreviation;
+            const originalLanguages = project.languages ? [...project.languages] : undefined;
+            const originalSpellcheckIsEnabled = project.spellcheckIsEnabled;
+            const originalValidationCount = project.meta?.validationCount;
+            const originalValidationCountAudio = project.meta?.validationCountAudio;
+
             // Preserving existing validation count if it exists
             const existingValidationCount = project.meta?.validationCount;
             const configValidationCount = projectSettings.get("validationCount", 1);
+            const configValidationCountAudio = projectSettings.get("validationCountAudio", 1);
 
             debug(
                 `Updating metadata file - existing validation count: ${existingValidationCount}, config validation count: ${configValidationCount}`
@@ -523,24 +570,81 @@ export async function updateMetadataFile() {
             }
 
             // Update project properties
-            project.projectName = projectSettings.get("projectName", "");
+            const newProjectName = projectSettings.get("projectName", "");
+            project.projectName = newProjectName;
             project.meta = project.meta || {}; // Ensure meta object exists
 
             // Explicitly update validation count
             project.meta.validationCount = configValidationCount;
+            project.meta.validationCountAudio = configValidationCountAudio;
 
             project.meta.generator = project.meta.generator || {}; // Ensure generator object exists
-            project.meta.generator.userName = projectSettings.get("userName", "");
-            project.meta.generator.userEmail = projectSettings.get("userEmail", "");
-            project.languages = project.languages || [null, null];
-            project.languages[0] = projectSettings.get("sourceLanguage", project.languages[0] || "");
-            project.languages[1] = projectSettings.get("targetLanguage", project.languages[1] || "");
-            project.meta.abbreviation = projectSettings.get("abbreviation", "");
-            project.spellcheckIsEnabled = projectSettings.get("spellcheckIsEnabled", false);
+            const newUserName = projectSettings.get("userName", "");
+            const newUserEmail = projectSettings.get("userEmail", "");
+            project.meta.generator.userName = newUserName;
+            project.meta.generator.userEmail = newUserEmail;
+
+            const newLanguages = project.languages || [null, null];
+            newLanguages[0] = projectSettings.get("sourceLanguage", newLanguages[0] || "");
+            newLanguages[1] = projectSettings.get("targetLanguage", newLanguages[1] || "");
+            project.languages = newLanguages;
+
+            const newAbbreviation = projectSettings.get("abbreviation", "");
+            project.meta.abbreviation = newAbbreviation;
+
+            const newSpellcheckIsEnabled = projectSettings.get("spellcheckIsEnabled", false);
+            project.spellcheckIsEnabled = newSpellcheckIsEnabled;
+
+            // Track edits for changed user-editable fields
+            // Ensure edits array exists
+            if (!project.edits) {
+                project.edits = [];
+            }
+
+            // Track projectName changes
+            if (originalProjectName !== newProjectName) {
+                addProjectMetadataEdit(project, EditMapUtils.projectName(), newProjectName, author);
+            }
+
+            // Track meta.generator changes (compare entire generator object)
+            const generatorChanged = !originalGenerator ||
+                originalGenerator.userName !== newUserName ||
+                originalGenerator.userEmail !== newUserEmail;
+            if (generatorChanged) {
+                addProjectMetadataEdit(project, EditMapUtils.metaGenerator(), project.meta.generator, author);
+            }
+
+            // Track validationCount, validationCountAudio, and abbreviation changes (store only changed fields)
+            const changedMetaFields: any = {};
+            if (originalValidationCount !== configValidationCount) {
+                changedMetaFields.validationCount = configValidationCount;
+            }
+            if (originalValidationCountAudio !== configValidationCountAudio) {
+                changedMetaFields.validationCountAudio = configValidationCountAudio;
+            }
+            if (originalAbbreviation !== newAbbreviation) {
+                changedMetaFields.abbreviation = newAbbreviation;
+            }
+            if (Object.keys(changedMetaFields).length > 0) {
+                addProjectMetadataEdit(project, EditMapUtils.meta(), changedMetaFields, author);
+            }
+
+            // Track languages changes
+            const languagesChanged = !originalLanguages ||
+                JSON.stringify(originalLanguages) !== JSON.stringify(newLanguages);
+            if (languagesChanged) {
+                addProjectMetadataEdit(project, EditMapUtils.languages(), newLanguages, author);
+            }
+
+            // Track spellcheckIsEnabled changes
+            if (originalSpellcheckIsEnabled !== newSpellcheckIsEnabled) {
+                addProjectMetadataEdit(project, EditMapUtils.spellcheckIsEnabled(), newSpellcheckIsEnabled, author);
+            }
 
             debug("Project settings loaded, preparing to write to metadata.json");
             return project;
-        }
+        },
+        { author }
     );
 
     if (!result.success) {

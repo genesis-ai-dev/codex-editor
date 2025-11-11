@@ -26,6 +26,7 @@ interface MetadataUpdateOptions {
     retryCount?: number;
     retryDelayMs?: number;
     timeoutMs?: number;
+    author?: string;
 }
 
 export class MetadataManager {
@@ -72,6 +73,13 @@ export class MetadataManager {
 
                     // Step 3: Apply updates
                     const originalMetadata = readResult.metadata!;
+                    // Ensure edits array exists if author is provided
+                    if (options.author && originalMetadata && typeof originalMetadata === 'object') {
+                        const metadataObj = originalMetadata as any;
+                        if (!metadataObj.edits) {
+                            metadataObj.edits = [];
+                        }
+                    }
                     const updatedMetadata = await updateFunction(originalMetadata);
 
                     // Step 4: Write back with atomic operation

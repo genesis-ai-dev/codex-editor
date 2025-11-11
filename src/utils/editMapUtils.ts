@@ -19,6 +19,13 @@ type MetadataCellDisplayModeEditMap = ["metadata", "cellDisplayMode"];
 type MetadataAudioOnlyEditMap = ["metadata", "audioOnly"];
 type MetadataCorpusMarkerEditMap = ["metadata", "corpusMarker"];
 
+// Project-level metadata editMaps (for metadata.json)
+type ProjectNameEditMap = ["projectName"];
+type MetaGeneratorEditMap = ["meta", "generator"];
+type MetaEditMap = ["meta"];
+type LanguagesEditMap = ["languages"];
+type SpellcheckIsEnabledEditMap = ["spellcheckIsEnabled"];
+
 import { EditType } from "../../types/enums";
 
 // Utility functions for working with editMaps
@@ -109,6 +116,27 @@ export const EditMapUtils = {
     // Generic helper for any file-level metadata field
     metadataField(field: string): readonly ["metadata", string] {
         return ["metadata", field];
+    },
+
+    // Project-level metadata field helpers
+    projectName(): ProjectNameEditMap {
+        return ["projectName"];
+    },
+
+    metaGenerator(): MetaGeneratorEditMap {
+        return ["meta", "generator"];
+    },
+
+    meta(): MetaEditMap {
+        return ["meta"];
+    },
+
+    languages(): LanguagesEditMap {
+        return ["languages"];
+    },
+
+    spellcheckIsEnabled(): SpellcheckIsEnabledEditMap {
+        return ["spellcheckIsEnabled"];
     },
 
     // Compare editMaps
@@ -250,6 +278,38 @@ export function addMetadataEdit(
     };
 
     // Add the new edit and deduplicate
+    metadata.edits.push(newEdit);
+    metadata.edits = deduplicateFileMetadataEdits(metadata.edits);
+}
+
+/**
+ * Helper function to add an edit entry to project metadata edits when updating metadata.json fields
+ * For meta edits (editMap is ["meta"]), value should be a partial object with only changed fields.
+ * For other edits, value is the entire object/value being tracked.
+ */
+export function addProjectMetadataEdit(
+    metadata: { edits?: any[]; },
+    editMap: readonly string[],
+    value: any,
+    author: string
+): void {
+    // Initialize edits array if it doesn't exist
+    if (!metadata.edits) {
+        metadata.edits = [];
+    }
+
+    const currentTimestamp = Date.now();
+
+    // Create the new edit entry
+    const newEdit = {
+        editMap,
+        value,
+        timestamp: currentTimestamp,
+        type: EditType.USER_EDIT,
+        author,
+    };
+
+    // Add the new edit and deduplicate (can reuse the same deduplication function)
     metadata.edits.push(newEdit);
     metadata.edits = deduplicateFileMetadataEdits(metadata.edits);
 }
