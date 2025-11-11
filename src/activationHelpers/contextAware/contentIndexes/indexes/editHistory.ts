@@ -197,7 +197,7 @@ export async function analyzeEditHistory(): Promise<{
 
                 if (edit.type === "llm-generation") {
                     currentLLM = edit.value;
-                    currentLLMTimestamp = edit.timestamp;
+                    currentLLMTimestamp = edit.timestamp || null;
                     continue;
                 }
                 if (edit.type === "user-edit") {

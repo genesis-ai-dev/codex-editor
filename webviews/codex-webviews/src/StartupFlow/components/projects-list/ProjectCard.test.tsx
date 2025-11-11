@@ -35,10 +35,10 @@ describe("ProjectCard - Clean Media visibility", () => {
         return { vscode };
     }
 
-    it("shows Clean Media for auto-download", () => {
+    it("hides Clean Media for auto-download", () => {
         renderCard({ mediaStrategy: "auto-download" });
         const el = screen.queryByText(/Clean Media/i);
-        expect(!!el).toBe(true);
+        expect(el).toBeNull();
     });
 
     it("shows Clean Media for stream-and-save", () => {

@@ -1,6 +1,8 @@
 import { CustomNotebookMetadata } from "@types";
 import * as vscode from "vscode";
 import * as xml2js from "xml2js";
+import { addMetadataEdit } from "@/utils/editMapUtils";
+import { getCorrespondingSourceUri } from "@/utils/codexNotebookUtils";
 
 export async function openBookNameEditor() {
     const panel = vscode.window.createWebviewPanel(
@@ -121,6 +123,17 @@ export async function openBookNameEditor() {
                         title: "Saving book name overrides",
                         cancellable: false,
                     }, async () => {
+                        // Get current user for edit history
+                        let currentUser = "anonymous";
+                        try {
+                            const { getAuthApi } = await import("@/extension");
+                            const authApi = getAuthApi();
+                            const userInfo = await authApi?.getUserInfo();
+                            currentUser = userInfo?.username || "anonymous";
+                        } catch (error) {
+                            console.warn("[bookNameSettings] Could not get user info, using 'anonymous'");
+                        }
+
                         for (const uri of codexUris) {
                             const abbr = path.basename(uri.fsPath, ".codex");
                             const newName = updates.get(abbr);
@@ -128,13 +141,70 @@ export async function openBookNameEditor() {
                             try {
                                 const content = await vscode.workspace.fs.readFile(uri);
                                 const notebookData = await serializer.deserializeNotebook(content, new vscode.CancellationTokenSource().token);
-                                (notebookData.metadata as CustomNotebookMetadata) = {
-                                    ...(notebookData.metadata || {}),
+
+                                // Ensure metadata exists
+                                if (!notebookData.metadata) {
+                                    notebookData.metadata = {} as CustomNotebookMetadata;
+                                }
+
+                                const metadata = notebookData.metadata as CustomNotebookMetadata;
+                                const oldValue = metadata.fileDisplayName;
+
+                                // Only add edit if value is actually changing
+                                if (oldValue !== newName) {
+                                    // Add edit history entry before updating metadata
+                                    addMetadataEdit(metadata, "fileDisplayName", newName, currentUser);
+                                }
+
+                                notebookData.metadata = {
+                                    ...metadata,
                                     fileDisplayName: newName,
                                 };
                                 const updatedContent = await serializer.serializeNotebook(notebookData, new vscode.CancellationTokenSource().token);
                                 await vscode.workspace.fs.writeFile(uri, updatedContent);
                                 updatedCount++;
+
+                                // Also update the corresponding .source file
+                                const sourceUri = getCorrespondingSourceUri(uri);
+                                if (sourceUri) {
+                                    try {
+                                        // Check if source file exists
+                                        try {
+                                            await vscode.workspace.fs.stat(sourceUri);
+                                        } catch {
+                                            // Source file doesn't exist, skip updating it
+                                            // Continue to next codex file
+                                            continue;
+                                        }
+
+                                        const sourceContent = await vscode.workspace.fs.readFile(sourceUri);
+                                        const sourceNotebookData = await serializer.deserializeNotebook(sourceContent, new vscode.CancellationTokenSource().token);
+
+                                        // Ensure metadata exists
+                                        if (!sourceNotebookData.metadata) {
+                                            sourceNotebookData.metadata = {} as CustomNotebookMetadata;
+                                        }
+
+                                        const sourceMetadata = sourceNotebookData.metadata as CustomNotebookMetadata;
+                                        const sourceOldValue = sourceMetadata.fileDisplayName;
+
+                                        // Only add edit if value is actually changing
+                                        if (sourceOldValue !== newName) {
+                                            // Add edit history entry before updating metadata
+                                            addMetadataEdit(sourceMetadata, "fileDisplayName", newName, currentUser);
+                                        }
+
+                                        sourceNotebookData.metadata = {
+                                            ...sourceMetadata,
+                                            fileDisplayName: newName,
+                                        };
+                                        const updatedSourceContent = await serializer.serializeNotebook(sourceNotebookData, new vscode.CancellationTokenSource().token);
+                                        await vscode.workspace.fs.writeFile(sourceUri, updatedSourceContent);
+                                    } catch (error) {
+                                        console.error(`Error saving book name to ${sourceUri.fsPath}:`, error);
+                                        // Continue with other files even if source update fails
+                                    }
+                                }
                             } catch (error) {
                                 console.error(`Error saving book name to ${uri.fsPath}:`, error);
                             }

@@ -55,6 +55,7 @@ import { migrateAudioAttachments } from "./utils/audioAttachmentsMigrationUtils"
 import { registerTestingCommands } from "./evaluation/testingCommands";
 import { initializeABTesting } from "./utils/abTestingSetup";
 import { migration_addValidationsForUserEdits, migration_moveTimestampsToMetadataData, migration_promoteCellTypeToTopLevel } from "./projectManager/utils/migrationUtils";
+import { initializeAudioProcessor } from "./utils/audioProcessor";
 import * as fs from "fs";
 import * as os from "os";
 
@@ -294,6 +295,9 @@ export async function activate(context: vscode.ExtensionContext) {
     } catch (e) {
         console.error("Error saving/closing tabs before splash screen:", e);
     }
+
+    // Initialize audio processor for on-demand FFmpeg downloads
+    initializeAudioProcessor(context);
 
     // Register and show splash screen immediately before anything else
     try {

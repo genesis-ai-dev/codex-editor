@@ -14,10 +14,10 @@ import {
     CustomNotebookCellData,
     CustomNotebookMetadata,
 } from "../../types";
-import { CodexCellTypes } from "../../types/enums";
-import { NotebookMetadataManager, getNotebookMetadataManager } from "./notebookMetadataManager";
+import { getNotebookMetadataManager } from "./notebookMetadataManager";
 import { getWorkSpaceUri } from "./index";
 import { basename } from "path";
+import * as path from "path";
 
 export const NOTEBOOK_TYPE = "codex-type";
 
@@ -75,6 +75,122 @@ export interface NavigationCell {
     cellId: string;
     children: NavigationCell[];
     label: string;
+}
+
+/**
+ * Gets the corresponding .source file URI for a given .codex file URI.
+ * @param codexUri - The URI of the .codex file
+ * @returns The URI of the corresponding .source file, or null if workspace folder is not available
+ */
+export function getCorrespondingSourceUri(codexUri: vscode.Uri): vscode.Uri | null {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders?.length) {
+        return null;
+    }
+
+    const workspaceRoot = workspaceFolders[0].uri;
+    const fileName = basename(codexUri.fsPath, ".codex");
+    const sourceUri = vscode.Uri.joinPath(
+        workspaceRoot,
+        ".project",
+        "sourceTexts",
+        `${fileName}.source`
+    );
+
+    return sourceUri;
+}
+
+/**
+ * Gets the corresponding .codex file URI for a given .source file URI.
+ * @param sourceUri - The URI of the .source file
+ * @returns The URI of the corresponding .codex file, or null if workspace folder is not available
+ */
+export function getCorrespondingCodexUri(sourceUri: vscode.Uri): vscode.Uri | null {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders?.length) {
+        return null;
+    }
+
+    const workspaceRoot = workspaceFolders[0].uri;
+    const fileName = basename(sourceUri.fsPath, ".source");
+    const codexUri = vscode.Uri.joinPath(
+        workspaceRoot,
+        "files",
+        "target",
+        `${fileName}.codex`
+    );
+
+    return codexUri;
+}
+
+/**
+ * Finds codex files matching a book abbreviation and optionally reads metadata from the first file.
+ * 
+ * @param bookAbbr - The book abbreviation to match (e.g., "MAT", "GEN", "Mateyo_001_001-001_017")
+ * @param options - Options for what to return
+ * @param options.readMetadata - If true, reads and returns metadata from the first matching file
+ * @param options.codexUris - Optional array of codex URIs to filter from. If not provided, searches for all codex files.
+ * @returns Object containing matching URIs and optionally metadata from the first file
+ */
+export async function findCodexFilesByBookAbbr(
+    bookAbbr: string,
+    options?: { readMetadata?: boolean; codexUris?: vscode.Uri[]; }
+): Promise<{
+    matchingUris: vscode.Uri[];
+    firstFileMetadata?: CustomNotebookMetadata;
+    corpusMarker?: string;
+}> {
+    let codexUris: vscode.Uri[];
+
+    if (options?.codexUris && options.codexUris.length > 0) {
+        // Use provided URIs
+        codexUris = options.codexUris;
+    } else {
+        // Search for all codex files
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders?.length) {
+            return { matchingUris: [] };
+        }
+
+        const rootUri = workspaceFolders[0].uri;
+        const codexPattern = new vscode.RelativePattern(
+            rootUri.fsPath,
+            "files/target/**/*.codex"
+        );
+
+        codexUris = await vscode.workspace.findFiles(codexPattern);
+    }
+
+    // Filter to only files matching the book abbreviation
+    const matchingUris = codexUris.filter(uri => {
+        const fileNameAbbr = path.basename(uri.fsPath, ".codex");
+        return fileNameAbbr === bookAbbr;
+    });
+
+    let firstFileMetadata: CustomNotebookMetadata | undefined;
+    let corpusMarker: string | undefined;
+
+    if (options?.readMetadata && matchingUris.length > 0) {
+        try {
+            const firstUri = matchingUris[0];
+            const content = await vscode.workspace.fs.readFile(firstUri);
+            const serializer = new CodexContentSerializer();
+            const notebookData = await serializer.deserializeNotebook(
+                content,
+                new vscode.CancellationTokenSource().token
+            );
+            firstFileMetadata = notebookData.metadata as CustomNotebookMetadata;
+            corpusMarker = firstFileMetadata.corpusMarker;
+        } catch (error) {
+            console.warn(`[findCodexFilesByBookAbbr] Could not read first file metadata: ${error}`);
+        }
+    }
+
+    return {
+        matchingUris,
+        firstFileMetadata,
+        corpusMarker
+    };
 }
 
 /**

@@ -361,7 +361,12 @@ export type MessagesFromStartupFlowProvider =
     | { command: "project.progressReportSubmitted"; success: boolean; error?: string; }
     | { command: "progressData"; data: any; }
     | { command: "aggregatedProgressData"; data: any; }
-    | { command: "project.nameWillBeSanitized"; original: string; sanitized: string; };
+    | { command: "project.nameWillBeSanitized"; original: string; sanitized: string; }
+    | { command: "project.healingInProgress"; projectPath: string; healing: boolean; }
+    | { command: "project.cloningInProgress"; projectPath: string; gitOriginUrl?: string; cloning: boolean; }
+    | { command: "project.openingInProgress"; projectPath: string; opening: boolean; }
+    | { command: "project.zippingInProgress"; projectPath: string; zipType: "full" | "mini"; zipping: boolean; }
+    | { command: "project.cleaningInProgress"; projectPath: string; cleaning: boolean; };
 
 type DictionaryPostMessages =
     | {
@@ -783,6 +788,16 @@ type EditMapValueType<T extends readonly string[]> =
     : T extends readonly ["metadata", "data", "merged"] ? boolean
     : T extends readonly ["metadata", "selectedAudioId"] ? string
     : T extends readonly ["metadata", "selectionTimestamp"] ? number
+    // File-level metadata fields
+    : T extends readonly ["metadata", "videoUrl"] ? string
+    : T extends readonly ["metadata", "textDirection"] ? "ltr" | "rtl"
+    : T extends readonly ["metadata", "lineNumbersEnabled"] ? boolean
+    : T extends readonly ["metadata", "fontSize"] ? number
+    : T extends readonly ["metadata", "autoDownloadAudioOnOpen"] ? boolean
+    : T extends readonly ["metadata", "showInlineBacktranslations"] ? boolean
+    : T extends readonly ["metadata", "fileDisplayName"] ? string
+    : T extends readonly ["metadata", "cellDisplayMode"] ? "inline" | "one-line-per-cell"
+    : T extends readonly ["metadata", "audioOnly"] ? boolean
     // Fallback for unmatched paths
     : string | number | boolean | object;
 
@@ -812,6 +827,15 @@ export type EditFor<TEditMap extends readonly string[]> = {
     timestamp: number;
     type: import("./enums").EditType;
     validatedBy?: ValidationEntry[];
+};
+
+// File-level edit type for metadata edits (separate from EditHistory)
+export type FileEditHistory<TEditMap extends readonly string[] = readonly string[]> = {
+    editMap: TEditMap;
+    value: EditMapValueType<TEditMap>;
+    timestamp: number;
+    type: import("./enums").EditType;
+    author: string;
 };
 
 
@@ -883,6 +907,7 @@ export interface CustomNotebookMetadata {
     /** When true, backtranslations will be displayed inline below cells */
     showInlineBacktranslations?: boolean;
     fileDisplayName?: string;
+    edits?: FileEditHistory[];
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {

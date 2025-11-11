@@ -15,7 +15,7 @@ import { NotebookPreview, CustomNotebookMetadata } from "../../../types";
 import { CodexCell } from "../../utils/codexNotebookUtils";
 import { CodexCellTypes } from "../../../types/enums";
 import { importBookNamesFromXmlContent } from "../../bookNameSettings/bookNameSettings";
-import { createStandardizedFilename } from "../../utils/bookNameUtils";
+import { createStandardizedFilename, extractUsfmCodeFromFilename, getBookDisplayName } from "../../utils/bookNameUtils";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { CodexContentSerializer } from "../../serializer";
 import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
@@ -97,7 +97,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         webviewPanel.webview.options = {
             enableScripts: true,
-            localResourceRoots: workspaceFolder 
+            localResourceRoots: workspaceFolder
                 ? [this.context.extensionUri, workspaceFolder.uri]
                 : [this.context.extensionUri],
         };
@@ -118,8 +118,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     await this.handleWriteNotebooks(message as WriteNotebooksMessage, token, webviewPanel);
                 } else if (message.command === "writeNotebooksWithAttachments") {
                     await this.handleWriteNotebooksWithAttachments(message as WriteNotebooksWithAttachmentsMessage, token, webviewPanel);
-                    // Success and inventory update handled inside
-
                     // Success notification and inventory update are now handled in handleWriteNotebooks
                 } else if (message.command === "overwriteResponse") {
                     const response = message as OverwriteResponseMessage;
@@ -332,7 +330,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
     /**
  * Converts a ProcessedNotebook to NotebookPreview format
  */
-    private convertToNotebookPreview(processedNotebook: ProcessedNotebook): NotebookPreview {
+    private async convertToNotebookPreview(processedNotebook: ProcessedNotebook): Promise<NotebookPreview> {
         const cells: CodexCell[] = processedNotebook.cells.map(processedCell => ({
             kind: vscode.NotebookCellKind.Code,
             value: processedCell.content ?? "",
@@ -359,6 +357,25 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             }
         }
 
+        // Basic normalization (trim whitespace) - full normalization with existing files 
+        // happens in createNoteBookPair to preserve casing from existing files
+        const trimmedCorpusMarker = corpusMarker ? corpusMarker.trim() : undefined;
+
+        // Derive fileDisplayName from originalName without the file extension
+        const originalName = processedNotebook.metadata.originalFileName;
+        let fileDisplayName = originalName && typeof originalName === "string" && originalName.trim() !== ""
+            ? path.basename(originalName.trim(), path.extname(originalName.trim()))
+            : undefined;
+
+        // For biblical books (NT/OT), convert USFM codes to full names during import
+        if (fileDisplayName && (trimmedCorpusMarker === "NT" || trimmedCorpusMarker === "OT")) {
+            const usfmCode = extractUsfmCodeFromFilename(fileDisplayName);
+            if (usfmCode) {
+                // Convert USFM code to full book name
+                fileDisplayName = await getBookDisplayName(usfmCode);
+            }
+        }
+
         const metadata: CustomNotebookMetadata = {
             id: processedNotebook.metadata.id,
             originalName: processedNotebook.metadata.originalFileName,
@@ -366,8 +383,9 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             codexFsPath: "",
             navigation: [],
             sourceCreatedAt: processedNotebook.metadata.createdAt,
-            corpusMarker: corpusMarker,
+            corpusMarker: trimmedCorpusMarker,
             textDirection: "ltr",
+            ...(fileDisplayName && { fileDisplayName }),
             ...(processedNotebook.metadata.videoUrl && { videoUrl: processedNotebook.metadata.videoUrl }),
             ...(processedNotebook.metadata)?.audioOnly !== undefined
                 ? { audioOnly: processedNotebook.metadata.audioOnly as boolean }
@@ -405,7 +423,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
     ): Promise<void> {
         // Skip conflict check for audio imports (they handle their own flow)
         const isAudioImport = message.metadata?.importerType === "audio";
-        
+
         if (!isAudioImport) {
             // Check for file conflicts before proceeding
             const conflicts = await this.checkForFileConflicts(message.notebookPairs.map(pair => pair.source));
@@ -461,18 +479,20 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         }
 
         // Convert ProcessedNotebooks to NotebookPreview format
-        const sourceNotebooks = message.notebookPairs.map(pair =>
-            this.convertToNotebookPreview(pair.source)
+        const sourceNotebooks = await Promise.all(
+            message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.source))
         );
-        const codexNotebooks = message.notebookPairs.map(pair => {
-            // For codex notebooks, remove the original file data to avoid duplication
-            const codexPair = { ...pair.codex };
-            if (codexPair.metadata?.originalFileData) {
-                codexPair.metadata = { ...codexPair.metadata };
-                delete codexPair.metadata.originalFileData;
-            }
-            return this.convertToNotebookPreview(codexPair);
-        });
+        const codexNotebooks = await Promise.all(
+            message.notebookPairs.map(async pair => {
+                // For codex notebooks, remove the original file data to avoid duplication
+                const codexPair = { ...pair.codex };
+                if (codexPair.metadata?.originalFileData) {
+                    codexPair.metadata = { ...codexPair.metadata };
+                    delete codexPair.metadata.originalFileData;
+                }
+                return await this.convertToNotebookPreview(codexPair);
+            })
+        );
 
         // Create the notebook pairs
         const createdFiles = await createNoteBookPair({
@@ -544,8 +564,12 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         // No conflict check - force write
 
         // 1) Convert to NotebookPreview and write notebooks
-        const sourceNotebooks = message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.source));
-        const codexNotebooks = message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.codex));
+        const sourceNotebooks = await Promise.all(
+            message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.source))
+        );
+        const codexNotebooks = await Promise.all(
+            message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.codex))
+        );
 
         const createdFiles = await createNoteBookPair({ token, sourceNotebooks, codexNotebooks });
 
@@ -986,6 +1010,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
      */
     private async checkForFileConflicts(sourceNotebooks: ProcessedNotebook[]): Promise<Array<{
         name: string;
+        displayName: string;
         sourceExists: boolean;
         targetExists: boolean;
         hasTranslations: boolean;
@@ -1015,13 +1040,25 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             );
 
             // Check if files exist
+            let sourceDisplayName = "";
             let sourceExists = false;
             let targetExists = false;
             let hasTranslations = false;
 
             try {
-                await vscode.workspace.fs.stat(sourceUri);
+                const sourceStat = await vscode.workspace.fs.stat(sourceUri);
                 sourceExists = true;
+
+                if (sourceStat.size > 0) {
+                    try {
+                        const sourceContent = await vscode.workspace.fs.readFile(sourceUri);
+                        const sourceNotebook = JSON.parse(new TextDecoder().decode(sourceContent));
+
+                        sourceDisplayName = sourceNotebook.metadata.fileDisplayName || "";
+                    } catch {
+                        // Error reading source file, assume no content
+                    }
+                }
             } catch {
                 // File doesn't exist
             }
@@ -1052,6 +1089,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             if (sourceExists || targetExists) {
                 conflicts.push({
                     name: notebook.name,
+                    displayName: sourceDisplayName,
                     sourceExists,
                     targetExists,
                     hasTranslations
@@ -1123,7 +1161,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
     }
 
     // Presents a concise overwrite confirmation with truncation and optional details view
-    private async confirmOverwriteWithTruncation(items: Array<{ name: string; sourceExists: boolean; targetExists: boolean; hasTranslations: boolean; }>): Promise<boolean> {
+    private async confirmOverwriteWithTruncation(items: Array<{ name: string; displayName: string; sourceExists: boolean; targetExists: boolean; hasTranslations: boolean; }>): Promise<boolean> {
         return confirmOverwriteWithDetails(items);
     }
 
@@ -1306,6 +1344,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             title: "Source File Importer",
             scriptPath: ["NewSourceUploader", "index.js"],
             // Using default CSP which already includes webview.cspSource for media-src
+            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; img-src data: https:; connect-src https: http:; media-src blob: data:;`,
             inlineStyles: "#root { height: 100vh; width: 100vw; overflow-y: auto; }",
             customScript: "window.vscodeApi = acquireVsCodeApi();"
         });
@@ -1315,17 +1354,17 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
 // Helper to present a concise overwrite confirmation with truncation and an Output Channel for details
 async function confirmOverwriteWithDetails(
-    items: Array<{ name: string; sourceExists: boolean; targetExists: boolean; hasTranslations: boolean; }>,
+    items: Array<{ name: string; displayName: string; sourceExists: boolean; targetExists: boolean; hasTranslations: boolean; }>,
     options?: { maxItems?: number; }
 ): Promise<boolean> {
     const maxItems = options?.maxItems ?? 15;
 
-    const makeLine = (c: { name: string; sourceExists: boolean; targetExists: boolean; hasTranslations: boolean; }) => {
+    const makeLine = (c: { name: string; displayName: string; sourceExists: boolean; targetExists: boolean; hasTranslations: boolean; }) => {
         const parts: string[] = [];
         if (c.sourceExists) parts.push("source file");
         if (c.targetExists) parts.push("target file");
         if (c.hasTranslations) parts.push("with translations");
-        return `• ${c.name} (${parts.join(", ")})`;
+        return `• ${c.displayName ? `${c.displayName} [${c.name}]` : c.name} (${parts.join(", ")})`;
     };
 
     const fullList = items.map(makeLine).join("\n");

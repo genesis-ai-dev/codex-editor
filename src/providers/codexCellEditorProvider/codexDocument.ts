@@ -13,7 +13,7 @@ import {
     ValidationEntry,
     EditMapValueType,
 } from "../../../types";
-import { EditMapUtils } from "../../utils/editMapUtils";
+import { EditMapUtils, deduplicateFileMetadataEdits } from "../../utils/editMapUtils";
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { getAuthApi } from "@/extension";
 import { randomUUID } from "crypto";
@@ -88,6 +88,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
             // Initialize validatedBy arrays to ensure proper format
             this.initializeValidatedByArrays();
+
+            // Initialize metadata.edits array if it doesn't exist (backward compatibility)
+            if (!this._documentData.metadata.edits) {
+                this._documentData.metadata.edits = [];
+            }
         } catch (error) {
             console.error("Error parsing document content:", error);
             this._documentData = {
@@ -117,8 +122,17 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     );
                 if (matchingMetadata) {
                     this._documentData.metadata = matchingMetadata;
+                    // Initialize edits array if it doesn't exist
+                    if (!this._documentData.metadata.edits) {
+                        this._documentData.metadata.edits = [];
+                    }
                 }
             });
+        } else {
+            // Initialize edits array if it doesn't exist (backward compatibility)
+            if (!this._documentData.metadata.edits) {
+                this._documentData.metadata.edits = [];
+            }
         }
 
         // Populate sourceCellMap directly from SQLite index for reliability
@@ -366,8 +380,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
         });
 
         // IMMEDIATE INDEXING: Add the cell to the database immediately after translation
+        // Fire and forget for non-blocking, but allow await when needed
         if ((editType === EditType.LLM_GENERATION && shouldUpdateValue) || editType === EditType.USER_EDIT) {
-            this.addCellToIndexImmediately(cellId, newContent, editType);
+            Promise.resolve(this.addCellToIndexImmediately(cellId, newContent, editType)).catch(error => {
+                console.error(`[CodexDocument] Async error in immediate indexing for cell ${cellId}:`, error);
+            });
         }
 
     }
@@ -414,85 +431,108 @@ export class CodexCellDocument implements vscode.CustomDocument {
         return cleanContent;
     }
 
+    // Public method to ensure a cell is indexed (useful for waiting after transcription)
+    public async ensureCellIndexed(cellId: string, timeoutMs: number = 5000): Promise<boolean> {
+        if (!this._indexManager) {
+            this._indexManager = getSQLiteIndexManager();
+            if (!this._indexManager) return false;
+        }
+
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+            try {
+                const result = await vscode.commands.executeCommand(
+                    "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+                    cellId
+                ) as { cellId: string; content: string; } | null;
+                
+                if (result && result.content && result.content.replace(/<[^>]*>/g, "").trim() !== "") {
+                    return true;
+                }
+            } catch {
+                // Index command not available
+                return false;
+            }
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        return false;
+    }
+
     // TRUE IMMEDIATE INDEXING - No delays, immediate searchability
-    private addCellToIndexImmediately(
+    private async addCellToIndexImmediately(
         cellId: string,
         content: string,
         editType: EditType
-    ): void {
-        // IMMEDIATE execution - no setImmediate() delay
-        // Use non-blocking pattern that still executes immediately
-        (async () => {
-            try {
-                // Refresh index manager reference if it's not available
+    ): Promise<void> {
+        try {
+            // Refresh index manager reference if it's not available
+            if (!this._indexManager) {
+                this._indexManager = getSQLiteIndexManager();
                 if (!this._indexManager) {
-                    this._indexManager = getSQLiteIndexManager();
-                    if (!this._indexManager) {
-                        console.warn(`[CodexDocument] Index manager not available for immediate indexing of cell ${cellId}`);
-                        return;
-                    }
+                    console.warn(`[CodexDocument] Index manager not available for immediate indexing of cell ${cellId}`);
+                    return;
                 }
-
-                // Use cached file ID or get it once
-                let fileId = this._cachedFileId;
-                if (!fileId) {
-                    fileId = await this._indexManager.upsertFile(
-                        this.uri.toString(),
-                        "codex",
-                        Date.now()
-                    );
-                    this._cachedFileId = fileId;
-                }
-
-                // Calculate logical line position based on cell structure
-                let logicalLinePosition: number | null = null;
-                const cellIndex = this._documentData.cells.findIndex(cell => cell.metadata?.id === cellId);
-
-                if (cellIndex >= 0) {
-                    const currentCell = this._documentData.cells[cellIndex];
-                    const isCurrentCellParatext = currentCell.metadata?.type === "paratext";
-
-                    // Only non-paratext cells get line positions
-                    if (!isCurrentCellParatext) {
-                        // Count all non-paratext cells before this cell to get logical position (1-indexed)
-                        let logicalPosition = 1;
-                        for (let i = 0; i < cellIndex; i++) {
-                            const cell = this._documentData.cells[i];
-                            const isParatext = cell.metadata?.type === "paratext";
-                            if (!isParatext) {
-                                logicalPosition++;
-                            }
-                        }
-                        logicalLinePosition = logicalPosition;
-
-                        // Since this method is only called when content exists,
-                        // we always assign the logical position as the line number
-                    }
-                    // Paratext cells get lineNumber = null
-                }
-
-                // Sanitize content for search while preserving raw content with HTML
-                const sanitizedContent = this.sanitizeContent(content);
-
-                // IMMEDIATE AI KNOWLEDGE UPDATE with FTS synchronization
-                const result = await this._indexManager.upsertCellWithFTSSync(
-                    cellId,
-                    fileId,
-                    this.getContentType(),
-                    sanitizedContent,  // Sanitized content for search
-                    logicalLinePosition ?? undefined, // Convert null to undefined for method signature compatibility
-                    { editType, lastUpdated: Date.now() },
-                    content           // Raw content with HTML tags
-                );
-
-                console.log(`[CodexDocument] ✅ Cell ${cellId} immediately indexed and searchable at logical line ${logicalLinePosition}`);
-
-            } catch (error) {
-                console.error(`[CodexDocument] Error indexing cell ${cellId}:`, error);
             }
-        })().catch(error => {
-            console.error(`[CodexDocument] Async error in immediate indexing for cell ${cellId}:`, error);
-        });
+
+            // Use cached file ID or get it once
+            let fileId = this._cachedFileId;
+            if (!fileId) {
+                const fileType = this.uri.toString().includes(".source") ? "source" : "codex";
+                fileId = await this._indexManager.upsertFile(
+                    this.uri.toString(),
+                    fileType,
+                    Date.now()
+                );
+                this._cachedFileId = fileId;
+            }
+
+            // Calculate logical line position based on cell structure
+            let logicalLinePosition: number | null = null;
+            const cellIndex = this._documentData.cells.findIndex(cell => cell.metadata?.id === cellId);
+
+            if (cellIndex >= 0) {
+                const currentCell = this._documentData.cells[cellIndex];
+                const isCurrentCellParatext = currentCell.metadata?.type === "paratext";
+
+                // Only non-paratext cells get line positions
+                if (!isCurrentCellParatext) {
+                    // Count all non-paratext cells before this cell to get logical position (1-indexed)
+                    let logicalPosition = 1;
+                    for (let i = 0; i < cellIndex; i++) {
+                        const cell = this._documentData.cells[i];
+                        const isParatext = cell.metadata?.type === "paratext";
+                        if (!isParatext) {
+                            logicalPosition++;
+                        }
+                    }
+                    logicalLinePosition = logicalPosition;
+
+                    // Since this method is only called when content exists,
+                    // we always assign the logical position as the line number
+                }
+                // Paratext cells get lineNumber = null
+            }
+
+            // Sanitize content for search while preserving raw content with HTML
+            const sanitizedContent = this.sanitizeContent(content);
+
+            // IMMEDIATE AI KNOWLEDGE UPDATE with FTS synchronization
+            const result = await this._indexManager.upsertCellWithFTSSync(
+                cellId,
+                fileId,
+                this.getContentType(),
+                sanitizedContent,  // Sanitized content for search
+                logicalLinePosition ?? undefined, // Convert null to undefined for method signature compatibility
+                { editType, lastUpdated: Date.now() },
+                content           // Raw content with HTML tags
+            );
+
+            console.log(`[CodexDocument] ✅ Cell ${cellId} immediately indexed and searchable at logical line ${logicalLinePosition}`);
+
+        } catch (error) {
+            console.error(`[CodexDocument] Error indexing cell ${cellId}:`, error);
+            throw error;
+        }
     }
 
     public replaceDuplicateCells(content: QuillCellContent) {
@@ -860,7 +900,94 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // Initialize metadata if it doesn't exist
             this._documentData.metadata = {} as CustomNotebookMetadata;
         }
+
+        // Initialize edits array if it doesn't exist
+        if (!this._documentData.metadata.edits) {
+            this._documentData.metadata.edits = [];
+        }
+
+        const oldMetadata = { ...this._documentData.metadata };
+        const currentTimestamp = Date.now();
+
+        // Track which fields are editable (exclude system fields like id, sourceFsPath, etc.)
+        // Note: autoDownloadAudioOnOpen is excluded as it's a project-level setting stored in localProjectSettings.json,
+        // not a file-level metadata field
+        const editableFields = [
+            "videoUrl",
+            "textDirection",
+            "lineNumbersEnabled",
+            "fontSize",
+            "showInlineBacktranslations",
+            "fileDisplayName",
+            "cellDisplayMode",
+            "audioOnly",
+            "corpusMarker",
+        ] as const;
+
+        // Compare old vs new values and create edit history entries for each changed field
+        for (const field of editableFields) {
+            const oldValue = oldMetadata[field];
+            const newValue = newMetadata[field];
+
+            // Skip if field wasn't provided in newMetadata or value hasn't changed
+            if (newValue === undefined || oldValue === newValue) {
+                continue;
+            }
+
+            // Determine editMap based on field name
+            let editMap: readonly string[];
+            switch (field) {
+                case "videoUrl":
+                    editMap = EditMapUtils.metadataVideoUrl();
+                    break;
+                case "textDirection":
+                    editMap = EditMapUtils.metadataTextDirection();
+                    break;
+                case "lineNumbersEnabled":
+                    editMap = EditMapUtils.metadataLineNumbersEnabled();
+                    break;
+                case "fontSize":
+                    editMap = EditMapUtils.metadataFontSize();
+                    break;
+                case "showInlineBacktranslations":
+                    editMap = EditMapUtils.metadataShowInlineBacktranslations();
+                    break;
+                case "fileDisplayName":
+                    editMap = EditMapUtils.metadataFileDisplayName();
+                    break;
+                case "cellDisplayMode":
+                    editMap = EditMapUtils.metadataCellDisplayMode();
+                    break;
+                case "audioOnly":
+                    editMap = EditMapUtils.metadataAudioOnly();
+                    break;
+                case "corpusMarker":
+                    editMap = EditMapUtils.metadataCorpusMarker();
+                    break;
+                default:
+                    editMap = EditMapUtils.metadataField(field);
+            }
+
+            // Add edit history entry with new structure
+            this._documentData.metadata.edits.push({
+                editMap,
+                value: newValue,
+                timestamp: currentTimestamp,
+                type: EditType.USER_EDIT,
+                author: this._author,
+            });
+        }
+
+        // Deduplicate edits before saving
+        this._documentData.metadata.edits = deduplicateFileMetadataEdits(this._documentData.metadata.edits);
+
+        // Save the edits array before applying metadata updates (in case newMetadata contains edits field)
+        const savedEdits = this._documentData.metadata.edits;
+
+        // Apply the metadata updates
         this._documentData.metadata = { ...this._documentData.metadata, ...newMetadata };
+        // Restore the edits array (it was updated above with new edits)
+        this._documentData.metadata.edits = savedEdits;
 
         // Record the edit
         this._edits.push({
@@ -954,22 +1081,23 @@ export class CodexCellDocument implements vscode.CustomDocument {
         if (!cellToUpdate.metadata.edits || cellToUpdate.metadata.edits.length === 0) {
             console.warn("No edits found for cell to validate");
             // repair the edit history by adding an llm generation with author unknown, and then a user edit with validation
+            const currentTimestamp = Date.now();
             cellToUpdate.metadata.edits = [
                 {
                     editMap: EditMapUtils.value(),
                     value: cellToUpdate.value,
+                    timestamp: currentTimestamp,
+                    type: EditType.LLM_GENERATION,
                     author: "unknown",
                     validatedBy: [],
-                    timestamp: Date.now(),
-                    type: EditType.LLM_GENERATION,
                 },
                 {
                     editMap: EditMapUtils.value(),
                     value: cellToUpdate.value,
+                    timestamp: currentTimestamp,
+                    type: EditType.USER_EDIT,
                     author: this._author,
                     validatedBy: [],
-                    timestamp: Date.now(),
-                    type: EditType.USER_EDIT,
                 },
             ];
         }
@@ -996,10 +1124,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
             cellToUpdate.metadata.edits.push({
                 editMap: EditMapUtils.value(),
                 value: cellToUpdate.value,
-                author: this._author,
-                validatedBy: [],
                 timestamp: currentTimestamp,
                 type: EditType.USER_EDIT,
+                author: this._author,
+                validatedBy: [],
             } as any);
             targetEditIndex = cellToUpdate.metadata.edits.length - 1;
         }
