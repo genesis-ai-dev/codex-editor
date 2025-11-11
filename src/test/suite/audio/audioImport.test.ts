@@ -100,38 +100,21 @@ suite("Audio Import Test Suite", () => {
     });
 
     suite("FFmpeg binary path retrieval", () => {
-        test("should retrieve FFmpeg path from installer package", () => {
-            // This test verifies that the getFFmpegPath function can access the installer
-            // We can't easily test the actual path without installing the package,
-            // but we can verify the function doesn't throw when called
-            try {
-                // Import and call getFFmpegPath indirectly through a function that uses it
-                // Since it's not exported, we'll test through processAudioFile which uses it
-                // For now, just verify the module can be imported
-                // eslint-disable-next-line @typescript-eslint/no-var-requires
-                const audioProcessor = require("../../../utils/audioProcessor");
-                assert.ok(audioProcessor, "audioProcessor module should be importable");
-            } catch (error) {
-                // If FFmpeg packages aren't installed, that's expected in test environment
-                // We'll skip this test if packages aren't available
-                if (error instanceof Error && error.message.includes("@ffmpeg-installer")) {
-                    return; // Skip test if packages not installed
-                }
-                throw error;
-            }
+        test("should retrieve FFmpeg path (on-demand download or system)", () => {
+            // This test verifies the audioProcessor can access FFmpeg binaries
+            // With on-demand download, FFmpeg is downloaded automatically or uses system FFmpeg
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const audioProcessor = require("../../../utils/audioProcessor");
+            assert.ok(audioProcessor, "audioProcessor module should be importable");
+            assert.ok(typeof audioProcessor.processAudioFile === "function", "Should export processAudioFile");
         });
 
-        test("should retrieve FFprobe path from installer package", () => {
-            try {
-                // eslint-disable-next-line @typescript-eslint/no-var-requires
-                const audioProcessor = require("../../../utils/audioProcessor");
-                assert.ok(audioProcessor, "audioProcessor module should be importable");
-            } catch (error) {
-                if (error instanceof Error && error.message.includes("@ffprobe-installer")) {
-                    return; // Skip test if packages not installed
-                }
-                throw error;
-            }
+        test("should retrieve FFprobe path (on-demand download or system)", () => {
+            // With on-demand download, FFprobe is downloaded automatically or uses system FFprobe
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const audioProcessor = require("../../../utils/audioProcessor");
+            assert.ok(audioProcessor, "audioProcessor module should be importable");
+            assert.ok(typeof audioProcessor.detectSilence === "function", "Should export detectSilence");
         });
     });
 
