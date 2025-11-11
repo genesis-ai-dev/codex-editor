@@ -1,11 +1,13 @@
 /**
  * Backend audio processing utilities using FFmpeg binaries
  * Handles audio decoding, silence detection, segmentation, and waveform generation
- * Uses @ffmpeg-installer/ffmpeg for cross-platform FFmpeg binaries
+ * Downloads FFmpeg binaries on-demand to keep VSIX size small
  */
 
 import * as path from 'path';
 import * as fs from 'fs';
+import * as vscode from 'vscode';
+import { getFFmpegPath, getFFprobePath } from './ffmpegManager';
 
 // Lazy load to avoid bundling issues
 function getFs(): typeof fs {
@@ -28,81 +30,16 @@ function getSpawn(): ((command: string, args?: readonly string[]) => any) | null
     }
 }
 
-// Cache for FFmpeg and FFprobe binary paths
-let ffmpegPath: string | null = null;
-let ffprobePath: string | null = null;
+// Global extension context for ffmpeg downloads
+let extensionContext: vscode.ExtensionContext | undefined;
 
 /**
- * Ensure binary has execute permissions
+ * Initialize audio processor with extension context
+ * Call this once during extension activation
  */
-function ensureExecutePermission(binaryPath: string): void {
-    const fsModule = getFs();
-    try {
-        // Check if file exists
-        if (!fsModule.existsSync(binaryPath)) {
-            throw new Error(`Binary not found: ${binaryPath}`);
-        }
-
-        // Get current file stats
-        const stats = fsModule.statSync(binaryPath);
-
-        // Check if file has execute permission (for owner, group, or others)
-        const mode = stats.mode;
-        const executeBit = 0o111; // Execute permission bit
-
-        if ((mode & executeBit) === 0) {
-            // File doesn't have execute permission, add it
-            // Add execute permission for owner, group, and others
-            fsModule.chmodSync(binaryPath, mode | 0o111);
-        }
-    } catch (error) {
-        // Log warning but don't throw - the spawn might still work
-        console.warn(`[audioProcessor] Warning: Could not set execute permissions on ${binaryPath}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-}
-
-/**
- * Get FFmpeg binary path from @ffmpeg-installer/ffmpeg
- */
-function getFFmpegPath(): string {
-    if (ffmpegPath) {
-        return ffmpegPath;
-    }
-    try {
-        const req = eval('require') as any;
-        const ffmpegInstaller = req('@ffmpeg-installer/ffmpeg');
-        const installerPath: string | null = ffmpegInstaller.path;
-        if (!installerPath) {
-            throw new Error('FFmpeg path is null');
-        }
-        ffmpegPath = installerPath;
-        ensureExecutePermission(ffmpegPath);
-        return ffmpegPath;
-    } catch (error) {
-        throw new Error(`Failed to get FFmpeg path: ${error instanceof Error ? error.message : String(error)}. Make sure @ffmpeg-installer/ffmpeg is installed.`);
-    }
-}
-
-/**
- * Get FFprobe binary path from @ffprobe-installer/ffprobe
- */
-function getFFprobePath(): string {
-    if (ffprobePath) {
-        return ffprobePath;
-    }
-    try {
-        const req = eval('require') as any;
-        const ffprobeInstaller = req('@ffprobe-installer/ffprobe');
-        const installerPath: string | null = ffprobeInstaller.path;
-        if (!installerPath) {
-            throw new Error('FFprobe path is null');
-        }
-        ffprobePath = installerPath;
-        ensureExecutePermission(ffprobePath);
-        return ffprobePath;
-    } catch (error) {
-        throw new Error(`Failed to get FFprobe path: ${error instanceof Error ? error.message : String(error)}. Make sure @ffprobe-installer/ffprobe is installed.`);
-    }
+export function initializeAudioProcessor(context: vscode.ExtensionContext): void {
+    extensionContext = context;
+    console.log('[audioProcessor] Initialized with extension context');
 }
 
 export interface AudioFileMetadata {
@@ -124,14 +61,15 @@ export interface AudioSegment {
  * Get audio duration using FFprobe
  */
 async function getAudioDuration(filePath: string): Promise<number> {
+    const ffprobeBinaryPath = await getFFprobePath(extensionContext);
+    
     return new Promise((resolve, reject) => {
         const spawn = getSpawn();
         if (!spawn) {
             return reject(new Error('child_process.spawn not available'));
         }
 
-        const ffprobePath = getFFprobePath();
-        const ffprobe = spawn(ffprobePath, [
+        const ffprobe = spawn(ffprobeBinaryPath, [
             '-v', 'error',
             '-show_entries', 'format=duration',
             '-of', 'default=noprint_wrappers=1:nokey=1',
@@ -166,13 +104,15 @@ async function generateWaveformPeaks(
     targetPoints: number = 2000,
     sampleRate: number = 8000
 ): Promise<number[]> {
+    const ffmpegBinaryPath = await getFFmpegPath(extensionContext);
+    
     return new Promise((resolve, reject) => {
         const spawn = getSpawn();
         if (!spawn) {
             return reject(new Error('child_process.spawn not available'));
         }
 
-        const ffmpegPath = getFFmpegPath();
+        const ffmpegPath = ffmpegBinaryPath;
 
         // Prepare output buckets
         const peaks: number[] = new Array(Math.max(1, targetPoints)).fill(0);
@@ -231,13 +171,15 @@ export async function detectSilence(
     thresholdDb: number = -40,
     minDuration: number = 0.5
 ): Promise<AudioSegment[]> {
+    const ffmpegBinaryPath = await getFFmpegPath(extensionContext);
+    
     return new Promise((resolve, reject) => {
         const spawn = getSpawn();
         if (!spawn) {
             return reject(new Error('child_process.spawn not available'));
         }
 
-        const ffmpegPath = getFFmpegPath();
+        const ffmpegPath = ffmpegBinaryPath;
         const ffmpeg = spawn(ffmpegPath, [
             '-i', filePath,
             '-af', `silencedetect=n=${thresholdDb}dB:d=${minDuration}`,
@@ -471,13 +413,15 @@ export async function extractSegment(
     startSec: number,
     endSec: number
 ): Promise<void> {
+    const ffmpegBinaryPath = await getFFmpegPath(extensionContext);
+    
     return new Promise((resolve, reject) => {
         const spawn = getSpawn();
         if (!spawn) {
             return reject(new Error('child_process.spawn not available'));
         }
 
-        const ffmpegPath = getFFmpegPath();
+        const ffmpegPath = ffmpegBinaryPath;
         const duration = endSec - startSec;
         const args = [
             '-i', sourcePath,
