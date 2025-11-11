@@ -277,7 +277,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "webview.ready"; }
     | { command: "navigateToMainMenu"; }
     | { command: "zipProject"; projectName: string; projectPath: string; includeGit?: boolean; }
-    | { command: "project.heal"; projectName: string; projectPath: string; gitOriginUrl?: string; healingOption: "sync-and-ai" | "sync-only" | "ai-only"; }
+    | { command: "project.heal"; projectName: string; projectPath: string; gitOriginUrl?: string; }
     | { command: "project.setMediaStrategy"; projectPath: string; mediaStrategy: MediaFilesStrategy; }
     | { command: "project.cleanupMediaFiles"; projectPath: string; };
 
@@ -362,7 +362,7 @@ export type MessagesFromStartupFlowProvider =
     | { command: "progressData"; data: any; }
     | { command: "aggregatedProgressData"; data: any; }
     | { command: "project.nameWillBeSanitized"; original: string; sanitized: string; }
-    | { command: "project.healingInProgress"; projectPath: string; healing: boolean; healingOption?: "sync-and-ai" | "sync-only" | "ai-only"; }
+    | { command: "project.healingInProgress"; projectPath: string; healing: boolean; }
     | { command: "project.cloningInProgress"; projectPath: string; gitOriginUrl?: string; cloning: boolean; }
     | { command: "project.openingInProgress"; projectPath: string; opening: boolean; }
     | { command: "project.zippingInProgress"; projectPath: string; zipType: "full" | "mini"; zipping: boolean; }

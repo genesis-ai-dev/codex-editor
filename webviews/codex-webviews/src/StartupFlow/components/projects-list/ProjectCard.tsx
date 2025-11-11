@@ -59,7 +59,6 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     const [pendingStrategy, setPendingStrategy] = useState<MediaFilesStrategy | null>(null);
     const [previousStrategy, setPreviousStrategy] = useState<MediaFilesStrategy | null>(null);
     const [isHealing, setIsHealing] = useState<boolean>(false);
-    const [healingOption, setHealingOption] = useState<"sync-and-ai" | "sync-only" | "ai-only" | null>(null);
     const [isCloning, setIsCloning] = useState<boolean>(false);
     const [isOpening, setIsOpening] = useState<boolean>(false);
     const [isZipping, setIsZipping] = useState<boolean>(false);
@@ -156,11 +155,6 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
             if (msg?.command === "project.healingInProgress") {
                 if (msg.projectPath === project.path) {
                     setIsHealing(msg.healing);
-                    if (msg.healing && msg.healingOption) {
-                        setHealingOption(msg.healingOption);
-                    } else {
-                        setHealingOption(null);
-                    }
                 }
                 return;
             }
@@ -532,79 +526,36 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                             )}
                                         </Button>
                                     )}
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className={cn(
-                                                "h-6 text-xs text-yellow-600 hover:text-yellow-700",
-                                                isHealing && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
-                                            )}
-                                            disabled={disableControls}
-                                            title="Heal project - select option"
-                                        >
-                                            {isHealing ? (
-                                                <>
-                                                    <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
-                                                    {healingOption === "sync-and-ai" && "Resetting Sync & AI Learning"}
-                                                    {healingOption === "sync-only" && "Resetting Sync"}
-                                                    {healingOption === "ai-only" && "Resetting AI Learning"}
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <i className="codicon codicon-heart mr-1" />
-                                                    Heal
-                                                    <i className="codicon codicon-chevron-down ml-1" />
-                                                </>
-                                            )}
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="start">
-                                        <DropdownMenuItem
-                                            onClick={() => {
-                                                vscode.postMessage({
-                                                    command: "project.heal",
-                                                    projectName: project.name,
-                                                    projectPath: project.path,
-                                                    gitOriginUrl: project.gitOriginUrl,
-                                                    healingOption: "sync-and-ai",
-                                                });
-                                            }}
-                                        >
-                                            <i className="codicon codicon-sync mr-2" />
-                                            Sync & AI Learning
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem
-                                            onClick={() => {
-                                                vscode.postMessage({
-                                                    command: "project.heal",
-                                                    projectName: project.name,
-                                                    projectPath: project.path,
-                                                    gitOriginUrl: project.gitOriginUrl,
-                                                    healingOption: "sync-only",
-                                                });
-                                            }}
-                                        >
-                                            <i className="codicon codicon-sync mr-2" />
-                                            Sync
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem
-                                            onClick={() => {
-                                                vscode.postMessage({
-                                                    command: "project.heal",
-                                                    projectName: project.name,
-                                                    projectPath: project.path,
-                                                    gitOriginUrl: project.gitOriginUrl,
-                                                    healingOption: "ai-only",
-                                                });
-                                            }}
-                                        >
-                                            <i className="codicon codicon-lightbulb mr-2" />
-                                            AI Learning
-                                        </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                        vscode.postMessage({
+                                            command: "project.heal",
+                                            projectName: project.name,
+                                            projectPath: project.path,
+                                            gitOriginUrl: project.gitOriginUrl,
+                                        });
+                                    }}
+                                    className={cn(
+                                        "h-6 text-xs text-yellow-600 hover:text-yellow-700",
+                                        isHealing && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
+                                    )}
+                                    disabled={disableControls}
+                                    title="Heal project by backing up, re-cloning, and merging local changes"
+                                >
+                                    {isHealing ? (
+                                        <>
+                                            <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
+                                            Cloning...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <i className="codicon codicon-heart mr-1" />
+                                            Heal
+                                        </>
+                                    )}
+                                </Button>
                                 <Button
                                     variant="outline"
                                     size="sm"

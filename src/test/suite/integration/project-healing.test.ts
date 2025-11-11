@@ -96,56 +96,57 @@ suite("Integration: Project healing", () => {
         }
     });
 
-    test("AI-only healing deletes indexes.sqlite and preserves .git", async () => {
+    test("Full healing creates backup and performs full re-clone", async () => {
         const gitDir = path.join(tempDir, ".git");
         const indexPath = path.join(tempDir, ".project", "indexes.sqlite");
+        const testFile = path.join(tempDir, "test.txt");
         
-        // Verify both exist before healing
+        // Verify all exist before healing
         assert.ok(fs.existsSync(gitDir), ".git should exist before healing");
         assert.ok(fs.existsSync(indexPath), "indexes.sqlite should exist before healing");
+        assert.ok(fs.existsSync(testFile), "test.txt should exist before healing");
         
-        // Simulate AI-only healing
-        fs.unlinkSync(indexPath);
+        // Full healing involves: backup -> save local changes to temp -> delete entire project -> re-clone -> merge changes
+        // Simulate the delete step of full healing
+        const tempBackupDir = fs.mkdtempSync(path.join(os.tmpdir(), "backup-"));
         
-        // After AI-only healing
-        assert.ok(fs.existsSync(gitDir), ".git should still exist after AI-only healing");
-        assert.ok(!fs.existsSync(indexPath), "indexes.sqlite should be deleted after AI-only healing");
+        // Copy files to temp (excluding .git)
+        const files = fs.readdirSync(tempDir);
+        for (const file of files) {
+            if (file !== ".git") {
+                const srcPath = path.join(tempDir, file);
+                const destPath = path.join(tempBackupDir, file);
+                if (fs.statSync(srcPath).isDirectory()) {
+                    fs.cpSync(srcPath, destPath, { recursive: true });
+                } else {
+                    fs.copyFileSync(srcPath, destPath);
+                }
+            }
+        }
+        
+        // Delete entire project directory (full healing)
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        
+        // Re-create directory (simulating re-clone)
+        fs.mkdirSync(tempDir, { recursive: true });
+        
+        // Restore from fresh clone + merge temp files back
+        await git.init({ fs, dir: tempDir, defaultBranch: "main" });
+        await git.addRemote({ fs, dir: tempDir, remote: "origin", url: "https://example.com/test-repo.git" });
+        
+        // Merge temp files back
+        fs.cpSync(tempBackupDir, tempDir, { recursive: true });
+        
+        // After full healing: everything should be restored
+        assert.ok(fs.existsSync(gitDir), ".git should exist after full healing (re-cloned)");
+        assert.ok(fs.existsSync(indexPath), "indexes.sqlite should exist after merge");
+        assert.ok(fs.existsSync(testFile), "test.txt should exist after merge");
+        
+        // Clean up temp backup
+        fs.rmSync(tempBackupDir, { recursive: true, force: true });
     });
 
-    test("Sync-only healing deletes .git and preserves indexes.sqlite", async () => {
-        const gitDir = path.join(tempDir, ".git");
-        const indexPath = path.join(tempDir, ".project", "indexes.sqlite");
-        
-        // Verify both exist before healing
-        assert.ok(fs.existsSync(gitDir), ".git should exist before healing");
-        assert.ok(fs.existsSync(indexPath), "indexes.sqlite should exist before healing");
-        
-        // Simulate sync-only healing
-        fs.rmSync(gitDir, { recursive: true, force: true });
-        
-        // After sync-only healing
-        assert.ok(!fs.existsSync(gitDir), ".git should be deleted after sync-only healing");
-        assert.ok(fs.existsSync(indexPath), "indexes.sqlite should still exist after sync-only healing");
-    });
-
-    test("Sync-and-ai healing deletes both .git and indexes.sqlite", async () => {
-        const gitDir = path.join(tempDir, ".git");
-        const indexPath = path.join(tempDir, ".project", "indexes.sqlite");
-        
-        // Verify both exist before healing
-        assert.ok(fs.existsSync(gitDir), ".git should exist before healing");
-        assert.ok(fs.existsSync(indexPath), "indexes.sqlite should exist before healing");
-        
-        // Simulate sync-and-ai healing
-        fs.rmSync(gitDir, { recursive: true, force: true });
-        fs.unlinkSync(indexPath);
-        
-        // After sync-and-ai healing
-        assert.ok(!fs.existsSync(gitDir), ".git should be deleted after sync-and-ai healing");
-        assert.ok(!fs.existsSync(indexPath), "indexes.sqlite should be deleted after sync-and-ai healing");
-    });
-
-    test("Healing preserves working directory files", async () => {
+    test("Healing preserves and merges working directory files", async () => {
         const testFile = path.join(tempDir, "test.txt");
         const workingFile = path.join(tempDir, "important.txt");
         fs.writeFileSync(workingFile, "important data", "utf8");
@@ -154,59 +155,118 @@ suite("Integration: Project healing", () => {
         assert.ok(fs.existsSync(testFile), "test.txt should exist");
         assert.ok(fs.existsSync(workingFile), "important.txt should exist");
         
-        // Simulate healing (delete .git and indexes.sqlite)
-        fs.rmSync(path.join(tempDir, ".git"), { recursive: true, force: true });
-        fs.unlinkSync(path.join(tempDir, ".project", "indexes.sqlite"));
+        // Simulate full healing: save to temp, delete project, re-clone, merge back
+        const tempBackupDir = fs.mkdtempSync(path.join(os.tmpdir(), "heal-"));
         
-        // Working directory files should be preserved
+        // Save working files to temp (excluding .git)
+        const files = fs.readdirSync(tempDir);
+        for (const file of files) {
+            if (file !== ".git") {
+                const srcPath = path.join(tempDir, file);
+                const destPath = path.join(tempBackupDir, file);
+                if (fs.statSync(srcPath).isDirectory()) {
+                    fs.cpSync(srcPath, destPath, { recursive: true });
+                } else {
+                    fs.copyFileSync(srcPath, destPath);
+                }
+            }
+        }
+        
+        // Delete entire project (full healing)
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        fs.mkdirSync(tempDir, { recursive: true });
+        
+        // Re-clone
+        await git.init({ fs, dir: tempDir, defaultBranch: "main" });
+        
+        // Merge temp files back
+        fs.cpSync(tempBackupDir, tempDir, { recursive: true });
+        
+        // Working directory files should be preserved and merged
         assert.ok(fs.existsSync(testFile), "test.txt should be preserved after healing");
         assert.ok(fs.existsSync(workingFile), "important.txt should be preserved after healing");
         
         const content = fs.readFileSync(workingFile, "utf8");
         assert.strictEqual(content, "important data", "File content should be unchanged");
+        
+        // Clean up
+        fs.rmSync(tempBackupDir, { recursive: true, force: true });
     });
 
-    test("Healing preserves localProjectSettings.json", async () => {
+    test("Healing preserves and merges localProjectSettings.json", async () => {
         const settingsPath = path.join(tempDir, ".project", "localProjectSettings.json");
         
         const beforeContent = fs.readFileSync(settingsPath, "utf8");
         const beforeSettings = JSON.parse(beforeContent);
         
-        // Simulate healing (delete indexes.sqlite only)
-        fs.unlinkSync(path.join(tempDir, ".project", "indexes.sqlite"));
+        // Simulate full healing: save to temp, delete project, merge back
+        const tempBackupDir = fs.mkdtempSync(path.join(os.tmpdir(), "heal-settings-"));
+        fs.cpSync(tempDir, tempBackupDir, { recursive: true, filter: (src) => !src.includes(".git") });
         
-        // Settings should still exist
-        assert.ok(fs.existsSync(settingsPath), "localProjectSettings.json should be preserved");
+        // Delete entire project
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        fs.mkdirSync(tempDir, { recursive: true });
+        
+        // Re-clone (just init for test)
+        await git.init({ fs, dir: tempDir, defaultBranch: "main" });
+        
+        // Merge temp back
+        fs.cpSync(tempBackupDir, tempDir, { recursive: true });
+        
+        // Settings should be restored from merge
+        assert.ok(fs.existsSync(settingsPath), "localProjectSettings.json should be preserved via merge");
         
         const afterContent = fs.readFileSync(settingsPath, "utf8");
         const afterSettings = JSON.parse(afterContent);
         
-        assert.deepStrictEqual(afterSettings, beforeSettings, "Settings should be unchanged");
+        assert.deepStrictEqual(afterSettings, beforeSettings, "Settings should be unchanged after merge");
+        
+        // Clean up
+        fs.rmSync(tempBackupDir, { recursive: true, force: true });
     });
 
-    test("Healing preserves uncommitted changes in working directory", async () => {
+    test("Healing preserves uncommitted changes via temp folder merge", async () => {
         // Create an uncommitted file
         const uncommittedFile = path.join(tempDir, "uncommitted.txt");
         fs.writeFileSync(uncommittedFile, "uncommitted content", "utf8");
         
         // Don't add or commit it
         
-        // Simulate sync healing
-        fs.rmSync(path.join(tempDir, ".git"), { recursive: true, force: true });
+        // Simulate full healing: backup to temp (excluding .git), delete, re-clone, merge
+        const tempBackupDir = fs.mkdtempSync(path.join(os.tmpdir(), "heal-uncommitted-"));
+        fs.cpSync(tempDir, tempBackupDir, { recursive: true, filter: (src) => !src.includes(".git") });
         
-        // Uncommitted file should still exist
-        assert.ok(fs.existsSync(uncommittedFile), "Uncommitted file should be preserved");
+        // Delete entire project
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        fs.mkdirSync(tempDir, { recursive: true });
+        
+        // Re-clone
+        await git.init({ fs, dir: tempDir, defaultBranch: "main" });
+        
+        // Merge uncommitted changes back from temp
+        fs.cpSync(tempBackupDir, tempDir, { recursive: true });
+        
+        // Uncommitted file should be restored from merge
+        assert.ok(fs.existsSync(uncommittedFile), "Uncommitted file should be preserved via merge");
         const content = fs.readFileSync(uncommittedFile, "utf8");
         assert.strictEqual(content, "uncommitted content", "Uncommitted file content should be unchanged");
+        
+        // Clean up
+        fs.rmSync(tempBackupDir, { recursive: true, force: true });
     });
 
-    test("Re-initializing .git after sync healing sets up tracking correctly", async () => {
+    test("Full healing re-clones and sets up git tracking correctly", async () => {
         const gitDir = path.join(tempDir, ".git");
         
-        // Delete .git
-        fs.rmSync(gitDir, { recursive: true, force: true });
+        // Simulate full healing: backup, delete entire project, re-clone
+        const tempBackupDir = fs.mkdtempSync(path.join(os.tmpdir(), "heal-git-"));
+        fs.cpSync(tempDir, tempBackupDir, { recursive: true, filter: (src) => !src.includes(".git") });
         
-        // Re-initialize
+        // Delete entire project
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        fs.mkdirSync(tempDir, { recursive: true });
+        
+        // Re-clone
         await git.init({ fs, dir: tempDir, defaultBranch: "main" });
         await git.addRemote({
             fs,
@@ -215,14 +275,20 @@ suite("Integration: Project healing", () => {
             url: "https://example.com/test-repo.git",
         });
         
-        // Verify .git exists
-        assert.ok(fs.existsSync(gitDir), ".git should exist after re-init");
+        // Merge back local files
+        fs.cpSync(tempBackupDir, tempDir, { recursive: true });
+        
+        // Verify .git exists from re-clone
+        assert.ok(fs.existsSync(gitDir), ".git should exist after full healing");
         
         // Verify remote is set
         const remotes = await git.listRemotes({ fs, dir: tempDir });
         const origin = remotes.find(r => r.remote === "origin");
         assert.ok(origin, "origin remote should be set");
         assert.strictEqual(origin?.url, "https://example.com/test-repo.git");
+        
+        // Clean up
+        fs.rmSync(tempBackupDir, { recursive: true, force: true });
     });
 
     test("Healing with local changes does not corrupt repository", async () => {
@@ -254,13 +320,28 @@ suite("Integration: Project healing", () => {
         assert.strictEqual(content, "modified content", "Local changes should be preserved");
     });
 
-    test("AI-only healing allows subsequent commits", async () => {
-        const indexPath = path.join(tempDir, ".project", "indexes.sqlite");
+    test("Full healing allows subsequent commits after re-clone", async () => {
+        // Simulate full healing: backup, delete, re-clone, merge
+        const tempBackupDir = fs.mkdtempSync(path.join(os.tmpdir(), "heal-commit-"));
+        fs.cpSync(tempDir, tempBackupDir, { recursive: true, filter: (src) => !src.includes(".git") });
         
-        // Delete indexes.sqlite
-        fs.unlinkSync(indexPath);
+        // Delete entire project
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        fs.mkdirSync(tempDir, { recursive: true });
         
-        // Git should still work
+        // Re-clone
+        await git.init({ fs, dir: tempDir, defaultBranch: "main" });
+        await git.addRemote({
+            fs,
+            dir: tempDir,
+            remote: "origin",
+            url: "https://example.com/test-repo.git",
+        });
+        
+        // Merge back
+        fs.cpSync(tempBackupDir, tempDir, { recursive: true });
+        
+        // Git should work - add and commit a new file
         const newFile = path.join(tempDir, "new.txt");
         fs.writeFileSync(newFile, "new content", "utf8");
         
@@ -268,16 +349,19 @@ suite("Integration: Project healing", () => {
         const commitSha = await git.commit({
             fs,
             dir: tempDir,
-            message: "new commit after healing",
+            message: "new commit after full healing",
             author: { name: "Test", email: "test@example.com" },
         });
         
-        assert.ok(commitSha, "Should be able to commit after AI-only healing");
+        assert.ok(commitSha, "Should be able to commit after full healing");
         assert.strictEqual(typeof commitSha, "string");
         assert.strictEqual(commitSha.length, 40, "Commit SHA should be valid");
+        
+        // Clean up
+        fs.rmSync(tempBackupDir, { recursive: true, force: true });
     });
 
-    test("Healing preserves .project directory structure", async () => {
+    test("Healing preserves .project directory structure via merge", async () => {
         // Add additional files to .project
         const attachmentsDir = path.join(tempDir, ".project", "attachments");
         fs.mkdirSync(attachmentsDir, { recursive: true });
@@ -286,41 +370,63 @@ suite("Integration: Project healing", () => {
         fs.mkdirSync(path.dirname(pointerFile), { recursive: true });
         fs.writeFileSync(pointerFile, "pointer content", "utf8");
         
-        // Simulate healing (delete indexes.sqlite)
-        fs.unlinkSync(path.join(tempDir, ".project", "indexes.sqlite"));
+        // Simulate full healing: backup, delete, re-clone, merge
+        const tempBackupDir = fs.mkdtempSync(path.join(os.tmpdir(), "heal-project-"));
+        fs.cpSync(tempDir, tempBackupDir, { recursive: true, filter: (src) => !src.includes(".git") });
         
-        // .project structure should be preserved
+        // Delete entire project
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        fs.mkdirSync(tempDir, { recursive: true });
+        
+        // Re-clone
+        await git.init({ fs, dir: tempDir, defaultBranch: "main" });
+        
+        // Merge back
+        fs.cpSync(tempBackupDir, tempDir, { recursive: true });
+        
+        // .project structure should be preserved from merge
         assert.ok(fs.existsSync(attachmentsDir), "attachments dir should be preserved");
         assert.ok(fs.existsSync(pointerFile), "pointer file should be preserved");
         
         const content = fs.readFileSync(pointerFile, "utf8");
         assert.strictEqual(content, "pointer content", "Pointer content should be unchanged");
+        
+        // Clean up
+        fs.rmSync(tempBackupDir, { recursive: true, force: true });
     });
 
-    test("Multiple healing operations can be performed safely", async () => {
+    test("Multiple full healing operations can be performed safely", async () => {
         const gitDir = path.join(tempDir, ".git");
         const indexPath = path.join(tempDir, ".project", "indexes.sqlite");
+        const testFile = path.join(tempDir, "test.txt");
         
-        // First healing: AI-only
-        fs.unlinkSync(indexPath);
-        assert.ok(!fs.existsSync(indexPath), "indexes.sqlite should be deleted");
-        
-        // Recreate indexes.sqlite
-        fs.writeFileSync(indexPath, "new-sqlite-data", "utf8");
-        
-        // Second healing: Sync-only
-        fs.rmSync(gitDir, { recursive: true, force: true });
+        // First full healing
+        const tempBackup1 = fs.mkdtempSync(path.join(os.tmpdir(), "heal-multi-1-"));
+        fs.cpSync(tempDir, tempBackup1, { recursive: true, filter: (src) => !src.includes(".git") });
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        fs.mkdirSync(tempDir, { recursive: true });
         await git.init({ fs, dir: tempDir, defaultBranch: "main" });
+        fs.cpSync(tempBackup1, tempDir, { recursive: true });
         
-        assert.ok(fs.existsSync(gitDir), ".git should be recreated");
-        assert.ok(fs.existsSync(indexPath), "indexes.sqlite should still exist");
+        assert.ok(fs.existsSync(gitDir), ".git should exist after first healing");
+        assert.ok(fs.existsSync(indexPath), "indexes.sqlite should exist after first healing");
+        assert.ok(fs.existsSync(testFile), "test.txt should exist after first healing");
         
-        // Third healing: Both
-        fs.rmSync(gitDir, { recursive: true, force: true });
-        fs.unlinkSync(indexPath);
+        // Second full healing
+        const tempBackup2 = fs.mkdtempSync(path.join(os.tmpdir(), "heal-multi-2-"));
+        fs.cpSync(tempDir, tempBackup2, { recursive: true, filter: (src) => !src.includes(".git") });
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        fs.mkdirSync(tempDir, { recursive: true });
+        await git.init({ fs, dir: tempDir, defaultBranch: "main" });
+        fs.cpSync(tempBackup2, tempDir, { recursive: true });
         
-        assert.ok(!fs.existsSync(gitDir), ".git should be deleted");
-        assert.ok(!fs.existsSync(indexPath), "indexes.sqlite should be deleted");
+        assert.ok(fs.existsSync(gitDir), ".git should exist after second healing");
+        assert.ok(fs.existsSync(indexPath), "indexes.sqlite should exist after second healing");
+        assert.ok(fs.existsSync(testFile), "test.txt should exist after second healing");
+        
+        // Clean up
+        fs.rmSync(tempBackup1, { recursive: true, force: true });
+        fs.rmSync(tempBackup2, { recursive: true, force: true });
     });
 });
 

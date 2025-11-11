@@ -1850,6 +1850,19 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             undefined,
                             message.mediaStrategy
                         );
+
+                        // After successful clone, mark media files as verified
+                        // The Frontier extension already organized files correctly during clone
+                        try {
+                            const { writeLocalProjectSettings, readLocalProjectSettings } = await import("../../utils/localProjectSettings");
+                            const settings = await readLocalProjectSettings(projectDir);
+                            settings.mediaFilesVerified = true;
+                            await writeLocalProjectSettings(settings, projectDir);
+                            debugLog(`Set mediaFilesVerified=true after successful clone with strategy: ${message.mediaStrategy}`);
+                        } catch (verifyFlagErr) {
+                            debugLog("Failed to set mediaFilesVerified after clone:", verifyFlagErr);
+                            // Non-fatal: verification will run on first open
+                        }
                     } finally {
                         // Inform webview that cloning is complete
                         try {
@@ -2421,37 +2434,32 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 break;
             }
             case "project.heal": {
-                const { projectName, projectPath, gitOriginUrl, healingOption } = message;
+                const { projectName, projectPath, gitOriginUrl } = message;
 
-                // Check requirements based on healing option
-                if ((healingOption === "sync-and-ai" || healingOption === "sync-only") && !gitOriginUrl) {
+                if (!gitOriginUrl) {
                     vscode.window.showErrorMessage(
-                        "Cannot reset sync: No remote repository URL found. This project may not be connected to a remote repository."
+                        "Cannot heal project: No remote repository URL found. This project may not be connected to a remote repository."
                     );
                     return;
                 }
 
-                // Determine confirmation message based on healing option
-                let confirmMessage: string;
-                let confirmButton: string;
-                if (healingOption === "sync-and-ai") {
-                    confirmMessage = `Reset Sync and AI Learning for "${projectName}"?\n\nThis will:\n1. Create a backup ZIP\n2. Delete the .git folder and indexes.sqlite\n3. Re-sync from remote`;
-                    confirmButton = "Reset Both";
-                } else if (healingOption === "sync-only") {
-                    confirmMessage = `Reset Sync for "${projectName}"?\n\nThis will:\n1. Create a backup ZIP\n2. Delete the .git folder\n3. Re-sync from remote`;
-                    confirmButton = "Reset Sync";
-                } else {
-                    confirmMessage = `Reset AI Learning for "${projectName}"?\n\nThis will:\n1. Create a backup ZIP\n2. Delete indexes.sqlite`;
-                    confirmButton = "Reset AI Learning";
-                }
+                // Show notification first so user knows the process is starting
+                vscode.window.showInformationMessage("Heal process starting - check for confirmation dialog");
+
+                const yesConfirm = "Yes, Heal Project";
 
                 const confirm = await vscode.window.showWarningMessage(
-                    confirmMessage,
+                    `This will heal the project "${projectName}" by:\n\n` +
+                    "1. Creating a backup ZIP\n" +
+                    "2. Saving your local changes temporarily\n" +
+                    "3. Re-cloning from the remote repository\n" +
+                    "4. Merging your local changes back\n\n" +
+                    "This process may take several minutes. Continue?",
                     { modal: true },
-                    confirmButton
+                    yesConfirm
                 );
 
-                if (confirm !== confirmButton) {
+                if (confirm !== yesConfirm) {
                     return;
                 }
 
@@ -2461,7 +2469,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         command: "project.healingInProgress",
                         projectPath,
                         healing: true,
-                        healingOption,
                     } as any);
                 } catch (e) {
                     // non-fatal
@@ -2469,24 +2476,14 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                 // Execute the healing process
                 try {
-                    // Show appropriate progress title
-                    let progressTitle: string;
-                    if (healingOption === "sync-and-ai") {
-                        progressTitle = `Resetting Sync & AI Learning for "${projectName}"...`;
-                    } else if (healingOption === "sync-only") {
-                        progressTitle = `Resetting Sync for "${projectName}"...`;
-                    } else {
-                        progressTitle = `Resetting AI Learning for "${projectName}"...`;
-                    }
-
                     await vscode.window.withProgress(
                         {
                             location: vscode.ProgressLocation.Notification,
-                            title: progressTitle,
+                            title: `Healing project "${projectName}"...`,
                             cancellable: false,
                         },
                         async (progress) => {
-                            await this.performProjectHeal(progress, projectName, projectPath, gitOriginUrl, healingOption);
+                            await this.performProjectHeal(progress, projectName, projectPath, gitOriginUrl);
                         }
                     );
 
@@ -2496,7 +2493,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             command: "project.healingInProgress",
                             projectPath,
                             healing: false,
-                            healingOption,
                         } as any);
                     } catch (e) {
                         // non-fatal
@@ -2513,7 +2509,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             command: "project.healingInProgress",
                             projectPath,
                             healing: false,
-                            healingOption,
                         } as any);
                     } catch (e) {
                         // non-fatal
@@ -2628,219 +2623,139 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     }
 
     /**
-     * Perform project healing operation (simplified version)
+     * Perform project healing operation
      */
     private async performProjectHeal(
         progress: vscode.Progress<{ message?: string; increment?: number; }>,
         projectName: string,
         projectPath: string,
-        gitOriginUrl: string | undefined,
-        healingOption: "sync-and-ai" | "sync-only" | "ai-only"
+        gitOriginUrl: string
     ): Promise<void> {
-        const projectUri = vscode.Uri.file(projectPath);
+        // Check if frontier extension is available and at required version
+        const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
+        if (!frontierExtension) {
+            throw new Error("Frontier Authentication extension is not installed. Please install it to use the heal feature.");
+        }
 
-        // Step 1: Create backup ZIP
-        progress.report({ increment: 20, message: "Creating backup ZIP..." });
+        const requiredVersion = "0.4.11";
+        const currentVersion = frontierExtension.packageJSON.version;
+
+        // Simple version comparison (assumes semantic versioning)
+        const compareVersions = (current: string, required: string): number => {
+            const currentParts = current.split('.').map(Number);
+            const requiredParts = required.split('.').map(Number);
+
+            for (let i = 0; i < Math.max(currentParts.length, requiredParts.length); i++) {
+                const currentPart = currentParts[i] || 0;
+                const requiredPart = requiredParts[i] || 0;
+
+                if (currentPart > requiredPart) return 1;
+                if (currentPart < requiredPart) return -1;
+            }
+            return 0;
+        };
+
+        if (compareVersions(currentVersion, requiredVersion) < 0) {
+            throw new Error(`Frontier Authentication extension version ${requiredVersion} or later is required. Current version: ${currentVersion}. Please update the extension.`);
+        }
+
+        // Step 1: Create backup
+        progress.report({ increment: 10, message: "Creating backup..." });
         const backupUri = await this.createProjectBackup(projectPath, projectName, false);
+        const backupFileName = path.basename(backupUri.fsPath);
         debugLog(`Backup created at: ${backupUri.fsPath}`);
 
-        // Step 2: Delete targeted files based on healing option
-        if (healingOption === "sync-and-ai" || healingOption === "sync-only") {
-            progress.report({ increment: 20, message: "Removing .git folder..." });
-            const gitFolderUri = vscode.Uri.joinPath(projectUri, ".git");
-            try {
-                await vscode.workspace.fs.stat(gitFolderUri);
-                await vscode.workspace.fs.delete(gitFolderUri, { recursive: true, useTrash: false });
-                debugLog(".git folder deleted");
-            } catch (error) {
-                debugLog(".git folder not found or already deleted");
-            }
+        // Step 2: Copy files to temporary folder
+        progress.report({ increment: 20, message: "Saving local changes..." });
+        const timestamp = this.generateTimestamp();
+        const codexProjectsDir = await getCodexProjectsDirectory();
+        const tempFolderName = `${projectName}_temp_${timestamp}`;
+        const tempFolderUri = vscode.Uri.joinPath(codexProjectsDir, tempFolderName);
+
+        // Create temp directory and copy files
+        await vscode.workspace.fs.createDirectory(tempFolderUri);
+        const projectUri = vscode.Uri.file(projectPath);
+        await this.copyDirectory(projectUri, tempFolderUri, { excludeGit: true });
+        debugLog(`Temporary files saved to: ${tempFolderUri.fsPath}`);
+
+        // Determine media strategy before deletion so re-clone respects user's choice
+        let healMediaStrategy: "auto-download" | "stream-and-save" | "stream-only" | undefined;
+        try {
+            const { getMediaFilesStrategy } = await import("../../utils/localProjectSettings");
+            healMediaStrategy = await getMediaFilesStrategy(projectUri);
+            debugLog(`Heal using media strategy: ${healMediaStrategy || "(default)"}`);
+        } catch (e) {
+            debugLog("Could not read media strategy before heal; default will be used", e);
         }
 
-        if (healingOption === "sync-and-ai" || healingOption === "ai-only") {
-            progress.report({ increment: 20, message: "Removing indexes.sqlite..." });
-            const indexesSqliteUri = vscode.Uri.joinPath(projectUri, ".project", "indexes.sqlite");
-            try {
-                await vscode.workspace.fs.stat(indexesSqliteUri);
-                await vscode.workspace.fs.delete(indexesSqliteUri, { useTrash: false });
-                debugLog("indexes.sqlite deleted");
-            } catch (error) {
-                debugLog("indexes.sqlite not found or already deleted");
-            }
+        // Step 3: Delete the unhealthy project
+        progress.report({ increment: 10, message: "Removing corrupted project..." });
+        await vscode.workspace.fs.delete(projectUri, { recursive: true, useTrash: false });
+        debugLog(`Deleted project at: ${projectPath}`);
+
+        // Step 4: Re-clone the project
+        progress.report({ increment: 20, message: "Re-cloning from remote..." });
+        const cloneSuccess = await this.frontierApi?.cloneRepository(
+            gitOriginUrl,
+            projectPath,
+            false,
+            healMediaStrategy
+        );
+        if (!cloneSuccess) {
+            throw new Error("Failed to clone repository");
         }
 
-        // Step 3: Re-clone .git folder if needed (for sync options)
-        if (healingOption === "sync-and-ai" || healingOption === "sync-only") {
-            if (!gitOriginUrl) {
-                throw new Error("Git origin URL is required for sync healing");
-            }
+        // Wait for clone to complete
+        await new Promise(resolve => setTimeout(resolve, 3000));
 
-            // Check if frontier extension is available
-            const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
-            if (!frontierExtension) {
-                throw new Error("Frontier Authentication extension is not installed.");
-            }
+        // Step 5: Merge temporary files back
+        progress.report({ increment: 20, message: "Merging local changes..." });
+        const clonedProjectUri = vscode.Uri.file(projectPath);
 
-            progress.report({ increment: 30, message: "Re-syncing .git folder from remote..." });
+        // Verify the cloned project exists
+        await vscode.workspace.fs.stat(clonedProjectUri);
+        debugLog("Cloned project directory exists");
 
-            const projectGitPath = path.join(projectPath, ".git");
+        // Import types for conflict resolution
+        type ConflictFile = import("../../projectManager/utils/merge/types").ConflictFile;
 
-            try {
-                // Use isomorphic-git directly for a fast, minimal clone
-                const http = await import("isomorphic-git/http/node");
-
-                // Get auth credentials from frontier extension API (more reliable than vscode.authentication.getSession)
-                const frontierAPI = frontierExtension.exports as any;
-                if (!frontierAPI || !frontierAPI.authProvider) {
-                    throw new Error("Frontier Authentication extension API is not available.");
-                }
-
-                const sessions = await frontierAPI.authProvider.getSessions();
-                if (!sessions || sessions.length === 0) {
-                    throw new Error("Authentication required to re-sync. Please log in to Frontier.");
-                }
-
-                const session = sessions[0];
-
-                // Get the gitlab token from the session
-                const gitlabToken = (session as any).gitlabToken || session.accessToken;
-
-                debugLog("Re-initializing .git folder using init + fetch approach...");
-
-                // Delete existing .git if any
-                if (fs.existsSync(projectGitPath)) {
-                    fs.rmSync(projectGitPath, { recursive: true, force: true });
-                    debugLog("Deleted existing .git folder");
-                }
-
-                // Step 1: Initialize a new git repository
-                // This creates a fresh .git folder without touching working files
-                await git.init({
-                    fs,
-                    dir: projectPath,
-                    defaultBranch: 'main'
-                });
-                debugLog("Git repository initialized");
-
-                // Step 2: Add the remote
-                await git.addRemote({
-                    fs,
-                    dir: projectPath,
-                    remote: 'origin',
-                    url: gitOriginUrl,
-                });
-                debugLog("Remote 'origin' added");
-
-                // Step 3: Fetch from remote (this downloads git objects but doesn't touch working files)
-                await git.fetch({
-                    fs,
-                    http: http.default,
-                    dir: projectPath,
-                    remote: 'origin',
-                    onAuth: () => ({
-                        username: "oauth2",
-                        password: gitlabToken,
-                    }),
-                    depth: 1,
-                    singleBranch: true,
-                    tags: false,
-                });
-                debugLog("Fetched from remote");
-
-                // Step 4: Determine which branch to use
-                const branches = await git.listBranches({
-                    fs,
-                    dir: projectPath,
-                    remote: 'origin',
-                });
-
-                const mainBranch = branches.includes('main') ? 'main' : branches.includes('master') ? 'master' : branches[0];
-                debugLog(`Using branch: ${mainBranch}`);
-
-                // Step 5: Set up local branch to track remote (without checking out)
-                // This creates the local branch pointing to the remote commit
-                const remoteRef = `refs/remotes/origin/${mainBranch}`;
-                const remoteCommit = await git.resolveRef({
-                    fs,
-                    dir: projectPath,
-                    ref: remoteRef,
-                });
-                debugLog(`Remote commit: ${remoteCommit}`);
-
-                // Write the local branch ref
-                await git.writeRef({
-                    fs,
-                    dir: projectPath,
-                    ref: `refs/heads/${mainBranch}`,
-                    value: remoteCommit,
-                    force: true,
-                });
-                debugLog(`Created local branch ${mainBranch}`);
-
-                // Step 6: Set HEAD to point to the branch
-                fs.writeFileSync(
-                    path.join(projectGitPath, 'HEAD'),
-                    `ref: refs/heads/${mainBranch}\n`
-                );
-                debugLog("Set HEAD to point to branch");
-
-                // Step 7: Update git config to track the remote branch
-                await git.setConfig({
-                    fs,
-                    dir: projectPath,
-                    path: `branch.${mainBranch}.remote`,
-                    value: 'origin',
-                });
-                await git.setConfig({
-                    fs,
-                    dir: projectPath,
-                    path: `branch.${mainBranch}.merge`,
-                    value: `refs/heads/${mainBranch}`,
-                });
-                debugLog("Branch tracking configured");
-
-                // Step 8: Add all current working files to the index
-                // This makes git aware of your files without modifying them
-                debugLog("Adding working files to git index...");
-                const status = await git.statusMatrix({ fs, dir: projectPath });
-                for (const [filepath, , worktreeStatus] of status) {
-                    if (worktreeStatus !== 0) { // File exists in working directory
-                        try {
-                            await git.add({ fs, dir: projectPath, filepath });
-                        } catch (e) {
-                            // Ignore errors for files that can't be added
-                        }
-                    }
-                }
-                debugLog("Working files added to index");
-
-                // Verify the .git folder exists
-                if (!fs.existsSync(projectGitPath)) {
-                    throw new Error(`Failed to create .git folder at: ${projectGitPath}`);
-                }
-
-                debugLog(".git folder verified in project directory");
-            } catch (error) {
-                debugLog("Error during git re-sync:", error);
-                throw new Error(`Failed to re-sync .git folder: ${error instanceof Error ? error.message : String(error)}`);
-            }
-
-            debugLog(".git folder re-synced from remote successfully");
+        // Enhanced ConflictFile type to handle binary files
+        interface EnhancedConflictFile extends Omit<ConflictFile, 'ours' | 'theirs' | 'base'> {
+            ours: string | Uint8Array;
+            theirs: string | Uint8Array;
+            base: string | Uint8Array;
+            isBinary?: boolean;
         }
 
-        // Step 4: Show success message
-        progress.report({ increment: 10, message: "Finalizing..." });
+        // Collect conflicts from temp folder
+        const conflicts: EnhancedConflictFile[] = [];
+        await this.collectConflictsRecursively(tempFolderUri, clonedProjectUri, conflicts);
 
-        let successMessage: string;
-        if (healingOption === "sync-and-ai") {
-            successMessage = "Project healed! Sync & AI Learning reset";
-        } else if (healingOption === "sync-only") {
-            successMessage = "Project healed! Sync reset";
-        } else {
-            successMessage = "Project healed! AI Learning reset";
+        debugLog("Conflicts collected:", {
+            totalConflicts: conflicts.length,
+            conflicts: conflicts.map(c => ({ filepath: c.filepath, isNew: c.isNew }))
+        });
+
+        // Resolve conflicts if any exist
+        if (conflicts.length > 0) {
+            debugLog(`Merging ${conflicts.length} files...`);
+            await this.resolveProjectConflicts(clonedProjectUri, conflicts);
+            debugLog("All conflicts resolved");
         }
 
-        vscode.window.showInformationMessage(successMessage);
+        // Step 6: Clean up temporary files
+        progress.report({ increment: 10, message: "Cleaning up..." });
+        await vscode.workspace.fs.delete(tempFolderUri, { recursive: true, useTrash: false });
+        debugLog(`Cleaned up temp folder: ${tempFolderUri.fsPath}`);
+
+        // Step 7: Commit the merged changes
+        progress.report({ increment: 10, message: "Finalizing healed project..." });
+        await this.commitHealedChanges(projectPath);
+
+        // Success notification and cleanup
+        vscode.window.showInformationMessage(
+            `Project "${projectName}" has been healed successfully! Backup saved to: ${backupFileName}`
+        );
 
         this.safeSendMessage({
             command: "forceRefreshProjectsList",
