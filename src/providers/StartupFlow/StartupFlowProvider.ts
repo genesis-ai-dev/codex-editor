@@ -2189,7 +2189,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     if (selection === switchButton) {
                         // Switch but do not open; mark changesApplied=false and only update strategy
                         await setMediaFilesStrategy(mediaStrategy, projectUri);
-                        
+
                         // Reset verification flag when switching strategies
                         try {
                             const { resetMediaFilesVerified } = await import("../../utils/localProjectSettings");
@@ -2254,7 +2254,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             // Mark pending before kicking off apply work
                             try { await setApplyState("pending", projectUri); } catch (pendingErr) { debugLog("Failed to set applyState=pending before apply", pendingErr); }
                             await applyMediaStrategyAndRecord(projectUri, mediaStrategy);
-                            
+
                             // Mark as verified after successful application
                             // This prevents redundant verification when project opens
                             try {
@@ -2272,7 +2272,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             await setApplyState("pending", projectUri);
                         } catch (pendingErr) { debugLog("Failed to set applyState=pending in error path", pendingErr); }
                         await applyMediaStrategyAndRecord(projectUri, mediaStrategy);
-                        
+
                         // Mark as verified after successful application (error path)
                         try {
                             const { writeLocalProjectSettings, readLocalProjectSettings } = await import("../../utils/localProjectSettings");
@@ -2689,12 +2689,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 // Use isomorphic-git directly for a fast, minimal clone
                 const http = await import("isomorphic-git/http/node");
 
-                // Get auth credentials from vscode authentication
-                const session = await vscode.authentication.getSession("frontier", [], { createIfNone: false });
+                // Get auth credentials from frontier extension API (more reliable than vscode.authentication.getSession)
+                const frontierAPI = frontierExtension.exports as any;
+                if (!frontierAPI || !frontierAPI.authProvider) {
+                    throw new Error("Frontier Authentication extension API is not available.");
+                }
 
-                if (!session) {
+                const sessions = await frontierAPI.authProvider.getSessions();
+                if (!sessions || sessions.length === 0) {
                     throw new Error("Authentication required to re-sync. Please log in to Frontier.");
                 }
+
+                const session = sessions[0];
 
                 // Get the gitlab token from the session
                 const gitlabToken = (session as any).gitlabToken || session.accessToken;
