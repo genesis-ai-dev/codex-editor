@@ -1190,6 +1190,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "refreshState"; }
     | { command: "initializeProject"; }
     | { command: "renameProject"; }
+    | { command: "changeProjectName"; projectName: string; }
     | { command: "changeSourceLanguage"; language: LanguageMetadata; }
     | { command: "changeTargetLanguage"; language: LanguageMetadata; }
     | { command: "editAbbreviation"; }

@@ -147,7 +147,6 @@ export class MetadataManager {
     ): Promise<{ success: boolean; error?: string; }> {
         const workspaceUri = vscode.Uri.joinPath(metadataPath, "..");
         const backupPath = vscode.Uri.joinPath(workspaceUri, ".metadata.json.backup");
-        const tempPath = vscode.Uri.joinPath(workspaceUri, ".metadata.json.tmp");
 
         try {
             // Step 1: Create backup of existing file
@@ -161,36 +160,28 @@ export class MetadataManager {
                 }
             }
 
-            // Step 2: Write to temporary file
+            // Step 2: Validate JSON before writing
             const jsonContent = JSON.stringify(metadata, null, 4);
-            const encoded = new TextEncoder().encode(jsonContent);
-            await vscode.workspace.fs.writeFile(tempPath, encoded);
-
-            // Step 3: Validate the temporary file
             try {
-                const validateContent = await vscode.workspace.fs.readFile(tempPath);
-                const validateText = new TextDecoder().decode(validateContent);
-                JSON.parse(validateText); // Throws if invalid
-            } catch (validateError) {
-                await this.cleanupFile(tempPath);
+                JSON.parse(jsonContent); // Validate JSON is valid
+            } catch (parseError) {
                 return {
                     success: false,
-                    error: `Validation failed for temporary file: ${(validateError as Error).message}`
+                    error: `Invalid JSON generated: ${(parseError as Error).message}`
                 };
             }
 
-            // Step 4: Atomic rename (move temp to final location)
-            await vscode.workspace.fs.rename(tempPath, metadataPath, { overwrite: true });
+            // Step 3: Write directly to metadata.json
+            const encoded = new TextEncoder().encode(jsonContent);
+            await vscode.workspace.fs.writeFile(metadataPath, encoded);
 
-            // Step 5: Cleanup backup after successful write
+            // Step 4: Cleanup backup after successful write
             await this.cleanupFile(backupPath);
 
             return { success: true };
 
         } catch (error) {
             // Rollback on failure
-            await this.cleanupFile(tempPath);
-
             try {
                 // Restore from backup if it exists
                 const backupContent = await vscode.workspace.fs.readFile(backupPath);
@@ -203,7 +194,7 @@ export class MetadataManager {
 
             return {
                 success: false,
-                error: `Atomic write failed: ${(error as Error).message}`
+                error: `Failed to write metadata: ${(error as Error).message}`
             };
         }
     }

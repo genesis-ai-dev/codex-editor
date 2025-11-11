@@ -5,6 +5,7 @@ import { openSystemMessageEditor } from "../../copilotSettings/copilotSettings";
 import { openProjectExportView } from "../../projectManager/projectExportView";
 import { BaseWebviewProvider } from "../../globalProvider";
 import { safePostMessageToView } from "../../utils/webviewUtils";
+import { MetadataManager } from "../../utils/metadataManager";
 import {
     ProjectManagerMessageFromWebview,
     ProjectManagerMessageToWebview,
@@ -533,6 +534,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 break;
             case "createNewWorkspaceAndProject":
                 await createNewWorkspaceAndProject();
+                break;
+            case "changeProjectName":
+                await this.handleChangeProjectName(message.projectName);
                 break;
             case "openProjectSettings":
             case "renameProject":
@@ -1680,6 +1684,52 @@ export class MainMenuProvider extends BaseWebviewProvider {
 
         } catch (error) {
             console.error("Error refreshing webviews after text direction update:", error);
+        }
+    }
+
+    private async handleChangeProjectName(newProjectName: string): Promise<void> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage("No workspace folder found.");
+            return;
+        }
+
+        try {
+            // Update workspace configuration
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            await config.update(
+                "projectName",
+                newProjectName,
+                vscode.ConfigurationTarget.Workspace
+            );
+
+            // Update metadata.json using MetadataManager
+            const result = await MetadataManager.safeUpdateMetadata(
+                workspaceFolder,
+                (project: any) => {
+                    project.projectName = newProjectName;
+                    return project;
+                }
+            );
+
+            if (!result.success) {
+                console.error("Failed to update metadata:", result.error);
+                vscode.window.showErrorMessage(
+                    `Failed to update project name in metadata.json: ${result.error}`
+                );
+                return;
+            }
+
+            // Refresh state to reflect the change
+            await this.store.refreshState();
+            await this.updateProjectOverview();
+
+            vscode.window.showInformationMessage(`Project name updated to "${newProjectName}".`);
+        } catch (error) {
+            console.error("Error updating project name:", error);
+            vscode.window.showErrorMessage(
+                `Failed to update project name: ${(error as Error).message}`
+            );
         }
     }
 
