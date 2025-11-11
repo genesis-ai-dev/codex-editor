@@ -6,7 +6,9 @@ import { MainMenuProvider } from "../../providers/mainMenu/mainMenuProvider";
 import { MetadataManager } from "../../utils/metadataManager";
 import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { createMockExtensionContext } from "../testUtils";
-import { ProjectManagerMessageFromWebview } from "../../../types";
+import { ProjectManagerMessageFromWebview, ProjectEditHistory } from "../../../types";
+import { EditMapUtils } from "../../utils/editMapUtils";
+import { EditType } from "../../../types/enums";
 import sinon from "sinon";
 
 // Type helper for accessing private methods in tests
@@ -319,6 +321,221 @@ suite("MainMenuProvider - Project Name Change Tests", () => {
         // Verify handleChangeProjectName was called with correct argument
         assert.strictEqual(handleChangeProjectNameSpy.calledOnce, true);
         assert.strictEqual(handleChangeProjectNameSpy.firstCall.args[0], "New Project Name");
+    });
+
+    suite("Project metadata edits array", () => {
+        test("handleChangeProjectName creates edit entries in metadata.edits array", async () => {
+            // Mock workspace folders
+            const mockWorkspaceFolder: vscode.WorkspaceFolder = {
+                uri: testWorkspaceUri,
+                name: "test-workspace",
+                index: 0,
+            };
+            sandbox.stub(vscode.workspace, "workspaceFolders").value([mockWorkspaceFolder]);
+
+            // Mock configuration
+            const mockConfig: MockWorkspaceConfiguration = {
+                update: sandbox.stub().resolves(),
+                get: sandbox.stub().returns("Original Project Name"),
+            };
+            sandbox.stub(vscode.workspace, "getConfiguration").returns(mockConfig as vscode.WorkspaceConfiguration);
+
+            // Mock window methods
+            sandbox.stub(vscode.window, "showInformationMessage");
+            sandbox.stub(vscode.window, "showErrorMessage");
+
+            // Mock store refresh methods
+            sandbox.stub(provider["store"], "refreshState").resolves();
+            sandbox
+                .stub(provider as unknown as MainMenuProviderPrivate, "updateProjectOverview")
+                .resolves();
+
+            // Read initial metadata to verify no edits exist
+            const beforeContent = await vscode.workspace.fs.readFile(metadataPath);
+            const beforeMetadata = JSON.parse(new TextDecoder().decode(beforeContent));
+            assert.ok(!beforeMetadata.edits || beforeMetadata.edits.length === 0, "Metadata should have no prior edits");
+
+            const newProjectName = "New Project Name";
+
+            // Call handleChangeProjectName
+            await provider["handleChangeProjectName"](newProjectName);
+
+            // Read updated metadata
+            const afterContent = await vscode.workspace.fs.readFile(metadataPath);
+            const afterMetadata = JSON.parse(new TextDecoder().decode(afterContent));
+            const edits: ProjectEditHistory<["projectName"]>[] = afterMetadata.edits || [];
+
+            assert.ok(edits.length >= 1, "Should create edit entry for projectName");
+
+            const projectNameEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.projectName()));
+
+            assert.ok(projectNameEdit, "Should have projectName edit entry");
+            assert.strictEqual(projectNameEdit!.value, newProjectName, "ProjectName edit should have correct value");
+            assert.strictEqual(projectNameEdit!.type, EditType.USER_EDIT, "Edit should be USER_EDIT type");
+            assert.ok(typeof projectNameEdit!.timestamp === "number", "Edit should have timestamp");
+            assert.ok(projectNameEdit!.timestamp > 0, "Timestamp should be positive");
+            assert.ok(typeof projectNameEdit!.author === "string", "Edit should have author");
+            assert.ok(projectNameEdit!.author.length > 0, "Author should not be empty");
+
+            // Verify metadata value was updated
+            assert.strictEqual(afterMetadata.projectName, newProjectName, "ProjectName should be updated");
+        });
+
+        test("handleChangeProjectName edits persist after save", async () => {
+            // Mock workspace folders
+            const mockWorkspaceFolder: vscode.WorkspaceFolder = {
+                uri: testWorkspaceUri,
+                name: "test-workspace",
+                index: 0,
+            };
+            sandbox.stub(vscode.workspace, "workspaceFolders").value([mockWorkspaceFolder]);
+
+            // Mock configuration
+            const mockConfig: MockWorkspaceConfiguration = {
+                update: sandbox.stub().resolves(),
+                get: sandbox.stub().returns("Original Project Name"),
+            };
+            sandbox.stub(vscode.workspace, "getConfiguration").returns(mockConfig as vscode.WorkspaceConfiguration);
+
+            // Mock window methods
+            sandbox.stub(vscode.window, "showInformationMessage");
+            sandbox.stub(vscode.window, "showErrorMessage");
+
+            // Mock store refresh methods
+            sandbox.stub(provider["store"], "refreshState").resolves();
+            sandbox
+                .stub(provider as unknown as MainMenuProviderPrivate, "updateProjectOverview")
+                .resolves();
+
+            const newProjectName = "Persisted Project Name";
+
+            // Call handleChangeProjectName
+            await provider["handleChangeProjectName"](newProjectName);
+
+            // Read file content from disk to verify persisted state
+            const persistedContent = await vscode.workspace.fs.readFile(metadataPath);
+            const persisted = JSON.parse(new TextDecoder().decode(persistedContent));
+
+            assert.ok(persisted.edits, "Metadata should have edits array");
+            const edits: ProjectEditHistory<["projectName"]>[] = persisted.edits;
+
+            const projectNameEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.projectName()));
+
+            assert.ok(projectNameEdit, "ProjectName edit should persist after save");
+            assert.strictEqual(projectNameEdit!.value, newProjectName, "Persisted projectName edit should have correct value");
+            assert.strictEqual(projectNameEdit!.type, EditType.USER_EDIT, "Persisted edit should be USER_EDIT type");
+            assert.ok(typeof projectNameEdit!.timestamp === "number", "Persisted edit should have timestamp");
+            assert.ok(typeof projectNameEdit!.author === "string", "Persisted edit should have author");
+
+            // Verify metadata value was persisted
+            assert.strictEqual(persisted.projectName, newProjectName, "ProjectName should be persisted");
+        });
+
+        test("handleChangeProjectName creates multiple edit entries for multiple changes", async () => {
+            // Mock workspace folders
+            const mockWorkspaceFolder: vscode.WorkspaceFolder = {
+                uri: testWorkspaceUri,
+                name: "test-workspace",
+                index: 0,
+            };
+            sandbox.stub(vscode.workspace, "workspaceFolders").value([mockWorkspaceFolder]);
+
+            // Mock configuration
+            const mockConfig: MockWorkspaceConfiguration = {
+                update: sandbox.stub().resolves(),
+                get: sandbox.stub().returns("Original Project Name"),
+            };
+            sandbox.stub(vscode.workspace, "getConfiguration").returns(mockConfig as vscode.WorkspaceConfiguration);
+
+            // Mock window methods
+            sandbox.stub(vscode.window, "showInformationMessage");
+            sandbox.stub(vscode.window, "showErrorMessage");
+
+            // Mock store refresh methods
+            sandbox.stub(provider["store"], "refreshState").resolves();
+            sandbox
+                .stub(provider as unknown as MainMenuProviderPrivate, "updateProjectOverview")
+                .resolves();
+
+            const firstProjectName = "First Project Name";
+            const secondProjectName = "Second Project Name";
+
+            // Call handleChangeProjectName twice
+            await provider["handleChangeProjectName"](firstProjectName);
+            await provider["handleChangeProjectName"](secondProjectName);
+
+            // Read updated metadata
+            const afterContent = await vscode.workspace.fs.readFile(metadataPath);
+            const afterMetadata = JSON.parse(new TextDecoder().decode(afterContent));
+            const edits: ProjectEditHistory<["projectName"]>[] = afterMetadata.edits || [];
+
+            // Should have at least 2 edits (may have more if deduplication doesn't remove them due to different timestamps)
+            assert.ok(edits.length >= 2, "Should create multiple edit entries for multiple changes");
+
+            const projectNameEdits = edits.filter((e) => EditMapUtils.equals(e.editMap, EditMapUtils.projectName()));
+
+            assert.ok(projectNameEdits.length >= 2, "Should have multiple projectName edits");
+            assert.ok(projectNameEdits.some((e) => e.value === firstProjectName), "Should have first projectName edit");
+            assert.ok(projectNameEdits.some((e) => e.value === secondProjectName), "Should have second projectName edit");
+
+            // Verify latest value is applied
+            assert.strictEqual(afterMetadata.projectName, secondProjectName, "Latest projectName should be applied");
+        });
+
+        test("handleChangeProjectName does not create edit if projectName unchanged", async () => {
+            // Mock workspace folders
+            const mockWorkspaceFolder: vscode.WorkspaceFolder = {
+                uri: testWorkspaceUri,
+                name: "test-workspace",
+                index: 0,
+            };
+            sandbox.stub(vscode.workspace, "workspaceFolders").value([mockWorkspaceFolder]);
+
+            // Mock configuration to return the same name
+            const originalProjectName = "Original Project Name";
+            const mockConfig: MockWorkspaceConfiguration = {
+                update: sandbox.stub().resolves(),
+                get: sandbox.stub().returns(originalProjectName),
+            };
+            sandbox.stub(vscode.workspace, "getConfiguration").returns(mockConfig as vscode.WorkspaceConfiguration);
+
+            // Mock window methods
+            sandbox.stub(vscode.window, "showInformationMessage");
+            sandbox.stub(vscode.window, "showErrorMessage");
+
+            // Mock store refresh methods
+            sandbox.stub(provider["store"], "refreshState").resolves();
+            sandbox
+                .stub(provider as unknown as MainMenuProviderPrivate, "updateProjectOverview")
+                .resolves();
+
+            // Read initial metadata
+            const beforeContent = await vscode.workspace.fs.readFile(metadataPath);
+            const beforeMetadata = JSON.parse(new TextDecoder().decode(beforeContent));
+            const beforeEditsCount = beforeMetadata.edits ? beforeMetadata.edits.length : 0;
+
+            // Call handleChangeProjectName with the same name
+            await provider["handleChangeProjectName"](originalProjectName);
+
+            // Read updated metadata
+            const afterContent = await vscode.workspace.fs.readFile(metadataPath);
+            const afterMetadata = JSON.parse(new TextDecoder().decode(afterContent));
+            const afterEditsCount = afterMetadata.edits ? afterMetadata.edits.length : 0;
+
+            // Should not create a new edit if the value hasn't changed
+            // Note: The implementation may still create an edit, but we verify the behavior
+            const projectNameEdits = (afterMetadata.edits || []).filter((e: ProjectEditHistory) =>
+                EditMapUtils.equals(e.editMap, EditMapUtils.projectName())
+            );
+
+            // The implementation checks if originalProjectName !== newProjectName before creating edit
+            // So if they're the same, no edit should be created
+            assert.strictEqual(
+                projectNameEdits.length,
+                beforeEditsCount,
+                "Should not create new edit if projectName unchanged"
+            );
+        });
     });
 });
 
