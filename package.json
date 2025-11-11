@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.6.23",
+    "version": "0.7.0",
     "engines": {
         "node": ">=18.0.0",
         "vscode": "^1.78.0"
@@ -1040,8 +1040,6 @@
         "webpack-cli": "^6.0.1"
     },
     "dependencies": {
-        "@ffmpeg-installer/ffmpeg": "^1.1.0",
-        "@ffprobe-installer/ffprobe": "^1.4.0",
         "@types/better-sqlite3": "^7.6.11",
         "@types/csv-parse": "^1.2.5",
         "@types/xml2js": "^0.4.14",
@@ -1077,6 +1075,7 @@
         "react-wordcloud": "^1.2.7",
         "sax": "^1.4.1",
         "semver": "^7.6.0",
+        "tar": "^6.2.1",
         "token.js": "^0.4.3",
         "url": "^0.11.4",
         "usfm-grammar": "^2.3.1",
