@@ -371,38 +371,105 @@ export class MetadataManager {
 
     /**
      * Safely read metadata without locking (read-only operation)
+     * Checks for locks and retries if file is being written
      */
     static async safeReadMetadata<T = ProjectMetadata>(
         workspaceUri: vscode.Uri
     ): Promise<{ success: boolean; metadata?: T; error?: string; }> {
         const metadataPath = vscode.Uri.joinPath(workspaceUri, "metadata.json");
-        try {
-            const content = await vscode.workspace.fs.readFile(metadataPath);
-            const text = new TextDecoder().decode(content);
+        const lockPath = vscode.Uri.joinPath(workspaceUri, ".metadata.lock");
+        const maxRetries = 5;
+        const retryDelayMs = 100;
 
-            // Validate JSON structure
-            let metadata: T;
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
             try {
-                metadata = JSON.parse(text);
-            } catch (parseError) {
+                // Check if lock exists - if so, wait and retry
+                try {
+                    await vscode.workspace.fs.stat(lockPath);
+                    // Lock exists, wait and retry
+                    if (attempt < maxRetries - 1) {
+                        await this.sleep(retryDelayMs * (attempt + 1));
+                        continue;
+                    }
+                } catch (lockError) {
+                    // Lock doesn't exist, proceed with read
+                    if ((lockError as any).code !== 'FileNotFound') {
+                        // Unexpected error checking lock, but continue anyway
+                    }
+                }
+
+                const content = await vscode.workspace.fs.readFile(metadataPath);
+                const text = new TextDecoder().decode(content);
+
+                // Check for empty file (which would cause "Unexpected end of JSON input")
+                if (!text.trim()) {
+                    // File is empty, check if lock exists and retry
+                    try {
+                        await vscode.workspace.fs.stat(lockPath);
+                        // Lock exists, file is being written, retry
+                        if (attempt < maxRetries - 1) {
+                            await this.sleep(retryDelayMs * (attempt + 1));
+                            continue;
+                        }
+                    } catch {
+                        // Lock doesn't exist, file is genuinely empty
+                    }
+                    return {
+                        success: false,
+                        error: `Invalid JSON in metadata.json: File is empty`
+                    };
+                }
+
+                // Validate JSON structure
+                let metadata: T;
+                try {
+                    metadata = JSON.parse(text);
+                } catch (parseError) {
+                    // Invalid JSON - check if lock exists (file might be mid-write)
+                    try {
+                        await vscode.workspace.fs.stat(lockPath);
+                        // Lock exists, file is being written, retry
+                        if (attempt < maxRetries - 1) {
+                            await this.sleep(retryDelayMs * (attempt + 1));
+                            continue;
+                        }
+                    } catch {
+                        // Lock doesn't exist, JSON is genuinely invalid
+                    }
+                    return {
+                        success: false,
+                        error: `Invalid JSON in metadata.json: ${(parseError as Error).message}`
+                    };
+                }
+
+                return { success: true, metadata };
+
+            } catch (error) {
+                if ((error as any).code === 'FileNotFound') {
+                    // Create empty metadata if file doesn't exist
+                    const emptyMetadata = {} as T;
+                    return { success: true, metadata: emptyMetadata };
+                }
+                // For other errors, retry if lock exists
+                try {
+                    await vscode.workspace.fs.stat(lockPath);
+                    if (attempt < maxRetries - 1) {
+                        await this.sleep(retryDelayMs * (attempt + 1));
+                        continue;
+                    }
+                } catch {
+                    // Lock doesn't exist, return error
+                }
                 return {
                     success: false,
-                    error: `Invalid JSON in metadata.json: ${(parseError as Error).message}`
+                    error: `Failed to read metadata.json: ${(error as Error).message}`
                 };
             }
-
-            return { success: true, metadata };
-
-        } catch (error) {
-            if ((error as any).code === 'FileNotFound') {
-                // Create empty metadata if file doesn't exist
-                const emptyMetadata = {} as T;
-                return { success: true, metadata: emptyMetadata };
-            }
-            return {
-                success: false,
-                error: `Failed to read metadata.json: ${(error as Error).message}`
-            };
         }
+
+        return {
+            success: false,
+            error: `Failed to read metadata.json after ${maxRetries} attempts (file may be locked)`
+        };
     }
 }
