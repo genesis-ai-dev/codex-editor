@@ -260,7 +260,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
         newContent: string,
         editType: EditType,
         shouldUpdateValue = true,
-        retainValidations = false
+        retainValidations = false,
+        skipAutoValidation = false
     ) {
         console.log("trace 124 updateCellContent", cellId, newContent, editType, shouldUpdateValue);
 
@@ -348,7 +349,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         if (editType === EditType.USER_EDIT) {
             if (retainValidations) {
-                // Retain validations from only the current user if they exist
+                // Retain validations from only the current user if they exist (for search/replace operations)
                 // Find the edit corresponding to the previous value (same pattern as validateCellContent)
                 const previousEdits = cellToUpdate.metadata.edits || [];
                 let targetEdit: any = null;
@@ -387,8 +388,19 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     }
                 }
             } else {
-                // Don't add auto-validation for search/replace operations
-                validatedBy = [];
+                // Default behavior: auto-validate USER_EDIT with the author
+                // (This is the original behavior for regular edits)
+                // Skip auto-validation only if explicitly requested (e.g., for search/replace operations)
+                if (!skipAutoValidation) {
+                    validatedBy = [
+                        {
+                            username: this._author,
+                            creationTimestamp: currentTimestamp,
+                            updatedTimestamp: currentTimestamp,
+                            isDeleted: false,
+                        },
+                    ];
+                }
             }
         }
 
