@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { addProjectMetadataEdit } from "./editMapUtils";
 
 /**
  * Thread-safe metadata manager that prevents conflicts between extensions
@@ -19,6 +20,8 @@ interface ProjectMetadata {
         };
         [key: string]: unknown;
     };
+    edits?: any[];
+    chatSystemMessage?: string;
     [key: string]: unknown;
 }
 
@@ -367,6 +370,91 @@ export class MetadataManager {
     static getCurrentExtensionVersion(extensionId: string): string {
         const extension = vscode.extensions.getExtension(extensionId);
         return extension?.packageJSON.version || "unknown";
+    }
+
+    /**
+     * Get chatSystemMessage from metadata.json
+     */
+    static async getChatSystemMessage(workspaceFolderUri?: vscode.Uri): Promise<string> {
+        const workspaceFolder = workspaceFolderUri || vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) {
+            return "This is a chat between a helpful Bible translation assistant and a Bible translator...";
+        }
+
+        const result = await this.safeReadMetadata<ProjectMetadata>(workspaceFolder);
+        if (!result.success || !result.metadata) {
+            return "This is a chat between a helpful Bible translation assistant and a Bible translator...";
+        }
+
+        const chatSystemMessage = (result.metadata as any).chatSystemMessage as string | undefined;
+        return chatSystemMessage || "This is a chat between a helpful Bible translation assistant and a Bible translator...";
+    }
+
+    /**
+     * Set chatSystemMessage in metadata.json with edit tracking
+     */
+    static async setChatSystemMessage(
+        value: string,
+        workspaceFolderUri?: vscode.Uri,
+        author?: string
+    ): Promise<{ success: boolean; error?: string; }> {
+        const workspaceFolder = workspaceFolderUri || vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) {
+            return { success: false, error: "No workspace folder found" };
+        }
+
+        // Get author if not provided
+        let currentAuthor = author;
+        if (!currentAuthor) {
+            try {
+                const { getAuthApi } = await import("../extension");
+                const authApi = await getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                if (userInfo?.username) {
+                    currentAuthor = userInfo.username;
+                } else {
+                    const gitUsername = vscode.workspace.getConfiguration("git").get<string>("username");
+                    if (gitUsername) {
+                        currentAuthor = gitUsername;
+                    } else {
+                        try {
+                            const session = await vscode.authentication.getSession('github', ['user:email'], { createIfNone: false });
+                            if (session && session.account) {
+                                currentAuthor = session.account.label;
+                            }
+                        } catch (e) {
+                            // Auth provider might not be available
+                        }
+                    }
+                }
+            } catch (error) {
+                // Silent fallback
+            }
+            currentAuthor = currentAuthor || "unknown";
+        }
+
+        const result = await this.safeUpdateMetadata<ProjectMetadata>(
+            workspaceFolder,
+            (metadata) => {
+                const originalChatSystemMessage = (metadata as any).chatSystemMessage;
+
+                // Update the value
+                (metadata as any).chatSystemMessage = value;
+
+                // Track edit if value changed
+                if (originalChatSystemMessage !== value) {
+                    if (!metadata.edits) {
+                        metadata.edits = [];
+                    }
+                    addProjectMetadataEdit(metadata, ["chatSystemMessage"], value, currentAuthor);
+                }
+
+                return metadata;
+            },
+            { author: currentAuthor }
+        );
+
+        return { success: result.success, error: result.error };
     }
 
     /**

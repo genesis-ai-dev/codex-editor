@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { callLLM } from "../utils/llmUtils";
 import { CompletionConfig } from "@/utils/llmUtils";
+import { MetadataManager } from "../utils/metadataManager";
 
 interface ProjectLanguage {
     tag: string;
@@ -73,7 +74,7 @@ export async function openSystemMessageEditor() {
 
     // Initialize state for the webview React app
     const config = vscode.workspace.getConfiguration("codex-editor-extension");
-    const workspaceMessage = (config.inspect("chatSystemMessage")?.workspaceValue as string) ?? "";
+    const workspaceMessage = await MetadataManager.getChatSystemMessage();
     const useOnlyValidatedExamples = config.get("useOnlyValidatedExamples") as boolean ?? false;
     const allowHtmlPredictions = config.get("allowHtmlPredictions") as boolean ?? false;
 
@@ -99,7 +100,7 @@ export async function openSystemMessageEditor() {
             case "webviewReady": {
                 // Re-send init to ensure webview receives state after it is ready
                 const config = vscode.workspace.getConfiguration("codex-editor-extension");
-                const workspaceMessage = (config.inspect("chatSystemMessage")?.workspaceValue as string) ?? "";
+                const workspaceMessage = await MetadataManager.getChatSystemMessage();
                 const useOnlyValidatedExamples = config.get("useOnlyValidatedExamples") as boolean ?? false;
                 const allowHtmlPredictions = config.get("allowHtmlPredictions") as boolean ?? false;
                 const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
@@ -197,17 +198,20 @@ export async function openSystemMessageEditor() {
                 }
                 break;
             }
-            case "save":
-                await config.update(
-                    "chatSystemMessage",
-                    message.text,
-                    vscode.ConfigurationTarget.Workspace
-                );
-                vscode.window.showInformationMessage(
-                    "Translation instructions updated successfully"
-                );
+            case "save": {
+                const saveResult = await MetadataManager.setChatSystemMessage(message.text);
+                if (saveResult.success) {
+                    vscode.window.showInformationMessage(
+                        "Translation instructions updated successfully"
+                    );
+                } else {
+                    vscode.window.showErrorMessage(
+                        `Failed to save translation instructions: ${saveResult.error}`
+                    );
+                }
                 panel.dispose();
                 break;
+            }
             case "saveSettings": {
                 debug("[CopilotSettings] Saving validation setting:", message.useOnlyValidatedExamples);
                 // Save validation setting
@@ -230,14 +234,16 @@ export async function openSystemMessageEditor() {
 
                 // Save system message if provided
                 if (message.text !== undefined) {
-                    await config.update(
-                        "chatSystemMessage",
-                        message.text,
-                        vscode.ConfigurationTarget.Workspace
-                    );
-                    vscode.window.showInformationMessage(
-                        "Copilot settings updated successfully"
-                    );
+                    const saveResult = await MetadataManager.setChatSystemMessage(message.text);
+                    if (saveResult.success) {
+                        vscode.window.showInformationMessage(
+                            "Copilot settings updated successfully"
+                        );
+                    } else {
+                        vscode.window.showErrorMessage(
+                            `Failed to save translation instructions: ${saveResult.error}`
+                        );
+                    }
                     panel.dispose();
                 } else {
                     // Auto-save validation setting - show brief confirmation
@@ -313,11 +319,7 @@ export async function openSystemMessageEditor() {
                             progress.report({ message: "Updating configuration..." });
 
                             // Update the message and re-render the view for HTML version
-                            await config.update(
-                                "chatSystemMessage",
-                                response,
-                                vscode.ConfigurationTarget.Workspace
-                            );
+                            await MetadataManager.setChatSystemMessage(response);
 
                             // For React webview, send the generated message
                             panel.webview.postMessage({

@@ -1620,7 +1620,6 @@ async function resolveSmartEditsConflict(
 
 /**
  * Resolves conflicts in .vscode/settings.json using intelligent 3-way merge
- * with chatSystemMessage as a tie-breaker signal
  */
 async function resolveSettingsJsonConflict(conflict: ConflictFile): Promise<string> {
     // Parse JSON with error handling
@@ -1663,15 +1662,6 @@ async function resolveSettingsJsonConflict(conflict: ConflictFile): Promise<stri
     // Helper function to clean up settings before returning
     const cleanupSettings = (settings: Record<string, any>) => {
         settings["git.enabled"] = false;
-
-        // Remove legacy key if new key exists
-        const newKey = "codex-editor-extension.chatSystemMessage";
-        const legacyKey = "translators-copilot.chatSystemMessage";
-        if (settings[newKey] !== undefined && settings[legacyKey] !== undefined) {
-            debugLog('[Settings Merge] Removing deprecated translators-copilot.chatSystemMessage');
-            delete settings[legacyKey];
-        }
-
         return settings;
     };
 
@@ -1696,46 +1686,7 @@ async function resolveSettingsJsonConflict(conflict: ConflictFile): Promise<stri
     // STAGE 2: BOTH CHANGED FILE - Complex per-key merge
     debugLog('[Settings Merge] Both sides changed file, performing key-level merge');
 
-    // Check chatSystemMessage as tie-breaker signal (use new key, fallback to legacy)
-    const newChatSystemMessageKey = "codex-editor-extension.chatSystemMessage";
-    const legacyChatSystemMessageKey = "translators-copilot.chatSystemMessage";
-
-    // Determine which key to use (prefer new, fallback to legacy)
-    const chatSystemMessageKey = (base[newChatSystemMessageKey] !== undefined ||
-        ours[newChatSystemMessageKey] !== undefined ||
-        theirs[newChatSystemMessageKey] !== undefined)
-        ? newChatSystemMessageKey
-        : legacyChatSystemMessageKey;
-
-    const baseChatMsg = base[chatSystemMessageKey];
-    const ourChatMsg = ours[chatSystemMessageKey];
-    const theirChatMsg = theirs[chatSystemMessageKey];
-
-    // Compare each to BASE (common ancestor)
-    const ourChatMsgChanged = JSON.stringify(ourChatMsg) !== JSON.stringify(baseChatMsg);
-    const theirChatMsgChanged = JSON.stringify(theirChatMsg) !== JSON.stringify(baseChatMsg);
-
-    // Determine conflict resolution bias based on who changed chatSystemMessage from base
-    let conflictBias: 'ours' | 'theirs';
-    if (ourChatMsgChanged && !theirChatMsgChanged) {
-        // Only we changed chatSystemMessage from base
-        conflictBias = 'ours';
-        debugLog('[Settings Merge] Using LOCAL bias (we changed chatSystemMessage from base)');
-    } else if (!ourChatMsgChanged && theirChatMsgChanged) {
-        // Only they changed chatSystemMessage from base
-        conflictBias = 'theirs';
-        debugLog('[Settings Merge] Using REMOTE bias (they changed chatSystemMessage from base)');
-    } else if (ourChatMsgChanged && theirChatMsgChanged) {
-        // Both changed chatSystemMessage from base - we're syncing last, we win
-        conflictBias = 'ours';
-        debugLog('[Settings Merge] Using LOCAL bias (both changed chatSystemMessage, last write wins)');
-    } else {
-        // Neither changed chatSystemMessage from base - default to remote
-        conflictBias = 'theirs';
-        debugLog('[Settings Merge] Using REMOTE bias (neither changed chatSystemMessage from base)');
-    }
-
-    // Merge all keys using 3-way merge logic + bias
+    // Merge all keys using 3-way merge logic
     const result: Record<string, any> = {};
     const conflicts: Array<{ key: string, resolution: string; }> = [];
 
@@ -1794,74 +1745,34 @@ async function resolveSettingsJsonConflict(conflict: ConflictFile): Promise<stri
             result[key] = theirValue;
         }
         else {
-            // BOTH CHANGED from base - Apply chatSystemMessage bias
-            let chosenValue: any;
-            let resolution: string;
-
-            if (conflictBias === 'ours') {
-                chosenValue = ourValue;
-                resolution = 'local (based on chatSystemMessage analysis)';
-            } else {
-                chosenValue = theirValue;
-                resolution = 'remote (based on chatSystemMessage analysis)';
-            }
-
-            result[key] = chosenValue;
-            conflicts.push({ key, resolution });
-
-            // Special warning for chatSystemMessage itself
-            if (key === chatSystemMessageKey) {
-                console.warn(
-                    `[Settings Merge] CRITICAL: chatSystemMessage conflict resolved - using ${resolution}`
-                );
-            }
+            // BOTH CHANGED from base - default to theirs (remote)
+            result[key] = theirValue;
+            conflicts.push({ key, resolution: 'remote (both changed, defaulting to remote)' });
         }
     }
 
     // Report conflicts to user
     if (conflicts.length > 0) {
-        const criticalConflict = conflicts.some(c => c.key === chatSystemMessageKey);
-
         console.warn(
             `[Settings Merge] Resolved ${conflicts.length} conflict(s):`,
             conflicts
         );
 
-        if (criticalConflict) {
-            // High-priority warning for chatSystemMessage
-            const conflictKey = conflicts.find(c => c.key === chatSystemMessageKey)?.key || chatSystemMessageKey;
-            vscode.window.showWarningMessage(
-                `⚠️ IMPORTANT: Translation prompt (${conflictKey}) was changed by both you and remote. ` +
-                `Using ${conflicts.find(c => c.key === chatSystemMessageKey)?.resolution} version. ` +
-                `Please verify your prompt is correct.`,
-                'Show Settings',
-                'Dismiss'
-            ).then(choice => {
-                if (choice === 'Show Settings') {
-                    vscode.commands.executeCommand('workbench.action.openWorkspaceSettingsFile');
-                }
-            });
-        } else {
-            // Standard conflict notification
-            const conflictKeys = conflicts.map(c => c.key).join(', ');
-            vscode.window.showInformationMessage(
-                `Settings merge: ${conflicts.length} conflict(s) resolved (${conflictKeys}). ` +
-                `Check settings if needed.`,
-                'Show Settings'
-            ).then(choice => {
-                if (choice === 'Show Settings') {
-                    vscode.commands.executeCommand('workbench.action.openWorkspaceSettingsFile');
-                }
-            });
-        }
+        // Standard conflict notification
+        const conflictKeys = conflicts.map(c => c.key).join(', ');
+        vscode.window.showInformationMessage(
+            `Settings merge: ${conflicts.length} conflict(s) resolved (${conflictKeys}). ` +
+            `Check settings if needed.`,
+            'Show Settings'
+        ).then(choice => {
+            if (choice === 'Show Settings') {
+                vscode.commands.executeCommand('workbench.action.openWorkspaceSettingsFile');
+            }
+        });
     }
 
-    // CLEANUP: Always ensure git.enabled is false and remove legacy key if new key exists
+    // CLEANUP: Always ensure git.enabled is false
     result["git.enabled"] = false;
-    if (result[newChatSystemMessageKey] !== undefined && result[legacyChatSystemMessageKey] !== undefined) {
-        debugLog('[Settings Merge] Removing deprecated translators-copilot.chatSystemMessage from merged result');
-        delete result[legacyChatSystemMessageKey];
-    }
 
     return JSON.stringify(result, null, 4);
 }
