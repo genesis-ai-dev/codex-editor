@@ -14,7 +14,8 @@ interface CellItemProps {
     onPinToggle: (item: TranslationPair, isPinned: boolean) => void;
     searchQuery?: string;
     replaceText?: string;
-    onReplace?: (cellId: string, currentContent: string) => void;
+    retainValidations?: boolean;
+    onReplace?: (cellId: string, currentContent: string, retainValidations: boolean) => void;
 }
 
 const stripHtmlTags = (html: string) => {
@@ -23,46 +24,46 @@ const stripHtmlTags = (html: string) => {
 
 const highlightSearchMatches = (htmlText: string, query: string): string => {
     if (!query.trim()) return htmlText;
-    
+
     // Work with the HTML directly - only highlight text nodes, not tags
     let result = htmlText;
-    const matches: Array<{ start: number; end: number; }> = [];
-    
+    const matches: Array<{ start: number; end: number }> = [];
+
     const escapedQuery = escapeRegex(query);
     const regex = new RegExp(escapedQuery, "gi");
     let match;
-    
+
     while ((match = regex.exec(htmlText)) !== null) {
         const start = match.index;
         const end = start + match[0].length;
-        
+
         // Check if we're inside an HTML tag
         const lastTagOpen = htmlText.lastIndexOf("<", start);
         const lastTagClose = htmlText.lastIndexOf(">", start);
         const isInTag = lastTagOpen > lastTagClose;
-        
+
         if (!isInTag) {
             matches.push({ start, end });
         }
     }
-    
+
     // Apply highlights in reverse order to preserve positions
     for (let i = matches.length - 1; i >= 0; i--) {
         const { start, end } = matches[i];
         const matchedText = result.substring(start, end);
-        result = result.substring(0, start) + 
-                 `<mark style="background-color: rgba(34, 197, 94, 0.3);">${matchedText}</mark>` + 
-                 result.substring(end);
+        result =
+            result.substring(0, start) +
+            `<mark style="background-color: rgba(34, 197, 94, 0.3);">${matchedText}</mark>` +
+            result.substring(end);
     }
-    
+
     return result;
 };
-
 
 const computeDiffHtml = (oldText: string, newText: string, searchQuery: string): string => {
     const cleanOld = stripHtml(oldText);
     const cleanNew = stripHtml(newText);
-    
+
     const diff = diffWords(cleanOld, cleanNew);
     return diff
         .map((part) => {
@@ -75,34 +76,47 @@ const computeDiffHtml = (oldText: string, newText: string, searchQuery: string):
             }
             if (searchQuery && part.value.toLowerCase().includes(searchQuery.toLowerCase())) {
                 const queryRegex = new RegExp(`(${escapeRegex(searchQuery)})`, "gi");
-                return escaped.replace(queryRegex, '<mark style="background-color: rgba(239, 68, 68, 0.3);">$1</mark>');
+                return escaped.replace(
+                    queryRegex,
+                    '<mark style="background-color: rgba(239, 68, 68, 0.3);">$1</mark>'
+                );
             }
             return escaped;
         })
         .join("");
 };
 
-const CellItem: React.FC<CellItemProps> = ({ 
-    item, 
-    onUriClick, 
-    isPinned, 
-    onPinToggle, 
-    searchQuery = "", 
+const CellItem: React.FC<CellItemProps> = ({
+    item,
+    onUriClick,
+    isPinned,
+    onPinToggle,
+    searchQuery = "",
     replaceText = "",
-    onReplace 
+    retainValidations = false,
+    onReplace,
 }) => {
     const [replaceSuccess, setReplaceSuccess] = useState(false);
-    
+    const [localRetainValidations, setLocalRetainValidations] =
+        useState<boolean>(retainValidations);
+
     useEffect(() => {
         if (replaceSuccess) {
             const timer = setTimeout(() => setReplaceSuccess(false), 2000);
             return () => clearTimeout(timer);
         }
     }, [replaceSuccess]);
-    
-    const handleSourceCopy = () => navigator.clipboard.writeText(stripHtmlTags(item.sourceCell.content || ""));
-    
-    const handleTargetCopy = () => navigator.clipboard.writeText(stripHtmlTags(item.targetCell.content || ""));
+
+    // Sync localRetainValidations with prop when it changes
+    useEffect(() => {
+        setLocalRetainValidations(retainValidations);
+    }, [retainValidations]);
+
+    const handleSourceCopy = () =>
+        navigator.clipboard.writeText(stripHtmlTags(item.sourceCell.content || ""));
+
+    const handleTargetCopy = () =>
+        navigator.clipboard.writeText(stripHtmlTags(item.targetCell.content || ""));
 
     const getTargetUri = (uri: string): string => {
         if (!uri) return "";
@@ -127,12 +141,15 @@ const CellItem: React.FC<CellItemProps> = ({
 
         if (replaceText && searchQuery) {
             const cleanTarget = stripHtml(targetContent);
-            const replacedText = cleanTarget.replace(new RegExp(escapeRegex(searchQuery), "gi"), replaceText);
+            const replacedText = cleanTarget.replace(
+                new RegExp(escapeRegex(searchQuery), "gi"),
+                replaceText
+            );
             return computeDiffHtml(targetContent, replacedText, searchQuery);
         } else if (searchQuery) {
             return highlightSearchMatches(targetContent, searchQuery);
         }
-        
+
         return targetContent;
     }, [item.targetCell.content, searchQuery, replaceText]);
 
@@ -153,9 +170,7 @@ const CellItem: React.FC<CellItemProps> = ({
                 <div className="flex justify-between items-start mb-4">
                     <div className="flex flex-col gap-2">
                         <div className="flex items-center gap-3">
-                            <h3 className="text-lg font-semibold">
-                                {item.cellId}
-                            </h3>
+                            <h3 className="text-lg font-semibold">{item.cellId}</h3>
                             {isPinned && (
                                 <Badge variant="secondary" className="text-blue-600">
                                     Pinned
@@ -170,7 +185,10 @@ const CellItem: React.FC<CellItemProps> = ({
                         aria-label={isPinned ? "Unpin" : "Pin"}
                         onClick={() => onPinToggle(item, !isPinned)}
                     >
-                        <span className={`codicon codicon-${isPinned ? "pinned" : "pin"}`} style={{ fontSize: '14px' }}></span>
+                        <span
+                            className={`codicon codicon-${isPinned ? "pinned" : "pin"}`}
+                            style={{ fontSize: "14px" }}
+                        ></span>
                     </Button>
                 </div>
 
@@ -184,7 +202,7 @@ const CellItem: React.FC<CellItemProps> = ({
                                 {item.sourceCell.content}
                             </p>
                             <div className="flex gap-2 mt-3">
-                                <Button 
+                                <Button
                                     variant="secondary"
                                     size="sm"
                                     onClick={handleSourceCopy}
@@ -219,7 +237,11 @@ const CellItem: React.FC<CellItemProps> = ({
                                 {hasMatch && replaceText && (
                                     <div className="flex items-center gap-2">
                                         {!canReplace && (
-                                            <Badge variant="outline" className="text-xs text-orange-600" title="HTML interrupts this match - replacement unavailable">
+                                            <Badge
+                                                variant="outline"
+                                                className="text-xs text-orange-600"
+                                                title="HTML interrupts this match - replacement unavailable"
+                                            >
                                                 HTML Interrupts
                                             </Badge>
                                         )}
@@ -236,7 +258,7 @@ const CellItem: React.FC<CellItemProps> = ({
                                 }}
                             />
                             <div className="flex gap-2 mt-3">
-                                <Button 
+                                <Button
                                     variant="secondary"
                                     size="sm"
                                     onClick={handleTargetCopy}
@@ -259,30 +281,57 @@ const CellItem: React.FC<CellItemProps> = ({
                                     <span className="codicon codicon-open-preview mr-2"></span>
                                     Open
                                 </Button>
-                                {hasMatch && replaceText && onReplace && (
-                                    canReplace ? (
-                                        <Button
-                                            variant="default"
-                                            size="sm"
-                                            onClick={() => {
-                                                onReplace(item.cellId, item.targetCell.content || "");
-                                                setReplaceSuccess(true);
-                                            }}
-                                            aria-label="Replace this match"
-                                            disabled={replaceSuccess}
-                                        >
-                                            {replaceSuccess ? (
-                                                <>
-                                                    <span className="codicon codicon-check mr-2"></span>
-                                                    Replaced
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <span className="codicon codicon-replace mr-2"></span>
-                                                    Replace
-                                                </>
-                                            )}
-                                        </Button>
+                                {hasMatch &&
+                                    replaceText &&
+                                    onReplace &&
+                                    (canReplace ? (
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex items-center space-x-1">
+                                                <input
+                                                    type="checkbox"
+                                                    id={`retain-validations-${item.cellId}`}
+                                                    checked={localRetainValidations}
+                                                    onChange={(e) =>
+                                                        setLocalRetainValidations(e.target.checked)
+                                                    }
+                                                    className="h-3.5 w-3.5 rounded border border-input text-primary"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                />
+                                                <label
+                                                    htmlFor={`retain-validations-${item.cellId}`}
+                                                    className="text-xs text-muted-foreground cursor-pointer"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
+                                                    Retain my validation
+                                                </label>
+                                            </div>
+                                            <Button
+                                                variant="default"
+                                                size="sm"
+                                                onClick={() => {
+                                                    onReplace(
+                                                        item.cellId,
+                                                        item.targetCell.content || "",
+                                                        localRetainValidations
+                                                    );
+                                                    setReplaceSuccess(true);
+                                                }}
+                                                aria-label="Replace this match"
+                                                disabled={replaceSuccess}
+                                            >
+                                                {replaceSuccess ? (
+                                                    <>
+                                                        <span className="codicon codicon-check mr-2"></span>
+                                                        Replaced
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <span className="codicon codicon-replace mr-2"></span>
+                                                        Replace
+                                                    </>
+                                                )}
+                                            </Button>
+                                        </div>
                                     ) : (
                                         <Button
                                             variant="outline"
@@ -294,8 +343,7 @@ const CellItem: React.FC<CellItemProps> = ({
                                             <span className="codicon codicon-info mr-2"></span>
                                             Can't Replace
                                         </Button>
-                                    )
-                                )}
+                                    ))}
                             </div>
                         </div>
                     )}

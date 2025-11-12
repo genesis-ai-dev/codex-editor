@@ -3751,7 +3751,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     public async updateCellContentDirect(
         uri: string,
         cellId: string,
-        newContent: string
+        newContent: string,
+        retainValidations = false
     ): Promise<boolean> {
         try {
             const documentUri = vscode.Uri.parse(uri);
@@ -3776,7 +3777,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             
             // Use document's updateCellContent method which properly tracks changes for undo
             // This marks the document dirty and fires change events that VS Code tracks
-            await document.updateCellContent(cellId, newContent, EditType.USER_EDIT);
+            await document.updateCellContent(cellId, newContent, EditType.USER_EDIT, true, retainValidations);
             
             // Fire custom document change event so VS Code can track for undo/redo
             this._onDidChangeCustomDocument.fire({ document });

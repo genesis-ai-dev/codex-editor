@@ -259,7 +259,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
         cellId: string,
         newContent: string,
         editType: EditType,
-        shouldUpdateValue = true
+        shouldUpdateValue = true,
+        retainValidations = false
     ) {
         console.log("trace 124 updateCellContent", cellId, newContent, editType, shouldUpdateValue);
 
@@ -342,18 +343,54 @@ export class CodexCellDocument implements vscode.CustomDocument {
             cellToUpdate.value = newContent;
         }
 
-        // Use stored author instead of fetching it
-        const validatedBy: ValidationEntry[] =
-            editType === EditType.USER_EDIT
-                ? [
-                    {
-                        username: this._author,
-                        creationTimestamp: currentTimestamp,
-                        updatedTimestamp: currentTimestamp,
-                        isDeleted: false,
-                    },
-                ]
-                : [];
+        // Determine validations for the new edit
+        let validatedBy: ValidationEntry[] = [];
+
+        if (editType === EditType.USER_EDIT) {
+            if (retainValidations) {
+                // Retain validations from only the current user if they exist
+                // Find the edit corresponding to the previous value (same pattern as validateCellContent)
+                const previousEdits = cellToUpdate.metadata.edits || [];
+                let targetEdit: any = null;
+                for (let i = previousEdits.length - 1; i >= 0; i--) {
+                    const e = previousEdits[i];
+                    // Identify value edits using EditMapUtils and also match the exact value
+                    const isValueEdit = EditMapUtils.isValue
+                        ? EditMapUtils.isValue(e.editMap)
+                        : EditMapUtils.equals(e.editMap, EditMapUtils.value());
+                    if (isValueEdit && e.value === previousValue) {
+                        targetEdit = e;
+                        break;
+                    }
+                }
+
+                // If we found an edit matching the previous value, check if current user had validated it
+                // If so, create a new validation entry for the new edit (not copy the old one)
+                if (targetEdit && targetEdit.validatedBy && targetEdit.validatedBy.length > 0) {
+                    const hadCurrentUserValidation = targetEdit.validatedBy.some(
+                        (v: ValidationEntry) =>
+                            v &&
+                            !v.isDeleted &&
+                            v.username &&
+                            v.username.toLowerCase() === (this._author || "").toLowerCase()
+                    );
+                    if (hadCurrentUserValidation) {
+                        // Create a new validation entry for the new edit
+                        validatedBy = [
+                            {
+                                username: this._author,
+                                creationTimestamp: currentTimestamp,
+                                updatedTimestamp: currentTimestamp,
+                                isDeleted: false,
+                            },
+                        ];
+                    }
+                }
+            } else {
+                // Don't add auto-validation for search/replace operations
+                validatedBy = [];
+            }
+        }
 
         cellToUpdate.metadata.edits.push({
             editMap: EditMapUtils.value(),
@@ -445,7 +482,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
                     cellId
                 ) as { cellId: string; content: string; } | null;
-                
+
                 if (result && result.content && result.content.replace(/<[^>]*>/g, "").trim() !== "") {
                     return true;
                 }

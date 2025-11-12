@@ -19,12 +19,12 @@ function normalizeUri(uri: string): string {
 
 function isCellInSelectedFiles(pair: TranslationPair, selectedFiles: string[]): boolean {
     if (!selectedFiles || selectedFiles.length === 0) return true;
-    
+
     const sourceUri = pair.sourceCell?.uri || "";
     const targetUri = pair.targetCell?.uri || "";
     const normalizedSource = normalizeUri(sourceUri);
     const normalizedTarget = normalizeUri(targetUri);
-    
+
     return selectedFiles.some(selectedUri => {
         const normalizedSelected = normalizeUri(selectedUri);
         return normalizedSource === normalizedSelected || normalizedTarget === normalizedSelected;
@@ -119,7 +119,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         }
     }
 
-    private async getProjectFiles(): Promise<Array<{ uri: string; name: string; type: "source" | "target" }>> {
+    private async getProjectFiles(): Promise<Array<{ uri: string; name: string; type: "source" | "target"; }>> {
         try {
             const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
             if (!workspaceFolder) {
@@ -131,7 +131,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 vscode.workspace.findFiles("files/target/*.codex")
             ]);
 
-            const files: Array<{ uri: string; name: string; type: "source" | "target" }> = [];
+            const files: Array<{ uri: string; name: string; type: "source" | "target"; }> = [];
 
             // Add source files
             for (const uri of sourceFileUris) {
@@ -195,7 +195,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                         500, // k value - show up to 500 results
                         false, // includeIncomplete: false - ensures optimized SQLite path is used
                         false, // showInfo
-                        { 
+                        {
                             isParallelPassagesWebview: true,
                             replaceMode: replaceMode, // Pass replace mode flag
                             searchScope: searchScope, // Pass search scope: "both" | "source" | "target"
@@ -215,7 +215,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
             case "replaceCell":
                 try {
-                    const { cellId, newContent, selectedFiles } = message;
+                    const { cellId, newContent, selectedFiles, retainValidations = false } = message;
 
                     const translationPair = await vscode.commands.executeCommand<TranslationPair>(
                         "codex-editor-extension.getTranslationPairFromProject",
@@ -229,7 +229,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     }
 
                     const targetUri = translationPair.targetCell.uri.replace(".source", ".codex").replace(".project/sourceTexts/", "files/target/");
-                    
+
                     if (!isCellInSelectedFiles(translationPair, selectedFiles)) {
                         return;
                     }
@@ -240,7 +240,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                         return;
                     }
 
-                    const success = await provider.updateCellContentDirect(targetUri, cellId, newContent);
+                    const success = await provider.updateCellContentDirect(targetUri, cellId, newContent, retainValidations);
 
                     if (success) {
                         // Re-index the cell to update search index
@@ -293,6 +293,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     const replacements = message.replacements || [];
                     const selectedFiles = message.selectedFiles || [];
                     const skippedCount = message.skippedCount || 0;
+                    const retainValidations = message.retainValidations || false;
 
                     const provider = CodexCellEditorProvider.getInstance();
                     if (!provider) {
@@ -305,12 +306,12 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
                     let successCount = 0;
                     const updatedPairs: TranslationPair[] = [];
-                    const errors: Array<{ cellId: string; error: string }> = [];
+                    const errors: Array<{ cellId: string; error: string; }> = [];
 
                     for (const replacement of replacements) {
                         try {
                             const { cellId, newContent } = replacement;
-                            
+
                             const translationPair = await vscode.commands.executeCommand<TranslationPair>(
                                 "codex-editor-extension.getTranslationPairFromProject",
                                 cellId,
@@ -323,12 +324,12 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                             }
 
                             const targetUri = translationPair.targetCell.uri.replace(".source", ".codex").replace(".project/sourceTexts/", "files/target/");
-                            
+
                             if (!isCellInSelectedFiles(translationPair, selectedFiles)) {
                                 continue;
                             }
-                            
-                            const success = await provider.updateCellContentDirect(targetUri, cellId, newContent);
+
+                            const success = await provider.updateCellContentDirect(targetUri, cellId, newContent, retainValidations);
 
                             if (success) {
                                 successCount++;
@@ -340,7 +341,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                                     },
                                 };
                                 updatedPairs.push(updatedPair);
-                                
+
                                 safePostMessageToView(this._view, {
                                     command: "replaceAllProgress",
                                     data: { completed: successCount, total: replacements.length },
@@ -376,16 +377,16 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                                 // Skip if we can't get the URI
                             }
                         }
-                        
+
                         // Wait a bit for all saves to complete
                         await new Promise(resolve => setTimeout(resolve, 200));
-                        
+
                         // Re-index all modified files
                         if (modifiedUris.size > 0) {
                             await vscode.commands.executeCommand("codex-editor-extension.indexSpecificFiles", Array.from(modifiedUris));
                             await new Promise(resolve => setTimeout(resolve, 300));
                         }
-                        
+
                         await indexManager.flushPendingWrites();
                     }
 
