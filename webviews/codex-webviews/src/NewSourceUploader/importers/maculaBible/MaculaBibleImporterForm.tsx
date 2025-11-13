@@ -106,7 +106,7 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                         metadata: {
                             id: bookName,
                             originalFileName: `${bookName}.macula`,
-                            importerType: "macula-bible",
+                            importerType: "macula",
                             createdAt: new Date().toISOString(),
                             corpusMarker: getCorpusMarkerForBook(bookName) || "OT",
                         },

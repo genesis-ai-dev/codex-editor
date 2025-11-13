@@ -432,6 +432,9 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             ...(processedNotebook.metadata?.originalHash && {
                 originalHash: processedNotebook.metadata.originalHash
             }),
+            ...(processedNotebook.metadata?.importerType && {
+                importerType: processedNotebook.metadata.importerType
+            }),
         };
 
         return {
