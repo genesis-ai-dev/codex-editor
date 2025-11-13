@@ -29,6 +29,27 @@ export async function fetchFewShotExamples(
     console.error(`[fetchFewShotExamples] Query was: "${sourceContent}", candidates: ${initialCandidateCount}, validated: ${useOnlyValidatedExamples}`);
   }
 
+  // Sanitize HTML content for consistent comparison (handles transcription spans, etc.)
+  const sanitizeHtmlContent = (html: string): string => {
+    if (!html) return '';
+    return html
+      .replace(/<sup[^>]*class=["']footnote-marker["'][^>]*>[\s\S]*?<\/sup>/gi, '')
+      .replace(/<sup[^>]*data-footnote[^>]*>[\s\S]*?<\/sup>/gi, '')
+      .replace(/<sup[^>]*>[\s\S]*?<\/sup>/gi, '')
+      .replace(/<\/p>/gi, ' ')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&#\d+;/g, ' ')
+      .replace(/&[a-zA-Z]+;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
   // Instead of filtering, rank all valid complete pairs by relevance
   const currentTokens = tokenizeText({ method: "whitespace_and_punctuation", text: sourceContent });
   
@@ -54,8 +75,10 @@ export async function fetchFewShotExamples(
     })
     .map((pair) => {
       // Calculate relevance score based on token overlap
-      const pairSourceContent = pair.sourceCell?.content || "";
-      const pairTokens = tokenizeText({ method: "whitespace_and_punctuation", text: pairSourceContent });
+      // Sanitize pair source content to match the sanitized query content
+      const pairSourceContentRaw = pair.sourceCell?.content || "";
+      const pairSourceContentSanitized = sanitizeHtmlContent(pairSourceContentRaw);
+      const pairTokens = tokenizeText({ method: "whitespace_and_punctuation", text: pairSourceContentSanitized });
       
       // Calculate overlap ratio
       const overlapCount = currentTokens.filter(token => pairTokens.includes(token)).length;
@@ -142,8 +165,10 @@ export async function getPrecedingTranslationPairs(
       const maybeHtmlOrPlain = allowHtml ? (cellContent || "").trim() : stripHtmlTags(cellContent).trim();
       const safeContent = maybeHtmlOrPlain || notTranslatedYetMessage;
 
+      // Always strip HTML from source to avoid teaching LLM about transcription markup
+      const sanitizedSourceContent = stripHtmlTags(combinedSourceContent).trim();
+      const sourceInner = allowHtml ? wrapCdata(sanitizedSourceContent) : xmlEscape(sanitizedSourceContent);
       const targetInner = allowHtml ? wrapCdata(safeContent) : xmlEscape(safeContent);
-      const sourceInner = allowHtml ? wrapCdata(combinedSourceContent) : xmlEscape(combinedSourceContent);
       return `<contextItem><source>${sourceInner}</source><target>${targetInner}</target></contextItem>`;
     })
   );
@@ -162,9 +187,11 @@ export function buildFewShotExamplesText(
     .map((pair) => {
       const sourceRaw = pair.sourceCell?.content ?? "";
       const targetRaw = pair.targetCell?.content ?? "";
+      // Always strip HTML from source to avoid teaching LLM about transcription markup
+      const source = stripHtmlTags(sourceRaw).trim();
       const target = allowHtml ? targetRaw.trim() : stripHtmlTags(targetRaw).trim();
+      const sourceInner = allowHtml ? wrapCdata(source) : xmlEscape(source);
       const targetInner = allowHtml ? wrapCdata(target) : xmlEscape(target);
-      const sourceInner = allowHtml ? wrapCdata(sourceRaw) : xmlEscape(sourceRaw);
       
       // Format examples based on the setting
       if (exampleFormat === "target-only") {
@@ -201,8 +228,8 @@ export function buildMessages(
   } else {
     systemMessage += `\n\nReturn plain text only (no XML/HTML). Preserve original line breaks from <currentTask><source> by returning text with the same number of lines separated by newline characters.`;
   }
-  systemMessage += `\n\nAlways translate from the source language to the target language, ${targetLanguage || ""
-    }, relying strictly on reference data and context provided by the user. The language may be an ultra-low resource language, so it is critical to follow the patterns and style of the provided reference data closely.`;
+  systemMessage += `\n\nAlways translate from the source language to the target language ${targetLanguage || ""
+    }. Use reference data and context when provided to match patterns and style. If no reference data is available, provide a natural, accurate translation.`;
   systemMessage += `\n\n${userInstructions.join("\n")}`;
 
   const contextXml = `<context>\n${precedingContextPairs.filter(Boolean).join("\n")}\n</context>`;

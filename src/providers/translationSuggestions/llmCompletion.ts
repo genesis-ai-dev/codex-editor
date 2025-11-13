@@ -60,8 +60,29 @@ export async function llmCompletion(
             throw new Error(`No source content found for cell ${currentCellId}. The search index may be incomplete. Try running "Force Complete Rebuild" from the command palette.`);
         }
 
+        // Sanitize HTML content to extract plain text (handles transcription spans, etc.)
+        const sanitizeHtmlContent = (html: string): string => {
+            if (!html) return '';
+            return html
+                .replace(/<sup[^>]*class=["']footnote-marker["'][^>]*>[\s\S]*?<\/sup>/gi, '')
+                .replace(/<sup[^>]*data-footnote[^>]*>[\s\S]*?<\/sup>/gi, '')
+                .replace(/<sup[^>]*>[\s\S]*?<\/sup>/gi, '')
+                .replace(/<\/p>/gi, ' ')
+                .replace(/<[^>]*>/g, '')
+                .replace(/&nbsp;/g, ' ')
+                .replace(/&amp;/g, '&')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&quot;/g, '"')
+                .replace(/&#39;/g, "'")
+                .replace(/&#\d+;/g, ' ')
+                .replace(/&[a-zA-Z]+;/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+        };
+
         const sourceContent = validSourceCells
-            .map((cell) => cell!.content)
+            .map((cell) => sanitizeHtmlContent(cell!.content || ""))
             .join(" ");
 
         // Get few-shot examples (existing behavior encapsulated)
@@ -117,20 +138,17 @@ export async function llmCompletion(
 
             // Create the prompt
             const userMessageInstructions = [
-                "1. Analyze the provided reference data to understand the translation patterns and style.",
+                "1. Analyze any provided reference data to understand the translation patterns and style.",
                 "2. Complete the partial or complete translation of the line.",
                 "3. Ensure your translation fits seamlessly with the existing partial translation.",
                 "4. Provide only the completed translation without any additional commentary or metadata.",
                 `5. Translate only into the target language ${targetLanguage}.`,
-                "6. Pay careful attention to the provided reference data.",
+                "6. Use reference data and context when available to match the style.",
                 "7. If in doubt, err on the side of literalness.",
                 (completionConfig.allowHtmlPredictions ? "8. If the project has any styles, return HTML with the appropriate tags or classes as per the examples in the translation memory." : null)
             ].join("\n");
 
-            let systemMessage = chatSystemMessage || `You are a helpful assistant`;
-            systemMessage += `\n\nAlways translate from the source language to the target language, ${targetLanguage}, relying strictly on reference data and context provided by the user. The language may be an ultra-low resource language, so it is critical to follow the patterns and style of the provided reference data closely.`;
-            systemMessage += `\n\n${userMessageInstructions}`;
-            // Note: Do not attempt to reduce reasoning via prompt text to avoid unintended behavior
+            const systemMessage = chatSystemMessage || `You are a helpful assistant`;
 
             // Note: Validation filtering is now implemented via the useOnlyValidatedExamples setting
             // This controls whether only validated translation pairs are used in few-shot examples
