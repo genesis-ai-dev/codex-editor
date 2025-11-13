@@ -266,7 +266,7 @@ const downloadObsRepository = async (
                     id: `obs-${obsStory.storyNumber.toString().padStart(2, '0')}-source`,
                     originalFileName: storyFile.name,
                     corpusMarker: 'obs', // Enable round-trip export
-                    importerType: 'obs-story',
+                    importerType: 'obs',
                     createdAt: new Date().toISOString(),
                     storyNumber: obsStory.storyNumber,
                     storyTitle: obsStory.title,
@@ -289,7 +289,7 @@ const downloadObsRepository = async (
                     id: `obs-${obsStory.storyNumber.toString().padStart(2, '0')}-codex`,
                     originalFileName: storyFile.name,
                     corpusMarker: 'obs', // Enable round-trip export
-                    importerType: 'obs-story',
+                    importerType: 'obs',
                     createdAt: new Date().toISOString(),
                     storyNumber: obsStory.storyNumber,
                     storyTitle: obsStory.title,
@@ -762,7 +762,7 @@ const parseObsZip = async (
                     id: `obs-${obsStory.storyNumber.toString().padStart(2, '0')}-source`,
                     originalFileName: markdownFile.name,
                     corpusMarker: 'obs', // Enable round-trip export
-                    importerType: 'obs-story',
+                    importerType: 'obs',
                     createdAt: new Date().toISOString(),
                     storyNumber: obsStory.storyNumber,
                     storyTitle: obsStory.title,
@@ -785,7 +785,7 @@ const parseObsZip = async (
                     id: `obs-${obsStory.storyNumber.toString().padStart(2, '0')}-codex`,
                     originalFileName: markdownFile.name,
                     corpusMarker: 'obs', // Enable round-trip export
-                    importerType: 'obs-story',
+                    importerType: 'obs',
                     createdAt: new Date().toISOString(),
                     storyNumber: obsStory.storyNumber,
                     storyTitle: obsStory.title,

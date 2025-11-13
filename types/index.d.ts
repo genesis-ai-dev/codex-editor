@@ -908,6 +908,7 @@ export interface CustomNotebookMetadata {
     showInlineBacktranslations?: boolean;
     fileDisplayName?: string;
     edits?: FileEditHistory[];
+    importerType?: FileImporterType;
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
@@ -918,6 +919,8 @@ type CodexNotebookAsJSONData = {
     cells: CustomNotebookCellData[];
     metadata: CustomNotebookMetadata;
 };
+
+type FileImporterType = "smart-segmenter" | "audio" | "docx-roundtrip" | "markdown" | "subtitles" | "spreadsheet" | "tms" | "pdf" | "indesign" | "usfm" | "paratext" | "ebible" | "macula" | "biblica" | "obs";
 
 interface QuillCellContent {
     cellMarkers: string[];
