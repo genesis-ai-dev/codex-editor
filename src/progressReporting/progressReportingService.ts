@@ -367,6 +367,8 @@ export class ProgressReportingService {
             const db = sqliteIndex.database;
 
             // Get basic cell statistics
+            // Exclude paratext cells (cell_id contains "paratext-") and empty cells
+            // total_cells should count cells with source content (these are the ones we're translating)
             const cellStatsStmt = db.prepare(`
                 SELECT 
                     COUNT(*) as total_cells,
@@ -378,6 +380,8 @@ export class ProgressReportingService {
                     SUM(COALESCE(t_word_count, 0)) as total_target_words,
                     MAX(COALESCE(t_current_edit_timestamp, 0)) as last_edit_timestamp
                 FROM cells
+                WHERE cell_id NOT LIKE '%paratext%'
+                    AND s_content IS NOT NULL AND s_content != ''
             `);
 
             let cellStats = {
@@ -479,6 +483,8 @@ export class ProgressReportingService {
 
             // Now try a different approach - get book completion data by extracting file info from cell IDs
             // Since cell IDs seem to contain the file/book information
+            // Exclude paratext cells and empty cells from progress calculations
+            // total_cells should count cells with source content (these are the ones we're translating)
             const bookCompletionStmt = db.prepare(`
                 SELECT 
                     -- Extract book name from cell_id (everything before the first space or colon)
@@ -493,7 +499,10 @@ export class ProgressReportingService {
                     SUM(COALESCE(s_word_count, 0)) as source_words,
                     SUM(COALESCE(t_word_count, 0)) as target_words
                 FROM cells
-                WHERE cell_id IS NOT NULL AND cell_id != ''
+                WHERE cell_id IS NOT NULL 
+                    AND cell_id != ''
+                    AND cell_id NOT LIKE '%paratext%'
+                    AND s_content IS NOT NULL AND s_content != ''
                 GROUP BY book_name
                 HAVING total_cells > 0
                 ORDER BY book_name
@@ -567,12 +576,16 @@ export class ProgressReportingService {
             };
 
             // Calculate quality metrics
+            // Exclude paratext cells and empty cells
+            // Only count cells with source content
             const qualityStmt = db.prepare(`
                 SELECT 
                     COUNT(CASE WHEN t_validation_count = 0 AND t_content IS NOT NULL AND t_content != '' THEN 1 END) as unvalidated_segments,
                     AVG(CASE WHEN t_validation_count > 0 THEN t_validation_count ELSE 0 END) as avg_validation_count,
                     COUNT(CASE WHEN t_is_fully_validated = 1 THEN 1 END) * 100.0 / COUNT(CASE WHEN t_content IS NOT NULL AND t_content != '' THEN 1 END) as consistency_score
                 FROM cells
+                WHERE cell_id NOT LIKE '%paratext%'
+                    AND s_content IS NOT NULL AND s_content != ''
             `);
 
             let qualityStats = {

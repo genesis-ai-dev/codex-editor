@@ -4,7 +4,6 @@ import {
     AlignedCell,
     CellAligner,
     ImportedContent,
-    sequentialCellAligner,
 } from "../../types/plugin";
 import { NotebookPair, ImportProgress } from "../../types/common";
 import { Button } from "../../../components/ui/button";
@@ -141,12 +140,8 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = (props) => {
                     const importedContent = notebookToImportedContent(primaryNotebook);
                     setImportedContent(importedContent);
 
-                    // Use sequential cell aligner for USFM (structured content with verse IDs)
-                    const aligned = await alignContent(
-                        importedContent,
-                        selectedSource.path,
-                        sequentialCellAligner
-                    );
+                    // Use default cell aligner for USFM (exact ID matching for verse cells, with fallback for style/paratext)
+                    const aligned = await alignContent(importedContent, selectedSource.path);
 
                     setAlignedCells(aligned);
                     setIsAligning(false);
