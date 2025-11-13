@@ -23,10 +23,10 @@ suite("Merge Strategies Test Suite", () => {
     });
 
     test("should use appropriate strategies for other file types", () => {
-        // Test OVERRIDE strategy
+        // Test PROJECT_METADATA_MERGE strategy for metadata.json
         const metadataFile = "metadata.json";
         const strategy1 = determineStrategy(metadataFile);
-        assert.strictEqual(strategy1, ConflictResolutionStrategy.OVERRIDE);
+        assert.strictEqual(strategy1, ConflictResolutionStrategy.PROJECT_METADATA_MERGE);
 
         // Comments currently default to OVERRIDE in determineStrategy
         const commentsFile = ".project/comments.json";

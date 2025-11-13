@@ -10,12 +10,16 @@ export const filePatternsToResolve: Record<ConflictResolutionStrategy, string[]>
 
     // Simple JSON override files - keep newest version
     [ConflictResolutionStrategy.OVERRIDE]: [
-        "metadata.json",
         "chat-threads.json",
         "files/chat_history.jsonl",
         "files/silver_path_memories.json",
         "files/smart_passages_memories.json",
         ".project/dictionary.sqlite",
+    ],
+
+    // Project metadata merge - merge metadata.json using edit history (latest timestamp wins)
+    [ConflictResolutionStrategy.PROJECT_METADATA_MERGE]: [
+        "metadata.json",
     ],
 
     // Mergeable Comment arrays on commentThread array - combine recursively and deduplicate

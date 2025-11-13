@@ -24,22 +24,17 @@ suite("Settings.json Merge Test Suite", () => {
         assert.strictEqual(strategy, ConflictResolutionStrategy.JSON_MERGE_3WAY);
     });
 
-    test("chatSystemMessage key detection - prefers new key over legacy", () => {
-        const newKey = "codex-editor-extension.chatSystemMessage";
-        const legacyKey = "translators-copilot.chatSystemMessage";
+    test("chatSystemMessage is no longer in settings.json", () => {
+        // chatSystemMessage has been moved to metadata.json
+        // This test documents that it should not be in settings.json anymore
+        const settings: Record<string, any> = {
+            "codex-project-manager.validationCount": 1,
+        };
 
-        // Simulating key detection logic
-        const base: Record<string, string> = { [legacyKey]: "old" };
-        const ours: Record<string, string> = { [newKey]: "new local" };
-        const theirs: Record<string, string> = { [legacyKey]: "old" };
-
-        // Check if new key exists anywhere
-        const hasNewKey = ours[newKey] !== undefined ||
-            theirs[newKey] !== undefined ||
-            base[newKey] !== undefined;
-
-        assert.strictEqual(hasNewKey, true, "Should detect new key exists");
-        assert.strictEqual(ours[newKey], "new local", "Should use new key value");
+        assert.strictEqual(settings["codex-editor-extension.chatSystemMessage"], undefined,
+            "chatSystemMessage should not be in settings.json");
+        assert.strictEqual(settings["translators-copilot.chatSystemMessage"], undefined,
+            "Legacy chatSystemMessage should not be in settings.json");
     });
 
     test("git.enabled should always be enforced to false", () => {
@@ -52,132 +47,31 @@ suite("Settings.json Merge Test Suite", () => {
         );
     });
 
-    test("chatSystemMessage tie-breaker logic - ours changed only", () => {
-        const baseChatMsg: string = "old prompt";
-        const ourChatMsg: string = "new prompt";
-        const theirChatMsg: string = "old prompt";
+    test("conflict resolution defaults to remote when both changed", () => {
+        // When both sides change a key, we default to remote (theirs)
+        const baseValue: string = "base";
+        const ourValue: string = "ours";
+        const theirValue: string = "theirs";
 
-        const ourChanged = JSON.stringify(ourChatMsg) !== JSON.stringify(baseChatMsg);
-        const theirChanged = JSON.stringify(theirChatMsg) !== JSON.stringify(baseChatMsg);
+        // Simulate conflict resolution logic
+        const ourChanged = ourValue !== baseValue;
+        const theirChanged = theirValue !== baseValue;
 
-        // When only we changed the prompt, bias should be 'ours'
-        let bias: 'ours' | 'theirs';
-        if (ourChanged && !theirChanged) {
-            bias = 'ours';
+        let chosenValue: string;
+        if (!ourChanged && !theirChanged) {
+            chosenValue = ourValue !== undefined ? ourValue : theirValue;
+        } else if (ourChanged && !theirChanged) {
+            chosenValue = ourValue;
         } else if (!ourChanged && theirChanged) {
-            bias = 'theirs';
-        } else if (ourChanged && theirChanged) {
-            bias = 'ours'; // Last write wins
+            chosenValue = theirValue;
         } else {
-            bias = 'theirs'; // Default
+            // Both changed - default to remote
+            chosenValue = theirValue;
         }
 
-        assert.strictEqual(bias, 'ours', "Should bias to ours when we changed prompt");
+        assert.strictEqual(chosenValue, "theirs", "Should default to remote when both changed");
     });
 
-    test("chatSystemMessage tie-breaker logic - theirs changed only", () => {
-        const baseChatMsg: string = "old prompt";
-        const ourChatMsg: string = "old prompt";
-        const theirChatMsg: string = "new prompt";
-
-        const ourChanged = JSON.stringify(ourChatMsg) !== JSON.stringify(baseChatMsg);
-        const theirChanged = JSON.stringify(theirChatMsg) !== JSON.stringify(baseChatMsg);
-
-        let bias: 'ours' | 'theirs';
-        if (ourChanged && !theirChanged) {
-            bias = 'ours';
-        } else if (!ourChanged && theirChanged) {
-            bias = 'theirs';
-        } else if (ourChanged && theirChanged) {
-            bias = 'ours';
-        } else {
-            bias = 'theirs';
-        }
-
-        assert.strictEqual(bias, 'theirs', "Should bias to theirs when they changed prompt");
-    });
-
-    test("chatSystemMessage tie-breaker logic - both changed (last write wins)", () => {
-        const baseChatMsg: string = "old prompt";
-        const ourChatMsg: string = "my prompt";
-        const theirChatMsg: string = "their prompt";
-
-        const ourChanged = JSON.stringify(ourChatMsg) !== JSON.stringify(baseChatMsg);
-        const theirChanged = JSON.stringify(theirChatMsg) !== JSON.stringify(baseChatMsg);
-
-        let bias: 'ours' | 'theirs';
-        if (ourChanged && !theirChanged) {
-            bias = 'ours';
-        } else if (!ourChanged && theirChanged) {
-            bias = 'theirs';
-        } else if (ourChanged && theirChanged) {
-            bias = 'ours'; // We're pushing now = last write
-        } else {
-            bias = 'theirs';
-        }
-
-        assert.strictEqual(bias, 'ours', "Should bias to ours when both changed (last write wins)");
-    });
-
-    test("chatSystemMessage tie-breaker logic - neither changed (default to theirs)", () => {
-        const baseChatMsg = "old prompt";
-        const ourChatMsg = "old prompt";
-        const theirChatMsg = "old prompt";
-
-        const ourChanged = ourChatMsg !== baseChatMsg;
-        const theirChanged = theirChatMsg !== baseChatMsg;
-
-        let bias: 'ours' | 'theirs';
-        if (ourChanged && !theirChanged) {
-            bias = 'ours';
-        } else if (!ourChanged && theirChanged) {
-            bias = 'theirs';
-        } else if (ourChanged && theirChanged) {
-            bias = 'ours';
-        } else {
-            bias = 'theirs'; // Default to remote
-        }
-
-        assert.strictEqual(bias, 'theirs', "Should default to theirs when neither changed");
-    });
-
-    test("JSON merge cleanup - removes legacy key when new key exists", () => {
-        const newKey = "codex-editor-extension.chatSystemMessage";
-        const legacyKey = "translators-copilot.chatSystemMessage";
-
-        const result: Record<string, any> = {
-            [newKey]: "new prompt",
-            [legacyKey]: "old prompt",
-            "codex-project-manager.validationCount": 1,
-        };
-
-        // Cleanup logic
-        if (result[newKey] !== undefined && result[legacyKey] !== undefined) {
-            delete result[legacyKey];
-        }
-
-        assert.strictEqual(result[newKey], "new prompt", "Should keep new key");
-        assert.strictEqual(result[legacyKey], undefined, "Should remove legacy key");
-        assert.strictEqual(result["codex-project-manager.validationCount"], 1, "Should keep other keys");
-    });
-
-    test("JSON merge cleanup - keeps legacy key when new key doesn't exist", () => {
-        const newKey = "codex-editor-extension.chatSystemMessage";
-        const legacyKey = "translators-copilot.chatSystemMessage";
-
-        const result: Record<string, any> = {
-            [legacyKey]: "old prompt",
-            "codex-project-manager.validationCount": 1,
-        };
-
-        // Cleanup logic
-        if (result[newKey] !== undefined && result[legacyKey] !== undefined) {
-            delete result[legacyKey];
-        }
-
-        assert.strictEqual(result[legacyKey], "old prompt", "Should keep legacy key");
-        assert.strictEqual(result[newKey], undefined, "New key doesn't exist");
-    });
 
     test("JSON merge always sets git.enabled to false", () => {
         const result: Record<string, any> = {
