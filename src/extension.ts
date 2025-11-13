@@ -55,7 +55,7 @@ import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 import { migrateAudioAttachments } from "./utils/audioAttachmentsMigrationUtils";
 import { registerTestingCommands } from "./evaluation/testingCommands";
 import { initializeABTesting } from "./utils/abTestingSetup";
-import { migration_addValidationsForUserEdits, migration_moveTimestampsToMetadataData, migration_promoteCellTypeToTopLevel } from "./projectManager/utils/migrationUtils";
+import { migration_addValidationsForUserEdits, migration_moveTimestampsToMetadataData, migration_promoteCellTypeToTopLevel, migration_addImporterTypeToMetadata } from "./projectManager/utils/migrationUtils";
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import * as fs from "fs";
 import * as os from "os";
@@ -568,6 +568,7 @@ export async function activate(context: vscode.ExtensionContext) {
         await migration_moveTimestampsToMetadataData(context);
         await migration_promoteCellTypeToTopLevel(context);
         await migration_editHistoryFormat(context);
+        await migration_addImporterTypeToMetadata(context);
         trackTiming("Running Post-activation Tasks", postActivationStart);
 
         // Register update commands and check for updates (non-blocking)

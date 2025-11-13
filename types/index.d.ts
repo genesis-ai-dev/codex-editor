@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { ScriptureTSV } from "./TsvTypes";
 import { CodexCell } from "src/utils/codexNotebookUtils";
 import { SavedBacktranslation } from "../smartEdits/smartBacktranslation";
+import { CodexCellTypes } from "./enums";
 
 interface ChatMessage {
     role: "system" | "user" | "assistant" | "context";
@@ -860,11 +861,18 @@ type CodexData = Timestamps & {
     originalText?: string;
 };
 
-type CustomCellMetaData = {
+type BaseCustomCellMetaData = {
     id: string;
-    type: import("./enums").CodexCellTypes;
-    data?: CodexData;
+    type: CodexCellTypes;
     edits: EditHistory[];
+};
+
+export type BaseCustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {
+    metadata: BaseCustomCellMetaData;
+};
+
+type CustomCellMetaData = BaseCustomCellMetaData & {
+    data?: CodexData;
     attachments?: {
         [key: string]: {
             url: string;
@@ -917,6 +925,7 @@ export interface CustomNotebookMetadata {
     showInlineBacktranslations?: boolean;
     fileDisplayName?: string;
     edits?: FileEditHistory[];
+    importerType?: FileImporterType;
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
@@ -928,10 +937,12 @@ type CodexNotebookAsJSONData = {
     metadata: CustomNotebookMetadata;
 };
 
+type FileImporterType = "smart-segmenter" | "audio" | "docx-roundtrip" | "markdown" | "subtitles" | "spreadsheet" | "tms" | "pdf" | "indesign" | "usfm" | "paratext" | "ebible" | "macula" | "biblica" | "obs";
+
 interface QuillCellContent {
     cellMarkers: string[];
     cellContent: string;
-    cellType: import("./enums").CodexCellTypes;
+    cellType: CodexCellTypes;
     editHistory: Array<EditHistory>;
     timestamps?: Timestamps;
     cellLabel?: string;
