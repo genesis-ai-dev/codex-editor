@@ -188,6 +188,36 @@ export function initializeABTesting() {
       };
     }
   );
+
+  // SBS efficiency test: sbs with 15 examples vs fts5-bm25 with 30 examples
+  abTestingRegistry.register<SearchAlgorithmContext, string>(
+    "SBS Efficiency Test",
+    1.0,
+    async (ctx) => {
+      const format = ctx.fewShotExampleFormat || "source-and-target";
+      
+      const fetchForConfig = async (alg: string, count: number): Promise<string> => {
+        const pairs = await fetchTranslationPairs(
+          ctx.executeCommand,
+          alg,
+          ctx.currentCellSourceContent,
+          count,
+          ctx.useOnlyValidatedExamples
+        );
+        return await generateCompletionFromPairs(pairs, count, format, ctx);
+      };
+
+      const [compA, compB] = await Promise.all([
+        fetchForConfig("sbs", 15),
+        fetchForConfig("fts5-bm25", 30),
+      ]);
+
+      return { 
+        variants: [compA, compB], 
+        names: ["sbs (15 examples)", "fts5-bm25 (30 examples)"] 
+      };
+    }
+  );
 }
 
 // Context for search algorithm test

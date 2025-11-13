@@ -224,6 +224,7 @@ export async function llmCompletion(
                     "Source vs Target Inclusion",
                     "Few-Shot Example Count Test",
                     "Low-Resource Search Algorithm Test",
+                    "SBS Efficiency Test",
                     // "llmGeneration" // intentionally disabled for now
                 ] as const;
                 const available = candidates.filter((name) => !!abTestingRegistry.get(name as any));
@@ -252,6 +253,7 @@ export async function llmCompletion(
                             "Source vs Target Inclusion": "fmtAB",
                             "Few-Shot Example Count Test": "countAB",
                             "Low-Resource Search Algorithm Test": "lowResAB",
+                            "SBS Efficiency Test": "sbsEffAB",
                         };
 
                         const testResult = handleABTestResult(
@@ -271,6 +273,7 @@ export async function llmCompletion(
                             "Source vs Target Inclusion": "fewShotFormat",
                             "Few-Shot Example Count Test": "exampleCount",
                             "Low-Resource Search Algorithm Test": "lowResourceSearch",
+                            "SBS Efficiency Test": "sbsEfficiency",
                         };
                         console.warn(`[llmCompletion] Registry A/B (${testNames[pick] || "unknown"}) failed; falling back`, e);
                     }
