@@ -5,6 +5,11 @@ import type { TranslationPair } from "../../types";
 import type { CompletionConfig } from "./llmUtils";
 import { buildFewShotExamplesText, buildMessages } from "../providers/translationSuggestions/shared";
 
+// Helper function to normalize format to valid type
+function normalizeFormat(format: string): "source-and-target" | "target-only" {
+  return format === "target-only" ? "target-only" : "source-and-target";
+}
+
 // Helper function to fetch translation pairs using a specific algorithm
 async function fetchTranslationPairs(
   executeCommand: <T = any>(command: string, ...rest: any[]) => Thenable<T>,
@@ -64,7 +69,7 @@ export function initializeABTesting() {
       const extConfig = ctx.vscodeWorkspaceConfig ?? undefined;
       const currentAlg = (extConfig?.get?.("searchAlgorithm") as string) || "fts5-bm25";
       const altAlg = currentAlg === "sbs" ? "fts5-bm25" : "sbs";
-      const format = ctx.fewShotExampleFormat || "source-and-target";
+      const format = normalizeFormat(ctx.fewShotExampleFormat || "source-and-target");
       const count = ctx.numberOfFewShotExamples;
 
       const fetchForAlg = async (alg: string): Promise<string> => {
@@ -129,7 +134,7 @@ export function initializeABTesting() {
       
       // Use user's configured search algorithm and format
       const currentAlg = (ctx.vscodeWorkspaceConfig?.get?.("searchAlgorithm") as string) || "fts5-bm25";
-      const format = ctx.fewShotExampleFormat || "source-and-target";
+      const format = normalizeFormat(ctx.fewShotExampleFormat || "source-and-target");
       
       // Fetch enough pairs for the larger count
       const maxCount = Math.max(...counts);
@@ -163,7 +168,7 @@ export function initializeABTesting() {
     1.0,
     async (ctx) => {
       const algorithms = ["fts5-bm25", "sbs"];
-      const format = ctx.fewShotExampleFormat || "source-and-target";
+      const format = normalizeFormat(ctx.fewShotExampleFormat || "source-and-target");
       const count = 10; // Fixed at 10 examples for low-resource test
 
       const fetchForAlg = async (alg: string): Promise<string> => {
@@ -194,7 +199,7 @@ export function initializeABTesting() {
     "SBS Efficiency Test",
     1.0,
     async (ctx) => {
-      const format = ctx.fewShotExampleFormat || "source-and-target";
+      const format = normalizeFormat(ctx.fewShotExampleFormat || "source-and-target");
       
       const fetchForConfig = async (alg: string, count: number): Promise<string> => {
         const pairs = await fetchTranslationPairs(

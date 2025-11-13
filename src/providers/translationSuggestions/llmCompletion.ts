@@ -125,8 +125,29 @@ export async function llmCompletion(
             throw new Error(`No source content found for cell ${currentCellId}. The search index may be incomplete. Try running "Force Complete Rebuild" from the command palette.`);
         }
 
+        // Sanitize HTML content to extract plain text (handles transcription spans, etc.)
+        const sanitizeHtmlContent = (html: string): string => {
+            if (!html) return '';
+            return html
+                .replace(/<sup[^>]*class=["']footnote-marker["'][^>]*>[\s\S]*?<\/sup>/gi, '')
+                .replace(/<sup[^>]*data-footnote[^>]*>[\s\S]*?<\/sup>/gi, '')
+                .replace(/<sup[^>]*>[\s\S]*?<\/sup>/gi, '')
+                .replace(/<\/p>/gi, ' ')
+                .replace(/<[^>]*>/g, '')
+                .replace(/&nbsp;/g, ' ')
+                .replace(/&amp;/g, '&')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&quot;/g, '"')
+                .replace(/&#39;/g, "'")
+                .replace(/&#\d+;/g, ' ')
+                .replace(/&[a-zA-Z]+;/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+        };
+
         const sourceContent = validSourceCells
-            .map((cell) => cell!.content)
+            .map((cell) => sanitizeHtmlContent(cell!.content || ""))
             .join(" ");
 
         // Get few-shot examples (existing behavior encapsulated)
@@ -164,9 +185,10 @@ export async function llmCompletion(
             Boolean(completionConfig.allowHtmlPredictions)
         );
 
-        // Get the target language
+        // Get the source and target languages
         const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
         const targetLanguage = projectConfig.get<any>("targetLanguage")?.tag || null;
+        const sourceLanguage = projectConfig.get<any>("sourceLanguage")?.tag || null;
 
         try {
             const currentCellIdString = currentCellIds.join(", ");
