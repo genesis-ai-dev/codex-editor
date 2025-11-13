@@ -17,6 +17,8 @@ export interface LocalProjectSettings {
     mediaFileStrategyApplyState?: "idle" | "pending" | "applying" | "applied" | "failed";
     /** When true, the editor will download/stream audio as soon as a cell opens */
     autoDownloadAudioOnOpen?: boolean;
+    /** When true, AI Metrics view shows detailed technical metrics instead of simple mode */
+    detailedAIMetrics?: boolean;
     // Legacy keys (read and mirrored for backward compatibility)
     mediaFilesStrategy?: MediaFilesStrategy;
     lastModeRun?: MediaFilesStrategy;
@@ -119,6 +121,7 @@ export async function writeLocalProjectSettings(
             lastMediaFileStrategyRun: settings.lastMediaFileStrategyRun ?? settings.lastModeRun,
             mediaFileStrategyApplyState: settings.mediaFileStrategyApplyState ?? (settings as any).applyState,
             autoDownloadAudioOnOpen: settings.autoDownloadAudioOnOpen,
+            detailedAIMetrics: settings.detailedAIMetrics,
         };
         const content = JSON.stringify(toWrite, null, 2);
         await vscode.workspace.fs.writeFile(settingsPath, Buffer.from(content, "utf-8"));
