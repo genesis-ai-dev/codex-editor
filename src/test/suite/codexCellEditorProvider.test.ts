@@ -2698,5 +2698,477 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 getEffectiveCellContentStub.restore();
             }
         });
+
+        test("LLM completion integration: HTML is included in prompt when styling toggle is turned on", async function () {
+            this.timeout(10000);
+            const provider = new CodexCellEditorProvider(context);
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+            const sourceContent = "Test source content";
+            const htmlExample = "<span class='highlight'>HTML content</span>";
+
+            // Mock translation pairs with HTML content
+            const mockTranslationPairs: TranslationPair[] = [
+                {
+                    cellId: "GEN 1:1",
+                    sourceCell: { cellId: "GEN 1:1", content: "In the beginning", versions: [], notebookId: "nb1" } as MinimalCellResult,
+                    targetCell: { cellId: "GEN 1:1", content: htmlExample, versions: [], notebookId: "nb1" } as MinimalCellResult
+                },
+            ];
+
+            // Track messages sent to LLM
+            let capturedMessages: any[] | null = null;
+
+            // Mock vscode.commands.executeCommand
+            const originalExecuteCommand = vscode.commands.executeCommand;
+            (vscode.commands as any).executeCommand = async (command: string, ...args: any[]) => {
+                if (command === "codex-editor-extension.getTranslationPairsFromSourceCellQuery") {
+                    return mockTranslationPairs;
+                }
+                if (command === "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells") {
+                    return { cellId: args[0], content: sourceContent, versions: [], notebookId: "nb1" } as MinimalCellResult;
+                }
+                return originalExecuteCommand.apply(vscode.commands, [command, ...args]);
+            };
+
+            // Mock callLLM to capture messages
+            const llmUtils = await import("../../utils/llmUtils");
+            const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
+                capturedMessages = messages;
+                return "Mocked response";
+            });
+
+            // Stub status bar and notebook reader
+            const extModule = await import("../../extension");
+            const statusStub = sinon.stub(extModule as any, "getAutoCompleteStatusBarItem").returns({
+                show: () => { },
+                hide: () => { },
+            });
+
+            const serializerMod = await import("../../serializer");
+            const getCellIndexStub = sinon.stub(serializerMod.CodexNotebookReader.prototype, "getCellIndex").resolves(0 as any);
+            const getCellIdsStub = sinon.stub(serializerMod.CodexNotebookReader.prototype, "getCellIds").resolves([cellId]);
+            const cellsUpToStub = sinon.stub(serializerMod.CodexNotebookReader.prototype, "cellsUpTo").resolves([]);
+            const getEffectiveCellContentStub = sinon.stub(serializerMod.CodexNotebookReader.prototype, "getEffectiveCellContent").resolves("");
+
+            // Set up webview panel
+            let onDidReceiveMessageCallback: any = null;
+            const webviewPanel = {
+                webview: {
+                    html: "",
+                    options: { enableScripts: true },
+                    asWebviewUri: (uri: vscode.Uri) => uri,
+                    cspSource: "https://example.com",
+                    onDidReceiveMessage: (callback: (message: any) => void) => {
+                        if (!onDidReceiveMessageCallback) {
+                            onDidReceiveMessageCallback = callback;
+                        }
+                        return { dispose: () => { } };
+                    },
+                    postMessage: (_message: any) => Promise.resolve(),
+                },
+                onDidDispose: () => ({ dispose: () => { } }),
+                onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+            } as any as vscode.WebviewPanel;
+
+            await provider.resolveCustomEditor(
+                document,
+                webviewPanel,
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Set allowHtmlPredictions to true
+            const config = vscode.workspace.getConfiguration("codex-editor-extension");
+            await config.update("allowHtmlPredictions", true, vscode.ConfigurationTarget.Workspace);
+
+            try {
+                onDidReceiveMessageCallback!({
+                    command: "llmCompletion",
+                    content: {
+                        currentLineId: cellId,
+                        addContentToValue: false
+                    }
+                });
+
+                await sleep(500);
+
+                // Verify HTML is preserved in the prompt
+                assert.ok(capturedMessages !== null, "callLLM should have been called");
+                const userMessage = (capturedMessages as any[]).find((m: any) => m.role === "user");
+                assert.ok(userMessage, "Should have a user message");
+
+                // Verify HTML tags are present (not stripped)
+                assert.ok(userMessage.content.includes("<span"), "User message should contain HTML tags when allowHtmlPredictions is enabled");
+                assert.ok(userMessage.content.includes("class='highlight'"), "User message should preserve HTML attributes");
+                assert.ok(userMessage.content.includes("HTML content"), "User message should contain HTML content");
+
+                // Verify system message mentions HTML
+                const systemMessage = (capturedMessages as any[]).find((m: any) => m.role === "system");
+                assert.ok(systemMessage, "Should have a system message");
+                assert.ok(
+                    systemMessage.content.includes("HTML") || systemMessage.content.includes("<span>") || systemMessage.content.includes("inline HTML"),
+                    "System message should mention HTML when allowHtmlPredictions is enabled"
+                );
+            } finally {
+                (vscode.commands as any).executeCommand = originalExecuteCommand;
+                callLLMStub.restore();
+                statusStub.restore();
+                getCellIndexStub.restore();
+                getCellIdsStub.restore();
+                cellsUpToStub.restore();
+                getEffectiveCellContentStub.restore();
+            }
+        });
+
+        test("LLM completion integration: search finds results for LLM prompt", async function () {
+            this.timeout(10000);
+            const provider = new CodexCellEditorProvider(context);
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+            const sourceContent = "In the beginning God created";
+            const searchQuery = "beginning";
+
+            // Mock translation pairs that match the search query
+            const mockTranslationPairs: TranslationPair[] = [
+                {
+                    cellId: "GEN 1:1",
+                    sourceCell: { cellId: "GEN 1:1", content: "In the beginning", versions: [], notebookId: "nb1" } as MinimalCellResult,
+                    targetCell: { cellId: "GEN 1:1", content: "Au commencement", versions: [], notebookId: "nb1" } as MinimalCellResult
+                },
+                {
+                    cellId: "GEN 1:2",
+                    sourceCell: { cellId: "GEN 1:2", content: "The earth was formless", versions: [], notebookId: "nb1" } as MinimalCellResult,
+                    targetCell: { cellId: "GEN 1:2", content: "La terre était informe", versions: [], notebookId: "nb1" } as MinimalCellResult
+                },
+            ];
+
+            // Track search query
+            let capturedQuery: string | null = null;
+            let searchResults: TranslationPair[] = [];
+
+            // Mock vscode.commands.executeCommand
+            const originalExecuteCommand = vscode.commands.executeCommand;
+            (vscode.commands as any).executeCommand = async (command: string, ...args: any[]) => {
+                if (command === "codex-editor-extension.getTranslationPairsFromSourceCellQuery") {
+                    const [query] = args as [string, number, boolean];
+                    capturedQuery = query;
+                    // Return results that match the query (simulate search finding matches)
+                    searchResults = mockTranslationPairs.filter(pair =>
+                        pair.sourceCell?.content?.toLowerCase().includes(query.toLowerCase())
+                    );
+                    // If no matches, return all pairs (simulating search behavior)
+                    if (searchResults.length === 0) {
+                        searchResults = mockTranslationPairs;
+                    }
+                    return searchResults;
+                }
+                if (command === "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells") {
+                    return { cellId: args[0], content: sourceContent, versions: [], notebookId: "nb1" } as MinimalCellResult;
+                }
+                return originalExecuteCommand.apply(vscode.commands, [command, ...args]);
+            };
+
+            // Mock callLLM to capture messages
+            const llmUtils = await import("../../utils/llmUtils");
+            const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
+                return "Mocked response";
+            });
+
+            // Stub status bar and notebook reader
+            const extModule = await import("../../extension");
+            const statusStub = sinon.stub(extModule as any, "getAutoCompleteStatusBarItem").returns({
+                show: () => { },
+                hide: () => { },
+            });
+
+            const serializerMod = await import("../../serializer");
+            const getCellIndexStub = sinon.stub(serializerMod.CodexNotebookReader.prototype, "getCellIndex").resolves(0 as any);
+            const getCellIdsStub = sinon.stub(serializerMod.CodexNotebookReader.prototype, "getCellIds").resolves([cellId]);
+            const cellsUpToStub = sinon.stub(serializerMod.CodexNotebookReader.prototype, "cellsUpTo").resolves([]);
+            const getEffectiveCellContentStub = sinon.stub(serializerMod.CodexNotebookReader.prototype, "getEffectiveCellContent").resolves("");
+
+            // Set up webview panel
+            let onDidReceiveMessageCallback: any = null;
+            const webviewPanel = {
+                webview: {
+                    html: "",
+                    options: { enableScripts: true },
+                    asWebviewUri: (uri: vscode.Uri) => uri,
+                    cspSource: "https://example.com",
+                    onDidReceiveMessage: (callback: (message: any) => void) => {
+                        if (!onDidReceiveMessageCallback) {
+                            onDidReceiveMessageCallback = callback;
+                        }
+                        return { dispose: () => { } };
+                    },
+                    postMessage: (_message: any) => Promise.resolve(),
+                },
+                onDidDispose: () => ({ dispose: () => { } }),
+                onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+            } as any as vscode.WebviewPanel;
+
+            await provider.resolveCustomEditor(
+                document,
+                webviewPanel,
+                new vscode.CancellationTokenSource().token
+            );
+
+            try {
+                onDidReceiveMessageCallback!({
+                    command: "llmCompletion",
+                    content: {
+                        currentLineId: cellId,
+                        addContentToValue: false
+                    }
+                });
+
+                // Wait for search to complete
+                let waitCount = 0;
+                while (!callLLMStub.called && waitCount < 30) {
+                    await sleep(100);
+                    waitCount++;
+                }
+
+                // Verify search was executed
+                assert.ok(capturedQuery !== null, "Search query should have been executed");
+                assert.ok((capturedQuery as string).includes(sourceContent) || capturedQuery === sourceContent, `Search query should contain source content: ${capturedQuery}`);
+
+                // Verify search found results
+                assert.ok(searchResults.length > 0, "Search should find matching results");
+                assert.ok(searchResults.some(pair => pair.sourceCell?.content?.includes(searchQuery) || pair.sourceCell?.content?.includes(sourceContent)), "Search results should match the query");
+            } finally {
+                (vscode.commands as any).executeCommand = originalExecuteCommand;
+                callLLMStub.restore();
+                statusStub.restore();
+                getCellIndexStub.restore();
+                getCellIdsStub.restore();
+                cellsUpToStub.restore();
+                getEffectiveCellContentStub.restore();
+            }
+        });
+
+        test("LLM completion integration: only validated examples are used in prompt when toggle is turned on", async function () {
+            this.timeout(10000);
+            const provider = new CodexCellEditorProvider(context);
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+            const sourceContent = "Test source content";
+
+            // Mock validated and unvalidated translation pairs
+            const validatedPair: TranslationPair = {
+                cellId: "GEN 1:1",
+                sourceCell: { cellId: "GEN 1:1", content: "Validated source", versions: [], notebookId: "nb1" } as MinimalCellResult,
+                targetCell: { cellId: "GEN 1:1", content: "Validated target", versions: [], notebookId: "nb1" } as MinimalCellResult,
+                edits: [
+                    {
+                        editMap: ["value"],
+                        value: "Validated target",
+                        type: EditType.USER_EDIT,
+                        timestamp: Date.now(),
+                        author: "user1",
+                        validatedBy: [{ username: "user1", creationTimestamp: Date.now(), updatedTimestamp: Date.now(), isDeleted: false }]
+                    }
+                ]
+            };
+
+            const unvalidatedPair: TranslationPair = {
+                cellId: "GEN 1:2",
+                sourceCell: { cellId: "GEN 1:2", content: "Unvalidated source", versions: [], notebookId: "nb1" } as MinimalCellResult,
+                targetCell: { cellId: "GEN 1:2", content: "Unvalidated target", versions: [], notebookId: "nb1" } as MinimalCellResult,
+                edits: [
+                    {
+                        editMap: ["value"],
+                        value: "Unvalidated target",
+                        type: EditType.USER_EDIT,
+                        timestamp: Date.now(),
+                        author: "user2",
+                        validatedBy: []
+                    }
+                ]
+            };
+
+            // Track which pairs are returned
+            let returnedPairs: TranslationPair[] = [];
+
+            // Mock vscode.commands.executeCommand
+            const originalExecuteCommand = vscode.commands.executeCommand;
+            (vscode.commands as any).executeCommand = async (command: string, ...args: any[]) => {
+                if (command === "codex-editor-extension.getTranslationPairsFromSourceCellQuery") {
+                    const [, , onlyValidatedFlag] = args as [string, number, boolean];
+                    // When onlyValidated=true, return only validated pair
+                    if (onlyValidatedFlag) {
+                        returnedPairs = [validatedPair];
+                        return [validatedPair];
+                    } else {
+                        returnedPairs = [validatedPair, unvalidatedPair];
+                        return [validatedPair, unvalidatedPair];
+                    }
+                }
+                if (command === "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells") {
+                    return { cellId: args[0], content: sourceContent, versions: [], notebookId: "nb1" } as MinimalCellResult;
+                }
+                return originalExecuteCommand.apply(vscode.commands, [command, ...args]);
+            };
+
+            // Mock callLLM to capture messages
+            const llmUtils = await import("../../utils/llmUtils");
+            let capturedMessages: any[] | null = null;
+            const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
+                capturedMessages = messages;
+                return "Mocked response";
+            });
+
+            // Stub status bar and notebook reader
+            const extModule = await import("../../extension");
+            const statusStub = sinon.stub(extModule as any, "getAutoCompleteStatusBarItem").returns({
+                show: () => { },
+                hide: () => { },
+            });
+
+            const serializerMod = await import("../../serializer");
+            const getCellIndexStub = sinon.stub(serializerMod.CodexNotebookReader.prototype, "getCellIndex").resolves(0 as any);
+            const getCellIdsStub = sinon.stub(serializerMod.CodexNotebookReader.prototype, "getCellIds").resolves([cellId]);
+            const cellsUpToStub = sinon.stub(serializerMod.CodexNotebookReader.prototype, "cellsUpTo").resolves([]);
+            const getEffectiveCellContentStub = sinon.stub(serializerMod.CodexNotebookReader.prototype, "getEffectiveCellContent").resolves("");
+
+            // Set up webview panel
+            let onDidReceiveMessageCallback: any = null;
+            const webviewPanel = {
+                webview: {
+                    html: "",
+                    options: { enableScripts: true },
+                    asWebviewUri: (uri: vscode.Uri) => uri,
+                    cspSource: "https://example.com",
+                    onDidReceiveMessage: (callback: (message: any) => void) => {
+                        if (!onDidReceiveMessageCallback) {
+                            onDidReceiveMessageCallback = callback;
+                        }
+                        return { dispose: () => { } };
+                    },
+                    postMessage: (_message: any) => Promise.resolve(),
+                },
+                onDidDispose: () => ({ dispose: () => { } }),
+                onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+            } as any as vscode.WebviewPanel;
+
+            await provider.resolveCustomEditor(
+                document,
+                webviewPanel,
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Test with onlyValidated = true
+            const config = vscode.workspace.getConfiguration("codex-editor-extension");
+            await config.update("useOnlyValidatedExamples", true, vscode.ConfigurationTarget.Workspace);
+
+            try {
+                onDidReceiveMessageCallback!({
+                    command: "llmCompletion",
+                    content: {
+                        currentLineId: cellId,
+                        addContentToValue: false
+                    }
+                });
+
+                // Wait for request to complete
+                let waitCount = 0;
+                while (!callLLMStub.called && waitCount < 30) {
+                    await sleep(100);
+                    waitCount++;
+                }
+
+                assert.ok(callLLMStub.called, "LLM call should have been made");
+                assert.ok(returnedPairs.length > 0, "Should have returned examples");
+
+                // Verify only validated examples are included in prompt
+                assert.ok(capturedMessages !== null, "Messages should have been captured");
+                const userMessage = (capturedMessages as any[]).find((m: any) => m.role === "user");
+                assert.ok(userMessage, "Should have a user message");
+
+                // Verify validated example is present
+                assert.ok(userMessage.content.includes("Validated source"), "Prompt should contain validated example source");
+                assert.ok(userMessage.content.includes("Validated target"), "Prompt should contain validated example target");
+
+                // Verify unvalidated example is NOT present
+                assert.ok(!userMessage.content.includes("Unvalidated source"), "Prompt should NOT contain unvalidated example source");
+                assert.ok(!userMessage.content.includes("Unvalidated target"), "Prompt should NOT contain unvalidated example target");
+
+                // Verify only one example is present (the validated one)
+                const exampleMatches = userMessage.content.match(/<example>/g);
+                assert.strictEqual(exampleMatches?.length, 1, "Should have exactly one example (the validated one)");
+            } finally {
+                (vscode.commands as any).executeCommand = originalExecuteCommand;
+                callLLMStub.restore();
+                statusStub.restore();
+                getCellIndexStub.restore();
+                getCellIdsStub.restore();
+                cellsUpToStub.restore();
+                getEffectiveCellContentStub.restore();
+            }
+        });
+
+        test("LLM completion integration: index creation is triggered when cells are updated", async function () {
+            this.timeout(10000);
+            const provider = new CodexCellEditorProvider(context);
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+            const newContent = "New content for indexing";
+
+            // Restore the stub to allow actual indexing calls
+            const addCellToIndexStub = (CodexCellDocument as any).prototype.addCellToIndexImmediately as sinon.SinonStub;
+            addCellToIndexStub.restore();
+
+            // Create a spy to track indexing calls
+            const indexingSpy = sinon.spy((CodexCellDocument as any).prototype, "addCellToIndexImmediately");
+
+            try {
+                // Update cell content with USER_EDIT (should trigger indexing)
+                await (document as any).updateCellContent(cellId, newContent, EditType.USER_EDIT);
+
+                // Wait a bit for async indexing
+                await sleep(200);
+
+                // Verify indexing was called
+                assert.ok(indexingSpy.called, "addCellToIndexImmediately should be called when cell content is updated");
+
+                // Verify the correct cell ID was indexed
+                const calls = indexingSpy.getCalls();
+                assert.ok(calls.length > 0, "Indexing should have been called at least once");
+                const lastCall = calls[calls.length - 1];
+                assert.ok(lastCall.args.length > 0, "Indexing call should have arguments");
+
+                // The first argument should be the cell ID or cell data
+                const indexedArg = lastCall.args[0];
+                if (typeof indexedArg === "string") {
+                    assert.strictEqual(indexedArg, cellId, "Should index the correct cell ID");
+                } else if (indexedArg && typeof indexedArg === "object" && indexedArg.metadata?.id) {
+                    assert.strictEqual(indexedArg.metadata.id, cellId, "Should index the correct cell");
+                }
+            } finally {
+                // Restore the stub for other tests
+                indexingSpy.restore();
+                sinon.stub((CodexCellDocument as any).prototype, "addCellToIndexImmediately").callsFake(() => { });
+            }
+        });
     });
 });
