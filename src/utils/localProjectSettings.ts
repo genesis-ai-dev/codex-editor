@@ -22,6 +22,8 @@ export interface LocalProjectSettings {
      * Defaults to false (or absent = false). Resets to false when switching strategies or cloning.
      */
     mediaFilesVerified?: boolean;
+    /** When true, AI Metrics view shows detailed technical metrics instead of simple mode */
+    detailedAIMetrics?: boolean;
     // Legacy keys (read and mirrored for backward compatibility)
     mediaFilesStrategy?: MediaFilesStrategy;
     lastModeRun?: MediaFilesStrategy;
@@ -125,6 +127,7 @@ export async function writeLocalProjectSettings(
             mediaFileStrategyApplyState: settings.mediaFileStrategyApplyState ?? (settings as any).applyState,
             autoDownloadAudioOnOpen: settings.autoDownloadAudioOnOpen,
             mediaFilesVerified: settings.mediaFilesVerified,
+            detailedAIMetrics: settings.detailedAIMetrics,
         };
         const content = JSON.stringify(toWrite, null, 2);
         await vscode.workspace.fs.writeFile(settingsPath, Buffer.from(content, "utf-8"));

@@ -974,7 +974,7 @@ async function exportCodexContentAsRebuild(
                         //     // RTF files use the RTF exporter - DISABLED
                         //     filesByType['rtf'] = filesByType['rtf'] || [];
                         //     filesByType['rtf'].push(filePath);
-                    } else if (corpusMarker === 'obs' || importerType === 'obs-story') {
+                    } else if (corpusMarker === 'obs' || importerType === 'obs') {
                         // OBS (Open Bible Stories) markdown files use the OBS exporter
                         // Fallback: also detect by importerType for older files
                         filesByType['obs'] = filesByType['obs'] || [];

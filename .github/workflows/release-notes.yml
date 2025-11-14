@@ -150,7 +150,7 @@ jobs:
                   # Create a concise prompt to amalgamate and summarize, staying within Discord limits
                   {
                     printf '%s\n' "You are a user-friendly release-notes summarizer for Codex Editor."
-                    printf '%s\n' "Goal: Succinctly summarize what changed for users in v${VERSION}. Barely mention or omit backend-only or implementation details unless they directly affect user experience. Simpler is better."
+                    printf '%s\n' "Goal: Succinctly summarize what changed for users in v${VERSION}. User facing changes are more important than the nitty gritty details of backend implementation tweaks. Simpler is better, but focus on specifics."
                     printf '%s\n' ""
                     printf '%s\n' "Output format (exactly):"
                     printf '%s\n' ""
