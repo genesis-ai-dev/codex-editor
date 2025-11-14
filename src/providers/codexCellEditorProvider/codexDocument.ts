@@ -440,7 +440,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
                     cellId
                 ) as { cellId: string; content: string; } | null;
-                
+
                 if (result && result.content && result.content.replace(/<[^>]*>/g, "").trim() !== "") {
                     return true;
                 }
@@ -642,14 +642,25 @@ export class CodexCellDocument implements vscode.CustomDocument {
         if (!cell) {
             return undefined;
         }
+        const cellMetadata = cell.metadata || {};
         return {
-            cellMarkers: [cell.metadata.id],
+            cellMarkers: [cellMetadata.id],
             cellContent: cell.value,
-            cellType: cell.metadata.type,
-            editHistory: cell.metadata.edits || [],
-            timestamps: cell.metadata.data,
-            cellLabel: cell.metadata.cellLabel,
-            attachments: cell.metadata.attachments || {},
+            cellType: cellMetadata.type,
+            editHistory: cellMetadata.edits || [],
+            timestamps: cellMetadata.data,
+            cellLabel: cellMetadata.cellLabel,
+            attachments: cellMetadata.attachments || {},
+            metadata: {
+                selectedAudioId: cellMetadata.selectedAudioId,
+                selectionTimestamp: cellMetadata.selectionTimestamp,
+                // Add book/chapter/verse for new format support
+                book: cellMetadata.book,
+                chapter: cellMetadata.chapter,
+                verse: cellMetadata.verse,
+                bookCode: cellMetadata.bookCode,
+                bookName: cellMetadata.bookName,
+            },
         };
     }
 

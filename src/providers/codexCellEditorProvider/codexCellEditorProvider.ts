@@ -1976,22 +1976,31 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     private processNotebookData(notebook: CodexNotebookAsJSONData, document?: CodexCellDocument) {
         debug("Processing notebook data", notebook);
-        const translationUnits: QuillCellContent[] = notebook.cells.map((cell) => ({
-            cellMarkers: [cell.metadata?.id],
-            cellContent: cell.value,
-            cellType: cell.metadata?.type,
-            editHistory: cell.metadata?.edits,
-            // Prefer nested data for timestamps, but fall back to legacy top-level fields if needed
-            timestamps: cell.metadata?.data,
-            cellLabel: cell.metadata?.cellLabel,
-            merged: cell.metadata?.data?.merged,
-            deleted: cell.metadata?.data?.deleted,
-            attachments: cell.metadata?.attachments,
-            metadata: {
-                selectedAudioId: cell.metadata?.selectedAudioId,
-                selectionTimestamp: cell.metadata?.selectionTimestamp,
-            },
-        }));
+        const translationUnits: QuillCellContent[] = notebook.cells.map((cell) => {
+            const cellMetadata = cell.metadata || {};
+            return {
+                cellMarkers: [cellMetadata.id],
+                cellContent: cell.value,
+                cellType: cellMetadata.type,
+                editHistory: cellMetadata.edits,
+                // Prefer nested data for timestamps, but fall back to legacy top-level fields if needed
+                timestamps: cellMetadata.data,
+                cellLabel: cellMetadata.cellLabel,
+                merged: cellMetadata.data?.merged,
+                deleted: cellMetadata.data?.deleted,
+                attachments: cellMetadata.attachments || {},
+                metadata: {
+                    selectedAudioId: cellMetadata.selectedAudioId,
+                    selectionTimestamp: cellMetadata.selectionTimestamp,
+                    // Add book/chapter/verse for new format support
+                    book: cellMetadata.book,
+                    chapter: cellMetadata.chapter,
+                    verse: cellMetadata.verse,
+                    bookCode: cellMetadata.bookCode,
+                    bookName: cellMetadata.bookName,
+                },
+            };
+        });
         debug("Translation units:", translationUnits);
 
         // Use the passed document if available, otherwise fall back to currentDocument

@@ -14,6 +14,7 @@ import {
 import { parseUsfmToJson as parseUsfmWithRegex } from './regexUsfmParser';
 import { convertUsfmInlineMarkersToHtml, usfmBlockToHtml, htmlInlineToUsfm, htmlBlockToUsfm } from './usfmHtmlMapper';
 import { validateFootnotes } from '../../utils/footnoteUtils';
+import { CodexCellTypes } from 'types/enums';
 
 // Deprecated: dynamic import of usfm-grammar. Replaced by lightweight regex parser.
 export const initializeUsfmGrammar = async () => { };
@@ -272,8 +273,10 @@ export const processUsfmContent = async (
 
     // Convert to processed cells
     const cells = usfmContent.map((item) => {
+        // Convert string type to CodexCellTypes enum
+        const cellType = item.type === 'paratext' ? 'paratext' : item.type === 'style' ? 'style' : 'text';
         return createProcessedCell(item.id, item.content, {
-            type: item.type,
+            type: cellType as CodexCellTypes,
             bookCode: item.metadata.bookCode,
             bookName: item.metadata.bookName,
             chapter: item.metadata.chapter,
@@ -281,7 +284,7 @@ export const processUsfmContent = async (
             cellLabel: item.metadata.verse !== undefined ? item.metadata.verse?.toString() : undefined,
             originalText: item.metadata.originalText,
             fileName: item.metadata.fileName,
-        });
+        } as any);
     });
 
     return {
@@ -362,12 +365,15 @@ export const createNotebookPair = (
         throw new Error('Notebook name cannot be empty');
     }
 
+    // Use fileUniqueId from metadata if provided, otherwise generate timestamp-based ID
+    const notebookId = metadata.fileUniqueId || `${importerType}-source-${Date.now()}`;
+
     const sourceNotebook: ProcessedNotebook = {
         name: baseName,
         cells,
         metadata: {
             ...metadata,
-            id: `${importerType}-source-${Date.now()}`,
+            id: notebookId,
             originalFileName: baseName,
             importerType,
             createdAt: new Date().toISOString(),
@@ -390,7 +396,7 @@ export const createNotebookPair = (
         cells: codexCells,
         metadata: {
             ...sourceNotebook.metadata,
-            id: `${importerType}-codex-${Date.now()}`,
+            id: notebookId, // Use same ID for codex notebook
         },
     };
 

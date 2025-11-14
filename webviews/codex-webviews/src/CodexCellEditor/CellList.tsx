@@ -17,6 +17,7 @@ import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import CommentsBadge from "./CommentsBadge";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { sanitizeQuillHtml } from "./utils";
+import { getChapterIdFromCellId } from "./utils/cellIdParser";
 
 export interface CellListProps {
     spellCheckResponse: SpellCheckResponse | null;
@@ -145,8 +146,8 @@ const CellList: React.FC<CellListProps> = ({
             const currentCell = workingTranslationUnits[cellIndex];
             const currentCellId = currentCell.cellMarkers[0];
 
-            // Extract chapter ID properly: "JUD 1:1" -> "JUD 1"
-            const currentChapterId = currentCellId.split(":")[0]; // Gets "JUD 1" from "JUD 1:1"
+            // Extract chapter ID properly: "JUD 1:1" -> "JUD 1" (supports both old and new formats)
+            const currentChapterId = getChapterIdFromCellId(currentCellId, currentCell.metadata);
 
             // Use fullDocumentTranslationUnits to count footnotes across the entire chapter
             // Find the current cell's index in the full document
@@ -161,7 +162,7 @@ const CellList: React.FC<CellListProps> = ({
             for (let i = 0; i < fullDocumentCellIndex; i++) {
                 const cell = fullDocumentTranslationUnits[i];
                 const cellId = cell.cellMarkers[0];
-                const cellChapterId = cellId.split(":")[0]; // Gets "JUD 1" from "JUD 1:1"
+                const cellChapterId = getChapterIdFromCellId(cellId, cell.metadata); // Gets "JUD 1" from "JUD 1:1" or from metadata
 
                 // Only count footnotes if the cell is in the same chapter
                 if (
@@ -409,26 +410,20 @@ const CellList: React.FC<CellListProps> = ({
 
             if (cellIndex === -1) return 1; // Fallback if not found
 
-            // FIXME: THIS BROKE LINE NUMBERS WHEN UPLOADING SUBTITLES. NEED TO FIX.
-            // // Extract chapter information from the current cell
-            // const currentCellMarker = cell.cellMarkers[0];
-            // const currentCellParts = currentCellMarker.split(":");
-            // if (currentCellParts.length < 2) return 1; // Invalid cell marker format
-            
-            // const currentChapterId = currentCellParts[0]; // e.g., "GEN 1"
-            // const currentVerseNumber = parseInt(currentCellParts[1]); // e.g., 1 from "GEN 1:1"
-            
-            // if (isNaN(currentVerseNumber)) return 1; // Invalid verse number
-
-            // Count non-paratext cells within the same chapter up to and including this one
+            // Count non-paratext, non-merged, non-child cells up to and including this one
+            // Child cells in old format have 3+ parts when split by ":" (e.g., "GEN 1:1:abc123")
+            // New format cells have 1 part when split by ":" (e.g., "ebible-a3f9b2c1x7-000001")
+            // Old format regular cells have 2 parts when split by ":" (e.g., "GEN 1:1")
             let visibleCellCount = 0;
             for (let i = 0; i <= cellIndex; i++) {
-                const cellIdParts = allCells[i].cellMarkers[0].split(":");
+                const cellMarker = allCells[i].cellMarkers[0];
+                const cellIdParts = cellMarker.split(":");
+                // Count if: not paratext, not merged, and not a child cell (length < 3)
+                // This works for both old format (2 parts) and new format (1 part)
                 if (
                     allCells[i].cellType !== CodexCellTypes.PARATEXT &&
-                    cellIdParts.length >= 2 &&
-                    !allCells[i].merged /* && FIXME: THIS BROKE LINE NUMBERS WHEN UPLOADING SUBTITLES. NEED TO FIX.
-                    cellIdParts[0] === currentChapterId // Only count cells from the same chapter */
+                    cellIdParts.length < 3 &&
+                    !allCells[i].merged
                 ) {
                     visibleCellCount++;
                 }
