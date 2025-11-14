@@ -12,7 +12,6 @@ import { Button } from "../components/ui/button";
 const vscode = acquireVsCodeApi();
 
 type Visibility = "private" | "internal" | "public";
-type ProjectType = "personal" | "group";
 
 export interface GroupList {
     id: number;
@@ -24,7 +23,6 @@ export default function PublishProject() {
     const [name, setName] = useState("");
     const [description, setDescription] = useState("");
     const [visibility, setVisibility] = useState<Visibility>("private");
-    const [projectType, setProjectType] = useState<ProjectType>("personal");
     const [groups, setGroups] = useState<GroupList[]>([]);
     const [selectedGroupId, setSelectedGroupId] = useState<number | undefined>(undefined);
     const [busy, setBusy] = useState(false);
@@ -55,6 +53,7 @@ export default function PublishProject() {
 
         window.addEventListener("message", handleMessage);
         vscode.postMessage({ command: "init" });
+        vscode.postMessage({ command: "fetchGroups" });
         return () => window.removeEventListener("message", handleMessage);
     }, []);
 
@@ -72,8 +71,8 @@ export default function PublishProject() {
                 name,
                 description: description || undefined,
                 visibility,
-                projectType,
-                groupId: projectType === "group" ? selectedGroupId : undefined,
+                projectType: "group",
+                groupId: selectedGroupId,
             },
         });
     };
@@ -98,8 +97,8 @@ export default function PublishProject() {
         ));
     };
 
-    const hasGroup = projectType === "group" && selectedGroupId !== undefined;
-    const disableOnCreateButton = !canCreate || busy || (projectType === "group" && !hasGroup);
+    const hasGroup = selectedGroupId !== undefined;
+    const disableOnCreateButton = !canCreate || busy || !hasGroup;
 
     return (
         <div className="min-h-screen bg-[var(--vscode-editor-background)] text-[var(--vscode-foreground)]">
@@ -185,64 +184,34 @@ export default function PublishProject() {
                         </div>
                     </div>
 
-                    <div className="space-y-2">
-                        <span className="text-sm text-[var(--vscode-descriptionForeground)]">
-                            Project type
-                        </span>
-                        <div className="flex items-center gap-4">
-                            <label className="inline-flex items-center gap-2 text-base">
-                                <input
-                                    type="radio"
-                                    name="ptype"
-                                    value="personal"
-                                    checked={projectType === "personal"}
-                                    onChange={() => setProjectType("personal")}
-                                />
-                                Personal
-                            </label>
-                            <label className="inline-flex items-center gap-2 text-base">
-                                <input
-                                    type="radio"
-                                    name="ptype"
-                                    value="group"
-                                    checked={projectType === "group"}
-                                    onChange={() => setProjectType("group")}
-                                />
+                    <div className="flex items-end gap-3">
+                        <div className="flex-1 space-y-1">
+                            <label
+                                className="text-sm text-[var(--vscode-descriptionForeground)]"
+                                htmlFor="group"
+                            >
                                 Group
                             </label>
-                        </div>
-                    </div>
-
-                    {projectType === "group" && (
-                        <div className="flex items-end gap-3">
-                            <div className="flex-1 space-y-1">
-                                <label
-                                    className="text-sm text-[var(--vscode-descriptionForeground)]"
-                                    htmlFor="group"
-                                >
-                                    Group
-                                </label>
-                                <Select
-                                    value={selectedGroupId?.toString() ?? ""}
-                                    onValueChange={(value) => setSelectedGroupId(Number(value))}
-                                >
-                                    <SelectTrigger className="w-full rounded-md px-2 py-1 text-base focus-visible:ring-0 focus-visible:ring-offset-0 outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]">
-                                        <SelectValue placeholder="Select a group" />
-                                    </SelectTrigger>
-                                    <SelectContent className="w-full rounded-md text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]">
-                                        {displayGroups()}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <Button
-                                onClick={onFetchGroups}
-                                disabled={busy}
-                                className="whitespace-nowrap rounded-md border text-sm px-2 py-1 border-[var(--vscode-button-border)] bg-[var(--vscode-editor-background)] text-[var(--vscode-foreground)] disabled:opacity-60"
+                            <Select
+                                value={selectedGroupId?.toString() ?? ""}
+                                onValueChange={(value) => setSelectedGroupId(Number(value))}
                             >
-                                Load Groups
-                            </Button>
+                                <SelectTrigger className="w-full rounded-md px-2 py-1 text-base focus-visible:ring-0 focus-visible:ring-offset-0 outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]">
+                                    <SelectValue placeholder="Select a group" />
+                                </SelectTrigger>
+                                <SelectContent className="w-full rounded-md text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]">
+                                    {displayGroups()}
+                                </SelectContent>
+                            </Select>
                         </div>
-                    )}
+                        <Button
+                            onClick={onFetchGroups}
+                            disabled={busy}
+                            className="whitespace-nowrap rounded-md border text-sm px-2 py-1 border-[var(--vscode-button-border)] bg-[var(--vscode-editor-background)] text-[var(--vscode-foreground)] disabled:opacity-60"
+                        >
+                            Load Groups
+                        </Button>
+                    </div>
 
                     <div className="flex justify-end gap-2 pt-2">
                         <Button

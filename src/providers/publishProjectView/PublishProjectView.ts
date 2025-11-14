@@ -68,53 +68,78 @@ export class PublishProjectView {
                         break;
                     }
                     case "createProject": {
-                        try {
-                            safePostMessageToPanel(this._panel, { type: "busy", value: true }, "PublishProject");
-                            const payload = message.payload as {
-                                name: string;
-                                description?: string;
-                                visibility: "private" | "internal" | "public";
-                                projectType: "personal" | "group";
-                                groupId?: number;
-                            };
-
-                            const result = await vscode.commands.executeCommand(
-                                "frontier.publishWorkspace",
-                                {
-                                    name: payload.name,
-                                    description: payload.description,
-                                    visibility: payload.visibility,
-                                    groupId:
-                                        payload.projectType === "group"
-                                            ? payload.groupId
-                                            : undefined,
-                                    force: true,
-                                }
-                            );
-
-                            if (result !== false) {
-                                // Notify Main Menu to refresh state so repoHasRemote updates immediately
+                        await vscode.window.withProgress(
+                            {
+                                location: vscode.ProgressLocation.Notification,
+                                title: "Publishing Project",
+                                cancellable: false,
+                            },
+                            async (progress) => {
                                 try {
-                                    const mainMenuProvider = GlobalProvider.getInstance().getProvider("codex-editor.mainMenu");
-                                    await (mainMenuProvider as any)?.receiveMessage({ command: "refreshState" });
-                                } catch (e) {
-                                    console.debug("[PublishProject] Failed to request Main Menu refresh:", e);
+                                    // Initial progress message
+                                    progress.report({
+                                        increment: 0,
+                                        message: "Publishing in progress. Please wait...",
+                                    });
+
+                                    safePostMessageToPanel(this._panel, { type: "busy", value: true }, "PublishProject");
+                                    const payload = message.payload as {
+                                        name: string;
+                                        description?: string;
+                                        visibility: "private" | "internal" | "public";
+                                        projectType: "personal" | "group";
+                                        groupId?: number;
+                                    };
+
+                                    const result = await vscode.commands.executeCommand(
+                                        "frontier.publishWorkspace",
+                                        {
+                                            name: payload.name,
+                                            description: payload.description,
+                                            visibility: payload.visibility,
+                                            groupId:
+                                                payload.projectType === "group"
+                                                    ? payload.groupId
+                                                    : undefined,
+                                            force: true,
+                                        }
+                                    );
+
+                                    if (result !== false) {
+                                        // Notify Main Menu to refresh state so repoHasRemote updates immediately
+                                        try {
+                                            const mainMenuProvider = GlobalProvider.getInstance().getProvider("codex-editor.mainMenu");
+                                            await (mainMenuProvider as any)?.receiveMessage({ command: "refreshState" });
+                                        } catch (e) {
+                                            console.debug("[PublishProject] Failed to request Main Menu refresh:", e);
+                                        }
+
+                                        // Final completion message
+                                        progress.report({
+                                            increment: 100,
+                                            message: "Project published successfully",
+                                        });
+
+                                        // Brief delay to show completion before closing
+                                        await new Promise(resolve => setTimeout(resolve, 1500));
+
+                                        vscode.window.showInformationMessage(
+                                            "Project published successfully"
+                                        );
+                                        this.dispose();
+                                    }
+                                } catch (error) {
+                                    safePostMessageToPanel(this._panel, {
+                                        type: "error",
+                                        message:
+                                            error instanceof Error ? error.message : String(error),
+                                    }, "PublishProject");
+                                } finally {
+                                    // If the panel has been disposed (e.g., after success), this will safely no-op
+                                    safePostMessageToPanel(this._panel, { type: "busy", value: false }, "PublishProject");
                                 }
-                                vscode.window.showInformationMessage(
-                                    "Project published successfully"
-                                );
-                                this.dispose();
                             }
-                        } catch (error) {
-                            safePostMessageToPanel(this._panel, {
-                                type: "error",
-                                message:
-                                    error instanceof Error ? error.message : String(error),
-                            }, "PublishProject");
-                        } finally {
-                            // If the panel has been disposed (e.g., after success), this will safely no-op
-                            safePostMessageToPanel(this._panel, { type: "busy", value: false }, "PublishProject");
-                        }
+                        );
                         break;
                     }
                     case "cancel": {
