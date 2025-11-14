@@ -48,7 +48,12 @@ export const ABTestVariantSelector: React.FC<ABTestVariantSelectorProps> = ({
     const adjustProbability = (delta: number, kind: 'more' | 'less') => {
         vscode?.postMessage({
             command: 'adjustABTestingProbability',
-            content: { delta }
+            content: { 
+                delta,
+                buttonChoice: kind,
+                testId,
+                cellId
+            }
         });
         setAdjustmentFeedback(kind);
     };
@@ -108,12 +113,12 @@ export const ABTestVariantSelector: React.FC<ABTestVariantSelectorProps> = ({
                                 <div className="ab-prob-controls" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                     {adjustmentFeedback === null ? (
                                         <>
-                                            <button className="ab-test-apply" onClick={() => adjustProbability(-0.1, 'less')} title="See fewer A/B tests">See less</button>
-                                            <button className="ab-test-apply" onClick={() => adjustProbability(+0.1, 'more')} title="See more A/B tests">See more</button>
+                                            <button className="ab-test-apply" onClick={() => adjustProbability(-0.1, 'less')} title="Prefer fewer A/B tests">See less</button>
+                                            <button className="ab-test-apply" onClick={() => adjustProbability(+0.1, 'more')} title="Prefer more A/B tests">See more</button>
                                         </>
                                     ) : (
                                         <span style={{ opacity: 0.85 }}>
-                                            You will see {adjustmentFeedback === 'more' ? 'more' : 'fewer'} of these questions in the future.
+                                            Preference recorded.
                                         </span>
                                     )}
                                 </div>

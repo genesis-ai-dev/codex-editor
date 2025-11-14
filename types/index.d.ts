@@ -752,7 +752,7 @@ export type EditorPostMessages =
             totalVariants: number;
         };
     }
-    | { command: "adjustABTestingProbability"; content: { delta: number; }; };
+    | { command: "adjustABTestingProbability"; content: { delta: number; buttonChoice?: "more" | "less"; testId?: string; cellId?: string; }; };
 
 // (revalidateMissingForCell added above in EditorPostMessages union)
 
