@@ -13,6 +13,8 @@ import {
     CellIdGlobalState,
     CustomNotebookCellData,
     CodexNotebookAsJSONData,
+    CustomCellMetaData,
+    BibleImporterType,
 } from "../../../types";
 import { CodexCellDocument } from "./codexDocument";
 import {
@@ -29,6 +31,7 @@ import { getNonce } from "../dictionaryTable/utilities/getNonce";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import path from "path";
 import { getAuthApi } from "@/extension";
+import { isBibleImporter } from "../../utils/importerTypeGuards";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -1976,8 +1979,41 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     private processNotebookData(notebook: CodexNotebookAsJSONData, document?: CodexCellDocument) {
         debug("Processing notebook data", notebook);
+        const importerType = notebook.metadata.importerType;
         const translationUnits: QuillCellContent[] = notebook.cells.map((cell) => {
             const cellMetadata = cell.metadata || {};
+            const baseMetadata = {
+                selectedAudioId: cellMetadata.selectedAudioId,
+                selectionTimestamp: cellMetadata.selectionTimestamp,
+            };
+
+            // Use type guards to safely access importer-specific fields
+            if (isBibleImporter(importerType)) {
+                // Type assertion: when importerType is a Bible importer, metadata has Bible fields
+                const bibleMetadata = cellMetadata as CustomCellMetaData<BibleImporterType>;
+                return {
+                    cellMarkers: [cellMetadata.id],
+                    cellContent: cell.value,
+                    cellType: cellMetadata.type,
+                    editHistory: cellMetadata.edits,
+                    // Prefer nested data for timestamps, but fall back to legacy top-level fields if needed
+                    timestamps: cellMetadata.data,
+                    cellLabel: cellMetadata.cellLabel,
+                    merged: cellMetadata.data?.merged,
+                    deleted: cellMetadata.data?.deleted,
+                    attachments: cellMetadata.attachments || {},
+                    metadata: {
+                        ...baseMetadata,
+                        book: bibleMetadata.book,
+                        chapter: bibleMetadata.chapter,
+                        verse: bibleMetadata.verse,
+                        bookCode: bibleMetadata.bookCode,
+                        bookName: bibleMetadata.bookName,
+                    },
+                };
+            }
+
+            // For other importer types, return base metadata only
             return {
                 cellMarkers: [cellMetadata.id],
                 cellContent: cell.value,
@@ -1989,16 +2025,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 merged: cellMetadata.data?.merged,
                 deleted: cellMetadata.data?.deleted,
                 attachments: cellMetadata.attachments || {},
-                metadata: {
-                    selectedAudioId: cellMetadata.selectedAudioId,
-                    selectionTimestamp: cellMetadata.selectionTimestamp,
-                    // Add book/chapter/verse for new format support
-                    book: cellMetadata.book,
-                    chapter: cellMetadata.chapter,
-                    verse: cellMetadata.verse,
-                    bookCode: cellMetadata.bookCode,
-                    bookName: cellMetadata.bookName,
-                },
+                metadata: baseMetadata,
             };
         });
         debug("Translation units:", translationUnits);
