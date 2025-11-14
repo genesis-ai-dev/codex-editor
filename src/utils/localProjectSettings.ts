@@ -249,3 +249,4 @@ export async function setAutoDownloadAudioOnOpen(
     await writeLocalProjectSettings(settings, workspaceFolderUri);
 }
 
+

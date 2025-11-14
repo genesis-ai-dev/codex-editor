@@ -127,6 +127,18 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                 setIsAnyApplying(!!(message as any).zipping);
             } else if ((message as any).command === "project.cleaningInProgress") {
                 setIsAnyApplying(!!(message as any).cleaning);
+            } else if ((message as any).command === "project.setMediaStrategyResult") {
+                // Update the project's media strategy in the projects list when it changes
+                const result = message as any;
+                if (result.success && result.projectPath && result.mediaStrategy) {
+                    setProjectsList(prevProjects => 
+                        prevProjects.map(p => 
+                            p.path === result.projectPath 
+                                ? { ...p, mediaStrategy: result.mediaStrategy }
+                                : p
+                        )
+                    );
+                }
             }
         };
 

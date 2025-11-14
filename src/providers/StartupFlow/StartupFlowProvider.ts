@@ -1059,13 +1059,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 }
                             }
                         }
-
-                        if (strategy === "auto-download") {
-                            const { removeFilesPointerStubs } = await import("../../utils/mediaStrategyManager");
-                            const removed = await removeFilesPointerStubs(projectPath);
-                            debugLog(`Auto-download open: removed ${removed} pointer stub(s) before opening.`);
-                        }
                     } catch (prepErr) {
+                        console.error("[StartupFlow] prepErr caught:", prepErr);
                         debugLog("Auto-download pre-open pointer cleanup skipped/failed:", prepErr);
                     }
 
@@ -1842,6 +1837,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             undefined,
                             message.mediaStrategy
                         );
+
                     } finally {
                         // Inform webview that cloning is complete
                         try {
@@ -2181,6 +2177,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     if (selection === switchButton) {
                         // Switch but do not open; mark changesApplied=false and only update strategy
                         await setMediaFilesStrategy(mediaStrategy, projectUri);
+
                         const { lastModeRun } = await getFlags(projectUri);
                         // If switching to same as last mode run, no changes needed
                         if (lastModeRun && lastModeRun === mediaStrategy) {
