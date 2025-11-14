@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.6.23",
+    "version": "0.7.0",
     "engines": {
         "node": ">=18.0.0",
         "vscode": "^1.78.0"
@@ -454,6 +454,11 @@
                         "type": "boolean",
                         "default": false,
                         "description": "Internal flag indicating the line numbers migration has completed."
+                    },
+                    "codex-project-manager.importerTypeMigrationCompleted": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Internal flag indicating the importerType migration has completed."
                     },
                     "codex-project-manager.projectName": {
                         "type": "string",
@@ -1075,6 +1080,7 @@
         "react-wordcloud": "^1.2.7",
         "sax": "^1.4.1",
         "semver": "^7.6.0",
+        "tar": "^6.2.1",
         "token.js": "^0.4.3",
         "url": "^0.11.4",
         "usfm-grammar": "^2.3.1",

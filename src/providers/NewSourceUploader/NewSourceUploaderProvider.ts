@@ -18,7 +18,8 @@ import { NotebookPreview, CustomNotebookMetadata } from "../../../types";
 import { CodexCell } from "../../utils/codexNotebookUtils";
 import { CodexCellTypes } from "../../../types/enums";
 import { importBookNamesFromXmlContent } from "../../bookNameSettings/bookNameSettings";
-import { createStandardizedFilename } from "../../utils/bookNameUtils";
+import { createStandardizedFilename, extractUsfmCodeFromFilename, getBookDisplayName } from "../../utils/bookNameUtils";
+import { CodexContentSerializer } from "../../serializer";
 import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { migrateLocalizedBooksToMetadata as migrateLocalizedBooks } from "./localizedBooksMigration/localizedBooksMigration";
@@ -320,7 +321,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
     /**
  * Converts a ProcessedNotebook to NotebookPreview format
  */
-    private convertToNotebookPreview(processedNotebook: ProcessedNotebook): NotebookPreview {
+    private async convertToNotebookPreview(processedNotebook: ProcessedNotebook): Promise<NotebookPreview> {
         const cells: CodexCell[] = processedNotebook.cells.map(processedCell => ({
             kind: vscode.NotebookCellKind.Code,
             value: processedCell.content ?? "",
@@ -353,9 +354,18 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
         // Derive fileDisplayName from originalName without the file extension
         const originalName = processedNotebook.metadata.originalFileName;
-        const fileDisplayName = originalName && typeof originalName === "string" && originalName.trim() !== ""
+        let fileDisplayName = originalName && typeof originalName === "string" && originalName.trim() !== ""
             ? path.basename(originalName.trim(), path.extname(originalName.trim()))
             : undefined;
+
+        // For biblical books (NT/OT), convert USFM codes to full names during import
+        if (fileDisplayName && (trimmedCorpusMarker === "NT" || trimmedCorpusMarker === "OT")) {
+            const usfmCode = extractUsfmCodeFromFilename(fileDisplayName);
+            if (usfmCode) {
+                // Convert USFM code to full book name
+                fileDisplayName = await getBookDisplayName(usfmCode);
+            }
+        }
 
         const metadata: CustomNotebookMetadata = {
             id: processedNotebook.metadata.id,
@@ -388,14 +398,10 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             ...(processedNotebook.metadata?.originalHash && {
                 originalHash: processedNotebook.metadata.originalHash
             }),
-            // Preserve RTF Pandoc metadata
-            ...((processedNotebook.metadata as any)?.pandocJson && {
-                pandocJson: (processedNotebook.metadata as any).pandocJson
+            ...(processedNotebook.metadata?.importerType && {
+                importerType: processedNotebook.metadata.importerType
             }),
-            ...((processedNotebook.metadata as any)?.importerType && {
-                importerType: (processedNotebook.metadata as any).importerType
-            }),
-        } as any; // Cast to any to allow custom fields
+        };
 
         return {
             name: processedNotebook.name,
@@ -467,18 +473,20 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         }
 
         // Convert ProcessedNotebooks to NotebookPreview format
-        const sourceNotebooks = message.notebookPairs.map(pair =>
-            this.convertToNotebookPreview(pair.source)
+        const sourceNotebooks = await Promise.all(
+            message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.source))
         );
-        const codexNotebooks = message.notebookPairs.map(pair => {
-            // For codex notebooks, remove the original file data to avoid duplication
-            const codexPair = { ...pair.codex };
-            if (codexPair.metadata?.originalFileData) {
-                codexPair.metadata = { ...codexPair.metadata };
-                delete codexPair.metadata.originalFileData;
-            }
-            return this.convertToNotebookPreview(codexPair);
-        });
+        const codexNotebooks = await Promise.all(
+            message.notebookPairs.map(async pair => {
+                // For codex notebooks, remove the original file data to avoid duplication
+                const codexPair = { ...pair.codex };
+                if (codexPair.metadata?.originalFileData) {
+                    codexPair.metadata = { ...codexPair.metadata };
+                    delete codexPair.metadata.originalFileData;
+                }
+                return await this.convertToNotebookPreview(codexPair);
+            })
+        );
 
         // Create the notebook pairs
         const createdFiles = await createNoteBookPair({
@@ -550,8 +558,12 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         // No conflict check - force write
 
         // 1) Convert to NotebookPreview and write notebooks
-        const sourceNotebooks = message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.source));
-        const codexNotebooks = message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.codex));
+        const sourceNotebooks = await Promise.all(
+            message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.source))
+        );
+        const codexNotebooks = await Promise.all(
+            message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.codex))
+        );
 
         const createdFiles = await createNoteBookPair({ token, sourceNotebooks, codexNotebooks });
 
@@ -1325,8 +1337,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         return getWebviewHtml(webview, this.context, {
             title: "Source File Importer",
             scriptPath: ["NewSourceUploader", "index.js"],
-            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; img-src data: https:; connect-src https: http:; media-src blob: data:;`,
             // Using default CSP which already includes webview.cspSource for media-src
+            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; img-src data: https:; connect-src https: http:; media-src blob: data:;`,
             inlineStyles: "#root { height: 100vh; width: 100vw; overflow-y: auto; }",
             customScript: "window.vscodeApi = acquireVsCodeApi();"
         });
