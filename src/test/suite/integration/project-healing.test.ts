@@ -82,7 +82,6 @@ suite("Integration: Project healing", () => {
             JSON.stringify({
                 currentMediaFilesStrategy: "auto-download",
                 lastMediaFileStrategyRun: "auto-download",
-                mediaFilesVerified: true,
             }),
             "utf8"
         );

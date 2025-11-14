@@ -17,11 +17,6 @@ export interface LocalProjectSettings {
     mediaFileStrategyApplyState?: "idle" | "pending" | "applying" | "applied" | "failed";
     /** When true, the editor will download/stream audio as soon as a cell opens */
     autoDownloadAudioOnOpen?: boolean;
-    /** 
-     * Indicates if media files folder has been verified and fixed to match current strategy.
-     * Defaults to false (or absent = false). Resets to false when switching strategies or cloning.
-     */
-    mediaFilesVerified?: boolean;
     /** When true, AI Metrics view shows detailed technical metrics instead of simple mode */
     detailedAIMetrics?: boolean;
     // Legacy keys (read and mirrored for backward compatibility)
@@ -126,7 +121,6 @@ export async function writeLocalProjectSettings(
             lastMediaFileStrategyRun: settings.lastMediaFileStrategyRun ?? settings.lastModeRun,
             mediaFileStrategyApplyState: settings.mediaFileStrategyApplyState ?? (settings as any).applyState,
             autoDownloadAudioOnOpen: settings.autoDownloadAudioOnOpen,
-            mediaFilesVerified: settings.mediaFilesVerified,
             detailedAIMetrics: settings.detailedAIMetrics,
         };
         const content = JSON.stringify(toWrite, null, 2);
@@ -236,7 +230,6 @@ export async function ensureLocalProjectSettingsExists(
         changesApplied: true,
         mediaFileStrategyApplyState: "applied",
         autoDownloadAudioOnOpen: false,
-        mediaFilesVerified: false, // Always default to false, needs verification
         ...(defaults || {}),
     };
     await writeLocalProjectSettings(def, workspaceFolderUri);
@@ -256,72 +249,4 @@ export async function setAutoDownloadAudioOnOpen(
     await writeLocalProjectSettings(settings, workspaceFolderUri);
 }
 
-/**
- * Verify and fix media files folder to match the current media strategy.
- * This ensures consistency between pointers and files directories.
- * Sets mediaFilesVerified to true once completed successfully.
- */
-export async function verifyAndFixMediaFiles(workspaceFolderUri?: vscode.Uri): Promise<void> {
-    console.log("[verifyAndFixMediaFiles] Starting verification");
-
-    try {
-        const settings = await readLocalProjectSettings(workspaceFolderUri);
-        const strategy = settings.currentMediaFilesStrategy;
-
-        console.log("[verifyAndFixMediaFiles] Current strategy:", strategy);
-        console.log("[verifyAndFixMediaFiles] Already verified:", settings.mediaFilesVerified);
-
-        // If already verified, skip
-        if (settings.mediaFilesVerified === true) {
-            console.log("[verifyAndFixMediaFiles] Already verified, skipping");
-            return;
-        }
-
-        // Get project path
-        const workspaceFolder = workspaceFolderUri || vscode.workspace.workspaceFolders?.[0]?.uri;
-        if (!workspaceFolder) {
-            console.log("[verifyAndFixMediaFiles] No workspace folder found");
-            return;
-        }
-
-        const projectPath = workspaceFolder.fsPath;
-        console.log("[verifyAndFixMediaFiles] Project path:", projectPath);
-
-        // Import the media strategy manager
-        const { replaceFilesWithPointers } = await import("./mediaStrategyManager");
-
-        // For stream-only and stream-and-save: Ensure files folder has pointers
-        if (strategy === "stream-only" || strategy === "stream-and-save") {
-            console.log("[verifyAndFixMediaFiles] Populating files folder with pointers for", strategy);
-
-            // Replace/populate files with pointers
-            const count = await replaceFilesWithPointers(projectPath);
-            console.log(`[verifyAndFixMediaFiles] Populated ${count} pointer files in files folder`);
-        }
-        // For auto-download: Files should have full media (handled by reconciliation on open)
-        else if (strategy === "auto-download") {
-            console.log("[verifyAndFixMediaFiles] Strategy is auto-download, reconciliation will handle downloads");
-        }
-
-        // Mark as verified
-        settings.mediaFilesVerified = true;
-        await writeLocalProjectSettings(settings, workspaceFolderUri);
-        console.log("[verifyAndFixMediaFiles] Verification complete and marked as verified");
-
-    } catch (error) {
-        console.error("[verifyAndFixMediaFiles] Error during verification:", error);
-        throw error;
-    }
-}
-
-/**
- * Reset media files verified flag.
- * Should be called when switching strategies or cloning.
- */
-export async function resetMediaFilesVerified(workspaceFolderUri?: vscode.Uri): Promise<void> {
-    const settings = await readLocalProjectSettings(workspaceFolderUri);
-    settings.mediaFilesVerified = false;
-    await writeLocalProjectSettings(settings, workspaceFolderUri);
-    console.log("[resetMediaFilesVerified] Reset mediaFilesVerified to false");
-}
 

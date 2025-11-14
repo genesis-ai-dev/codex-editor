@@ -1059,18 +1059,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 }
                             }
                         }
-
-                        // Verify and fix media files folder if needed
-                        // This only runs when mediaFilesVerified is false (fresh clone or after strategy switch)
-                        console.log("[StartupFlow] BEFORE verifyAndFixMediaFiles call");
-                        try {
-                            const { verifyAndFixMediaFiles } = await import("../../utils/localProjectSettings");
-                            await verifyAndFixMediaFiles(projectUri);
-                            console.log("[StartupFlow] verifyAndFixMediaFiles completed successfully");
-                        } catch (verifyErr) {
-                            console.error("[StartupFlow] verifyAndFixMediaFiles failed:", verifyErr);
-                            debugLog("Media files verification failed:", verifyErr);
-                        }
                     } catch (prepErr) {
                         console.error("[StartupFlow] prepErr caught:", prepErr);
                         debugLog("Auto-download pre-open pointer cleanup skipped/failed:", prepErr);
@@ -1834,7 +1822,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     lastMediaFileStrategyRun: message.mediaStrategy,
                                     mediaFileStrategyApplyState: "applied",
                                     autoDownloadAudioOnOpen: false,
-                                    mediaFilesVerified: false, // New project needs verification
                                 });
                                 debugLog(`Wrote localProjectSettings.json with strategy: ${message.mediaStrategy} BEFORE cloning`);
                             }
@@ -1851,18 +1838,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             message.mediaStrategy
                         );
 
-                        // After successful clone, mark media files as verified
-                        // The Frontier extension already organized files correctly during clone
-                        try {
-                            const { writeLocalProjectSettings, readLocalProjectSettings } = await import("../../utils/localProjectSettings");
-                            const settings = await readLocalProjectSettings(projectDir);
-                            settings.mediaFilesVerified = true;
-                            await writeLocalProjectSettings(settings, projectDir);
-                            debugLog(`Set mediaFilesVerified=true after successful clone with strategy: ${message.mediaStrategy}`);
-                        } catch (verifyFlagErr) {
-                            debugLog("Failed to set mediaFilesVerified after clone:", verifyFlagErr);
-                            // Non-fatal: verification will run on first open
-                        }
                     } finally {
                         // Inform webview that cloning is complete
                         try {
@@ -2203,14 +2178,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // Switch but do not open; mark changesApplied=false and only update strategy
                         await setMediaFilesStrategy(mediaStrategy, projectUri);
 
-                        // Reset verification flag when switching strategies
-                        try {
-                            const { resetMediaFilesVerified } = await import("../../utils/localProjectSettings");
-                            await resetMediaFilesVerified(projectUri);
-                        } catch (resetErr) {
-                            debugLog("Failed to reset mediaFilesVerified flag", resetErr);
-                        }
-
                         const { lastModeRun } = await getFlags(projectUri);
                         // If switching to same as last mode run, no changes needed
                         if (lastModeRun && lastModeRun === mediaStrategy) {
@@ -2256,28 +2223,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             await setLastModeRun(mediaStrategy, projectUri);
                             await setApplyState("applied", projectUri);
                         } else {
-                            // Reset verification flag when switching strategies
-                            try {
-                                const { resetMediaFilesVerified } = await import("../../utils/localProjectSettings");
-                                await resetMediaFilesVerified(projectUri);
-                            } catch (resetErr) {
-                                debugLog("Failed to reset mediaFilesVerified flag", resetErr);
-                            }
-
                             // Mark pending before kicking off apply work
                             try { await setApplyState("pending", projectUri); } catch (pendingErr) { debugLog("Failed to set applyState=pending before apply", pendingErr); }
                             await applyMediaStrategyAndRecord(projectUri, mediaStrategy);
-
-                            // Mark as verified after successful application
-                            // This prevents redundant verification when project opens
-                            try {
-                                const { writeLocalProjectSettings, readLocalProjectSettings } = await import("../../utils/localProjectSettings");
-                                const settings = await readLocalProjectSettings(projectUri);
-                                settings.mediaFilesVerified = true;
-                                await writeLocalProjectSettings(settings, projectUri);
-                            } catch (verifyFlagErr) {
-                                debugLog("Failed to set mediaFilesVerified after strategy application", verifyFlagErr);
-                            }
                         }
                     } catch (e) {
                         try {
@@ -2285,16 +2233,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             await setApplyState("pending", projectUri);
                         } catch (pendingErr) { debugLog("Failed to set applyState=pending in error path", pendingErr); }
                         await applyMediaStrategyAndRecord(projectUri, mediaStrategy);
-
-                        // Mark as verified after successful application (error path)
-                        try {
-                            const { writeLocalProjectSettings, readLocalProjectSettings } = await import("../../utils/localProjectSettings");
-                            const settings = await readLocalProjectSettings(projectUri);
-                            settings.mediaFilesVerified = true;
-                            await writeLocalProjectSettings(settings, projectUri);
-                        } catch (verifyFlagErr) {
-                            debugLog("Failed to set mediaFilesVerified after strategy application (error path)", verifyFlagErr);
-                        }
                     }
 
                     // Inform the Frontier auth extension so Git reconciliation respects the strategy
