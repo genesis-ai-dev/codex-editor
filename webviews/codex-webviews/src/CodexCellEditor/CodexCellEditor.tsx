@@ -24,6 +24,7 @@ import DuplicateCellResolver from "./DuplicateCellResolver";
 import TimelineEditor from "./TimelineEditor";
 import VideoTimelineEditor from "./VideoTimelineEditor";
 
+import { getChapterFromCellId, getChapterIdFromCellId } from "./utils/cellIdParser";
 import {
     getCellValueData,
     cellHasAudioUsingAttachments,
@@ -139,7 +140,7 @@ const CodexCellEditor: React.FC = () => {
     const playerRef = useRef<ReactPlayer>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const { setSourceCellMap } = useContext(SourceCellContext);
-    
+
     // Backtranslation inline display state
     const [showInlineBacktranslations, setShowInlineBacktranslations] = useState<boolean>(
         (window as any).initialData?.metadata?.showInlineBacktranslations || false
@@ -291,7 +292,11 @@ const CodexCellEditor: React.FC = () => {
                                 window.removeEventListener("message", onMsg);
                                 resolved = true;
                                 const config = ev.data.content;
-                                console.log(`[BatchTranscription] Received ASR config: endpoint=${config.endpoint}, hasToken=${!!config.authToken}`);
+                                console.log(
+                                    `[BatchTranscription] Received ASR config: endpoint=${
+                                        config.endpoint
+                                    }, hasToken=${!!config.authToken}`
+                                );
                                 resolve(config);
                             }
                         };
@@ -401,7 +406,9 @@ const CodexCellEditor: React.FC = () => {
                         }
 
                         // Transcribe
-                        console.log(`[BatchTranscription] Creating client for cell ${cellId}: endpoint=${wsEndpoint}, hasToken=${!!asrConfig.authToken}`);
+                        console.log(
+                            `[BatchTranscription] Creating client for cell ${cellId}: endpoint=${wsEndpoint}, hasToken=${!!asrConfig.authToken}`
+                        );
                         const client = new WhisperTranscriptionClient(
                             wsEndpoint,
                             asrConfig.authToken
@@ -713,7 +720,7 @@ const CodexCellEditor: React.FC = () => {
             const cellIds = translationUnits
                 .filter((cell) => cell.cellMarkers && cell.cellMarkers.length > 0)
                 .map((cell) => cell.cellMarkers[0]);
-            
+
             if (cellIds.length > 0) {
                 vscode.postMessage({
                     command: "getBatchBacktranslations",
@@ -727,7 +734,7 @@ const CodexCellEditor: React.FC = () => {
     const toggleInlineBacktranslations = useCallback(() => {
         const newValue = !showInlineBacktranslations;
         setShowInlineBacktranslations(newValue);
-        
+
         // Update metadata in the backend
         vscode.postMessage({
             command: "updateNotebookMetadata",
@@ -757,8 +764,9 @@ const CodexCellEditor: React.FC = () => {
     useEffect(() => {
         if (highlightedCellId && scrollSyncEnabled && isSourceText) {
             const cellId = highlightedCellId;
-            const chapter = cellId?.split(" ")[1]?.split(":")[0];
-            const newChapterNumber = parseInt(chapter) || 1;
+            // Find the cell in translationUnits to get metadata
+            const cell = translationUnits.find((unit) => unit.cellMarkers[0] === cellId);
+            const newChapterNumber = getChapterFromCellId(cellId, cell?.metadata) || 1;
 
             // Check if this is a new highlight (different chapter than last highlighted)
             const isNewHighlight = newChapterNumber !== lastHighlightedChapter;
@@ -780,8 +788,11 @@ const CodexCellEditor: React.FC = () => {
             if (shouldAutoNavigate) {
                 // Get all cells for the target chapter
                 const allCellsForTargetChapter = translationUnits.filter((verse) => {
-                    const verseChapter = verse?.cellMarkers?.[0]?.split(" ")?.[1]?.split(":")[0];
-                    return verseChapter === newChapterNumber.toString();
+                    const verseChapter = getChapterFromCellId(
+                        verse?.cellMarkers?.[0] || "",
+                        verse?.metadata
+                    );
+                    return verseChapter === newChapterNumber;
                 });
 
                 // Find the index of the highlighted cell within the chapter
@@ -928,8 +939,9 @@ const CodexCellEditor: React.FC = () => {
         },
         setSpellCheckResponse: setSpellCheckResponse,
         jumpToCell: (cellId) => {
-            const chapter = cellId?.split(" ")[1]?.split(":")[0];
-            const newChapterNumber = parseInt(chapter) || 1;
+            // Find the cell in translationUnits to get metadata
+            const cell = translationUnits.find((unit) => unit.cellMarkers[0] === cellId);
+            const newChapterNumber = getChapterFromCellId(cellId, cell?.metadata) || 1;
 
             // Reset subsection index when jumping to a cell
             if (newChapterNumber !== chapterNumber) {
@@ -1095,7 +1107,15 @@ const CodexCellEditor: React.FC = () => {
 
             if (count > 1 && !allIdentical) {
                 // Show A/B selector UI
-                setAbTestState({ isActive: true, variants, cellId, testId, testName, names, abProbability });
+                setAbTestState({
+                    isActive: true,
+                    variants,
+                    cellId,
+                    testId,
+                    testName,
+                    names,
+                    abProbability,
+                });
                 return;
             }
 
@@ -1133,10 +1153,10 @@ const CodexCellEditor: React.FC = () => {
     }, []);
 
     const calculateTotalChapters = (units: QuillCellContent[]): number => {
-        const sectionSet = new Set<string>();
+        const sectionSet = new Set<number>();
         units.forEach((unit) => {
-            const sectionNumber = unit.cellMarkers[0]?.split(" ")?.[1]?.split(":")?.[0];
-            if (sectionNumber) {
+            const sectionNumber = getChapterFromCellId(unit.cellMarkers[0] || "", unit.metadata);
+            if (sectionNumber !== null) {
                 sectionSet.add(sectionNumber);
             }
         });
@@ -1150,9 +1170,12 @@ const CodexCellEditor: React.FC = () => {
         if (cellIndex === -1) return 0;
 
         // Count non-paratext, non-child cells up to and including this one
+        // Child cells in old format have 3 parts when split by ":" (e.g., "GEN 1:1:abc123")
         let lineNumber = 0;
         for (let i = 0; i <= cellIndex; i++) {
-            const cellIdParts = allUnits[i].cellMarkers[0].split(":");
+            const cellMarker = allUnits[i].cellMarkers[0];
+            const cellIdParts = cellMarker.split(":");
+            // Check if it's a child cell (old format) or if it doesn't match old format (new format is fine)
             if (allUnits[i].cellType !== CodexCellTypes.PARATEXT && cellIdParts.length < 3) {
                 lineNumber++;
             }
@@ -1166,9 +1189,8 @@ const CodexCellEditor: React.FC = () => {
         if (cell.cellType !== CodexCellTypes.PARATEXT) return false;
 
         const cellId = cell.cellMarkers[0];
-        const sectionCellIdParts = cellId?.split(" ")?.[1]?.split(":");
-        const sectionCellNumber = sectionCellIdParts?.[0];
-        return sectionCellNumber === chapterNum.toString();
+        const sectionCellNumber = getChapterFromCellId(cellId, cell.metadata);
+        return sectionCellNumber === chapterNum;
     };
 
     // Add function to get subsections for a chapter based on content cells (excluding paratext)
@@ -1176,9 +1198,8 @@ const CodexCellEditor: React.FC = () => {
         // Filter cells for the specific chapter
         const cellsForChapter = translationUnits.filter((verse) => {
             const cellId = verse?.cellMarkers?.[0];
-            const sectionCellIdParts = cellId?.split(" ")?.[1]?.split(":");
-            const sectionCellNumber = sectionCellIdParts?.[0];
-            return sectionCellNumber === chapterNum.toString();
+            const sectionCellNumber = getChapterFromCellId(cellId || "", verse?.metadata);
+            return sectionCellNumber === chapterNum;
         });
 
         if (cellsForChapter.length === 0) {
@@ -1297,9 +1318,8 @@ const CodexCellEditor: React.FC = () => {
                 if (!cellId || cellId.startsWith("paratext-") || cell.merged) {
                     return false;
                 }
-                const sectionCellIdParts = cellId.split(" ")?.[1]?.split(":");
-                const sectionCellNumber = sectionCellIdParts?.[0];
-                return sectionCellNumber === chapterNum.toString();
+                const sectionCellNumber = getChapterFromCellId(cellId, cell?.metadata);
+                return sectionCellNumber === chapterNum;
             });
 
             const totalCells = cellsForChapter.length;
@@ -1374,9 +1394,8 @@ const CodexCellEditor: React.FC = () => {
         }
 
         // For regular cells, check if they belong to the current chapter
-        const sectionCellIdParts = cellId?.split(" ")?.[1]?.split(":");
-        const sectionCellNumber = sectionCellIdParts?.[0];
-        return sectionCellNumber === chapterNumber.toString();
+        const sectionCellNumber = getChapterFromCellId(cellId || "", verse?.metadata);
+        return sectionCellNumber === chapterNumber;
     });
 
     // Get the subsections for the current chapter

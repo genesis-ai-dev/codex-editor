@@ -13,6 +13,7 @@ import {
     computeValidationStats,
     computeProgressPercents,
 } from "@sharedUtils";
+import { extractBookChapterVerse } from "./utils/cellIdParser";
 import {
     type FileStatus,
     type EditorPosition,
@@ -229,12 +230,16 @@ ChapterNavigationHeaderProps) {
 
     // Determine the display name using the map
     const getDisplayTitle = useCallback(() => {
-        const firstMarker = translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]; // e.g., "GEN 1"
-        if (!firstMarker) return "Chapter"; // Fallback title
+        const firstCell = translationUnitsForSection[0];
+        if (!firstCell?.cellMarkers?.[0]) return "Chapter"; // Fallback title
 
-        const parts = firstMarker.split(" ");
-        const bookAbbr = parts[0]; // e.g., "GEN"
-        const chapterNum = parts[1] || ""; // e.g., "1"
+        const firstMarker = firstCell.cellMarkers[0];
+        const parsed = extractBookChapterVerse(firstMarker, firstCell.metadata);
+
+        if (!parsed) return "Chapter"; // Fallback if unable to parse
+
+        const bookAbbr = parsed.book; // e.g., "GEN"
+        const chapterNum = parsed.chapter !== undefined ? String(parsed.chapter) : "";
 
         // Look up the localized name
         const localizedName = bibleBookMap?.get(bookAbbr)?.name;

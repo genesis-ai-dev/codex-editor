@@ -25,22 +25,58 @@ function formatDateForFolder(d: Date): string {
     return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
 }
 
-function parseCellIdToBookChapterVerse(cellId: string): { book: string; chapter?: number; verse?: number; } {
-    try {
-        const [book, rest] = cellId.split(" ");
-        const [chapterStr, verseStr] = (rest || "").split(":");
-        let chapter: number | undefined = chapterStr ? Number(chapterStr) : undefined;
-        let verse: number | undefined = verseStr ? Number(verseStr) : undefined;
-        if (chapter !== undefined && !Number.isFinite(chapter)) chapter = undefined;
-        if (verse !== undefined && !Number.isFinite(verse)) verse = undefined;
-        return { book: (book || "").toUpperCase(), chapter, verse };
-    } catch {
+function parseCellIdToBookChapterVerse(
+    cellId: string,
+    cellMetadata?: any
+): { book: string; chapter?: number; verse?: number; } {
+    if (!cellId) {
         return { book: "", chapter: undefined, verse: undefined };
     }
+
+    // Try old format first: "GEN 1:1" or "DocumentName 1:2"
+    try {
+        const oldFormatMatch = cellId.match(/^(.+?)\s+(\d+):(\d+)$/);
+        if (oldFormatMatch) {
+            return {
+                book: oldFormatMatch[1].trim().toUpperCase(),
+                chapter: parseInt(oldFormatMatch[2], 10),
+                verse: parseInt(oldFormatMatch[3], 10),
+            };
+        }
+    } catch {
+        // Fall through to try new format
+    }
+
+    // Try new format - check metadata for book/chapter/verse
+    if (cellMetadata) {
+        const book = cellMetadata.book || cellMetadata.bookCode || cellMetadata.bookName;
+        const chapter = cellMetadata.chapter;
+        const verse = cellMetadata.verse;
+
+        if (book) {
+            return {
+                book: typeof book === 'string' ? book.toUpperCase() : String(book).toUpperCase(),
+                chapter: typeof chapter === 'number' ? chapter : (chapter ? parseInt(String(chapter), 10) : undefined),
+                verse: typeof verse === 'number' ? verse : (verse ? parseInt(String(verse), 10) : undefined),
+            };
+        }
+    }
+
+    // Fallback: try to extract just the book from old format without chapter/verse
+    try {
+        const [book] = cellId.split(" ");
+        if (book) {
+            return { book: book.toUpperCase(), chapter: undefined, verse: undefined };
+        }
+    } catch {
+        // Ignore
+    }
+
+    return { book: "", chapter: undefined, verse: undefined };
 }
 
-function toBookChapterVerseBasename(cellId: string): string {
-    const { book, chapter, verse } = parseCellIdToBookChapterVerse(cellId);
+function toBookChapterVerseBasename(cellId: string, cellMetadata?: any): string {
+    const { book, chapter, verse } = parseCellIdToBookChapterVerse(cellId, cellMetadata);
     const safePad = (n: number | undefined) => (typeof n === "number" && Number.isFinite(n) ? String(n) : "0").padStart(3, "0");
     const chapStr = safePad(chapter);
     const verseStr = safePad(verse);

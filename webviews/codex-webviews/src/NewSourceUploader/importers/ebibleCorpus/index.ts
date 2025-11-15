@@ -6,10 +6,13 @@ import {
 } from '../../types/common';
 import {
     createProgress,
-    createStandardCellId,
     createProcessedCell,
     validateFileExtension,
 } from '../../utils/workflowHelpers';
+import {
+    generateUniqueCellId,
+    generateFileUniqueId,
+} from '../../utils/cellIdGenerator';
 
 const SUPPORTED_EXTENSIONS = ['tsv', 'csv', 'txt'];
 
@@ -72,9 +75,17 @@ const parseFile = async (
 
         onProgress?.(createProgress('Creating Cells', 'Creating notebook cells...', 80));
 
+        // Generate file unique ID once and store in notebook metadata
+        const fileUniqueId = generateFileUniqueId(file.name);
+
         // Convert verses to cells
         const cells = verses.map((verse, index) => {
-            const cellId = createStandardCellId(file.name, verse.chapter, verse.verseNumber);
+            const cellId = generateUniqueCellId({
+                importerType: 'ebible',
+                filename: file.name,
+                cellIndex: index + 1, // 1-based
+                fileUniqueId,
+            });
             const content = formatVerseContent(verse);
             return createProcessedCell(cellId, content, {
                 verseReference: verse.reference,
@@ -82,7 +93,7 @@ const parseFile = async (
                 chapter: verse.chapter,
                 verse: verse.verseNumber,
                 cellLabel: verse.verseNumber.toString(),
-            });
+            } as any);
         });
 
         // Create notebook pair manually
@@ -92,7 +103,7 @@ const parseFile = async (
             name: baseName,
             cells,
             metadata: {
-                id: `ebible-corpus-source-${Date.now()}`,
+                id: fileUniqueId,
                 originalFileName: file.name,
                 importerType: 'ebibleCorpus',
                 createdAt: new Date().toISOString(),
@@ -114,7 +125,7 @@ const parseFile = async (
             cells: codexCells,
             metadata: {
                 ...sourceNotebook.metadata,
-                id: `ebible-corpus-codex-${Date.now()}`,
+                id: fileUniqueId,
             },
         };
 
