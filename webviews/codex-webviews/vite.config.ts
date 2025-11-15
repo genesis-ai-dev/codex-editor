@@ -14,6 +14,8 @@ export default defineConfig({
             animejs: path.resolve(__dirname, "node_modules/animejs"),
             // Add quill alias
             quill: path.resolve(__dirname, "node_modules/quill"),
+            // Add types alias to match tsconfig.json paths
+            "types": path.resolve(__dirname, "../../types"),
             // Add shadcn/ui aliases
             // "@": path.resolve(__dirname, "./src"),
             // "@/components": path.resolve(__dirname, "./src/components"),
