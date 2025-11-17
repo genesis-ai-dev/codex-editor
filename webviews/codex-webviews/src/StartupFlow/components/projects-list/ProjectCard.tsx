@@ -79,7 +79,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         if (!pendingStrategy && incoming !== mediaStrategy) {
             setMediaStrategy(incoming);
         }
-    }, [project.mediaStrategy, pendingStrategy]);
+    }, [project.mediaStrategy, pendingStrategy, mediaStrategy]);
 
     const getStrategyLabel = (strategy: MediaFilesStrategy): string => {
         switch (strategy) {
