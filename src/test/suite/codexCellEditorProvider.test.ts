@@ -11,6 +11,7 @@ import { CodexCellTypes, EditType } from "../../../types/enums";
 import { CodexNotebookAsJSONData, QuillCellContent, Timestamps, FileEditHistory, TranslationPair, MinimalCellResult } from "../../../types";
 import { EditMapUtils } from "../../utils/editMapUtils";
 import { CodexContentSerializer } from "../../serializer";
+import { MetadataManager } from "../../utils/metadataManager";
 import { swallowDuplicateCommandRegistrations, createTempCodexFile, deleteIfExists, createMockExtensionContext, primeProviderWorkspaceStateForHtml, sleep } from "../testUtils";
 
 suite("CodexCellEditorProvider Test Suite", () => {
@@ -2614,6 +2615,11 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 return "Mocked response";
             });
 
+            // Stub MetadataManager.getChatSystemMessage to return custom system message
+            const customSystemMessage = "You are a helpful Bible translation assistant.";
+            const metadataManagerMod = await import("../../utils/metadataManager");
+            const getChatSystemMessageStub = sinon.stub(metadataManagerMod.MetadataManager, "getChatSystemMessage").resolves(customSystemMessage);
+
             // Stub status bar and notebook reader
             const extModule = await import("../../extension");
             const statusStub = sinon.stub(extModule as any, "getAutoCompleteStatusBarItem").returns({
@@ -2655,10 +2661,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
             // Set target language in project config
             await safeConfigUpdate("codex-project-manager", "targetLanguage", { tag: targetLanguage });
-
-            // Set custom system message
-            const customSystemMessage = "You are a helpful Bible translation assistant.";
-            await safeConfigUpdate("codex-editor-extension", "chatSystemMessage", customSystemMessage);
             await safeConfigUpdate("codex-editor-extension", "allowHtmlPredictions", false);
 
             try {
@@ -2705,6 +2707,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             } finally {
                 (vscode.commands as any).executeCommand = originalExecuteCommand;
                 callLLMStub.restore();
+                getChatSystemMessageStub.restore();
                 statusStub.restore();
                 getCellIndexStub.restore();
                 getCellIdsStub.restore();
