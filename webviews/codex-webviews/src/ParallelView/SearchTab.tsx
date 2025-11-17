@@ -692,7 +692,7 @@ function SearchTab({
                                 retainValidations={retainValidations}
                                 onReplace={
                                     onReplaceCell ||
-                                    ((cellId, retainValidations) => {
+                                    ((cellId, currentContent, retainValidations) => {
                                         vscode.postMessage({
                                             command: "replaceCell",
                                             cellId: cellId,

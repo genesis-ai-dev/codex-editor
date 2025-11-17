@@ -3293,7 +3293,7 @@ export class SQLiteIndexManager {
             .filter(token => token.length > 1); // Filter out single characters
         
         if (words.length === 0) {
-            return this.searchCompleteTranslationPairsWithValidation('', limit, returnRawContent, onlyValidated);
+            return this.searchCompleteTranslationPairsWithValidation('', limit, returnRawContent, onlyValidated, searchSourceOnly);
         }
         
         // Generate character-level n-grams (bigrams and trigrams) from each word
@@ -3349,6 +3349,16 @@ export class SQLiteIndexManager {
         const escapedQuery = query.replace(/%/g, '\\%').replace(/_/g, '\\_');
         const likePattern = `%${escapedQuery}%`;
 
+        // Enhanced FTS5 query - search source (and optionally target) content for complete pairs
+        // Use UNION to combine FTS5 MATCH results with LIKE substring matching
+        // (FTS5 MATCH can't be combined with OR in WHERE clause)
+        const ftsContentTypeFilter = searchSourceOnly ? "cells_fts.content_type = 'source'" : "(cells_fts.content_type = 'source' OR cells_fts.content_type = 'target')";
+        
+        // Build LIKE conditions - search source always, target only if searchSourceOnly is false
+        const likeConditions = searchSourceOnly 
+            ? "(c.s_content LIKE ? OR c.s_raw_content LIKE ?)"
+            : "(c.s_content LIKE ? OR c.t_content LIKE ? OR c.s_raw_content LIKE ? OR c.t_raw_content LIKE ?)";
+
         // FTS5 query with validation filtering
         // Use UNION to combine FTS5 MATCH results with LIKE substring matching
         // (FTS5 MATCH can't be combined with OR in WHERE clause)
@@ -3374,7 +3384,7 @@ export class SQLiteIndexManager {
                 LEFT JOIN files s_file ON c.s_file_id = s_file.id
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
                 WHERE cells_fts MATCH ?
-                    AND cells_fts.content_type = 'source'
+                    AND ${ftsContentTypeFilter}
                     AND c.s_content IS NOT NULL 
                     AND c.s_content != ''
                     AND c.t_content IS NOT NULL 
@@ -3393,7 +3403,7 @@ export class SQLiteIndexManager {
                 FROM cells c
                 LEFT JOIN files s_file ON c.s_file_id = s_file.id
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
-                WHERE (c.s_content LIKE ? OR c.s_raw_content LIKE ?)
+                WHERE ${likeConditions}
                     AND c.s_content IS NOT NULL 
                     AND c.s_content != ''
                     AND c.t_content IS NOT NULL 
@@ -3408,7 +3418,12 @@ export class SQLiteIndexManager {
 
         try {
             // Use both FTS5 query and LIKE pattern for substring matching
-            stmt.bind([cleanQuery, likePattern, likePattern, limit * 3]); // Get more results to account for validation filtering
+            // Bind parameters depend on searchSourceOnly
+            if (searchSourceOnly) {
+                stmt.bind([cleanQuery, likePattern, likePattern, limit * 3]); // Get more results to account for validation filtering
+            } else {
+                stmt.bind([cleanQuery, likePattern, likePattern, likePattern, likePattern, limit * 3]); // Get more results to account for validation filtering
+            }
 
             while (stmt.step()) {
                 const row = stmt.getAsObject();
