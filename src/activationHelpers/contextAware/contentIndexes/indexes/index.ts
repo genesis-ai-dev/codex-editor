@@ -870,8 +870,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     const searchScope = options?.searchScope || "both";
                     // Request more results if we need to filter by searchScope
                     const searchLimit = searchScope !== "both" ? k * 3 : k;
-                    // For UI search, search both source and target when searchScope is "both", otherwise source-only
-                    const searchSourceOnly = searchScope === "both" ? false : true;
+                    // For UI search, search source-only only when searchScope is "source"
+                    // For "target" and "both", search both source and target (then filter for target if needed)
+                    const searchSourceOnly = searchScope === "source";
                     const searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
                         query,
                         searchLimit,
