@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useActor } from "@xstate/react";
 import { LoginRegisterStep } from "./components/LoginRegisterStep";
 import { WorkspaceStep } from "./components/WorkspaceStep";
@@ -30,6 +30,14 @@ const vscode = acquireVsCodeApi();
 export const StartupFlowView: React.FC = () => {
     const [value, setValue] = useState<StartupFlowStates | null>(null);
     const [isInitializing, setIsInitializing] = useState(false);
+    
+    // Use ref to maintain current state value for the stable event listener
+    const valueRef = useRef<StartupFlowStates | null>(null);
+    
+    // Keep ref in sync with state
+    useEffect(() => {
+        valueRef.current = value;
+    }, [value]);
 
     useEffect(() => {
         // Request metadata check to determine initial state
@@ -59,7 +67,8 @@ export const StartupFlowView: React.FC = () => {
                 }
                 case "metadata.checkResponse": {
                     // Only handle metadata response if we're in the critical data state
-                    if (value === StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA) {
+                    // Use ref to access current state value in stable event listener
+                    if (valueRef.current === StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA) {
                         // Show Project Manager view
                         vscode.postMessage({ command: "project.showManager" });
                     }
@@ -148,7 +157,7 @@ export const StartupFlowView: React.FC = () => {
 
         window.addEventListener("message", messageHandler);
         return () => window.removeEventListener("message", messageHandler);
-    }, [value]);
+    }, []); // Stable listener - uses valueRef.current to access current state
 
     // Try to sync project after successful authentication
     const triggerSyncAfterAuth = (isAuthenticated: boolean) => {
