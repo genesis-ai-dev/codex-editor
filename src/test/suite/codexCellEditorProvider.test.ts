@@ -2186,6 +2186,26 @@ suite("CodexCellEditorProvider Test Suite", () => {
     });
 
     suite("LLM Completion Integration Tests", () => {
+        // Helper function to safely update workspace configuration
+        // Falls back to Global target if no workspace folder exists
+        async function safeConfigUpdate(section: string, key: string, value: any): Promise<void> {
+            const config = vscode.workspace.getConfiguration(section);
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            const target = workspaceFolder
+                ? vscode.ConfigurationTarget.Workspace
+                : vscode.ConfigurationTarget.Global;
+            try {
+                await config.update(key, value, target);
+            } catch (error: any) {
+                // If workspace update fails, try global as fallback
+                if (target === vscode.ConfigurationTarget.Workspace) {
+                    await config.update(key, value, vscode.ConfigurationTarget.Global);
+                } else {
+                    throw error;
+                }
+            }
+        }
+
         test("LLM completion integration: SQLite examples fetched and included in prompt", async function () {
             this.timeout(10000);
             const provider = new CodexCellEditorProvider(context);
@@ -2286,13 +2306,11 @@ suite("CodexCellEditorProvider Test Suite", () => {
             );
 
             // Configure workspace settings for completion config
-            const config = vscode.workspace.getConfiguration("codex-editor-extension");
-            await config.update("numberOfFewShotExamples", numberOfExamples, vscode.ConfigurationTarget.Workspace);
-            await config.update("useOnlyValidatedExamples", onlyValidated, vscode.ConfigurationTarget.Workspace);
+            await safeConfigUpdate("codex-editor-extension", "numberOfFewShotExamples", numberOfExamples);
+            await safeConfigUpdate("codex-editor-extension", "useOnlyValidatedExamples", onlyValidated);
 
             // Set target language in project config
-            const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
-            await projectConfig.update("targetLanguage", { tag: "fr" }, vscode.ConfigurationTarget.Workspace);
+            await safeConfigUpdate("codex-project-manager", "targetLanguage", { tag: "fr" });
 
             try {
                 // Send llmCompletion message from webview
@@ -2428,8 +2446,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             );
 
             // Test with onlyValidated = true
-            const config = vscode.workspace.getConfiguration("codex-editor-extension");
-            await config.update("useOnlyValidatedExamples", true, vscode.ConfigurationTarget.Workspace);
+            await safeConfigUpdate("codex-editor-extension", "useOnlyValidatedExamples", true);
 
             try {
                 onDidReceiveMessageCallback!({
@@ -2532,8 +2549,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             );
 
             // Test with onlyValidated = false
-            const config = vscode.workspace.getConfiguration("codex-editor-extension");
-            await config.update("useOnlyValidatedExamples", false, vscode.ConfigurationTarget.Workspace);
+            await safeConfigUpdate("codex-editor-extension", "useOnlyValidatedExamples", false);
 
             try {
                 onDidReceiveMessageCallback!({
@@ -2638,14 +2654,12 @@ suite("CodexCellEditorProvider Test Suite", () => {
             );
 
             // Set target language in project config
-            const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
-            await projectConfig.update("targetLanguage", { tag: targetLanguage }, vscode.ConfigurationTarget.Workspace);
+            await safeConfigUpdate("codex-project-manager", "targetLanguage", { tag: targetLanguage });
 
             // Set custom system message
-            const config = vscode.workspace.getConfiguration("codex-editor-extension");
             const customSystemMessage = "You are a helpful Bible translation assistant.";
-            await config.update("chatSystemMessage", customSystemMessage, vscode.ConfigurationTarget.Workspace);
-            await config.update("allowHtmlPredictions", false, vscode.ConfigurationTarget.Workspace);
+            await safeConfigUpdate("codex-editor-extension", "chatSystemMessage", customSystemMessage);
+            await safeConfigUpdate("codex-editor-extension", "allowHtmlPredictions", false);
 
             try {
                 onDidReceiveMessageCallback!({
@@ -2783,8 +2797,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             );
 
             // Set allowHtmlPredictions to true
-            const config = vscode.workspace.getConfiguration("codex-editor-extension");
-            await config.update("allowHtmlPredictions", true, vscode.ConfigurationTarget.Workspace);
+            await safeConfigUpdate("codex-editor-extension", "allowHtmlPredictions", true);
 
             try {
                 onDidReceiveMessageCallback!({
@@ -3073,8 +3086,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             );
 
             // Test with onlyValidated = true
-            const config = vscode.workspace.getConfiguration("codex-editor-extension");
-            await config.update("useOnlyValidatedExamples", true, vscode.ConfigurationTarget.Workspace);
+            await safeConfigUpdate("codex-editor-extension", "useOnlyValidatedExamples", true);
 
             try {
                 onDidReceiveMessageCallback!({
