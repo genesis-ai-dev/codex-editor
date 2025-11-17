@@ -1740,6 +1740,209 @@ suite("CodexCellEditorProvider Test Suite", () => {
         assert.strictEqual(activeValidators[0].username, "user-two", "Validator should be the latest edit's author");
     });
 
+    test("search/replace without retainValidations should not auto-validate", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+
+        // First, user edits and validates
+        (document as any)._author = "user-one";
+        await (document as any).updateCellContent(cellId, "Original value", EditType.USER_EDIT);
+        await (document as any).validateCellContent(cellId, true);
+
+        // Then, perform search/replace without retainValidations (simulating updateCellContentDirect with retainValidations=false)
+        await (document as any).updateCellContent(cellId, "Replaced value", EditType.USER_EDIT, true, false, true);
+
+        // Persist to disk to assert the stored structure
+        await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+        const diskData = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(document.uri)));
+        const diskCell = diskData.cells.find((c: any) => c.metadata.id === cellId);
+
+        // Latest value edit should NOT have any validations (search/replace doesn't auto-validate)
+        const latestValueEdit = [...(diskCell.metadata.edits || [])].reverse().find((e: any) => JSON.stringify(e.editMap) === JSON.stringify(["value"]));
+        assert.ok(latestValueEdit, "Should have a latest value edit after replacement");
+        assert.strictEqual(latestValueEdit.value, "Replaced value", "Value should be replaced");
+        assert.strictEqual(latestValueEdit.author, "user-one", "Author should remain the same");
+
+        const activeValidators = (latestValueEdit.validatedBy || []).filter((v: any) => v && v.isDeleted === false);
+        assert.strictEqual(activeValidators.length, 0, "Search/replace without retainValidations should not have any validations");
+    });
+
+    test("search/replace with retainValidations=true should create new validation if user had validated before", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+
+        // First, user edits and validates
+        (document as any)._author = "user-one";
+        await (document as any).updateCellContent(cellId, "Original value", EditType.USER_EDIT);
+        await (document as any).validateCellContent(cellId, true);
+
+        // Get the timestamp before replacement to verify new validation has new timestamp
+        const beforeReplaceTime = Date.now();
+        await sleep(10); // Small delay to ensure different timestamp
+
+        // Then, perform search/replace with retainValidations=true (simulating updateCellContentDirect with retainValidations=true)
+        await (document as any).updateCellContent(cellId, "Replaced value", EditType.USER_EDIT, true, true, true);
+
+        // Persist to disk to assert the stored structure
+        await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+        const diskData = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(document.uri)));
+        const diskCell = diskData.cells.find((c: any) => c.metadata.id === cellId);
+
+        // Latest value edit should have a NEW validation entry (not copied from old)
+        const latestValueEdit = [...(diskCell.metadata.edits || [])].reverse().find((e: any) => JSON.stringify(e.editMap) === JSON.stringify(["value"]));
+        assert.ok(latestValueEdit, "Should have a latest value edit after replacement");
+        assert.strictEqual(latestValueEdit.value, "Replaced value", "Value should be replaced");
+        assert.strictEqual(latestValueEdit.author, "user-one", "Author should remain the same");
+
+        const activeValidators = (latestValueEdit.validatedBy || []).filter((v: any) => v && v.isDeleted === false);
+        assert.strictEqual(activeValidators.length, 1, "Should have exactly one validation after retainValidations");
+        assert.strictEqual(activeValidators[0].username, "user-one", "Validator should be the current user");
+
+        // Verify it's a NEW validation entry (not copied) - check that timestamps are recent
+        assert.ok(activeValidators[0].creationTimestamp >= beforeReplaceTime, "Validation should have a new creation timestamp");
+        assert.ok(activeValidators[0].updatedTimestamp >= beforeReplaceTime, "Validation should have a new updated timestamp");
+        assert.strictEqual(activeValidators[0].isDeleted, false, "Validation should not be deleted");
+
+        // Verify the previous edit still has its validation (validations are not moved, new one is created)
+        // Note: The previous edit will have 2 validations: one from auto-validation when created, 
+        // and one from the explicit validateCellContent call
+        const previousValueEdit = diskCell.metadata.edits.find((e: any) =>
+            JSON.stringify(e.editMap) === JSON.stringify(["value"]) && e.value === "Original value"
+        );
+        assert.ok(previousValueEdit, "Previous edit should still exist");
+        const previousValidators = (previousValueEdit.validatedBy || []).filter((v: any) => v && v.isDeleted === false);
+        assert.ok(previousValidators.length >= 1, "Previous edit should still have its validation(s)");
+    });
+
+    test("search/replace with retainValidations=true should not validate if user had not validated before", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+
+        // First, create an edit without auto-validation (simulating a non-validated edit)
+        // We use skipAutoValidation=true to create an edit that was never validated
+        (document as any)._author = "user-one";
+        await (document as any).updateCellContent(cellId, "Original value", EditType.USER_EDIT, true, false, true);
+
+        // Verify that the edit has no active validations before replacement
+        const cellBeforeReplace = (document as any)._documentData.cells.find((c: any) => c.metadata?.id === cellId);
+        const editBeforeReplace = [...(cellBeforeReplace.metadata.edits || [])].reverse().find((e: any) =>
+            JSON.stringify(e.editMap) === JSON.stringify(["value"]) && e.value === "Original value"
+        );
+        const activeValidatorsBefore = (editBeforeReplace?.validatedBy || []).filter((v: any) => v && v.isDeleted === false);
+        assert.strictEqual(activeValidatorsBefore.length, 0, "Edit should have no active validations before replacement");
+
+        // Then, perform search/replace with retainValidations=true
+        await (document as any).updateCellContent(cellId, "Replaced value", EditType.USER_EDIT, true, true, true);
+
+        // Persist to disk to assert the stored structure
+        await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+        const diskData = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(document.uri)));
+        const diskCell = diskData.cells.find((c: any) => c.metadata.id === cellId);
+
+        // Latest value edit should NOT have any validations (user hadn't validated before)
+        const latestValueEdit = [...(diskCell.metadata.edits || [])].reverse().find((e: any) => JSON.stringify(e.editMap) === JSON.stringify(["value"]));
+        assert.ok(latestValueEdit, "Should have a latest value edit after replacement");
+        assert.strictEqual(latestValueEdit.value, "Replaced value", "Value should be replaced");
+
+        const activeValidators = (latestValueEdit.validatedBy || []).filter((v: any) => v && v.isDeleted === false);
+        assert.strictEqual(activeValidators.length, 0, "Should not have validations if user hadn't validated before");
+    });
+
+    test("search/replace with retainValidations should only retain current user's validations", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+
+        // First, user-one edits
+        (document as any)._author = "user-one";
+        await (document as any).updateCellContent(cellId, "Original value", EditType.USER_EDIT);
+        await (document as any).validateCellContent(cellId, true);
+
+        // Then, user-two also validates (simulating another user validating)
+        // We need to manually add user-two's validation to the edit
+        const cellToUpdate = (document as any)._documentData.cells.find((c: any) => c.metadata?.id === cellId);
+        const latestEdit = [...(cellToUpdate.metadata.edits || [])].reverse().find((e: any) =>
+            JSON.stringify(e.editMap) === JSON.stringify(["value"]) && e.value === "Original value"
+        );
+        if (latestEdit && latestEdit.validatedBy) {
+            latestEdit.validatedBy.push({
+                username: "user-two",
+                creationTimestamp: Date.now(),
+                updatedTimestamp: Date.now(),
+                isDeleted: false,
+            });
+        }
+
+        // Now user-one performs search/replace with retainValidations=true
+        // Should only retain user-one's validation, not user-two's
+        await (document as any).updateCellContent(cellId, "Replaced value", EditType.USER_EDIT, true, true, true);
+
+        // Persist to disk to assert the stored structure
+        await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+        const diskData = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(document.uri)));
+        const diskCell = diskData.cells.find((c: any) => c.metadata.id === cellId);
+
+        // Latest value edit should only have user-one's validation
+        const latestValueEdit = [...(diskCell.metadata.edits || [])].reverse().find((e: any) => JSON.stringify(e.editMap) === JSON.stringify(["value"]));
+        assert.ok(latestValueEdit, "Should have a latest value edit after replacement");
+
+        const activeValidators = (latestValueEdit.validatedBy || []).filter((v: any) => v && v.isDeleted === false);
+        assert.strictEqual(activeValidators.length, 1, "Should have exactly one validation (only current user's)");
+        assert.strictEqual(activeValidators[0].username, "user-one", "Should only retain current user's validation");
+    });
+
+    test("regular edits should still auto-validate with author", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+
+        // Regular edit (not search/replace) - should auto-validate
+        (document as any)._author = "user-one";
+        await (document as any).updateCellContent(cellId, "Regular edit value", EditType.USER_EDIT);
+
+        // Persist to disk to assert the stored structure
+        await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+        const diskData = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(document.uri)));
+        const diskCell = diskData.cells.find((c: any) => c.metadata.id === cellId);
+
+        // Latest value edit should have auto-validation
+        const latestValueEdit = [...(diskCell.metadata.edits || [])].reverse().find((e: any) => JSON.stringify(e.editMap) === JSON.stringify(["value"]));
+        assert.ok(latestValueEdit, "Should have a latest value edit");
+        assert.strictEqual(latestValueEdit.value, "Regular edit value", "Value should be updated");
+
+        const activeValidators = (latestValueEdit.validatedBy || []).filter((v: any) => v && v.isDeleted === false);
+        assert.strictEqual(activeValidators.length, 1, "Regular edit should auto-validate with author");
+        assert.strictEqual(activeValidators[0].username, "user-one", "Validator should be the author");
+    });
+
     test("llmCompletion with addContentToValue=true triggers indexing", async () => {
         const provider = new CodexCellEditorProvider(context);
         const document = await provider.openCustomDocument(

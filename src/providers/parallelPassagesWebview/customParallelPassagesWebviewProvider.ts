@@ -5,23 +5,30 @@ import {
 } from "../../../types";
 import { BaseWebviewProvider } from "../../globalProvider";
 import { safePostMessageToView } from "../../utils/webviewUtils";
+import { CodexCellEditorProvider } from "../codexCellEditorProvider/codexCellEditorProvider";
+import { updateWorkspaceState } from "../../utils/workspaceEventListener";
 
-async function openFileAtLocation(uri: string, cellId: string) {
+function normalizeUri(uri: string): string {
+    if (!uri) return "";
     try {
-        const parsedUri = vscode.Uri.parse(uri);
-        const stringUri = parsedUri.toString();
-        // This is a quick fix to open the correct uri.
-        if (stringUri.includes(".codex") || stringUri.includes(".source")) {
-            await vscode.commands.executeCommand("vscode.openWith", parsedUri, "codex.cellEditor");
-            // After opening the file, we need to navigate to the specific cell
-            // This might require an additional step or command
-            // For example:
-            // await vscode.commands.executeCommand("codex.navigateToCell", cellId);
-        }
-    } catch (error) {
-        console.error(`Failed to open file: ${uri}`, error);
-        vscode.window.showErrorMessage(`Failed to open file: ${uri}`);
+        return vscode.Uri.parse(uri).toString();
+    } catch {
+        return uri;
     }
+}
+
+function isCellInSelectedFiles(pair: TranslationPair, selectedFiles: string[]): boolean {
+    if (!selectedFiles || selectedFiles.length === 0) return true;
+
+    const sourceUri = pair.sourceCell?.uri || "";
+    const targetUri = pair.targetCell?.uri || "";
+    const normalizedSource = normalizeUri(sourceUri);
+    const normalizedTarget = normalizeUri(targetUri);
+
+    return selectedFiles.some(selectedUri => {
+        const normalizedSelected = normalizeUri(selectedUri);
+        return normalizedSource === normalizedSelected || normalizedTarget === normalizedSelected;
+    });
 }
 
 
@@ -95,27 +102,105 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         }
     }
 
+    private async openFileAtLocation(uri: string, cellId: string) {
+        try {
+            const parsedUri = vscode.Uri.parse(uri);
+            const stringUri = parsedUri.toString();
+            if (stringUri.includes(".codex") || stringUri.includes(".source")) {
+                await vscode.commands.executeCommand("vscode.openWith", parsedUri, "codex.cellEditor");
+                updateWorkspaceState(this._context, {
+                    key: "cellToJumpTo",
+                    value: cellId,
+                });
+            }
+        } catch (error) {
+            console.error(`Failed to open file: ${uri}`, error);
+            vscode.window.showErrorMessage(`Failed to open file: ${uri}`);
+        }
+    }
+
+    private async getProjectFiles(): Promise<Array<{ uri: string; name: string; type: "source" | "target"; }>> {
+        try {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                return [];
+            }
+
+            const [sourceFileUris, codexFileUris] = await Promise.all([
+                vscode.workspace.findFiles(".project/sourceTexts/*.source"),
+                vscode.workspace.findFiles("files/target/*.codex")
+            ]);
+
+            const files: Array<{ uri: string; name: string; type: "source" | "target"; }> = [];
+
+            // Add source files
+            for (const uri of sourceFileUris) {
+                const fileName = uri.path.split('/').pop()?.replace('.source', '') || 'Unknown';
+                files.push({
+                    uri: uri.toString(),
+                    name: fileName,
+                    type: "source"
+                });
+            }
+
+            // Add target files
+            for (const uri of codexFileUris) {
+                const fileName = uri.path.split('/').pop()?.replace('.codex', '') || 'Unknown';
+                files.push({
+                    uri: uri.toString(),
+                    name: fileName,
+                    type: "target"
+                });
+            }
+
+            return files.sort((a, b) => a.name.localeCompare(b.name));
+        } catch (error) {
+            console.error("Error getting project files:", error);
+            return [];
+        }
+    }
+
     protected async handleMessage(message: any): Promise<void> {
         switch (message.command) {
+            case "getProjectFiles":
+                try {
+                    const files = await this.getProjectFiles();
+                    safePostMessageToView(this._view, {
+                        command: "projectFiles",
+                        data: files,
+                    });
+                } catch (error) {
+                    console.error("Error getting project files:", error);
+                }
+                break;
             case "openFileAtLocation":
-                await openFileAtLocation(message.uri, message.word);
+                await this.openFileAtLocation(message.uri, message.word);
                 break;
             case "requestPinning":
                 await this.pinCellById(message.content.cellId);
                 break;
             case "search":
                 try {
-                    const command = message.completeOnly
-                        ? "codex-editor-extension.searchParallelCells"
-                        : "codex-editor-extension.searchAllCells";
+                    const replaceMode = !!(message.replaceText && message.replaceText.trim());
+                    const searchScope = message.searchScope || "both"; // "both" | "source" | "target"
+                    // Always use searchAllCells with includeIncomplete: false to get optimized search results
+                    // This ensures we use the optimized SQLite searchCompleteTranslationPairsWithValidation method
+                    // while still supporting searchScope filtering. The completeOnly checkbox is kept for UI consistency.
+                    const command = "codex-editor-extension.searchAllCells";
 
+                    const selectedFiles = message.selectedFiles || []; // Array of file URIs
                     const results = await vscode.commands.executeCommand<TranslationPair[]>(
                         command,
                         message.query,
-                        15, // k value
-                        message.completeOnly ? false : true, // includeIncomplete for searchAllCells
+                        500, // k value - show up to 500 results
+                        false, // includeIncomplete: false - ensures optimized SQLite path is used
                         false, // showInfo
-                        { isParallelPassagesWebview: true } // options to get raw content for HTML display
+                        {
+                            isParallelPassagesWebview: true,
+                            replaceMode: replaceMode, // Pass replace mode flag
+                            searchScope: searchScope, // Pass search scope: "both" | "source" | "target"
+                            selectedFiles: selectedFiles // Pass selected file URIs for filtering
+                        }
                     );
                     if (results) {
                         safePostMessageToView(this._view, {
@@ -125,6 +210,204 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     }
                 } catch (error) {
                     console.error("Error searching cells:", error);
+                }
+                break;
+
+            case "replaceCell":
+                try {
+                    const { cellId, newContent, selectedFiles, retainValidations = false } = message;
+
+                    const translationPair = await vscode.commands.executeCommand<TranslationPair>(
+                        "codex-editor-extension.getTranslationPairFromProject",
+                        cellId,
+                        { isParallelPassagesWebview: true }
+                    );
+
+                    if (!translationPair || !translationPair.targetCell.uri) {
+                        vscode.window.showErrorMessage(`Could not find target cell for ${cellId}`);
+                        return;
+                    }
+
+                    const targetUri = translationPair.targetCell.uri.replace(".source", ".codex").replace(".project/sourceTexts/", "files/target/");
+
+                    if (!isCellInSelectedFiles(translationPair, selectedFiles)) {
+                        return;
+                    }
+
+                    const provider = CodexCellEditorProvider.getInstance();
+                    if (!provider) {
+                        vscode.window.showErrorMessage("Codex editor provider not available");
+                        return;
+                    }
+
+                    const success = await provider.updateCellContentDirect(targetUri, cellId, newContent, retainValidations);
+
+                    if (success) {
+                        // Re-index the cell to update search index
+                        const { getSQLiteIndexManager } = await import("../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager");
+                        const indexManager = getSQLiteIndexManager();
+                        if (indexManager) {
+                            // Wait for the document save to complete
+                            await new Promise(resolve => setTimeout(resolve, 200));
+                            // Index the specific file to update search results
+                            await vscode.commands.executeCommand("codex-editor-extension.indexSpecificFiles", [targetUri]);
+                            // Wait for indexing to complete
+                            await new Promise(resolve => setTimeout(resolve, 300));
+                            await indexManager.flushPendingWrites();
+                        }
+
+                        const updatedPair: TranslationPair = {
+                            ...translationPair,
+                            targetCell: {
+                                ...translationPair.targetCell,
+                                content: newContent,
+                            },
+                        };
+
+                        safePostMessageToView(this._view, {
+                            command: "cellReplaced",
+                            data: { cellId, translationPair: updatedPair, success: true, shouldReSearch: true },
+                        });
+                    } else {
+                        safePostMessageToView(this._view, {
+                            command: "cellReplaced",
+                            data: { cellId, success: false, error: "Failed to update cell content" },
+                        });
+                    }
+                } catch (error) {
+                    console.error("Error replacing cell:", error);
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    safePostMessageToView(this._view, {
+                        command: "cellReplaced",
+                        data: { cellId: message.cellId, success: false, error: errorMessage },
+                    });
+                }
+                break;
+
+            case "showErrorMessage":
+                vscode.window.showErrorMessage(message.message || "An error occurred");
+                break;
+
+            case "replaceAll":
+                try {
+                    const replacements = message.replacements || [];
+                    const selectedFiles = message.selectedFiles || [];
+                    const skippedCount = message.skippedCount || 0;
+                    const retainValidations = message.retainValidations || false;
+
+                    const provider = CodexCellEditorProvider.getInstance();
+                    if (!provider) {
+                        safePostMessageToView(this._view, {
+                            command: "replaceAllComplete",
+                            data: { successCount: 0, totalCount: replacements.length, errors: ["Codex editor provider not available"] },
+                        });
+                        return;
+                    }
+
+                    let successCount = 0;
+                    const updatedPairs: TranslationPair[] = [];
+                    const errors: Array<{ cellId: string; error: string; }> = [];
+
+                    for (const replacement of replacements) {
+                        try {
+                            const { cellId, newContent } = replacement;
+
+                            const translationPair = await vscode.commands.executeCommand<TranslationPair>(
+                                "codex-editor-extension.getTranslationPairFromProject",
+                                cellId,
+                                { isParallelPassagesWebview: true }
+                            );
+
+                            if (!translationPair || !translationPair.targetCell.uri) {
+                                errors.push({ cellId, error: "Cell not found" });
+                                continue;
+                            }
+
+                            const targetUri = translationPair.targetCell.uri.replace(".source", ".codex").replace(".project/sourceTexts/", "files/target/");
+
+                            if (!isCellInSelectedFiles(translationPair, selectedFiles)) {
+                                continue;
+                            }
+
+                            const success = await provider.updateCellContentDirect(targetUri, cellId, newContent, retainValidations);
+
+                            if (success) {
+                                successCount++;
+                                const updatedPair: TranslationPair = {
+                                    ...translationPair,
+                                    targetCell: {
+                                        ...translationPair.targetCell,
+                                        content: newContent,
+                                    },
+                                };
+                                updatedPairs.push(updatedPair);
+
+                                safePostMessageToView(this._view, {
+                                    command: "replaceAllProgress",
+                                    data: { completed: successCount, total: replacements.length },
+                                });
+                            } else {
+                                errors.push({ cellId, error: "Failed to update cell content" });
+                            }
+                        } catch (error) {
+                            const errorMessage = error instanceof Error ? error.message : String(error);
+                            console.error(`Error replacing cell ${replacement.cellId}:`, error);
+                            errors.push({ cellId: replacement.cellId, error: errorMessage });
+                        }
+                    }
+
+                    // Re-index all modified files and flush writes after all replacements
+                    const { getSQLiteIndexManager } = await import("../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager");
+                    const indexManager = getSQLiteIndexManager();
+                    if (indexManager) {
+                        // Collect unique target URIs that were modified
+                        const modifiedUris = new Set<string>();
+                        for (const replacement of replacements) {
+                            try {
+                                const translationPair = await vscode.commands.executeCommand<TranslationPair>(
+                                    "codex-editor-extension.getTranslationPairFromProject",
+                                    replacement.cellId,
+                                    { isParallelPassagesWebview: true }
+                                );
+                                if (translationPair?.targetCell.uri) {
+                                    const targetUri = translationPair.targetCell.uri.replace(".source", ".codex").replace(".project/sourceTexts/", "files/target/");
+                                    modifiedUris.add(targetUri);
+                                }
+                            } catch (error) {
+                                // Skip if we can't get the URI
+                            }
+                        }
+
+                        // Wait a bit for all saves to complete
+                        await new Promise(resolve => setTimeout(resolve, 200));
+
+                        // Re-index all modified files
+                        if (modifiedUris.size > 0) {
+                            await vscode.commands.executeCommand("codex-editor-extension.indexSpecificFiles", Array.from(modifiedUris));
+                            await new Promise(resolve => setTimeout(resolve, 300));
+                        }
+
+                        await indexManager.flushPendingWrites();
+                    }
+
+                    // Show info message if some matches were skipped
+                    if (skippedCount > 0) {
+                        vscode.window.showInformationMessage(
+                            `Replaced ${successCount} match(es). ${skippedCount} match(es) skipped (interrupted by HTML tags).`
+                        );
+                    }
+
+                    safePostMessageToView(this._view, {
+                        command: "replaceAllComplete",
+                        data: { successCount, totalCount: replacements.length, updatedPairs, errors },
+                    });
+                } catch (error) {
+                    console.error("Error replacing all cells:", error);
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    safePostMessageToView(this._view, {
+                        command: "replaceAllComplete",
+                        data: { successCount: 0, totalCount: 0, errors: [errorMessage] },
+                    });
                 }
                 break;
 
