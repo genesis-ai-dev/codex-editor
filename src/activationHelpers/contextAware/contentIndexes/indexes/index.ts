@@ -15,11 +15,11 @@ import {
     getTargetCellByCellId,
     getTranslationPairFromProject,
     handleTextSelection,
-    searchParallelCells,
     searchSimilarCellIds,
     findNextUntranslatedSourceCell,
     searchAllCells,
-    searchTranslationPairs,
+    stripHtml,
+    normalizeUri,
 } from "./search";
 import { SQLiteIndexManager, CURRENT_SCHEMA_VERSION } from "./sqliteIndex";
 import { SearchManager, SearchAlgorithmType } from "../searchAlgorithms";
@@ -674,16 +674,55 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                 // Use the reliable database-direct search for complete translation pairs
                 let searchResults: any[] = [];
+                const replaceMode = options?.replaceMode || false;
+                
                 if (translationPairsIndex instanceof SQLiteIndexManager) {
-                    // Use the new, reliable database-direct search with validation filtering
-                    // For searchParallelCells, we always want only complete pairs (both source and target)
-                    // and we can optionally filter by validation status if needed
-                    searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
-                        query,
-                        k,
-                        options?.isParallelPassagesWebview || false, // return raw content for webview display
-                        false // onlyValidated - for now, show all complete pairs regardless of validation
-                    );
+                    if (replaceMode) {
+                        // In replace mode, use the reliable searchCompleteTranslationPairsWithValidation
+                        // Request a large limit since we'll filter to target-only matches
+                        const searchLimit = Math.max(k * 10, 5000);
+                        const allResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
+                            query,
+                            searchLimit,
+                            options?.isParallelPassagesWebview || false,
+                            false // onlyValidated
+                        );
+                        
+                        // Filter to only pairs where target content contains the query
+                        const stripHtml = (html: string): string => {
+                            let strippedText = html.replace(/<[^>]*>/g, "");
+                            strippedText = strippedText.replace(/&nbsp; ?/g, " ");
+                            strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
+                            strippedText = strippedText.replace(/&#\d+;/g, "");
+                            strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
+                            return strippedText.toLowerCase();
+                        };
+                        
+                        const queryLower = query.toLowerCase();
+                        const filteredResults: any[] = [];
+                        for (const result of allResults) {
+                            const targetContent = result.targetContent || "";
+                            if (!targetContent.trim()) continue;
+                            
+                            const cleanTarget = stripHtml(targetContent);
+                            if (cleanTarget.includes(queryLower)) {
+                                filteredResults.push(result);
+                            }
+                            
+                            if (filteredResults.length >= k) break;
+                        }
+                        searchResults = filteredResults;
+                    } else {
+                        // Use the new, reliable database-direct search with validation filtering
+                        // For searchParallelCells, we always want only complete pairs (both source and target)
+                        // and we can optionally filter by validation status if needed
+                        searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
+                            query,
+                            k,
+                            options?.isParallelPassagesWebview || false, // return raw content for webview display
+                            false // onlyValidated - for now, show all complete pairs regardless of validation
+                        );
+                    }
                 } else {
                     console.warn("[searchParallelCells] Non-SQLite index detected, using fallback");
                     // Fallback to old method for non-SQLite indexes
@@ -828,15 +867,22 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                 // If we only want complete pairs and we have SQLite, use the more reliable method
                 if (!includeIncomplete && translationPairsIndex instanceof SQLiteIndexManager) {
+                    const searchScope = options?.searchScope || "both";
+                    // Request more results if we need to filter by searchScope
+                    const searchLimit = searchScope !== "both" ? k * 3 : k;
+                    // For UI search, search source-only only when searchScope is "source"
+                    // For "target" and "both", search both source and target (then filter for target if needed)
+                    const searchSourceOnly = searchScope === "source";
                     const searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
                         query,
-                        k,
+                        searchLimit,
                         options?.isParallelPassagesWebview || false,
-                        false // onlyValidated - show all complete pairs regardless of validation status
+                        false, // onlyValidated - show all complete pairs regardless of validation status
+                        searchSourceOnly
                     );
 
                     // Convert to TranslationPair format
-                    results = searchResults.map((result) => ({
+                    let translationPairs = searchResults.map((result) => ({
                         cellId: result.cellId || result.cell_id,
                         sourceCell: {
                             cellId: result.cellId || result.cell_id,
@@ -851,6 +897,39 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                             line: result.line || 0,
                         },
                     }));
+
+                    // Apply searchScope filtering if needed
+                    if (searchScope === "source" || searchScope === "target") {
+                        const queryLower = query.toLowerCase();
+                        translationPairs = translationPairs.filter((pair) => {
+                            if (searchScope === "source") {
+                                if (!pair.sourceCell.content) return false;
+                                const cleanSource = stripHtml(pair.sourceCell.content);
+                                return cleanSource.includes(queryLower);
+                            } else {
+                                if (!pair.targetCell.content) return false;
+                                const cleanTarget = stripHtml(pair.targetCell.content);
+                                return cleanTarget.includes(queryLower);
+                            }
+                        });
+                    }
+
+                    // Apply selectedFiles filtering if needed
+                    if (options?.selectedFiles && options.selectedFiles.length > 0) {
+                        const selectedFiles = options.selectedFiles;
+                        translationPairs = translationPairs.filter((pair) => {
+                            const sourceUri = pair.sourceCell?.uri || "";
+                            const targetUri = pair.targetCell?.uri || "";
+                            const normalizedSource = normalizeUri(sourceUri);
+                            const normalizedTarget = normalizeUri(targetUri);
+                            return selectedFiles.some((selectedUri: string) => {
+                                const normalizedSelected = normalizeUri(selectedUri);
+                                return normalizedSource === normalizedSelected || normalizedTarget === normalizedSelected;
+                            });
+                        });
+                    }
+
+                    results = translationPairs.slice(0, k);
                 } else {
                     // Use the original method for incomplete searches or non-SQLite indexes
                     results = await searchAllCells(
@@ -2142,8 +2221,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     const functionsToExpose = {
         handleTextSelection,
         searchAllCells,
-        searchParallelCells,
-        searchTranslationPairs,
     };
 
     return functionsToExpose;

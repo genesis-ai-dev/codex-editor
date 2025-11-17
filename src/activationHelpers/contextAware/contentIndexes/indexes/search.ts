@@ -1,8 +1,6 @@
 import * as vscode from "vscode";
 import { SourceCellVersions, TranslationPair } from "../../../../../types";
-import { searchTranslationPairs } from "./translationPairsIndex";
 import { SQLiteIndexManager } from "./sqliteIndex";
-import { SearchManager } from "../searchAlgorithms";
 
 type IndexType = SQLiteIndexManager;
 
@@ -10,6 +8,24 @@ const DEBUG_SEARCH = false;
 const debug = (message: string, ...args: any[]) => {
     DEBUG_SEARCH && debug(`[Search] ${message}`, ...args);
 };
+
+export function stripHtml(html: string): string {
+    let strippedText = html.replace(/<[^>]*>/g, "");
+    strippedText = strippedText.replace(/&nbsp; ?/g, " ");
+    strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
+    strippedText = strippedText.replace(/&#\d+;/g, "");
+    strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
+    return strippedText.toLowerCase();
+}
+
+export function normalizeUri(uri: string): string {
+    if (!uri) return "";
+    try {
+        return vscode.Uri.parse(uri).toString();
+    } catch {
+        return uri;
+    }
+}
 
 export function searchTargetCellsByQuery(
     translationPairsIndex: IndexType,
@@ -207,8 +223,7 @@ export async function getTranslationPairsFromSourceCellQuery(
         }
     }
 
-    // Use direct legacy method for more reliable results
-    // SearchManager algorithm switching can be re-enabled once configuration issues are resolved
+    // Use direct SQLite search method for reliable results
     debug(`[getTranslationPairsFromSourceCellQuery] Using direct SQLite search method`);
 
     // Direct SQLite search
@@ -217,7 +232,8 @@ export async function getTranslationPairsFromSourceCellQuery(
 
     if (translationPairsIndex instanceof SQLiteIndexManager) {
         debug(`[getTranslationPairsFromSourceCellQuery] Using SQLite searchCompleteTranslationPairsWithValidation with limit: ${initialLimit}`);
-        results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(query, initialLimit, false, onlyValidated);
+        // For few-shot examples, search SOURCE only (target is just returned, not searched)
+        results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(query, initialLimit, false, onlyValidated, true);
         debug(`[getTranslationPairsFromSourceCellQuery] SQLite search returned ${results.length} raw results`);
     } else {
         console.warn("[getTranslationPairsFromSourceCellQuery] Non-SQLite index detected, no fallback available");
@@ -226,7 +242,8 @@ export async function getTranslationPairsFromSourceCellQuery(
 
     if (results.length === 0 && translationPairsIndex instanceof SQLiteIndexManager) {
         debug(`[getTranslationPairsFromSourceCellQuery] No results for specific query, trying empty query fallback`);
-        results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation('', Math.max(k * 2, 10), false, onlyValidated);
+        // For few-shot examples, search SOURCE only
+        results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation('', Math.max(k * 2, 10), false, onlyValidated, true);
         debug(`[getTranslationPairsFromSourceCellQuery] Empty query fallback returned ${results.length} results`);
     }
 
@@ -288,15 +305,6 @@ export function handleTextSelection(translationPairsIndex: IndexType, selectedTe
     return searchTargetCellsByQuery(translationPairsIndex, selectedText);
 }
 
-export async function searchParallelCells(
-    translationPairsIndex: IndexType,
-    sourceTextIndex: IndexType,
-    query: string,
-    k: number = 15
-): Promise<TranslationPair[]> {
-    // Search only for complete translation pairs
-    return await searchTranslationPairs(translationPairsIndex as any, query, false, k);
-}
 
 export function searchSimilarCellIds(
     translationPairsIndex: IndexType,
@@ -378,19 +386,114 @@ export async function searchAllCells(
     includeIncomplete: boolean = true,
     options?: any
 ): Promise<TranslationPair[]> {
-    // Search translation pairs with boosted weights for complete pairs and target content
-    const translationPairs = await searchTranslationPairs(
-        translationPairsIndex as any,
-        query,
-        includeIncomplete,
-        k,
-        { completeBoost: 1.5, targetContentBoost: 1.2, ...options }
-    );
+    const searchScope = options?.searchScope || "both"; // "both" | "source" | "target"
+    const selectedFiles = options?.selectedFiles || []; // Array of file URIs to filter by
+
+    function matchesSelectedFiles(pair: TranslationPair): boolean {
+        if (!selectedFiles || selectedFiles.length === 0) return true;
+        
+        const sourceUri = pair.sourceCell?.uri || "";
+        const targetUri = pair.targetCell?.uri || "";
+        const normalizedSource = normalizeUri(sourceUri);
+        const normalizedTarget = normalizeUri(targetUri);
+        
+        return selectedFiles.some((selectedUri: string) => {
+            const normalizedSelected = normalizeUri(selectedUri);
+            return normalizedSource === normalizedSelected || normalizedTarget === normalizedSelected;
+        });
+    }
+
+    // Handle explicit search scope (source or target only)
+    if (searchScope === "source" && translationPairsIndex instanceof SQLiteIndexManager) {
+        // Search only source cells
+        const sourceCells = await translationPairsIndex.searchCells(query, "source", k * 2, options?.isParallelPassagesWebview || false);
+        
+        const results: TranslationPair[] = [];
+        for (const cell of sourceCells) {
+            const translationPair = await getTranslationPairFromProject(
+                translationPairsIndex,
+                sourceTextIndex,
+                cell.cell_id,
+                options
+            );
+            if (translationPair && translationPair.sourceCell.content) {
+                // Verify the source content actually contains the query
+                const cleanSource = stripHtml(translationPair.sourceCell.content);
+                const queryLower = query.toLowerCase();
+                if (cleanSource.includes(queryLower) && matchesSelectedFiles(translationPair)) {
+                    results.push(translationPair);
+                }
+            }
+        }
+        
+        return results.slice(0, k);
+    }
+
+    // For searchScope === "target", search directly in target cells
+    if (searchScope === "target" && translationPairsIndex instanceof SQLiteIndexManager) {
+        const targetCells = await translationPairsIndex.searchCells(query, "target", k * 2, options?.isParallelPassagesWebview || false);
+        
+        const results: TranslationPair[] = [];
+        for (const cell of targetCells) {
+            const translationPair = await getTranslationPairFromProject(
+                translationPairsIndex,
+                sourceTextIndex,
+                cell.cell_id,
+                options
+            );
+            if (translationPair && translationPair.targetCell.content) {
+                // Verify the target content actually contains the query
+                const cleanTarget = stripHtml(translationPair.targetCell.content);
+                const queryLower = query.toLowerCase();
+                if (cleanTarget.includes(queryLower) && matchesSelectedFiles(translationPair)) {
+                    results.push(translationPair);
+                }
+            }
+        }
+        
+        return results.slice(0, k);
+    }
+
+    // Normal search mode - search translation pairs with both source and target
+    // Note: searchScope is "both" here since "source" and "target" return early above
+    // Use the optimized SQLite method for complete pairs, then add incomplete pairs if needed
+    let translationPairs: TranslationPair[] = [];
+    
+    if (translationPairsIndex instanceof SQLiteIndexManager) {
+        // Use the optimized searchCompleteTranslationPairsWithValidation method
+        const searchLimit = includeIncomplete ? k * 2 : k; // Request more if we need to add incomplete pairs
+        // For UI search, search both source and target when searchScope is "both", otherwise source-only
+        const searchSourceOnly = searchScope === "both" ? false : true;
+        const searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
+            query,
+            searchLimit,
+            options?.isParallelPassagesWebview || false,
+            false, // onlyValidated - show all complete pairs
+            searchSourceOnly
+        );
+        
+        translationPairs = searchResults.map((result) => ({
+            cellId: result.cellId || result.cell_id,
+            sourceCell: {
+                cellId: result.cellId || result.cell_id,
+                content: result.sourceContent || result.content || "",
+                uri: result.uri || "",
+                line: result.line || 0,
+            },
+            targetCell: {
+                cellId: result.cellId || result.cell_id,
+                content: result.targetContent || "",
+                uri: result.uri || "",
+                line: result.line || 0,
+            },
+        }));
+    }
 
     let combinedResults: TranslationPair[] = translationPairs;
 
     if (includeIncomplete) {
         // If we're including incomplete pairs, also search source-only cells
+        // Note: searchScope is "both" here since "source" and "target" return early above
         const sourceOnlyCells = sourceTextIndex
             .search(query, {
                 fields: ["content"],
@@ -407,6 +510,7 @@ export async function searchAllCells(
                     content: result.content,
                     versions: result.versions,
                     notebookId: result.notebookId,
+                    uri: result.uri || "", // Include URI for file filtering
                 },
                 targetCell: {
                     cellId: result.cellId,
@@ -415,13 +519,24 @@ export async function searchAllCells(
                     notebookId: "",
                 },
                 score: result.score,
-            }));
+            }))
+            .filter((pair: TranslationPair) => matchesSelectedFiles(pair)) // Filter by selected files
+            // Only include source-only cells that aren't already in translationPairs
+            .filter((sourcePair: TranslationPair) => 
+                !translationPairs.some(tp => tp.cellId === sourcePair.cellId)
+            );
 
-        combinedResults = [...translationPairs, ...sourceOnlyCells];
+        combinedResults = [...combinedResults, ...sourceOnlyCells];
+    }
+
+    // Filter by selected files if specified (using helper function defined above)
+    let filteredResults = combinedResults;
+    if (selectedFiles && selectedFiles.length > 0) {
+        filteredResults = combinedResults.filter(matchesSelectedFiles);
     }
 
     // Remove duplicates based on cellId
-    const uniqueResults = combinedResults.filter(
+    const uniqueResults = filteredResults.filter(
         (v, i, a) => a.findIndex((t) => t.cellId === v.cellId) === i
     );
 
@@ -433,6 +548,4 @@ export async function searchAllCells(
     });
 
     return uniqueResults.slice(0, k);
-}
-
-export { searchTranslationPairs }; 
+} 
