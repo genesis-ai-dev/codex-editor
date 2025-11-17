@@ -72,14 +72,16 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
 
     // Sync local state with project.mediaStrategy when it changes from backend
     // This ensures the UI always reflects the persisted value from localProjectSettings.json
+    // Only sync for local projects where the backend manages state
     React.useEffect(() => {
         const incoming = project.mediaStrategy || "auto-download";
         // Always sync from props when they change, but skip if we're actively changing
-        // (pendingStrategy is set during user-initiated changes)
-        if (!pendingStrategy && incoming !== mediaStrategy) {
+        // (pendingStrategy is set during user-initiated changes, or userInitiatedStrategyChangeRef tracks in-flight changes)
+        // For cloud-only projects, don't sync from props - user selection is stored locally
+        if (!pendingStrategy && !userInitiatedStrategyChangeRef.current && incoming !== mediaStrategy && isProjectLocal) {
             setMediaStrategy(incoming);
         }
-    }, [project.mediaStrategy, pendingStrategy, mediaStrategy]);
+    }, [project.mediaStrategy, pendingStrategy, mediaStrategy, isProjectLocal]);
 
     const getStrategyLabel = (strategy: MediaFilesStrategy): string => {
         switch (strategy) {
