@@ -12,6 +12,8 @@ import {
     CustomNotebookMetadata,
     ValidationEntry,
     EditMapValueType,
+    CustomCellMetaData,
+    BibleImporterType,
 } from "../../../types";
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../utils/editMapUtils";
 import { CodexCellTypes, EditType } from "../../../types/enums";
@@ -20,6 +22,7 @@ import { randomUUID } from "crypto";
 import { CodexContentSerializer } from "../../serializer";
 import { debounce } from "lodash";
 import { getSQLiteIndexManager } from "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
+import { isBibleImporter } from "../../utils/importerTypeGuards";
 
 // Define debug function locally
 const DEBUG_MODE = false;
@@ -440,7 +443,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
                     cellId
                 ) as { cellId: string; content: string; } | null;
-                
+
                 if (result && result.content && result.content.replace(/<[^>]*>/g, "").trim() !== "") {
                     return true;
                 }
@@ -642,14 +645,46 @@ export class CodexCellDocument implements vscode.CustomDocument {
         if (!cell) {
             return undefined;
         }
+        const cellMetadata = cell.metadata || {};
+        const importerType = this._documentData.metadata?.importerType;
+        const baseMetadata = {
+            selectedAudioId: cellMetadata.selectedAudioId,
+            selectionTimestamp: cellMetadata.selectionTimestamp,
+        };
+
+        // Use type guards to safely access importer-specific fields
+        if (isBibleImporter(importerType)) {
+            // Type assertion: when importerType is a Bible importer, metadata has Bible fields
+            const bibleMetadata = cellMetadata as CustomCellMetaData<BibleImporterType>;
+            return {
+                cellMarkers: [cellMetadata.id],
+                cellContent: cell.value,
+                cellType: cellMetadata.type,
+                editHistory: cellMetadata.edits || [],
+                timestamps: cellMetadata.data,
+                cellLabel: cellMetadata.cellLabel,
+                attachments: cellMetadata.attachments || {},
+                metadata: {
+                    ...baseMetadata,
+                    book: bibleMetadata.book,
+                    chapter: bibleMetadata.chapter,
+                    verse: bibleMetadata.verse,
+                    bookCode: bibleMetadata.bookCode,
+                    bookName: bibleMetadata.bookName,
+                },
+            };
+        }
+
+        // For other importer types, return base metadata only
         return {
-            cellMarkers: [cell.metadata.id],
+            cellMarkers: [cellMetadata.id],
             cellContent: cell.value,
-            cellType: cell.metadata.type,
-            editHistory: cell.metadata.edits || [],
-            timestamps: cell.metadata.data,
-            cellLabel: cell.metadata.cellLabel,
-            attachments: cell.metadata.attachments || {},
+            cellType: cellMetadata.type,
+            editHistory: cellMetadata.edits || [],
+            timestamps: cellMetadata.data,
+            cellLabel: cellMetadata.cellLabel,
+            attachments: cellMetadata.attachments || {},
+            metadata: baseMetadata,
         };
     }
 

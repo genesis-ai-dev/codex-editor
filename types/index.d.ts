@@ -856,13 +856,6 @@ type BaseCustomCellMetaData = {
     id: string;
     type: CodexCellTypes;
     edits: EditHistory[];
-};
-
-export type BaseCustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {
-    metadata: BaseCustomCellMetaData;
-};
-
-type CustomCellMetaData = BaseCustomCellMetaData & {
     data?: CodexData;
     attachments?: {
         [key: string]: {
@@ -880,8 +873,67 @@ type CustomCellMetaData = BaseCustomCellMetaData & {
     selectionTimestamp?: number; // Timestamp when selectedAudioId was last set
 };
 
-export type CustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {
-    metadata: CustomCellMetaData;
+export type BaseCustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {
+    metadata: BaseCustomCellMetaData;
+};
+
+// Importer-specific metadata interfaces
+interface BibleImporterCellMetaData {
+    book?: string;
+    chapter?: number;
+    verse?: number;
+    bookCode?: string;
+    bookName?: string;
+}
+
+interface AudioImporterCellMetaData {
+    // Audio-specific fields can be added here in the future
+}
+
+interface SubtitleImporterCellMetaData {
+    // Subtitle-specific fields can be added here in the future
+}
+
+interface DocxImporterCellMetaData {
+    // Docx-specific fields can be added here in the future
+}
+
+interface BiblicaImporterCellMetaData {
+    // Biblica-specific fields can be added here in the future
+}
+
+interface GenericImporterCellMetaData {
+    // Generic importer - no specific fields
+}
+
+export type BibleImporterType = 'ebible' | 'usfm' | 'paratext';
+export type AudioImporterType = 'audio';
+export type SubtitleImporterType = 'subtitles';
+export type DocxImporterType = 'docx-roundtrip';
+export type BiblicaImporterType = 'biblica';
+
+// Map each importer type to its metadata interface
+type ImporterMetaDataMap = {
+    'ebible': BibleImporterCellMetaData;
+    'usfm': BibleImporterCellMetaData;
+    'paratext': BibleImporterCellMetaData;
+    'audio': AudioImporterCellMetaData;
+    'subtitles': SubtitleImporterCellMetaData;
+    'docx-roundtrip': DocxImporterCellMetaData;
+    'biblica': BiblicaImporterCellMetaData;
+    // All other importer types default to GenericImporterCellMetaData
+};
+
+// Conditional type for CustomCellMetaData based on importer type
+export type CustomCellMetaData<T extends FileImporterType = FileImporterType> =
+    BaseCustomCellMetaData & (
+        T extends keyof ImporterMetaDataMap
+        ? ImporterMetaDataMap[T]
+        : GenericImporterCellMetaData
+    );
+
+export type CustomNotebookCellData<T extends FileImporterType = FileImporterType> = Omit<vscode.NotebookCellData, 'metadata'> & {
+    metadata: CustomCellMetaData<T>;
 };
 
 export interface CustomNotebookMetadata {
@@ -923,8 +975,8 @@ type CustomNotebookDocument = vscode.NotebookDocument & {
     metadata: CustomNotebookMetadata;
 };
 
-type CodexNotebookAsJSONData = {
-    cells: CustomNotebookCellData[];
+type CodexNotebookAsJSONData<T extends FileImporterType = FileImporterType> = {
+    cells: CustomNotebookCellData<T>[];
     metadata: CustomNotebookMetadata;
 };
 
@@ -943,6 +995,14 @@ interface QuillCellContent {
     attachments?: { [attachmentId: string]: { type: string; isDeleted?: boolean; isMissing?: boolean; url?: string; validatedBy?: ValidationEntry[]; }; };
     metadata?: {
         selectedAudioId?: string;
+        selectionTimestamp?: number;
+        // Bible importer fields
+        book?: string;
+        chapter?: number;
+        verse?: number;
+        bookCode?: string;
+        bookName?: string;
+        // Allow other importer-specific fields
         [key: string]: any;
     };
 }

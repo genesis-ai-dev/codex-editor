@@ -6,13 +6,16 @@ import {
 } from '../../types/common';
 import {
     createProgress,
-    createStandardCellId,
     createProcessedCell,
 } from '../../utils/workflowHelpers';
 import {
     createNotebookPair,
 } from '../common/usfmUtils';
 import { getCorpusMarkerForBook } from '../../utils/corpusUtils';
+import {
+    generateUniqueCellId,
+    generateFileUniqueId,
+} from '../../utils/cellIdGenerator';
 
 // This is a special importer that doesn't use files but downloads from eBible repository
 const SUPPORTED_EXTENSIONS: string[] = []; // No file extensions since this is download-based
@@ -340,16 +343,24 @@ const createBookNotebooks = (
     const notebookPairs: Record<string, any> = {};
 
     for (const [bookCode, verses] of Object.entries(bookGroups)) {
+        // Generate file unique ID per book (since each book gets its own notebook pair)
+        const fileUniqueId = generateFileUniqueId(bookCode);
+
         // Create cells for this book
-        const cells = verses.map((verse) => {
-            return createProcessedCell(verse.vref, verse.text, {
-                type: 'verse',
+        const cells = verses.map((verse, index) => {
+            const cellId = generateUniqueCellId({
+                importerType: 'ebible',
+                filename: bookCode, // The USFM book code
+                cellIndex: index + 1, // 1-based
+                fileUniqueId,
+            });
+            return createProcessedCell(cellId, verse.text, {
                 book: verse.book,
                 chapter: verse.chapter,
                 verse: verse.verse,
                 cellLabel: verse.verse.toString(),
                 originalText: verse.text,
-            });
+            } as any);
         });
 
         // Use USFM book code for filename instead of full book name
@@ -357,7 +368,7 @@ const createBookNotebooks = (
         const notebookPair = createNotebookPair(
             bookCode, // Use USFM code directly for filename
             cells,
-            'ebibleCorpus',
+            'ebible',
             {
                 bookName: bookCode, // Store the USFM code as bookName for filename consistency
                 languageCode: metadata.languageCode,
@@ -365,6 +376,7 @@ const createBookNotebooks = (
                 verseCount: verses.length,
                 chapters: [...new Set(verses.map(v => v.chapter))].sort((a, b) => a - b),
                 corpusMarker: getCorpusMarkerForBook(bookCode), // Ensure corpus marker is set
+                fileUniqueId, // Store fileUniqueId in notebook metadata
             }
         );
 

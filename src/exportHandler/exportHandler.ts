@@ -140,6 +140,85 @@ function getFullBookName(bookCode: string): string {
 }
 
 /**
+ * Extracts book, chapter, and verse from a cell ID (supports both old and new formats)
+ * Old format: {documentId} {sectionId}:{cellId} (e.g., "GEN 1:1")
+ * New format: {importerType}-{fileUniqueId}-{sequentialIndex} (e.g., "ebible-a3f9b2c1x7-000001")
+ * For new format, chapter/verse info is stored in cell metadata
+ * 
+ * @param cellId - The cell ID string
+ * @param cellMetadata - Optional metadata object that may contain book/chapter/verse for new format
+ * @returns Object with book, chapter, verse, or null if unable to parse
+ */
+function extractBookChapterVerse(
+    cellId: string,
+    cellMetadata?: any
+): { book: string; chapter?: number; verse?: number; } | null {
+    if (!cellId) return null;
+
+    // Try old format first: "GEN 1:1" or "DocumentName 1:2"
+    const oldFormatMatch = cellId.match(/^(.+?)\s+(\d+):(\d+)$/);
+    if (oldFormatMatch) {
+        return {
+            book: oldFormatMatch[1].trim().toUpperCase(),
+            chapter: parseInt(oldFormatMatch[2], 10),
+            verse: parseInt(oldFormatMatch[3], 10),
+        };
+    }
+
+    // Try new format - check metadata for book/chapter/verse
+    // Check both the passed metadata object and its .data property (if it exists)
+    if (cellMetadata) {
+        // First check the passed metadata object directly
+        let book = cellMetadata.book || cellMetadata.bookCode || cellMetadata.bookName;
+        let chapter = cellMetadata.chapter;
+        let verse = cellMetadata.verse;
+
+        // If not found, and the object has a .data property, also check that
+        // This handles cases where metadata is nested in .data
+        if (!book && cellMetadata.data && typeof cellMetadata.data === 'object') {
+            book = cellMetadata.data.book || cellMetadata.data.bookCode || cellMetadata.data.bookName;
+            chapter = cellMetadata.data.chapter ?? chapter;
+            verse = cellMetadata.data.verse ?? verse;
+        }
+
+        if (book) {
+            return {
+                book: typeof book === 'string' ? book.toUpperCase() : String(book).toUpperCase(),
+                chapter: typeof chapter === 'number' ? chapter : (chapter ? parseInt(String(chapter), 10) : undefined),
+                verse: typeof verse === 'number' ? verse : (verse ? parseInt(String(verse), 10) : undefined),
+            };
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Formats a cell ID for display purposes
+ * Attempts to create a human-readable format like "GEN 1:1"
+ * 
+ * @param cellId - The cell ID string
+ * @param cellMetadata - Optional metadata object
+ * @returns Formatted string for display, or the original cellId if unable to format
+ */
+function formatCellIdForDisplay(
+    cellId: string,
+    cellMetadata?: any
+): string {
+    const parsed = extractBookChapterVerse(cellId, cellMetadata);
+    if (parsed) {
+        if (parsed.chapter !== undefined && parsed.verse !== undefined) {
+            return `${parsed.book} ${parsed.chapter}:${parsed.verse}`;
+        } else if (parsed.chapter !== undefined) {
+            return `${parsed.book} ${parsed.chapter}`;
+        } else {
+            return parsed.book;
+        }
+    }
+    return cellId;
+}
+
+/**
  * Validates USFM content for common structural issues
  * @param usfmContent The USFM content to validate
  * @returns An array of validation issues, empty if no issues found
@@ -1441,7 +1520,8 @@ async function exportCodexContentAsPlaintext(
                                 debug(`New chapter: ${currentChapter}`);
                             } else if (cellMetadata.type === "text" && cellMetadata.id) {
                                 debug(`Processing verse cell: ${cellMetadata.id}`);
-                                const verseRef = cellMetadata.id;
+                                // Format cell ID for display (supports both old and new ID formats)
+                                const verseRef = formatCellIdForDisplay(cellMetadata.id, cellMetadata);
                                 // Clean HTML from verse content
                                 const verseContent = cell.value
                                     .replace(/<\/?[^>]+(>|$)/g, "")
@@ -1729,10 +1809,10 @@ async function exportCodexContentAsUsfm(
                                 cellMetadata.type === CodexCellTypes.TEXT &&
                                 cellMetadata.id
                             ) {
-                                // Extract chapter from verse reference (e.g., "MRK 1:1" -> "1")
-                                const chapterMatch = cellMetadata.id.match(/\s(\d+):/);
-                                if (chapterMatch) {
-                                    const chapterNum = parseInt(chapterMatch[1], 10);
+                                // Extract chapter from verse reference (supports both old and new ID formats)
+                                const parsed = extractBookChapterVerse(cellMetadata.id, cellMetadata);
+                                if (parsed && parsed.chapter !== undefined) {
+                                    const chapterNum = parsed.chapter;
                                     if (!lastChapter || chapterNum > parseInt(lastChapter, 10)) {
                                         // This is a verse from a new chapter
                                         if (!Object.values(chapterCells).includes(chapterNum)) {
@@ -1783,13 +1863,12 @@ async function exportCodexContentAsUsfm(
                                 cellMetadata.type === CodexCellTypes.TEXT &&
                                 cellMetadata.id
                             ) {
-                                // Handle verse content
-                                const verseRef = cellMetadata.id;
-                                const chapterMatch = verseRef.match(/\s(\d+):/);
-                                const verseMatch = verseRef.match(/\d+$/);
+                                // Handle verse content (supports both old and new ID formats)
+                                const parsed = extractBookChapterVerse(cellMetadata.id, cellMetadata);
 
-                                if (chapterMatch && verseMatch) {
-                                    const chapterNum = parseInt(chapterMatch[1], 10);
+                                if (parsed && parsed.chapter !== undefined && parsed.verse !== undefined) {
+                                    const chapterNum = parsed.chapter;
+                                    const verseNumber = parsed.verse;
 
                                     // If we're in a new chapter, add chapter marker
                                     if (chapterNum !== currentChapter) {
@@ -1811,7 +1890,6 @@ async function exportCodexContentAsUsfm(
                                         isFirstChapter = false;
                                     }
 
-                                    const verseNumber = verseMatch[0];
                                     chapterContent += `\\v ${verseNumber} ${cellContent}\n`;
                                     verseCount++;
                                     hasVerses = true;
@@ -2099,26 +2177,26 @@ async function exportCodexContentAsHtml(
                             if (!cellContent) continue;
 
                             if (cellMetadata.type === CodexCellTypes.TEXT && cellMetadata.id) {
-                                // Extract chapter number from verse reference (e.g., "MRK 1:1" -> "1")
-                                const chapterMatch = cellMetadata.id.match(/\s(\d+):/);
-                                if (chapterMatch) {
-                                    const chapterNum = chapterMatch[1];
+                                // Extract chapter and verse (supports both old and new ID formats)
+                                const parsed = extractBookChapterVerse(cellMetadata.id, cellMetadata);
+                                if (parsed && parsed.chapter !== undefined && parsed.verse !== undefined) {
+                                    const chapterNum = parsed.chapter.toString();
+                                    const verseNumber = parsed.verse.toString();
+
                                     if (!chapters[chapterNum]) {
                                         chapters[chapterNum] = `
                                             <div class="chapter">
                                             <h2 class="chapter-title">Chapter ${chapterNum}</h2>`;
                                     }
 
-                                    const verseMatch = cellMetadata.id.match(/\d+$/);
-                                    if (verseMatch) {
-                                        const verseNumber = verseMatch[0];
-                                        chapters[chapterNum] += `
-                                            <div class="verse" x-type="verse" x-verse-ref="${cellMetadata.id}">
+                                    // Format verse reference for display
+                                    const verseRef = formatCellIdForDisplay(cellMetadata.id, cellMetadata);
+                                    chapters[chapterNum] += `
+                                            <div class="verse" x-type="verse" x-verse-ref="${verseRef}">
                                                 <span class="verse-number">${verseNumber}</span>
                                                 ${cellContent}
                                             </div>`;
-                                        totalVerses++;
-                                    }
+                                    totalVerses++;
                                 }
                             } else if (cellMetadata.type === CodexCellTypes.PARATEXT) {
                                 // Handle paratext that isn't a chapter heading
@@ -2357,13 +2435,12 @@ async function exportCodexContentAsXliff(
                             if (!cellContent) continue;
 
                             if (cellMetadata.type === CodexCellTypes.TEXT && cellMetadata.id) {
-                                // Extract chapter and verse numbers from reference (e.g., "MRK 1:1" -> "1" and "1")
-                                const chapterMatch = cellMetadata.id.match(/\s(\d+):/);
-                                const verseMatch = cellMetadata.id.match(/\d+$/);
+                                // Extract chapter and verse numbers (supports both old and new ID formats)
+                                const parsed = extractBookChapterVerse(cellMetadata.id, cellMetadata);
 
-                                if (chapterMatch && verseMatch) {
-                                    const chapterNum = chapterMatch[1];
-                                    const verseNum = verseMatch[0];
+                                if (parsed && parsed.chapter !== undefined && parsed.verse !== undefined) {
+                                    const chapterNum = parsed.chapter.toString();
+                                    const verseNum = parsed.verse.toString();
 
                                     if (!chapters[chapterNum]) {
                                         chapters[chapterNum] = { verses: {} };
