@@ -23,6 +23,7 @@ type MetadataCorpusMarkerEditMap = ["metadata", "corpusMarker"];
 type ProjectNameEditMap = ["projectName"];
 type MetaGeneratorEditMap = ["meta", "generator"];
 type MetaEditMap = ["meta"];
+type MetaFieldEditMap = ["meta", string];
 type LanguagesEditMap = ["languages"];
 type SpellcheckIsEnabledEditMap = ["spellcheckIsEnabled"];
 
@@ -131,6 +132,10 @@ export const EditMapUtils = {
         return ["meta"];
     },
 
+    metaField(field: string): readonly ["meta", string] {
+        return ["meta", field];
+    },
+
     languages(): LanguagesEditMap {
         return ["languages"];
     },
@@ -154,9 +159,17 @@ export const EditMapUtils = {
         return editMap.length >= 2 && editMap[0] === "metadata";
     },
 
-    // Get the metadata field name
+    // Check if editMap represents a meta edit
+    isMeta(editMap: readonly string[]): boolean {
+        return editMap.length >= 2 && editMap[0] === "meta";
+    },
+
+    // Get the metadata field name (works for both ["metadata", field] and ["meta", field] formats)
     getMetadataField(editMap: readonly string[]): string | null {
-        return this.isMetadata(editMap) ? editMap[1] : null;
+        if (this.isMetadata(editMap) || this.isMeta(editMap)) {
+            return editMap[1];
+        }
+        return null;
     }
 };
 
@@ -284,7 +297,7 @@ export function addMetadataEdit(
 
 /**
  * Helper function to add an edit entry to project metadata edits when updating metadata.json fields
- * For meta edits (editMap is ["meta"]), value should be a partial object with only changed fields.
+ * For meta field edits (editMap is ["meta", "fieldName"]), value is the direct field value.
  * For other edits, value is the entire object/value being tracked.
  */
 export function addProjectMetadataEdit(

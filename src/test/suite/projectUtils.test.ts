@@ -207,7 +207,7 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
             assert.strictEqual(generatorEdit!.author, "test-author", "Edit should have correct author");
         });
 
-        test("updateMetadataFile creates edit entry for meta field changes (validationCount, validationCountAudio, abbreviation)", async () => {
+        test("updateMetadataFile creates separate edit entries for meta field changes (validationCount, validationCountAudio, abbreviation)", async () => {
             // Mock configuration
             const mockConfig: MockWorkspaceConfiguration = {
                 update: sandbox.stub().resolves(),
@@ -249,17 +249,28 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
             const afterMetadata = JSON.parse(new TextDecoder().decode(afterContent));
             const edits: ProjectEditHistory[] = afterMetadata.edits || [];
 
-            const metaEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.meta()));
+            // Should have separate edits for each meta field
+            const validationCountEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metaField("validationCount")));
+            const validationCountAudioEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metaField("validationCountAudio")));
+            const abbreviationEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metaField("abbreviation")));
 
-            assert.ok(metaEdit, "Should have meta edit entry");
-            assert.deepStrictEqual(
-                metaEdit!.value,
-                { validationCount: 5, validationCountAudio: 3, abbreviation: "NEW" },
-                "Meta edit should have correct partial value"
-            );
-            assert.strictEqual(metaEdit!.type, EditType.USER_EDIT, "Edit should be USER_EDIT type");
-            assert.ok(typeof metaEdit!.timestamp === "number", "Edit should have timestamp");
-            assert.strictEqual(metaEdit!.author, "test-author", "Edit should have correct author");
+            assert.ok(validationCountEdit, "Should have validationCount edit entry");
+            assert.strictEqual(validationCountEdit!.value, 5, "ValidationCount edit should have correct value");
+            assert.strictEqual(validationCountEdit!.type, EditType.USER_EDIT, "Edit should be USER_EDIT type");
+            assert.ok(typeof validationCountEdit!.timestamp === "number", "Edit should have timestamp");
+            assert.strictEqual(validationCountEdit!.author, "test-author", "Edit should have correct author");
+
+            assert.ok(validationCountAudioEdit, "Should have validationCountAudio edit entry");
+            assert.strictEqual(validationCountAudioEdit!.value, 3, "ValidationCountAudio edit should have correct value");
+            assert.strictEqual(validationCountAudioEdit!.type, EditType.USER_EDIT, "Edit should be USER_EDIT type");
+            assert.ok(typeof validationCountAudioEdit!.timestamp === "number", "Edit should have timestamp");
+            assert.strictEqual(validationCountAudioEdit!.author, "test-author", "Edit should have correct author");
+
+            assert.ok(abbreviationEdit, "Should have abbreviation edit entry");
+            assert.strictEqual(abbreviationEdit!.value, "NEW", "Abbreviation edit should have correct value");
+            assert.strictEqual(abbreviationEdit!.type, EditType.USER_EDIT, "Edit should be USER_EDIT type");
+            assert.ok(typeof abbreviationEdit!.timestamp === "number", "Edit should have timestamp");
+            assert.strictEqual(abbreviationEdit!.author, "test-author", "Edit should have correct author");
         });
 
         test("updateMetadataFile creates edit entry for languages changes", async () => {
@@ -413,7 +424,9 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
 
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.projectName())), "Should have projectName edit");
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metaGenerator())), "Should have meta.generator edit");
-            assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.meta())), "Should have meta edit");
+            assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metaField("validationCount"))), "Should have meta.validationCount edit");
+            assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metaField("validationCountAudio"))), "Should have meta.validationCountAudio edit");
+            assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metaField("abbreviation"))), "Should have meta.abbreviation edit");
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.languages())), "Should have languages edit");
             assert.ok(
                 edits.some((e) => isEditPath(e, EditMapUtils.spellcheckIsEnabled())),
@@ -431,12 +444,14 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
                 "Generator edit should have correct value"
             );
 
-            const metaEdit = edits.find((e) => isEditPath(e, EditMapUtils.meta()));
-            assert.deepStrictEqual(
-                metaEdit!.value,
-                { validationCount: 10, validationCountAudio: 7, abbreviation: "UPD" },
-                "Meta edit should have correct value"
-            );
+            const validationCountEdit = edits.find((e) => isEditPath(e, EditMapUtils.metaField("validationCount")));
+            assert.strictEqual(validationCountEdit!.value, 10, "ValidationCount edit should have correct value");
+
+            const validationCountAudioEdit = edits.find((e) => isEditPath(e, EditMapUtils.metaField("validationCountAudio")));
+            assert.strictEqual(validationCountAudioEdit!.value, 7, "ValidationCountAudio edit should have correct value");
+
+            const abbreviationEdit = edits.find((e) => isEditPath(e, EditMapUtils.metaField("abbreviation")));
+            assert.strictEqual(abbreviationEdit!.value, "UPD", "Abbreviation edit should have correct value");
 
             const languagesEdit = edits.find((e) => isEditPath(e, EditMapUtils.languages()));
             assert.deepStrictEqual(languagesEdit!.value, ["de", "it"], "Languages edit should have correct value");

@@ -614,19 +614,15 @@ export async function updateMetadataFile() {
                 addProjectMetadataEdit(project, EditMapUtils.metaGenerator(), project.meta.generator, author);
             }
 
-            // Track validationCount, validationCountAudio, and abbreviation changes (store only changed fields)
-            const changedMetaFields: any = {};
+            // Track validationCount, validationCountAudio, and abbreviation changes (create separate edits for each field)
             if (originalValidationCount !== configValidationCount) {
-                changedMetaFields.validationCount = configValidationCount;
+                addProjectMetadataEdit(project, EditMapUtils.metaField("validationCount"), configValidationCount, author);
             }
             if (originalValidationCountAudio !== configValidationCountAudio) {
-                changedMetaFields.validationCountAudio = configValidationCountAudio;
+                addProjectMetadataEdit(project, EditMapUtils.metaField("validationCountAudio"), configValidationCountAudio, author);
             }
             if (originalAbbreviation !== newAbbreviation) {
-                changedMetaFields.abbreviation = newAbbreviation;
-            }
-            if (Object.keys(changedMetaFields).length > 0) {
-                addProjectMetadataEdit(project, EditMapUtils.meta(), changedMetaFields, author);
+                addProjectMetadataEdit(project, EditMapUtils.metaField("abbreviation"), newAbbreviation, author);
             }
 
             // Track languages changes

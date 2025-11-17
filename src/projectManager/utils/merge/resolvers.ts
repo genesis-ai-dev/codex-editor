@@ -667,30 +667,19 @@ function applyProjectEditToMetadata(metadata: any, edit: ProjectEditHistory): vo
     try {
         if (path.length === 1) {
             // Top-level field (e.g., ["projectName"], ["languages"])
-            // Or ["meta"] for meta object (value may be partial object with only changed fields)
             const field = path[0];
-            if (field === "meta") {
-                // Merge partial meta object into existing meta object
-                if (!metadata.meta) {
-                    metadata.meta = {};
-                }
-                // If value is an object, merge it into existing meta
-                if (value && typeof value === "object" && !Array.isArray(value)) {
-                    metadata.meta = { ...metadata.meta, ...value };
-                } else {
-                    // Fallback: if value is not an object, replace entire meta (backward compatibility)
-                    metadata.meta = value;
-                }
-            } else {
-                metadata[field] = value;
-            }
+            metadata[field] = value;
         } else if (path.length === 2 && path[0] === "meta") {
+            // Meta field edit (e.g., ["meta", "validationCount"], ["meta", "generator"])
+            if (!metadata.meta) {
+                metadata.meta = {};
+            }
             if (path[1] === "generator") {
                 // Set entire generator object
-                if (!metadata.meta) {
-                    metadata.meta = {};
-                }
                 metadata.meta.generator = value;
+            } else {
+                // Set specific meta field
+                metadata.meta[path[1]] = value;
             }
         }
     } catch (error) {

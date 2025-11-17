@@ -304,19 +304,37 @@ suite("editMapUtils Test Suite", () => {
             assert.deepStrictEqual(generatorEdit!.value, generatorValue, "Should have correct generator value");
         });
 
-        test("should use correct editMap for meta (partial object)", () => {
-            const metadata: { edits?: ProjectEditHistory<["meta"]>[]; } = {};
-            const metaPartial = {
-                validationCount: 5,
-                abbreviation: "NT"
-            };
-            addProjectMetadataEdit(metadata, EditMapUtils.meta(), metaPartial, "test-author");
+        test("should use correct editMap for meta field (validationCount)", () => {
+            const metadata: { edits?: ProjectEditHistory<["meta", "validationCount"]>[]; } = {};
+            addProjectMetadataEdit(metadata, EditMapUtils.metaField("validationCount"), 5, "test-author");
 
             const edits = metadata.edits!;
-            assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.meta())), "Should have meta editMap");
-            const metaEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.meta()));
-            assert.ok(metaEdit, "Should find meta edit");
-            assert.deepStrictEqual(metaEdit!.value, metaPartial, "Should have correct meta partial value");
+            assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metaField("validationCount"))), "Should have meta.validationCount editMap");
+            const validationCountEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metaField("validationCount")));
+            assert.ok(validationCountEdit, "Should find meta.validationCount edit");
+            assert.strictEqual(validationCountEdit!.value, 5, "Should have correct validationCount value");
+        });
+
+        test("should use correct editMap for meta field (validationCountAudio)", () => {
+            const metadata: { edits?: ProjectEditHistory<["meta", "validationCountAudio"]>[]; } = {};
+            addProjectMetadataEdit(metadata, EditMapUtils.metaField("validationCountAudio"), 3, "test-author");
+
+            const edits = metadata.edits!;
+            assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metaField("validationCountAudio"))), "Should have meta.validationCountAudio editMap");
+            const validationCountAudioEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metaField("validationCountAudio")));
+            assert.ok(validationCountAudioEdit, "Should find meta.validationCountAudio edit");
+            assert.strictEqual(validationCountAudioEdit!.value, 3, "Should have correct validationCountAudio value");
+        });
+
+        test("should use correct editMap for meta field (abbreviation)", () => {
+            const metadata: { edits?: ProjectEditHistory<["meta", "abbreviation"]>[]; } = {};
+            addProjectMetadataEdit(metadata, EditMapUtils.metaField("abbreviation"), "NT", "test-author");
+
+            const edits = metadata.edits!;
+            assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metaField("abbreviation"))), "Should have meta.abbreviation editMap");
+            const abbreviationEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metaField("abbreviation")));
+            assert.ok(abbreviationEdit, "Should find meta.abbreviation edit");
+            assert.strictEqual(abbreviationEdit!.value, "NT", "Should have correct abbreviation value");
         });
 
         test("should use correct editMap for languages", () => {
@@ -450,6 +468,44 @@ suite("editMapUtils Test Suite", () => {
             assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.projectName())), "Should have projectName edit");
             assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.languages())), "Should have languages edit");
             assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.spellcheckIsEnabled())), "Should have spellcheckIsEnabled edit");
+        });
+    });
+
+    suite("EditMapUtils helper functions", () => {
+        test("metaField should return correct editMap", () => {
+            const editMap = EditMapUtils.metaField("validationCount");
+            assert.deepStrictEqual(editMap, ["meta", "validationCount"], "Should return correct editMap");
+        });
+
+        test("isMeta should return true for meta field editMaps", () => {
+            assert.strictEqual(EditMapUtils.isMeta(["meta", "validationCount"]), true, "Should return true for meta field editMap");
+            assert.strictEqual(EditMapUtils.isMeta(["meta", "generator"]), true, "Should return true for meta.generator editMap");
+            assert.strictEqual(EditMapUtils.isMeta(["meta", "abbreviation"]), true, "Should return true for meta.abbreviation editMap");
+        });
+
+        test("isMeta should return false for non-meta editMaps", () => {
+            assert.strictEqual(EditMapUtils.isMeta(["metadata", "videoUrl"]), false, "Should return false for metadata editMap");
+            assert.strictEqual(EditMapUtils.isMeta(["projectName"]), false, "Should return false for projectName editMap");
+            assert.strictEqual(EditMapUtils.isMeta(["value"]), false, "Should return false for value editMap");
+            assert.strictEqual(EditMapUtils.isMeta(["meta"]), false, "Should return false for old meta editMap (length < 2)");
+        });
+
+        test("getMetadataField should return field name for metadata editMaps", () => {
+            assert.strictEqual(EditMapUtils.getMetadataField(["metadata", "videoUrl"]), "videoUrl", "Should return field name for metadata editMap");
+            assert.strictEqual(EditMapUtils.getMetadataField(["metadata", "textDirection"]), "textDirection", "Should return field name for metadata editMap");
+        });
+
+        test("getMetadataField should return field name for meta editMaps", () => {
+            assert.strictEqual(EditMapUtils.getMetadataField(["meta", "validationCount"]), "validationCount", "Should return field name for meta editMap");
+            assert.strictEqual(EditMapUtils.getMetadataField(["meta", "validationCountAudio"]), "validationCountAudio", "Should return field name for meta editMap");
+            assert.strictEqual(EditMapUtils.getMetadataField(["meta", "abbreviation"]), "abbreviation", "Should return field name for meta editMap");
+            assert.strictEqual(EditMapUtils.getMetadataField(["meta", "generator"]), "generator", "Should return field name for meta.generator editMap");
+        });
+
+        test("getMetadataField should return null for non-metadata/meta editMaps", () => {
+            assert.strictEqual(EditMapUtils.getMetadataField(["projectName"]), null, "Should return null for projectName editMap");
+            assert.strictEqual(EditMapUtils.getMetadataField(["value"]), null, "Should return null for value editMap");
+            assert.strictEqual(EditMapUtils.getMetadataField(["meta"]), null, "Should return null for old meta editMap");
         });
     });
 });

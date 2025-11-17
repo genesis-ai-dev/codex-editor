@@ -187,12 +187,12 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                             project.meta = project.meta || {};
                             project.meta.validationCount = count;
 
-                            // Track edit if validationCount changed (store only changed field)
+                            // Track edit if validationCount changed
                             if (originalValidationCount !== count) {
                                 if (!project.edits) {
                                     project.edits = [];
                                 }
-                                addProjectMetadataEdit(project, EditMapUtils.meta(), { validationCount: count }, author);
+                                addProjectMetadataEdit(project, EditMapUtils.metaField("validationCount"), count, author);
                             }
 
                             return project;
@@ -281,12 +281,12 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                             project.meta = project.meta || {};
                             project.meta.validationCountAudio = count;
 
-                            // Track edit if validationCountAudio changed (store only changed field)
+                            // Track edit if validationCountAudio changed
                             if (originalValidationCountAudio !== count) {
                                 if (!project.edits) {
                                     project.edits = [];
                                 }
-                                addProjectMetadataEdit(project, EditMapUtils.meta(), { validationCountAudio: count }, author);
+                                addProjectMetadataEdit(project, EditMapUtils.metaField("validationCountAudio"), count, author);
                             }
 
                             return project;
