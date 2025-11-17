@@ -1018,15 +1018,32 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         } catch (e) {
                             debugLog("Failed to ensure local project settings exist before open", e);
                         }
-                        const { getMediaFilesStrategy, getFlags, setLastModeRun, setChangesApplied, getApplyState, setApplyState } = await import("../../utils/localProjectSettings");
+                        const { getMediaFilesStrategy, getFlags, setLastModeRun, setChangesApplied, getApplyState, setApplyState, getSwitchStarted, readLocalProjectSettings, writeLocalProjectSettings } = await import("../../utils/localProjectSettings");
                         const strategy = await getMediaFilesStrategy(projectUri);
+
+                        // Initialize switchStarted flag if missing (one-time initialization on project open)
+                        try {
+                            const settings = await readLocalProjectSettings(projectUri);
+                            if (settings.mediaFileStrategySwitchStarted === undefined) {
+                                settings.mediaFileStrategySwitchStarted = false;
+                                await writeLocalProjectSettings(settings, projectUri);
+                                debugLog("Initialized mediaFileStrategySwitchStarted to false on project open");
+                            }
+                        } catch (initErr) {
+                            debugLog("Failed to initialize switchStarted flag", initErr);
+                        }
 
                         // If there are pending changes (either explicitly marked or
                         // inferred from a mismatch between last run and current), apply now
                         const flags = await getFlags(projectUri);
                         const applyState = await getApplyState(projectUri);
-                        if (strategy && (applyState === "pending" || applyState === "applying" || applyState === "failed" || (flags?.lastModeRun && flags.lastModeRun !== strategy))) {
+                        const switchStarted = await getSwitchStarted(projectUri);
+                        
+                        // Detect interrupted switches: if switchStarted is true, we need to restart from scratch
+                        // regardless of what lastModeRun says, because the previous switch was incomplete
+                        if (strategy && (applyState === "pending" || applyState === "applying" || applyState === "failed" || switchStarted || (flags?.lastModeRun && flags.lastModeRun !== strategy))) {
                             const { applyMediaStrategy } = await import("../../utils/mediaStrategyManager");
+                            const { setSwitchStarted } = await import("../../utils/localProjectSettings");
                             // Inform webview that we are resuming apply work for this project
                             try {
                                 this.safeSendMessage({
@@ -1038,12 +1055,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 debugLog("Failed to send applying=true notification (resume)", notifyStartErr);
                             }
                             try {
-                                // Mark applying while we resume
-                                try { await setApplyState("applying", projectUri); } catch (pendingErr) { debugLog("Failed to set applyState=applying before resume", pendingErr); }
+                                // Mark applying while we resume and set switchStarted to detect interruptions
+                                try { 
+                                    await setApplyState("applying", projectUri);
+                                    await setSwitchStarted(true, projectUri); // Mark switch as started
+                                } catch (pendingErr) { 
+                                    debugLog("Failed to set applyState=applying or switchStarted before resume", pendingErr); 
+                                }
                                 // Force the apply when lastModeRun differs to ensure on-disk state matches selection
                                 await applyMediaStrategy(projectUri, strategy, true);
                                 await setLastModeRun(strategy, projectUri);
                                 await setApplyState("applied", projectUri);
+                                await setSwitchStarted(false, projectUri); // Clear flag on successful completion
                             } catch (resumeErr) {
                                 debugLog("Failed during resume apply on open", resumeErr);
                                 try { await setApplyState("failed", projectUri, { error: String(resumeErr) }); } catch (flagErr) { debugLog("Failed to set applyState=failed after resume error", flagErr); }
@@ -2111,14 +2134,19 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                     // Check if user is switching back to the last applied strategy
                     // If so, skip the dialog and auto-apply (no file changes needed)
+                    // BUT: if switchStarted is true, we need to reapply to recover from an interrupted switch
                     const flags = await getFlags(projectUri);
-                    if (flags?.lastModeRun === mediaStrategy) {
+                    const { getSwitchStarted, setSwitchStarted } = await import("../../utils/localProjectSettings");
+                    const switchStarted = await getSwitchStarted(projectUri);
+                    
+                    if (flags?.lastModeRun === mediaStrategy && !switchStarted) {
                         debugLog(`Switching back to last applied strategy "${mediaStrategy}" - auto-applying without dialog`);
 
                         // Just update the stored strategy without touching files
                         await setMediaFilesStrategy(mediaStrategy, projectUri);
                         await setLastModeRun(mediaStrategy, projectUri);
                         await setChangesApplied(true, projectUri);
+                        await setSwitchStarted(false, projectUri); // Ensure flag is cleared
 
                         // Notify webview of success
                         try {
@@ -2176,6 +2204,20 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                     if (selection === switchButton) {
                         // Switch but do not open; mark changesApplied=false and only update strategy
+                        
+                        // Initialize switchStarted flag if missing (one-time initialization on strategy change)
+                        try {
+                            const { readLocalProjectSettings, writeLocalProjectSettings } = await import("../../utils/localProjectSettings");
+                            const settings = await readLocalProjectSettings(projectUri);
+                            if (settings.mediaFileStrategySwitchStarted === undefined) {
+                                settings.mediaFileStrategySwitchStarted = false;
+                                await writeLocalProjectSettings(settings, projectUri);
+                                debugLog("Initialized mediaFileStrategySwitchStarted to false on strategy change");
+                            }
+                        } catch (initErr) {
+                            debugLog("Failed to initialize switchStarted flag", initErr);
+                        }
+                        
                         await setMediaFilesStrategy(mediaStrategy, projectUri);
 
                         const { lastModeRun } = await getFlags(projectUri);
@@ -2213,15 +2255,32 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     // strategy is the same as the last run one, we should not
                     // perform any destructive changes (like replacing files)
                     // and instead just confirm flags and proceed to open.
+                    // BUT: if switchStarted is true, we must reapply to recover from interruption
                     try {
-                        const { getFlags, setLastModeRun, setChangesApplied, setMediaFilesStrategy, setApplyState } = await import("../../utils/localProjectSettings");
+                        const { getFlags, setLastModeRun, setChangesApplied, setMediaFilesStrategy, setApplyState, getSwitchStarted, setSwitchStarted, readLocalProjectSettings, writeLocalProjectSettings } = await import("../../utils/localProjectSettings");
+                        
+                        // Initialize switchStarted flag if missing (one-time initialization on strategy change)
+                        try {
+                            const settings = await readLocalProjectSettings(projectUri);
+                            if (settings.mediaFileStrategySwitchStarted === undefined) {
+                                settings.mediaFileStrategySwitchStarted = false;
+                                await writeLocalProjectSettings(settings, projectUri);
+                                debugLog("Initialized mediaFileStrategySwitchStarted to false on strategy change (switch & open)");
+                            }
+                        } catch (initErr) {
+                            debugLog("Failed to initialize switchStarted flag", initErr);
+                        }
+                        
                         const flags = await getFlags(projectUri);
-                        if (flags?.lastModeRun === mediaStrategy) {
+                        const switchStartedHere = await getSwitchStarted(projectUri);
+                        
+                        if (flags?.lastModeRun === mediaStrategy && !switchStartedHere) {
                             // Return to last-run mode: do not touch files. Just ensure
                             // the selected strategy is stored and flags are consistent.
                             await setMediaFilesStrategy(mediaStrategy, projectUri);
                             await setLastModeRun(mediaStrategy, projectUri);
                             await setApplyState("applied", projectUri);
+                            await setSwitchStarted(false, projectUri);
                         } else {
                             // Mark pending before kicking off apply work
                             try { await setApplyState("pending", projectUri); } catch (pendingErr) { debugLog("Failed to set applyState=pending before apply", pendingErr); }
