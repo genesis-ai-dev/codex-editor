@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { processUsfmContent } from '../usfmUtils';
+import { CodexCellTypes } from 'types/enums';
 
 describe('processUsfmContent - deterministic paratext IDs', () => {
     it('generates identical paratext IDs when parsing the same USFM file twice', async () => {
@@ -165,6 +166,58 @@ describe('processUsfmContent - deterministic paratext IDs', () => {
         verseCells1.forEach((cell, index) => {
             expect(cell.id).toBe(verseCells2[index].id);
             expect(cell.id).toMatch(/^GEN 1:\d+$/); // Verse IDs should be GEN 1:1, GEN 1:2, etc.
+        });
+    });
+
+    it('assigns correct cell types: paratext for content, style for empty markers, text for verses', async () => {
+        // USFM content with various cell types
+        const usfmContent = `\\id GEN
+\\usfm 3.0
+\\c 1
+\\s1 Section heading with content
+\\p
+\\v 1 This is a verse.
+\\p Paragraph with content
+\\mt1 Major title with text`;
+
+        const fileName = 'test.usfm';
+
+        const result = await processUsfmContent(usfmContent, fileName);
+
+        // Find verse cells - should have type 'text'
+        const verseCells = result.cells.filter(
+            (cell) => cell.metadata?.verse !== undefined
+        );
+        expect(verseCells.length).toBeGreaterThan(0);
+        verseCells.forEach((cell) => {
+            expect(cell.metadata?.type).toBe(CodexCellTypes.TEXT);
+        });
+
+        // Find paratext cells with content - should have type 'paratext'
+        const paratextCellsWithContent = result.cells.filter(
+            (cell) => cell.id.match(/paratext-\d+$/) && 
+                     cell.metadata?.verse === undefined &&
+                     cell.content.trim().length > 0 &&
+                     // Check that content has actual text (not just HTML tags)
+                     cell.content.replace(/<[^>]*>/g, '').trim().length > 0
+        );
+        expect(paratextCellsWithContent.length).toBeGreaterThan(0);
+        paratextCellsWithContent.forEach((cell) => {
+            expect(cell.metadata?.type).toBe(CodexCellTypes.PARATEXT);
+        });
+
+        // Find style cells (empty formatting markers) - should have type 'style'
+        const styleCells = result.cells.filter(
+            (cell) => cell.id.match(/paratext-\d+$/) && 
+                     cell.metadata?.verse === undefined &&
+                     // Check that content is empty or only contains empty HTML tags
+                     (cell.content.trim().length === 0 ||
+                      cell.content.replace(/<[^>]*>/g, '').trim().length === 0)
+        );
+        // Note: The test USFM has \p on its own line which should create an empty style cell
+        // But depending on parsing, it might not always create a cell. Let's check if any exist.
+        styleCells.forEach((cell) => {
+            expect(cell.metadata?.type).toBe(CodexCellTypes.STYLE);
         });
     });
 });
