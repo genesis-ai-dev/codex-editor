@@ -132,6 +132,7 @@ export const processUsfmContent = async (
         chapters.add(chapterNumber);
 
         let seenFirstVerseInChapter = false;
+        let paratextIndex = 0;
         chapter.contents.forEach((content: any) => {
             if (content.verseNumber !== undefined && content.verseText !== undefined) {
                 // This is a verse - process it for footnotes
@@ -200,7 +201,7 @@ export const processUsfmContent = async (
                 seenFirstVerseInChapter = true;
             } else if (content.text && !content.marker) {
                 // This is paratext (content without specific markers)
-                const paratextId = `${bookCode} ${chapterNumber}:${Math.random().toString(36).slice(2, 10)}`;
+                const paratextId = `${bookCode} ${chapterNumber}:paratext-${paratextIndex++}`;
                 const paratextContent = content.text.trim();
                 const htmlParatext = paratextContent.length > 0 ? `<p data-tag="p">${convertUsfmInlineMarkersToHtml(paratextContent)}</p>` : paratextContent;
 
@@ -234,7 +235,7 @@ export const processUsfmContent = async (
                 });
             } else if (content.marker) {
                 // Preserve raw marker lines as paratext for round-trip fidelity
-                const paratextId = `${bookCode} ${chapterNumber}:${Math.random().toString(36).slice(2, 10)}`;
+                const paratextId = `${bookCode} ${chapterNumber}:paratext-${paratextIndex++}`;
                 const markerLine = String(content.marker).trim();
                 const htmlBlock = usfmBlockToHtml(markerLine);
                 // Determine if style-only (no inner text)
