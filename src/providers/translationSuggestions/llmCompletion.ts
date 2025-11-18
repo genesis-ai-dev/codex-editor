@@ -237,9 +237,23 @@ export async function llmCompletion(
 
             // Unified AB testing via registry with random test selection (global gating)
             const extConfig = vscode.workspace.getConfiguration("codex-editor-extension");
-            const abEnabled = Boolean(extConfig.get("abTestingEnabled"));
-            const abProbability = Math.max(0, Math.min(1, Number(extConfig.get("abTestingProbability")) || 0));
-            const triggerAB = abEnabled && Math.random() < abProbability;
+            const abEnabled = Boolean(extConfig.get("abTestingEnabled") ?? true);
+            const abProbabilityRaw = extConfig.get<number>("abTestingProbability");
+            const abProbability = Math.max(0, Math.min(1, typeof abProbabilityRaw === "number" ? abProbabilityRaw : 0.15));
+            const randomValue = Math.random();
+            const triggerAB = abEnabled && randomValue < abProbability;
+
+            if (completionConfig.debugMode) {
+                console.debug(`[llmCompletion] A/B testing: enabled=${abEnabled}, probability=${abProbability}, random=${randomValue.toFixed(3)}, trigger=${triggerAB}`);
+            }
+
+            if (!triggerAB && completionConfig.debugMode) {
+                if (!abEnabled) {
+                    console.debug(`[llmCompletion] A/B testing disabled in settings`);
+                } else {
+                    console.debug(`[llmCompletion] A/B test not triggered (random ${randomValue.toFixed(3)} >= probability ${abProbability})`);
+                }
+            }
 
             if (triggerAB) {
                 const candidates = [
@@ -251,9 +265,21 @@ export async function llmCompletion(
                     // "llmGeneration" // intentionally disabled for now
                 ] as const;
                 const available = candidates.filter((name) => !!abTestingRegistry.get(name as any));
+                
+                if (completionConfig.debugMode) {
+                    console.debug(`[llmCompletion] A/B test candidates: ${available.length} available out of ${candidates.length} total`);
+                }
+                
                 const pick = available.length > 0 ? available[Math.floor(Math.random() * available.length)] : null;
 
+                if (!pick && completionConfig.debugMode) {
+                    console.debug(`[llmCompletion] No A/B test available (${available.length} tests registered)`);
+                }
+
                 if (pick) {
+                    if (completionConfig.debugMode) {
+                        console.debug(`[llmCompletion] Running A/B test: ${pick}`);
+                    }
                     try {
                         const ctx = buildABTestContext(
                             extConfig,
@@ -270,6 +296,10 @@ export async function llmCompletion(
                         );
 
                         const result = await abTestingRegistry.maybeRun<typeof ctx, string>(pick, ctx);
+
+                        if (completionConfig.debugMode) {
+                            console.debug(`[llmCompletion] A/B test result: ${result ? `got ${result.variants?.length || 0} variants` : "null (test probability check failed)"}`);
+                        }
 
                         const testIdPrefixes: Record<string, string> = {
                             "Search Algorithm Test": "searchAB",
