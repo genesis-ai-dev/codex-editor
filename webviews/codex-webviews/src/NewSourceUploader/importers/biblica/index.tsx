@@ -1,5 +1,6 @@
 /**
- * Biblica Importer Plugin (IDML-based, Biblica-specific handling)
+ * Biblica Importer Plugin
+ * IDML-based importer with two-file support (Study Bible + Translated Bible)
  */
 
 import React from 'react';
@@ -10,11 +11,11 @@ import { BiblicaImporterForm } from './BiblicaImporterForm';
 export const biblicaImporterPlugin: ImporterPlugin = {
     id: 'biblica-importer',
     name: 'Biblica Files',
-    description: 'Biblica IDML files',
+    description: 'Biblica IDML importer with Study Bible + Translated Bible support',
     icon: FileText,
     component: BiblicaImporterForm,
     supportedExtensions: ['idml'],
     supportedMimeTypes: ['application/vnd.adobe.indesign-idml-package'],
     enabled: true,
-    tags: ['Specialized', 'Bible', 'Biblica'],
+    tags: ['Bible', 'Biblica', 'Round-trip'],
 };

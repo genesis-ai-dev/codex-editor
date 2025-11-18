@@ -5,8 +5,14 @@ import * as grammar from "usfm-grammar";
 import { CodexCellTypes } from "../../types/enums";
 import { basename } from "path";
 import * as path from "path";
+import * as fs from "fs";
+import { exec } from "child_process";
+import { promisify } from "util";
 import { removeHtmlTags, generateSrtData } from "./subtitleUtils";
 import { generateVttData } from "./vttUtils";
+// import { exportRtfWithPandoc } from "../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/pandocNodeBridge";
+
+const execAsync = promisify(exec);
 
 /**
  * PERFORMANCE OPTIMIZATION NOTE:
@@ -352,7 +358,16 @@ async function exportCodexContentAsIdmlRoundtrip(
 
                     // Detect if this is a Biblica file based on corpusMarker metadata (more reliable than filename)
                     const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker || '';
-                    const isBiblicaFile = corpusMarker === 'biblica' || corpusMarker === 'biblica-idml' || fileName.toLowerCase().endsWith('-biblica.codex');
+                    const importerType = (codexNotebook.metadata as any)?.importerType || '';
+                    const fileType = (codexNotebook.metadata as any)?.fileType || '';
+                    const isBiblicaFile =
+                        corpusMarker === 'biblica' ||
+                        corpusMarker === 'biblica-idml' ||
+                        importerType === 'biblica' ||
+                        fileType === 'biblica' ||
+                        importerType === 'biblica-experimental' || // Backward compatibility
+                        fileType === 'biblica-experimental' || // Backward compatibility
+                        fileName.toLowerCase().endsWith('-biblica.codex');
                     const exporterType = isBiblicaFile ? 'Biblica' : 'Standard';
 
                     console.log(`[IDML Export] Processing ${fileName} (corpusMarker: ${corpusMarker}) using ${exporterType} exporter`);
@@ -576,109 +591,168 @@ async function exportCodexContentAsPdfRoundtrip(
     );
 }
 
-// RTF Round-trip export - DISABLED (RTF importer files deleted)
-// async function exportCodexContentAsRtfRoundtrip(
-//     userSelectedPath: string,
-//     filesToExport: string[],
-//     _options?: ExportOptions
-// ) {
-//     const workspaceFolders = vscode.workspace.workspaceFolders;
-//     if (!workspaceFolders) {
-//         vscode.window.showErrorMessage("No workspace folder found.");
-//         return;
-//     }
+/**
+ * RTF Round-trip export using Pandoc
+ * COMMENTED OUT - RTF importer disabled
+ */
+/* async function exportCodexContentAsRtfRoundtrip(
+    userSelectedPath: string,
+    filesToExport: string[],
+    _options?: ExportOptions
+) {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) {
+        vscode.window.showErrorMessage("No workspace folder found.");
+        return;
+    }
 
-//     const exportFolder = vscode.Uri.file(userSelectedPath);
-//     await vscode.workspace.fs.createDirectory(exportFolder);
+    const exportFolder = vscode.Uri.file(userSelectedPath);
+    await vscode.workspace.fs.createDirectory(exportFolder);
 
-//     return vscode.window.withProgress(
-//         {
-//             location: vscode.ProgressLocation.Notification,
-//             title: "Exporting RTF Round-trip",
-//             cancellable: false,
-//         },
-//         async (progress) => {
-//             const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
+    return vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: "Exporting RTF Round-trip (Pandoc)",
+            cancellable: false,
+        },
+        async (progress) => {
+            const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
 
-//             // Import RTF exporter
-//             const { exportRtfWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/rtfExporter");
+            // For each selected codex file, find its source notebook and export with Pandoc
+            for (const [index, filePath] of filesToExport.entries()) {
+                progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
+                try {
+                    const file = vscode.Uri.file(filePath);
+                    const fileName = basename(file.fsPath);
+                    const bookCode = fileName.split(".")[0] || "";
 
-//             // For each selected codex file, find its original attachment and create a translated copy in export folder
-//             for (const [index, filePath] of filesToExport.entries()) {
-//                 progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
-//                 try {
-//                     const file = vscode.Uri.file(filePath);
-//                     const fileName = basename(file.fsPath);
-//                     const bookCode = fileName.split(".")[0] || "";
+                    console.log(`[RTF Export] Processing ${fileName} using Pandoc exporter`);
 
-//                     console.log(`[RTF Export] Processing ${fileName} using RTF exporter`);
+                    // Read codex notebook
+                    const codexNotebook = await readCodexNotebookFromUri(file);
 
-//                     // Read codex notebook
-//                     const codexNotebook = await readCodexNotebookFromUri(file);
+                    // Check if this is an RTF file with Pandoc importer
+                    const importerType = (codexNotebook.metadata as any)?.importerType;
+                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
 
-//                     // Check if this is an RTF file
-//                     const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
-//                     if (corpusMarker !== 'rtf') {
-//                         console.warn(`[RTF Export] Skipping ${fileName} - not imported with RTF importer (corpusMarker: ${corpusMarker})`);
-//                         vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with RTF importer`);
-//                         continue;
-//                     }
+                    // Support both new (importerType) and old (corpusMarker) metadata
+                    const isRtfPandoc =
+                        importerType === 'rtf-pandoc' ||
+                        corpusMarker === 'rtf' ||
+                        corpusMarker === 'rtf-pandoc';
 
-//                     // Lookup original attachment by originalFileName metadata
-//                     const originalFileName = (codexNotebook.metadata as any)?.originalFileName || `${bookCode}.rtf`;
-//                     const originalsDir = vscode.Uri.joinPath(
-//                         workspaceFolders[0].uri,
-//                         ".project",
-//                         "attachments",
-//                         "originals"
-//                     );
-//                     const originalFileUri = vscode.Uri.joinPath(originalsDir, originalFileName);
+                    if (!isRtfPandoc) {
+                        console.warn(`[RTF Export] Skipping ${fileName} - not an RTF file (importerType: ${importerType}, corpusMarker: ${corpusMarker})`);
+                        vscode.window.showWarningMessage(`Skipping ${fileName} - not an RTF file`);
+                        continue;
+                    }
 
-//                     // Load original RTF file
-//                     const rtfData = await vscode.workspace.fs.readFile(originalFileUri);
-//                     const originalRtfContent = new TextDecoder().decode(rtfData);
+                    // Get Pandoc JSON from metadata
+                    const pandocJsonString = (codexNotebook.metadata as any)?.pandocJson;
+                    if (!pandocJsonString) {
+                        throw new Error('No Pandoc JSON found in notebook metadata');
+                    }
 
-//                     console.log('[RTF Export] Loaded original RTF file:', originalFileName, 'length:', originalRtfContent.length);
+                    const pandocJson = JSON.parse(pandocJsonString);
+                    console.log('[RTF Export] Loaded Pandoc JSON from metadata');
 
-//                     // Re-parse the original RTF file to get document structure
-//                     // This is more reliable than storing in metadata
-//                     const { parseRtfFile } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/rtfParser");
+                    // Find corresponding source notebook to get original filename
+                    // Use sourceFsPath from metadata if available, otherwise construct path
+                    const sourceFsPath = (codexNotebook.metadata as any)?.sourceFsPath;
+                    const sourceFile = sourceFsPath
+                        ? vscode.Uri.file(sourceFsPath)
+                        : vscode.Uri.file(filePath.replace(/\.codex$/, '.source').replace(/files[/\\]target/, '.project/sourceTexts'));
 
-//                     // Create a File object from the RTF data for the parser
-//                     const rtfBlob = new Blob([new Uint8Array(rtfData)], { type: 'application/rtf' });
-//                     const rtfFile = new File([rtfBlob], originalFileName, { type: 'application/rtf' });
+                    const sourceNotebook = await readCodexNotebookFromUri(sourceFile);
+                    const originalFileName = (sourceNotebook.metadata as any)?.originalFileName || `${bookCode}.rtf`;
 
-//                     const rtfDocument = await parseRtfFile(rtfFile);
-//                     console.log('[RTF Export] Parsed RTF document with', rtfDocument.paragraphs?.length || 0, 'paragraphs');
+                    // Build translation map from codex cells
+                    const translations: { [paragraphIndex: number]: string; } = {};
 
-//                     // Export with translations
-//                     const updatedRtfContent = await exportRtfWithTranslations(
-//                         originalRtfContent,
-//                         codexNotebook.cells,
-//                         rtfDocument
-//                     );
+                    for (const cell of codexNotebook.cells) {
+                        const cellMetadata = cell.metadata as any;
+                        const paragraphIndex = cellMetadata?.paragraphIndex;
 
-//                     // Save translated RTF into the chosen export folder
-//                     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-//                     const exportedName = originalFileName.replace(/\.rtf$/i, `_${timestamp}_translated.rtf`);
-//                     const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
+                        if (paragraphIndex !== undefined) {
+                            // Get translated content, strip HTML tags
+                            let content = cell.value.trim();
 
-//                     // Write RTF content as text file
-//                     const encoder = new TextEncoder();
-//                     await vscode.workspace.fs.writeFile(exportedUri, encoder.encode(updatedRtfContent));
+                            if (content) {
+                                // Simple HTML tag removal
+                                content = content
+                                    .replace(/<[^>]+>/g, '')
+                                    .replace(/&nbsp;/g, ' ')
+                                    .replace(/&amp;/g, '&')
+                                    .replace(/&lt;/g, '<')
+                                    .replace(/&gt;/g, '>')
+                                    .replace(/&quot;/g, '"')
+                                    .trim();
 
-//                     console.log(`[RTF Export] ✓ Exported ${exportedName}`);
+                                translations[paragraphIndex] = content;
+                            }
+                        }
+                    }
 
-//                 } catch (error) {
-//                     console.error(`[RTF Export] Error exporting ${filePath}:`, error);
-//                     vscode.window.showErrorMessage(`Failed to export ${basename(filePath)}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-//                 }
-//             }
+                    console.log(`[RTF Export] Built translation map with ${Object.keys(translations).length} translations`);
+                    // Log first few translations for debugging
+                    Object.entries(translations).slice(0, 5).forEach(([idx, text]) => {
+                        console.log(`[RTF Export] Translation[${idx}]: "${text.substring(0, 50)}"`);
+                    });
 
-//             vscode.window.showInformationMessage(`RTF round-trip export completed to ${userSelectedPath}`);
-//         }
-//     );
-// }
+                    // Use Node.js bridge to rebuild RTF with translations (no Python needed!)
+                    console.log('[RTF Export] Calling Node.js Pandoc bridge...');
+
+                    // Create temp output path
+                    const extensionPath = vscode.extensions.getExtension('project-accelerate.codex-editor-extension')?.extensionPath || '';
+                    const tmpDir = path.join(extensionPath, '.tmp');
+                    if (!fs.existsSync(tmpDir)) {
+                        fs.mkdirSync(tmpDir, { recursive: true });
+                    }
+                    const outputRtfPath = path.join(tmpDir, `rtf_export_${Date.now()}.rtf`);
+
+                    try {
+                        const result = await exportRtfWithPandoc(pandocJson, translations, outputRtfPath);
+
+                        if (!result.success) {
+                            throw new Error(result.error || 'Pandoc export failed');
+                        }
+
+                        console.log('[RTF Export] Pandoc export successful');
+
+                        // Read exported RTF file
+                        const exportedRtfData = fs.readFileSync(outputRtfPath);
+
+                        // Save to export folder with timestamp
+                        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+                        const exportedName = originalFileName.replace(/\.rtf$/i, `_${timestamp}_translated.rtf`);
+                        const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
+
+                        await vscode.workspace.fs.writeFile(exportedUri, new Uint8Array(exportedRtfData));
+
+                        console.log(`[RTF Export] ✓ Exported ${exportedName}`);
+
+                    } finally {
+                        // Clean up temp file
+                        if (fs.existsSync(outputRtfPath)) {
+                            fs.unlinkSync(outputRtfPath);
+                        }
+                        // Clean up temp JSON file (created by exportRtfWithPandoc)
+                        const tmpJsonPath = outputRtfPath + '.json';
+                        if (fs.existsSync(tmpJsonPath)) {
+                            fs.unlinkSync(tmpJsonPath);
+                        }
+                    }
+
+                } catch (error) {
+                    console.error(`[RTF Export] Error exporting ${filePath}:`, error);
+                    vscode.window.showErrorMessage(`Failed to export ${basename(filePath)}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+            }
+
+            vscode.window.showInformationMessage(`RTF round-trip export completed to ${userSelectedPath}`);
+        }
+    );
+} */
 
 /**
  * OBS (Open Bible Stories) Round-trip export
@@ -957,21 +1031,30 @@ async function exportCodexContentAsRebuild(
                         corpusMarker === 'biblica' ||
                         corpusMarker === 'biblica-idml' ||
                         corpusMarker === 'idml-roundtrip' ||
-                        corpusMarker.startsWith('idml-')
+                        corpusMarker.startsWith('idml-') ||
+                        importerType === 'biblica' ||
+                        fileType === 'biblica' ||
+                        importerType === 'biblica-experimental' || // Backward compatibility
+                        fileType === 'biblica-experimental' // Backward compatibility
                     ) {
                         // Biblica files and IDML files both use the IDML exporter
+                        // Includes Biblica importer which uses the same IDML format
                         filesByType['idml'] = filesByType['idml'] || [];
                         filesByType['idml'].push(filePath);
-                    } else if (
-                        corpusMarker === 'pdf' ||
-                        corpusMarker === 'pdf-importer' ||  // Backward compatibility
-                        corpusMarker === 'pdf-sentence'     // Backward compatibility
-                    ) {
-                        // PDF files use the PDF exporter
-                        filesByType['pdf'] = filesByType['pdf'] || [];
-                        filesByType['pdf'].push(filePath);
-                        // } else if (corpusMarker === 'rtf') {
-                        //     // RTF files use the RTF exporter - DISABLED
+                        // } else if (
+                        //     corpusMarker === 'pdf' ||
+                        //     corpusMarker === 'pdf-importer' ||  // Backward compatibility
+                        //     corpusMarker === 'pdf-sentence'     // Backward compatibility
+                        // ) {
+                        //     // PDF files use the PDF exporter
+                        //     filesByType['pdf'] = filesByType['pdf'] || [];
+                        //     filesByType['pdf'].push(filePath);
+                        // } else if (
+                        //     corpusMarker === 'rtf' ||
+                        //     corpusMarker === 'rtf-pandoc' ||  // Backward compatibility
+                        //     importerType === 'rtf-pandoc'
+                        // ) {
+                        //     // RTF files use the Pandoc RTF exporter
                         //     filesByType['rtf'] = filesByType['rtf'] || [];
                         //     filesByType['rtf'].push(filePath);
                     } else if (corpusMarker === 'obs' || importerType === 'obs') {
@@ -1044,36 +1127,39 @@ async function exportCodexContentAsRebuild(
             }
 
             // Export PDF files
-            if (filesByType['pdf']?.length > 0) {
-                console.log(`[Rebuild Export] Exporting ${filesByType['pdf'].length} PDF file(s)...`);
+            // COMMENTED OUT - PDF exporter disabled (not working properly)
+            /* if (filesByType['pdf']?.length > 0) {
+                console.log(`[Rebuild Export] Exporting ${filesByType['pdf'].length} PDF file(s) to DOCX...`);
                 progress.report({
-                    message: `Exporting ${filesByType['pdf'].length} PDF file(s)...`,
+                    message: `Exporting ${filesByType['pdf'].length} PDF file(s) to DOCX...`,
                     increment: 20
                 });
                 try {
-                    await exportCodexContentAsPdfRoundtrip(userSelectedPath, filesByType['pdf'], options);
+                    const { exportPdfAsDocx } = await import("./pdfDocxExporter");
+                    await exportPdfAsDocx(userSelectedPath, filesByType['pdf']);
                     processedCount += filesByType['pdf'].length;
                 } catch (error) {
                     console.error('[Rebuild Export] PDF export failed:', error);
                     vscode.window.showErrorMessage(`PDF export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
                 }
-            }
+            } */
 
-            // Export RTF files - DISABLED (RTF importer files deleted)
-            // if (filesByType['rtf']?.length > 0) {
-            //     console.log(`[Rebuild Export] Exporting ${filesByType['rtf'].length} RTF file(s)...`);
-            //     progress.report({
-            //         message: `Exporting ${filesByType['rtf'].length} RTF file(s)...`,
-            //         increment: 20
-            //     });
-            //     try {
-            //         await exportCodexContentAsRtfRoundtrip(userSelectedPath, filesByType['rtf'], options);
-            //         processedCount += filesByType['rtf'].length;
-            //     } catch (error) {
-            //         console.error('[Rebuild Export] RTF export failed:', error);
-            //         vscode.window.showErrorMessage(`RTF export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-            //     }
-            // }
+            // Export RTF files using Pandoc
+            // COMMENTED OUT - RTF importer disabled
+            /* if (filesByType['rtf']?.length > 0) {
+                console.log(`[Rebuild Export] Exporting ${filesByType['rtf'].length} RTF file(s) with Pandoc...`);
+                progress.report({
+                    message: `Exporting ${filesByType['rtf'].length} RTF file(s)...`,
+                    increment: 20
+                });
+                try {
+                    await exportCodexContentAsRtfRoundtrip(userSelectedPath, filesByType['rtf'], options);
+                    processedCount += filesByType['rtf'].length;
+                } catch (error) {
+                    console.error('[Rebuild Export] RTF export failed:', error);
+                    vscode.window.showErrorMessage(`RTF export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+            } */
 
             // Export OBS files
             if (filesByType['obs']?.length > 0) {
