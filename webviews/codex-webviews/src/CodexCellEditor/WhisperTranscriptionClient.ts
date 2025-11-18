@@ -91,7 +91,11 @@ export class WhisperTranscriptionClient {
 
                             case 'error': {
                                 this.cleanup();
-                                let errorMsg = message.message || 'Transcription failed';
+                                // Handle empty or missing error messages from server
+                                let errorMsg = message.message?.trim() || 'Transcription failed';
+                                if (!errorMsg || errorMsg === '') {
+                                    errorMsg = 'Transcription failed: Server returned an error with no details. This may indicate a temporary service issue or network problem.';
+                                }
                                 // Enhance error messages for common DNS/connection issues
                                 if (errorMsg.includes('Name or service not known') || errorMsg.includes('Errno -2')) {
                                     errorMsg = `Transcription failed: Unable to resolve ASR endpoint hostname. This usually means:\n1. You may be logged out - please check your authentication status\n2. The endpoint URL is invalid or unreachable\n3. There may be a network connectivity issue\n\nOriginal error: ${errorMsg}`;
