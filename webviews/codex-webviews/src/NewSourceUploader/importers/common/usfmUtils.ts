@@ -14,7 +14,7 @@ import {
 import { parseUsfmToJson as parseUsfmWithRegex } from './regexUsfmParser';
 import { convertUsfmInlineMarkersToHtml, usfmBlockToHtml, htmlInlineToUsfm, htmlBlockToUsfm } from './usfmHtmlMapper';
 import { validateFootnotes } from '../../utils/footnoteUtils';
-import { CodexCellTypes } from 'types/enums';
+import { CodexCellTypes } from '../../../../../../types/enums';
 
 // Deprecated: dynamic import of usfm-grammar. Replaced by lightweight regex parser.
 export const initializeUsfmGrammar = async () => { };

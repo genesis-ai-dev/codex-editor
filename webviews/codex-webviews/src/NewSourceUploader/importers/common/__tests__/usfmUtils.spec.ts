@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { processUsfmContent } from '../usfmUtils';
-import { CodexCellTypes } from 'types/enums';
+import { CodexCellTypes } from '../../../../../../../types/enums';
 
 describe('processUsfmContent - deterministic paratext IDs', () => {
     it('generates identical paratext IDs when parsing the same USFM file twice', async () => {
@@ -195,11 +195,11 @@ describe('processUsfmContent - deterministic paratext IDs', () => {
 
         // Find paratext cells with content - should have type 'paratext'
         const paratextCellsWithContent = result.cells.filter(
-            (cell) => cell.id.match(/paratext-\d+$/) && 
-                     cell.metadata?.verse === undefined &&
-                     cell.content.trim().length > 0 &&
-                     // Check that content has actual text (not just HTML tags)
-                     cell.content.replace(/<[^>]*>/g, '').trim().length > 0
+            (cell) => cell.id.match(/paratext-\d+$/) &&
+                cell.metadata?.verse === undefined &&
+                cell.content.trim().length > 0 &&
+                // Check that content has actual text (not just HTML tags)
+                cell.content.replace(/<[^>]*>/g, '').trim().length > 0
         );
         expect(paratextCellsWithContent.length).toBeGreaterThan(0);
         paratextCellsWithContent.forEach((cell) => {
@@ -208,11 +208,11 @@ describe('processUsfmContent - deterministic paratext IDs', () => {
 
         // Find style cells (empty formatting markers) - should have type 'style'
         const styleCells = result.cells.filter(
-            (cell) => cell.id.match(/paratext-\d+$/) && 
-                     cell.metadata?.verse === undefined &&
-                     // Check that content is empty or only contains empty HTML tags
-                     (cell.content.trim().length === 0 ||
-                      cell.content.replace(/<[^>]*>/g, '').trim().length === 0)
+            (cell) => cell.id.match(/paratext-\d+$/) &&
+                cell.metadata?.verse === undefined &&
+                // Check that content is empty or only contains empty HTML tags
+                (cell.content.trim().length === 0 ||
+                    cell.content.replace(/<[^>]*>/g, '').trim().length === 0)
         );
         // Note: The test USFM has \p on its own line which should create an empty style cell
         // But depending on parsing, it might not always create a cell. Let's check if any exist.
