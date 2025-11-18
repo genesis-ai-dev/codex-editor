@@ -231,7 +231,8 @@ export async function llmCompletion(
                 precedingTranslationPairs,
                 currentCellSourceContent,
                 Boolean(completionConfig.allowHtmlPredictions),
-                fewShotExampleFormat || "source-and-target"
+                fewShotExampleFormat || "source-and-target",
+                sourceLanguage
             );
 
             // Unified AB testing via registry with random test selection (global gating)
