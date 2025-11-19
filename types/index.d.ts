@@ -1010,6 +1010,8 @@ type ProjectMetadata = {
             codexEditor?: string;
             frontierAuthentication?: string;
         };
+        /** List of usernames that should be forced to restore/heal their project when opening */
+        initiateRemoteHealingFor?: string[];
     };
     idAuthorities: {
         [key: string]: {

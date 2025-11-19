@@ -151,6 +151,16 @@
                 "category": "Codex Editor"
             },
             {
+                "command": "codex-editor.initiateRemoteHealing",
+                "title": "Initiate Remote Healing",
+                "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor.viewRemoteHealingList",
+                "title": "View Remote Healing List",
+                "category": "Codex Editor"
+            },
+            {
                 "command": "codex-editor.testProjectLoadingPerformance",
                 "title": "Test Project Loading Performance",
                 "category": "Codex Debug"

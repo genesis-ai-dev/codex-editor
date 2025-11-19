@@ -995,18 +995,126 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 const projectPath = message.projectPath;
                 debugLog("Opening project", projectPath);
 
-                // Inform webview that opening is starting
                 try {
-                    this.safeSendMessage({
-                        command: "project.openingInProgress",
-                        projectPath,
-                        opening: true,
-                    } as any);
-                } catch (e) {
-                    // non-fatal
-                }
+                    // Check if remote healing is required before opening
+                    let remoteHealingWasPerformed = false;
+                    try {
+                        debugLog("Checking remote healing requirement for project:", projectPath);
+                        const { checkRemoteHealingRequired } = await import("../../utils/remoteHealingManager");
+                        const healingCheck = await checkRemoteHealingRequired(projectPath);
+                        
+                        if (healingCheck.required) {
+                            debugLog("Remote healing required for user:", healingCheck.currentUsername);
+                            remoteHealingWasPerformed = true;
+                            
+                            // Inform webview that healing is starting (not opening)
+                            try {
+                                this.safeSendMessage({
+                                    command: "project.healingInProgress",
+                                    projectPath,
+                                    healing: true,
+                                } as any);
+                            } catch (e) {
+                                // non-fatal
+                            }
+                            
+                            // Show notification and perform healing
+                            await vscode.window.withProgress(
+                                {
+                                    location: vscode.ProgressLocation.Notification,
+                                    title: "Project administrator requires healing",
+                                    cancellable: false,
+                                },
+                                async (progress) => {
+                                    progress.report({ message: "Healing project..." });
+                                    
+                                    // Get project name for the healing process
+                                    const projectName = projectPath.split(/[\\/]/).pop() || "project";
+                                    
+                                    // Get git origin URL
+                                    const git = await import("isomorphic-git");
+                                    const fs = await import("fs");
+                                    const remotes = await git.listRemotes({ fs, dir: projectPath });
+                                    const origin = remotes.find((r) => r.remote === "origin");
+                                    
+                                    if (!origin) {
+                                        throw new Error("No git origin found for project");
+                                    }
+                                    
+                                    // Perform the healing operation (suppress success message, we'll show it after opening)
+                                    await this.performProjectHeal(
+                                        progress,
+                                        projectName,
+                                        projectPath,
+                                        origin.url,
+                                        false // Don't show success message yet
+                                    );
+                                    
+                                    debugLog("Remote healing completed successfully");
+                                    
+                                    // Remove current user from remote healing list
+                                    try {
+                                        progress.report({ message: "Updating healing list..." });
+                                        const { removeUserFromRemoteHealingList } = await import("../../utils/remoteHealingManager");
+                                        await removeUserFromRemoteHealingList(
+                                            projectPath,
+                                            healingCheck.currentUsername!,
+                                            healingCheck.currentUserEmail
+                                        );
+                                        debugLog("User removed from remote healing list");
+                                    } catch (removeErr) {
+                                        // Don't fail the healing if we can't update the list
+                                        debugLog("Failed to remove user from healing list (non-fatal):", removeErr);
+                                        console.error("Failed to remove user from healing list:", removeErr);
+                                    }
+                                    
+                                    progress.report({ message: "Opening project..." });
+                                }
+                            );
+                            
+                            // Inform webview that healing is complete
+                            try {
+                                this.safeSendMessage({
+                                    command: "project.healingInProgress",
+                                    projectPath,
+                                    healing: false,
+                                } as any);
+                            } catch (e) {
+                                // non-fatal
+                            }
+                        } else {
+                            debugLog("No remote healing required:", healingCheck.reason);
+                        }
+                    } catch (healingCheckErr) {
+                        // Don't block project opening if healing check fails
+                        debugLog("Remote healing check failed (non-fatal):", healingCheckErr);
+                        console.error("Remote healing check error:", healingCheckErr);
+                        
+                        // Ensure healing state is cleared if there was an error
+                        if (remoteHealingWasPerformed) {
+                            try {
+                                this.safeSendMessage({
+                                    command: "project.healingInProgress",
+                                    projectPath,
+                                    healing: false,
+                                } as any);
+                            } catch (e) {
+                                // non-fatal
+                            }
+                        }
+                    }
+                    
+                    // Now inform webview that opening is starting (after healing is complete)
+                    try {
+                        this.safeSendMessage({
+                            command: "project.openingInProgress",
+                            projectPath,
+                            opening: true,
+                        } as any);
+                    } catch (e) {
+                        // non-fatal
+                    }
 
-                try {
                     // If the project is set to auto-download, proactively remove pointer stubs in files/
                     // so that reconciliation will fetch real bytes after open.
                     try {
@@ -2626,7 +2734,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         progress: vscode.Progress<{ message?: string; increment?: number; }>,
         projectName: string,
         projectPath: string,
-        gitOriginUrl: string
+        gitOriginUrl: string,
+        showSuccessMessage: boolean = true
     ): Promise<void> {
         // Check if frontier extension is available and at required version
         const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
@@ -2749,10 +2858,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         progress.report({ increment: 10, message: "Finalizing healed project..." });
         await this.commitHealedChanges(projectPath);
 
-        // Success notification and cleanup
-        vscode.window.showInformationMessage(
-            `Project "${projectName}" has been healed successfully! Backup saved to: ${backupFileName}`
-        );
+        // Success notification and cleanup (only if not suppressed)
+        if (showSuccessMessage) {
+            vscode.window.showInformationMessage(
+                `Project "${projectName}" has been healed successfully! Backup saved to: ${backupFileName}`
+            );
+        }
 
         this.safeSendMessage({
             command: "forceRefreshProjectsList",

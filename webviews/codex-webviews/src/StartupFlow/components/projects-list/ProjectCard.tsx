@@ -287,11 +287,16 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         onClick={() => onOpenProject(project)}
                         className={cn(
                             "h-6 text-xs px-2",
-                            (isChangingStrategy || isOpening) && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
+                            (isChangingStrategy || isOpening || isHealing) && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
                         )}
                         disabled={disableControls}
                     >
-                        {isOpening ? (
+                        {isHealing ? (
+                            <>
+                                <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
+                                Healing...
+                            </>
+                        ) : isOpening ? (
                             <>
                                 <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
                                 Opening...

@@ -407,6 +407,11 @@ export async function activate(context: vscode.ExtensionContext) {
         const startupStart = globalThis.performance.now();
         await registerStartupFlowCommands(context);
         registerPreflightCommand(context);
+
+        // Register remote healing commands (for admins to force project healing)
+        const { registerRemoteHealingCommands } = await import("./commands/remoteHealingCommands");
+        registerRemoteHealingCommands(context);
+
         stepStart = trackTiming("Configuring Startup Workflow", startupStart);
 
         // Initialize SqlJs with real-time progress since it loads WASM files
