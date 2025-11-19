@@ -384,7 +384,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             navigation: [],
             sourceCreatedAt: processedNotebook.metadata.createdAt,
             corpusMarker: trimmedCorpusMarker,
-            textDirection: "ltr",
+            textDirection: (processedNotebook.metadata.textDirection as "ltr" | "rtl" | undefined) || "ltr",
             ...(fileDisplayName && { fileDisplayName }),
             ...(processedNotebook.metadata.videoUrl && { videoUrl: processedNotebook.metadata.videoUrl }),
             ...(processedNotebook.metadata)?.audioOnly !== undefined
