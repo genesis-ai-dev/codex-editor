@@ -83,6 +83,56 @@ export async function initiateRemoteHealing(): Promise<void> {
 
         debug("Project ID:", projectId);
 
+        // Check user permissions - only Owners and Maintainers can manage healing
+        const authApi = (await import("../extension")).getAuthApi();
+        if (!authApi) {
+            vscode.window.showErrorMessage(
+                "Authentication not available. Please make sure you're logged in."
+            );
+            return;
+        }
+
+        const currentUserInfo = await authApi.getUserInfo();
+        if (!currentUserInfo || !currentUserInfo.username) {
+            vscode.window.showErrorMessage(
+                "Could not determine current user. Please make sure you're authenticated."
+            );
+            return;
+        }
+
+        // Fetch project members to check current user's role
+        const memberList = await fetchProjectMembers(projectId);
+        if (!memberList) {
+            vscode.window.showErrorMessage(
+                "Could not fetch project members. Please make sure you're authenticated with Frontier."
+            );
+            return;
+        }
+
+        // Find current user's role
+        const currentUserMember = memberList.find(
+            m => m.username === currentUserInfo.username || m.email === currentUserInfo.email
+        );
+
+        if (!currentUserMember) {
+            await vscode.window.showWarningMessage(
+                "Your role does not allow updating healing requirements.",
+                { modal: true }
+            );
+            return;
+        }
+
+        // Check if user has sufficient permissions (Maintainer = 40, Owner = 50)
+        if (currentUserMember.accessLevel < 40) {
+            await vscode.window.showWarningMessage(
+                "Your role does not allow updating healing requirements.",
+                { modal: true }
+            );
+            return;
+        }
+
+        debug("Permission check passed - user has sufficient role:", currentUserMember.roleName);
+
         // Fetch both contributors and all members
         const [contributors, members] = await vscode.window.withProgress(
             {
