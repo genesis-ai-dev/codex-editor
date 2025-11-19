@@ -139,7 +139,7 @@ const CodexCellEditor: React.FC = () => {
     const playerRef = useRef<ReactPlayer>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const { setSourceCellMap } = useContext(SourceCellContext);
-    
+
     // Backtranslation inline display state
     const [showInlineBacktranslations, setShowInlineBacktranslations] = useState<boolean>(
         (window as any).initialData?.metadata?.showInlineBacktranslations || false
@@ -291,7 +291,11 @@ const CodexCellEditor: React.FC = () => {
                                 window.removeEventListener("message", onMsg);
                                 resolved = true;
                                 const config = ev.data.content;
-                                console.log(`[BatchTranscription] Received ASR config: endpoint=${config.endpoint}, hasToken=${!!config.authToken}`);
+                                console.log(
+                                    `[BatchTranscription] Received ASR config: endpoint=${
+                                        config.endpoint
+                                    }, hasToken=${!!config.authToken}`
+                                );
                                 resolve(config);
                             }
                         };
@@ -401,7 +405,9 @@ const CodexCellEditor: React.FC = () => {
                         }
 
                         // Transcribe
-                        console.log(`[BatchTranscription] Creating client for cell ${cellId}: endpoint=${wsEndpoint}, hasToken=${!!asrConfig.authToken}`);
+                        console.log(
+                            `[BatchTranscription] Creating client for cell ${cellId}: endpoint=${wsEndpoint}, hasToken=${!!asrConfig.authToken}`
+                        );
                         const client = new WhisperTranscriptionClient(
                             wsEndpoint,
                             asrConfig.authToken
@@ -713,7 +719,7 @@ const CodexCellEditor: React.FC = () => {
             const cellIds = translationUnits
                 .filter((cell) => cell.cellMarkers && cell.cellMarkers.length > 0)
                 .map((cell) => cell.cellMarkers[0]);
-            
+
             if (cellIds.length > 0) {
                 vscode.postMessage({
                     command: "getBatchBacktranslations",
@@ -727,7 +733,7 @@ const CodexCellEditor: React.FC = () => {
     const toggleInlineBacktranslations = useCallback(() => {
         const newValue = !showInlineBacktranslations;
         setShowInlineBacktranslations(newValue);
-        
+
         // Update metadata in the backend
         vscode.postMessage({
             command: "updateNotebookMetadata",
@@ -1095,7 +1101,15 @@ const CodexCellEditor: React.FC = () => {
 
             if (count > 1 && !allIdentical) {
                 // Show A/B selector UI
-                setAbTestState({ isActive: true, variants, cellId, testId, testName, names, abProbability });
+                setAbTestState({
+                    isActive: true,
+                    variants,
+                    cellId,
+                    testId,
+                    testName,
+                    names,
+                    abProbability,
+                });
                 return;
             }
 
@@ -1476,6 +1490,7 @@ const CodexCellEditor: React.FC = () => {
 
     // State for current user - initialize with a default test username to ensure logic works
     const [username, setUsername] = useState<string | null>("test-user");
+    const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
 
     // Fetch username from extension and add extensive debugging
     useEffect(() => {
@@ -1524,6 +1539,9 @@ const CodexCellEditor: React.FC = () => {
                 }
                 if (event.data.validationCountAudio !== undefined) {
                     setRequiredAudioValidations(event.data.validationCountAudio);
+                }
+                if (event.data.isAuthenticated !== undefined) {
+                    setIsAuthenticated(event.data.isAuthenticated);
                 }
             }
         },
@@ -2455,6 +2473,7 @@ const CodexCellEditor: React.FC = () => {
                             currentUsername={username}
                             requiredValidations={requiredValidations ?? undefined}
                             requiredAudioValidations={requiredAudioValidations ?? undefined}
+                            isAuthenticated={isAuthenticated}
                             transcribingCells={transcribingCells}
                             showInlineBacktranslations={showInlineBacktranslations}
                             backtranslationsMap={backtranslationsMap}

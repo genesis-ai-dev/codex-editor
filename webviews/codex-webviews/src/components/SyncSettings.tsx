@@ -131,7 +131,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                             <div className="flex">
                                 <i className="codicon codicon-warning h-4 w-4" />
                                 <span className="ml-2">
-                                    Enable the Frontier Authentication extension to Sync
+                                    Enable the Frontier Authentication extension to sync
                                 </span>
                             </div>
                         </AlertDescription>
@@ -142,7 +142,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                         <AlertDescription>
                             <div className="flex">
                                 <i className="codicon codicon-warning h-4 w-4" />
-                                <span className="ml-2">You must be logged in to Sync</span>
+                                <span className="ml-2">You must be logged in to sync</span>
                             </div>
                         </AlertDescription>
                     </Alert>

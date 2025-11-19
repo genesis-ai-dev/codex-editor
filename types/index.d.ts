@@ -752,7 +752,8 @@ export type EditorPostMessages =
             totalVariants: number;
         };
     }
-    | { command: "adjustABTestingProbability"; content: { delta: number; }; };
+    | { command: "adjustABTestingProbability"; content: { delta: number; }; }
+    | { command: "openLoginFlow"; };
 
 // (revalidateMissingForCell added above in EditorPostMessages union)
 
@@ -1238,6 +1239,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
     | { command: "openCellLabelImporter"; }
     | { command: "navigateToMainMenu"; }
+    | { command: "openLoginFlow"; }
     | { command: "getProjectProgress"; }
     | { command: "showProgressDashboard"; }
     | { command: "project.delete"; data: { path: string; }; }
@@ -1603,6 +1605,7 @@ type EditorReceiveMessages =
         username?: string;
         validationCount?: number;
         validationCountAudio?: number;
+        isAuthenticated?: boolean;
     }
     | {
         type: "preferredEditorTab";
