@@ -29,6 +29,27 @@ export async function fetchFewShotExamples(
     console.error(`[fetchFewShotExamples] Query was: "${sourceContent}", candidates: ${initialCandidateCount}, validated: ${useOnlyValidatedExamples}`);
   }
 
+  // Sanitize HTML content for consistent comparison (handles transcription spans, etc.)
+  const sanitizeHtmlContent = (html: string): string => {
+    if (!html) return '';
+    return html
+      .replace(/<sup[^>]*class=["']footnote-marker["'][^>]*>[\s\S]*?<\/sup>/gi, '')
+      .replace(/<sup[^>]*data-footnote[^>]*>[\s\S]*?<\/sup>/gi, '')
+      .replace(/<sup[^>]*>[\s\S]*?<\/sup>/gi, '')
+      .replace(/<\/p>/gi, ' ')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&#\d+;/g, ' ')
+      .replace(/&[a-zA-Z]+;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
   // Instead of filtering, rank all valid complete pairs by relevance
   const currentTokens = tokenizeText({ method: "whitespace_and_punctuation", text: sourceContent });
   
@@ -54,8 +75,10 @@ export async function fetchFewShotExamples(
     })
     .map((pair) => {
       // Calculate relevance score based on token overlap
-      const pairSourceContent = pair.sourceCell?.content || "";
-      const pairTokens = tokenizeText({ method: "whitespace_and_punctuation", text: pairSourceContent });
+      // Sanitize pair source content to match the sanitized query content
+      const pairSourceContentRaw = pair.sourceCell?.content || "";
+      const pairSourceContentSanitized = sanitizeHtmlContent(pairSourceContentRaw);
+      const pairTokens = tokenizeText({ method: "whitespace_and_punctuation", text: pairSourceContentSanitized });
       
       // Calculate overlap ratio
       const overlapCount = currentTokens.filter(token => pairTokens.includes(token)).length;
@@ -142,8 +165,9 @@ export async function getPrecedingTranslationPairs(
       const maybeHtmlOrPlain = allowHtml ? (cellContent || "").trim() : stripHtmlTags(cellContent).trim();
       const safeContent = maybeHtmlOrPlain || notTranslatedYetMessage;
 
+      const sanitizedSourceContent = allowHtml ? combinedSourceContent.trim() : stripHtmlTags(combinedSourceContent).trim();
       const targetInner = allowHtml ? wrapCdata(safeContent) : xmlEscape(safeContent);
-      const sourceInner = allowHtml ? wrapCdata(combinedSourceContent) : xmlEscape(combinedSourceContent);
+      const sourceInner = allowHtml ? wrapCdata(sanitizedSourceContent) : xmlEscape(sanitizedSourceContent);
       return `<contextItem><source>${sourceInner}</source><target>${targetInner}</target></contextItem>`;
     })
   );
@@ -163,8 +187,9 @@ export function buildFewShotExamplesText(
       const sourceRaw = pair.sourceCell?.content ?? "";
       const targetRaw = pair.targetCell?.content ?? "";
       const target = allowHtml ? targetRaw.trim() : stripHtmlTags(targetRaw).trim();
+      const source = allowHtml ? sourceRaw.trim() : stripHtmlTags(sourceRaw).trim();
       const targetInner = allowHtml ? wrapCdata(target) : xmlEscape(target);
-      const sourceInner = allowHtml ? wrapCdata(sourceRaw) : xmlEscape(sourceRaw);
+      const sourceInner = allowHtml ? wrapCdata(source) : xmlEscape(source);
       
       // Format examples based on the setting
       if (exampleFormat === "target-only") {
@@ -186,7 +211,8 @@ export function buildMessages(
   precedingContextPairs: (string | null)[],
   currentCellSourceContent: string,
   allowHtml: boolean = false,
-  exampleFormat: string = "source-and-target"
+  exampleFormat: string = "source-and-target",
+  sourceLanguage: string | null = null
 ): ChatMessage[] {
   let systemMessage = chatSystemMessage || `You are a helpful assistant`;
   
@@ -201,7 +227,8 @@ export function buildMessages(
   } else {
     systemMessage += `\n\nReturn plain text only (no XML/HTML). Preserve original line breaks from <currentTask><source> by returning text with the same number of lines separated by newline characters.`;
   }
-  systemMessage += `\n\nAlways translate from the source language to the target language, ${targetLanguage || ""
+  const sourceLangText = sourceLanguage ? `from ${sourceLanguage} ` : "from the source language ";
+  systemMessage += `\n\nAlways translate ${sourceLangText}to the target language ${targetLanguage || ""
     }, relying strictly on reference data and context provided by the user. The language may be an ultra-low resource language, so it is critical to follow the patterns and style of the provided reference data closely.`;
   systemMessage += `\n\n${userInstructions.join("\n")}`;
 
