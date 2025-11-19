@@ -14,6 +14,7 @@ interface SyncSettingsProps {
     isSyncInProgress: boolean;
     syncStage: string;
     isFrontierExtensionEnabled: boolean;
+    isAuthenticated: boolean;
     onToggleAutoSync: (enabled: boolean) => void;
     onChangeSyncDelay: (minutes: number) => void;
     onTriggerSync: () => void;
@@ -25,6 +26,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
     isSyncInProgress,
     syncStage,
     isFrontierExtensionEnabled,
+    isAuthenticated,
     onToggleAutoSync,
     onChangeSyncDelay,
     onTriggerSync,
@@ -92,7 +94,12 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                     </CardTitle>
                     <Button
                         onClick={onTriggerSync}
-                        disabled={isSyncInProgress || !isOnline || !isFrontierExtensionEnabled}
+                        disabled={
+                            isSyncInProgress ||
+                            !isOnline ||
+                            !isFrontierExtensionEnabled ||
+                            !isAuthenticated
+                        }
                         size="default"
                         className="button-primary font-semibold px-3 py-2 text-sm xl:px-4 xl:text-base shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200 min-w-[100px] max-w-[140px] xl:max-w-none disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                     >
@@ -130,6 +137,16 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                         </AlertDescription>
                     </Alert>
                 )}
+                {isFrontierExtensionEnabled && !isAuthenticated && (
+                    <Alert variant="destructive">
+                        <AlertDescription>
+                            <div className="flex">
+                                <i className="codicon codicon-warning h-4 w-4" />
+                                <span className="ml-2">You must be logged in to Sync</span>
+                            </div>
+                        </AlertDescription>
+                    </Alert>
+                )}
                 {!isOnline && (
                     <Alert variant="destructive">
                         <i className="codicon codicon-warning h-4 w-4" />
@@ -139,7 +156,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                         </AlertDescription>
                     </Alert>
                 )}
-                {isFrontierExtensionEnabled && (
+                {isFrontierExtensionEnabled && isAuthenticated && (
                     <div
                         className="flex items-center justify-between p-3 rounded-lg border transition-all duration-200 flex-wrap gap-2"
                         style={{
@@ -175,7 +192,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                     </div>
                 )}
 
-                {autoSyncEnabled && isOnline && isFrontierExtensionEnabled && (
+                {autoSyncEnabled && isOnline && isFrontierExtensionEnabled && isAuthenticated && (
                     <div
                         className="flex items-center justify-between p-3 rounded-lg border animate-in slide-in-from-top-2 duration-300 flex-wrap gap-2"
                         style={{
