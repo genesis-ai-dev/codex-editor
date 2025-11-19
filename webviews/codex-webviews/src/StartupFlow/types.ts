@@ -66,6 +66,7 @@ export interface GitLabInfo {
 
 export interface LoginRegisterStepProps {
     // authState: AuthState;
+    vscode: any;
     onLogin: (username: string, password: string) => Promise<boolean>;
     onRegister: (username: string, email: string, password: string) => Promise<boolean>;
     onLogout: () => void;

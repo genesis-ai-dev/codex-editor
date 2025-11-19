@@ -10,6 +10,7 @@ import {
     PasswordDotsIndicator,
     validateVisualPassword,
 } from "../../components/PasswordDotsIndicator";
+import { MessagesToStartupFlowProvider } from "../../../../../types";
 
 // Email Display Indicator Component with ghost template
 const EmailDisplayIndicator: React.FC<{
@@ -300,6 +301,7 @@ const EmailDisplayIndicator: React.FC<{
 
 export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     // authState,
+    vscode,
     onLogin,
     onRegister,
     onLogout,
@@ -333,6 +335,29 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
         return () => {
             window.removeEventListener("online", handleOnlineStatusChange);
             window.removeEventListener("offline", handleOnlineStatusChange);
+        };
+    }, []);
+
+    // Listen for password reset responses
+    useEffect(() => {
+        const messageHandler = (event: MessageEvent) => {
+            const message = event.data;
+            if (message.command === "passwordReset.success") {
+                setResetEmailComplete(true);
+                setResetEmail("");
+                setResetEmailErrorMessage(null);
+                setIsLoading(false);
+            } else if (message.command === "passwordReset.error") {
+                setResetEmailErrorMessage(
+                    message.error || "An error occurred while requesting password reset"
+                );
+                setIsLoading(false);
+            }
+        };
+
+        window.addEventListener("message", messageHandler);
+        return () => {
+            window.removeEventListener("message", messageHandler);
         };
     }, []);
 
@@ -700,27 +725,13 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
 
     const handleForgotPasswordSubmit = async (e: React.FormEvent<HTMLElement>) => {
         e.preventDefault();
-        try {
-            const response = await fetch("/api/v1/admin/password-reset/request", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ resetEmail }),
-            });
+        setIsLoading(true);
+        setResetEmailErrorMessage(null);
 
-            if (response.ok) {
-                setResetEmailComplete(true);
-                setResetEmail("");
-                setResetEmailErrorMessage(null);
-            } else {
-                const data = await response.json();
-                alert(data.detail || "Failed to send reset link");
-            }
-        } catch (error) {
-            console.error("Error:", error);
-            setResetEmailErrorMessage("An error occurred while requesting password reset");
-        }
+        vscode.postMessage({
+            command: "auth.requestPasswordReset",
+            resetEmail: resetEmail,
+        } as MessagesToStartupFlowProvider);
     };
 
     return (
@@ -1058,11 +1069,12 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                     placeholder="Email"
                                     required
                                     style={{ width: "100%" }}
+                                    disabled={isLoading}
                                 />
                                 <EmailDisplayIndicator
-                                    email={email}
+                                    email={resetEmail}
                                     invalidPositions={emailInvalidPositions}
-                                    showIndicator={isRegistering}
+                                    showIndicator={false}
                                 />
                                 {emailErrors.length > 0 && (
                                     <div
@@ -1094,7 +1106,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                 )}
                                 <div className="flex justify-center w-full mt-2">
                                     <VSCodeButton
-                                        type="submit"
+                                        type="button"
                                         onClick={handleForgotPasswordSubmit}
                                         disabled={isLoading}
                                         className="relative flex justify-center items-center min-w-[160px]"
@@ -1110,7 +1122,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                             )}
                         </>
                     ) : (
-                        <div className="mt-8 flex flex-col justify-center items-center w-full gap-x-2">
+                        <div className="mt-8 flex flex-col justify-center items-center w-full gap-y-2">
                             <i
                                 className="codicon codicon-pass-filled text-green-500"
                                 style={{ fontSize: "2rem" }}

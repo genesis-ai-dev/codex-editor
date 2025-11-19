@@ -30,10 +30,10 @@ const vscode = acquireVsCodeApi();
 export const StartupFlowView: React.FC = () => {
     const [value, setValue] = useState<StartupFlowStates | null>(null);
     const [isInitializing, setIsInitializing] = useState(false);
-    
+
     // Use ref to maintain current state value for the stable event listener
     const valueRef = useRef<StartupFlowStates | null>(null);
-    
+
     // Keep ref in sync with state
     useEffect(() => {
         valueRef.current = value;
@@ -378,6 +378,7 @@ export const StartupFlowView: React.FC = () => {
             {value === StartupFlowStates.LOGIN_REGISTER && (
                 <LoginRegisterStep
                     // authState={value.context.authState}
+                    vscode={vscode}
                     onLogin={handleLogin}
                     onRegister={handleRegister}
                     onLogout={handleLogout}

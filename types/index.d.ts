@@ -252,6 +252,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "auth.logout"; }
     | { command: "auth.status"; }
     | { command: "auth.checkAuthStatus"; }
+    | { command: "auth.requestPasswordReset"; resetEmail: string; }
     | { command: "project.clone"; repoUrl: string; mediaStrategy?: MediaFilesStrategy; }
     | { command: "project.new"; }
     | { command: "workspace.status"; }
@@ -325,6 +326,8 @@ export type MessagesFromStartupFlowProvider =
     | { command: "error"; message: string; }
     | { command: "extension.checkResponse"; isInstalled: boolean; }
     | { command: "auth.statusResponse"; isAuthenticated: boolean; error?: string; }
+    | { command: "passwordReset.success"; }
+    | { command: "passwordReset.error"; error: string; }
     | { command: "project.deleteResponse"; success: boolean; projectPath?: string; error?: string; }
     | {
         command: "updateAuthState";
