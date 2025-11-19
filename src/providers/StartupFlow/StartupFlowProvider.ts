@@ -909,9 +909,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     }
                 } catch (error) {
                     debugLog("Password reset request failed", error);
+                    const errorMessage = error instanceof Error
+                        ? error.message
+                        : "An error occurred while requesting password reset";
                     safePostMessageToPanel(webviewPanel, {
                         command: "passwordReset.error",
-                        error: "An error occurred while requesting password reset",
+                        error: errorMessage,
                     });
                 }
                 break;
