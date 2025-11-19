@@ -856,6 +856,69 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
                 break;
             }
+            case "auth.requestPasswordReset": {
+                debugLog("Requesting password reset");
+
+                try {
+                    const response = await fetch(
+                        "https://api.frontierrnd.com/api/v1/auth/password-reset/request",
+                        {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                            },
+                            body: JSON.stringify({ email: message.resetEmail }),
+                        }
+                    );
+
+                    if (response.ok) {
+                        safePostMessageToPanel(webviewPanel, {
+                            command: "passwordReset.success",
+                        });
+                    } else {
+                        const data = await response.json();
+                        // Handle error response - detail might be a string or an object (validation error)
+                        let errorMessage = "Failed to send reset link";
+                        if (data.detail) {
+                            if (typeof data.detail === "string") {
+                                errorMessage = data.detail;
+                            } else if (Array.isArray(data.detail)) {
+                                // Handle array of validation errors
+                                errorMessage = data.detail.map((err: any) => {
+                                    if (typeof err === "string") return err;
+                                    if (err.msg) return err.msg;
+                                    return JSON.stringify(err);
+                                }).join(", ");
+                            } else if (typeof data.detail === "object") {
+                                // Handle object validation error
+                                if (data.detail.msg) {
+                                    errorMessage = data.detail.msg;
+                                } else {
+                                    errorMessage = JSON.stringify(data.detail);
+                                }
+                            }
+                        } else if (data.message) {
+                            errorMessage = typeof data.message === "string" ? data.message : JSON.stringify(data.message);
+                        } else if (data.error) {
+                            errorMessage = typeof data.error === "string" ? data.error : JSON.stringify(data.error);
+                        }
+                        safePostMessageToPanel(webviewPanel, {
+                            command: "passwordReset.error",
+                            error: errorMessage,
+                        });
+                    }
+                } catch (error) {
+                    debugLog("Password reset request failed", error);
+                    const errorMessage = error instanceof Error
+                        ? error.message
+                        : "An error occurred while requesting password reset";
+                    safePostMessageToPanel(webviewPanel, {
+                        command: "passwordReset.error",
+                        error: errorMessage,
+                    });
+                }
+                break;
+            }
             case "startup.dismiss":
                 debugLog("Dismissing startup flow");
                 webviewPanel.dispose();
@@ -1615,6 +1678,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             case "auth.login":
             case "auth.signup":
             case "auth.logout":
+            case "auth.requestPasswordReset":
                 debugLog("Handling authentication message", message.command);
                 await this.handleAuthenticationMessage(this.webviewPanel!, message);
                 break;

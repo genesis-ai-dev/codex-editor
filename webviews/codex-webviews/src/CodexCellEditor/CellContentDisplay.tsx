@@ -955,6 +955,33 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                             {lineNumber}
                                         </div>
                                     )}
+                                    {/* Audio Validation Button - show for non-source text only */}
+                                    {!isSourceText && SHOW_VALIDATION_BUTTON && (
+                                        <div className="flex items-center justify-center gap-x-px">
+                                            <AudioValidationButton
+                                                cellId={cellIds[0]}
+                                                cell={cell}
+                                                vscode={vscode}
+                                                isSourceText={isSourceText}
+                                                currentUsername={currentUsername}
+                                                requiredAudioValidations={requiredAudioValidations}
+                                                setShowSparkleButton={setShowSparkleButton}
+                                                disabled={
+                                                    isInTranslationProcess ||
+                                                    audioState === "none" ||
+                                                    audioState === "deletedOnly"
+                                                }
+                                                disabledReason={
+                                                    isInTranslationProcess
+                                                        ? "Translation in progress"
+                                                        : audioState === "none" ||
+                                                          audioState === "deletedOnly"
+                                                        ? "Audio validation requires audio"
+                                                        : undefined
+                                                }
+                                            />
+                                        </div>
+                                    )}
                                     {/* Audio Play Button - show for both source and non-source text */}
                                     {audioAttachments &&
                                         audioAttachments[cellIds[0]] !== undefined &&
@@ -986,67 +1013,40 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                 />
                                             );
                                         })()}
+                                    {/* Validation Button - show for non-source text only */}
                                     {!isSourceText && SHOW_VALIDATION_BUTTON && (
-                                        <>
-                                            <div className="flex items-center justify-center gap-x-px">
-                                                <AudioValidationButton
-                                                    cellId={cellIds[0]}
-                                                    cell={cell}
-                                                    vscode={vscode}
-                                                    isSourceText={isSourceText}
-                                                    currentUsername={currentUsername}
-                                                    requiredAudioValidations={
-                                                        requiredAudioValidations
+                                        <div className="flex flex-col items-center justify-center">
+                                            <ValidationButton
+                                                cellId={cellIds[0]}
+                                                cell={cell}
+                                                vscode={vscode}
+                                                isSourceText={isSourceText}
+                                                currentUsername={currentUsername}
+                                                requiredValidations={requiredValidations}
+                                                setShowSparkleButton={setShowSparkleButton}
+                                                disabled={
+                                                    isInTranslationProcess ||
+                                                    shouldDisableValidation(
+                                                        cell.cellContent,
+                                                        audioAttachments?.[cellIds[0]] as any
+                                                    )
+                                                }
+                                                disabledReason={(() => {
+                                                    if (isInTranslationProcess) {
+                                                        return "Translation in progress";
                                                     }
-                                                    setShowSparkleButton={setShowSparkleButton}
-                                                    disabled={
-                                                        isInTranslationProcess ||
-                                                        audioState === "none" ||
-                                                        audioState === "deletedOnly"
-                                                    }
-                                                    disabledReason={
-                                                        isInTranslationProcess
-                                                            ? "Translation in progress"
-                                                            : audioState === "none" ||
-                                                              audioState === "deletedOnly"
-                                                            ? "Audio validation requires audio"
-                                                            : undefined
-                                                    }
-                                                />
-                                            </div>
-                                            <div className="flex flex-col items-center justify-center">
-                                                <ValidationButton
-                                                    cellId={cellIds[0]}
-                                                    cell={cell}
-                                                    vscode={vscode}
-                                                    isSourceText={isSourceText}
-                                                    currentUsername={currentUsername}
-                                                    requiredValidations={requiredValidations}
-                                                    setShowSparkleButton={setShowSparkleButton}
-                                                    disabled={
-                                                        isInTranslationProcess ||
-                                                        shouldDisableValidation(
-                                                            cell.cellContent,
-                                                            audioAttachments?.[cellIds[0]] as any
-                                                        )
-                                                    }
-                                                    disabledReason={(() => {
-                                                        if (isInTranslationProcess) {
-                                                            return "Translation in progress";
-                                                        }
-                                                        const audioState = audioAttachments?.[
-                                                            cellIds[0]
-                                                        ] as any;
-                                                        return shouldDisableValidation(
-                                                            cell.cellContent,
-                                                            audioState
-                                                        )
-                                                            ? "Validation disabled: no text"
-                                                            : undefined;
-                                                    })()}
-                                                />
-                                            </div>
-                                        </>
+                                                    const audioState = audioAttachments?.[
+                                                        cellIds[0]
+                                                    ] as any;
+                                                    return shouldDisableValidation(
+                                                        cell.cellContent,
+                                                        audioState
+                                                    )
+                                                        ? "Validation disabled: no text"
+                                                        : undefined;
+                                                })()}
+                                            />
+                                        </div>
                                     )}
 
                                     {/* Merge Button - only show in correction editor mode for source text */}
