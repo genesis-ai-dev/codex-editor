@@ -759,12 +759,17 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     );
                 }
 
+                // Check if Frontier Authentication extension is enabled
+                const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
+                const isFrontierExtensionEnabled = frontierExtension !== undefined && frontierExtension.isActive === true;
+
                 if (this._view) {
                     safePostMessageToView(this._view, {
                         command: "syncSettingsUpdate",
                         data: {
                             autoSyncEnabled,
                             syncDelayMinutes,
+                            isFrontierExtensionEnabled,
                         },
                     } as ProjectManagerMessageToWebview, "MainMenu");
                 }

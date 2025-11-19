@@ -51,6 +51,7 @@ interface State {
     projectState: ProjectManagerState;
     autoSyncEnabled: boolean;
     syncDelayMinutes: number;
+    isFrontierExtensionEnabled: boolean;
     progressData: any;
 }
 
@@ -78,6 +79,7 @@ function MainMenu() {
         },
         autoSyncEnabled: true,
         syncDelayMinutes: 5,
+        isFrontierExtensionEnabled: true,
         progressData: null,
     });
 
@@ -107,6 +109,9 @@ function MainMenu() {
                         autoSyncEnabled: message.data.autoSyncEnabled ?? prevState.autoSyncEnabled,
                         syncDelayMinutes:
                             message.data.syncDelayMinutes ?? prevState.syncDelayMinutes,
+                        isFrontierExtensionEnabled:
+                            message.data.isFrontierExtensionEnabled ??
+                            prevState.isFrontierExtensionEnabled,
                     }));
                     break;
                 case "progressData":
@@ -269,7 +274,7 @@ function MainMenu() {
             isSyncInProgress: projectState.isSyncInProgress,
             syncStage: projectState.syncStage,
             isInitializing: projectState.isInitializing,
-            updateState: projectState.updateState
+            updateState: projectState.updateState,
         };
         console.log("[ProjectState] Key changes:", keyProps);
     }, [
@@ -277,7 +282,7 @@ function MainMenu() {
         projectState.isSyncInProgress,
         projectState.syncStage,
         projectState.isInitializing,
-        projectState.updateState
+        projectState.updateState,
     ]);
 
     // Show scanning indicator
@@ -673,6 +678,7 @@ function MainMenu() {
                                     syncDelayMinutes={state.syncDelayMinutes}
                                     isSyncInProgress={projectState.isSyncInProgress}
                                     syncStage={projectState.syncStage}
+                                    isFrontierExtensionEnabled={state.isFrontierExtensionEnabled}
                                     onToggleAutoSync={handleToggleAutoSync}
                                     onChangeSyncDelay={handleChangeSyncDelay}
                                     onTriggerSync={handleTriggerSync}

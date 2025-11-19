@@ -1287,6 +1287,7 @@ type ProjectManagerMessageToWebview =
         data: {
             autoSyncEnabled: boolean;
             syncDelayMinutes: number;
+            isFrontierExtensionEnabled: boolean;
         };
     }
     | {
