@@ -234,6 +234,94 @@ export const migration_changeDraftFolderToFilesFolder = async () => {
     }
 };
 
+export const migration_chatSystemMessageToMetadata = async () => {
+    try {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) {
+            console.log('[Migration] No workspace folder found, skipping chatSystemMessage migration');
+            return;
+        }
+
+        // Check if already migrated by checking metadata.json
+        const { MetadataManager } = await import("../../utils/metadataManager");
+        const currentValue = await MetadataManager.getChatSystemMessage(workspaceFolder);
+        const defaultValue = "This is a chat between a helpful Bible translation assistant and a Bible translator...";
+
+        // If metadata.json already has a non-default value, migration already happened
+        if (currentValue !== defaultValue) {
+            console.log('[Migration] chatSystemMessage already in metadata.json, skipping migration');
+            return;
+        }
+
+        // Try to read from settings.json
+        const codexConfig = vscode.workspace.getConfiguration("codex-editor-extension");
+        const oldConfig = vscode.workspace.getConfiguration("translators-copilot");
+
+        // Check both namespaces
+        const newSettingInspection = codexConfig.inspect("chatSystemMessage");
+        const oldSettingInspection = oldConfig.inspect("chatSystemMessage");
+
+        const newValue = (newSettingInspection?.workspaceValue ||
+            newSettingInspection?.workspaceFolderValue ||
+            newSettingInspection?.globalValue) as string | undefined;
+
+        const oldValue = (oldSettingInspection?.workspaceValue ||
+            oldSettingInspection?.workspaceFolderValue ||
+            oldSettingInspection?.globalValue) as string | undefined;
+
+        // Prefer new namespace, fallback to old
+        const valueToMigrate: string | undefined = newValue || oldValue;
+
+        if (!valueToMigrate || valueToMigrate === defaultValue) {
+            console.log('[Migration] No chatSystemMessage found in settings.json to migrate');
+            return;
+        }
+
+        console.log('[Migration] Migrating chatSystemMessage from settings.json to metadata.json...');
+
+        // Write to metadata.json
+        const result = await MetadataManager.setChatSystemMessage(valueToMigrate as string, workspaceFolder);
+
+        if (!result.success) {
+            console.error('[Migration] Failed to migrate chatSystemMessage to metadata.json:', result.error);
+            return;
+        }
+
+        console.log('[Migration] Successfully migrated chatSystemMessage to metadata.json');
+
+        // Remove from settings.json (both namespaces)
+        if (newValue) {
+            const targetScope = newSettingInspection?.workspaceValue ? vscode.ConfigurationTarget.Workspace :
+                newSettingInspection?.workspaceFolderValue ? vscode.ConfigurationTarget.WorkspaceFolder :
+                    vscode.ConfigurationTarget.Global;
+
+            try {
+                await codexConfig.update("chatSystemMessage", undefined, targetScope);
+                console.log('[Migration] Removed chatSystemMessage from codex-editor-extension namespace');
+            } catch (error) {
+                console.warn('[Migration] Failed to remove chatSystemMessage from codex-editor-extension namespace:', error);
+            }
+        }
+
+        if (oldValue) {
+            const targetScope = oldSettingInspection?.workspaceValue ? vscode.ConfigurationTarget.Workspace :
+                oldSettingInspection?.workspaceFolderValue ? vscode.ConfigurationTarget.WorkspaceFolder :
+                    vscode.ConfigurationTarget.Global;
+
+            try {
+                await oldConfig.update("chatSystemMessage", undefined, targetScope);
+                console.log('[Migration] Removed chatSystemMessage from translators-copilot namespace');
+            } catch (error) {
+                console.warn('[Migration] Failed to remove chatSystemMessage from translators-copilot namespace:', error);
+            }
+        }
+
+        console.log('[Migration] chatSystemMessage migration completed successfully');
+    } catch (error) {
+        console.error('[Migration] Error during chatSystemMessage to metadata.json migration:', error);
+    }
+};
+
 export const migration_chatSystemMessageSetting = async () => {
     try {
         const codexConfig = vscode.workspace.getConfiguration("codex-editor-extension");

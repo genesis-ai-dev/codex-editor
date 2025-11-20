@@ -1,7 +1,7 @@
 import * as assert from "assert";
-import { EditMapUtils, deduplicateFileMetadataEdits, addMetadataEdit } from "../../utils/editMapUtils";
+import { EditMapUtils, deduplicateFileMetadataEdits, addMetadataEdit, addProjectMetadataEdit } from "../../utils/editMapUtils";
 import { EditType } from "../../../types/enums";
-import { FileEditHistory } from "../../../types";
+import { FileEditHistory, ProjectEditHistory } from "../../../types";
 
 suite("editMapUtils Test Suite", () => {
     suite("deduplicateFileMetadataEdits", () => {
@@ -248,6 +248,264 @@ suite("editMapUtils Test Suite", () => {
             assert.ok(edits.some((e: any) => EditMapUtils.equals(e.editMap, EditMapUtils.metadataLineNumbersEnabled())), "Should have lineNumbersEnabled editMap");
             assert.ok(edits.some((e: any) => EditMapUtils.equals(e.editMap, EditMapUtils.metadataFontSize())), "Should have fontSize editMap");
             assert.ok(edits.some((e: any) => EditMapUtils.equals(e.editMap, EditMapUtils.metadataCorpusMarker())), "Should have corpusMarker editMap");
+        });
+    });
+
+    suite("addProjectMetadataEdit", () => {
+        test("should create edits array if it doesn't exist", () => {
+            const metadata: { edits?: ProjectEditHistory[]; } = {};
+            addProjectMetadataEdit(metadata, EditMapUtils.projectName(), "Test Project", "test-author");
+            assert.ok(metadata.edits, "Should create edits array");
+            assert.strictEqual(metadata.edits!.length, 1, "Should have one edit");
+        });
+
+        test("should add edit with correct editMap, value, timestamp, type, and author", () => {
+            const metadata: { edits?: ProjectEditHistory<["projectName"]>[]; } = {};
+            const testProjectName = "My Test Project";
+            const testAuthor = "test-author";
+
+            addProjectMetadataEdit(metadata, EditMapUtils.projectName(), testProjectName, testAuthor);
+
+            assert.ok(metadata.edits, "Should have edits array");
+            assert.strictEqual(metadata.edits!.length, 1, "Should have one edit");
+
+            const edit: ProjectEditHistory<["projectName"]> = metadata.edits![0];
+            assert.ok(EditMapUtils.equals(edit.editMap, EditMapUtils.projectName()), "Should have correct editMap");
+            assert.strictEqual(edit.value, testProjectName, "Should have correct value");
+            assert.strictEqual(edit.type, EditType.USER_EDIT, "Should have USER_EDIT type");
+            assert.ok(typeof edit.timestamp === "number", "Should have timestamp");
+            assert.ok(edit.timestamp > 0, "Timestamp should be positive");
+            assert.strictEqual(edit.author, testAuthor, "Should have correct author");
+        });
+
+        test("should use correct editMap for projectName", () => {
+            const metadata: { edits?: ProjectEditHistory<["projectName"]>[]; } = {};
+            addProjectMetadataEdit(metadata, EditMapUtils.projectName(), "Test Project", "test-author");
+
+            const edits = metadata.edits!;
+            assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.projectName())), "Should have projectName editMap");
+            const projectNameEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.projectName()));
+            assert.ok(projectNameEdit, "Should find projectName edit");
+            assert.strictEqual(projectNameEdit!.value, "Test Project", "Should have correct projectName value");
+        });
+
+        test("should use correct editMap for meta.generator", () => {
+            const metadata: { edits?: ProjectEditHistory<["meta", "generator"]>[]; } = {};
+            const generatorValue = {
+                userName: "Test User",
+                userEmail: "test@example.com"
+            };
+            addProjectMetadataEdit(metadata, EditMapUtils.metaGenerator(), generatorValue, "test-author");
+
+            const edits = metadata.edits!;
+            assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metaGenerator())), "Should have meta.generator editMap");
+            const generatorEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metaGenerator()));
+            assert.ok(generatorEdit, "Should find meta.generator edit");
+            assert.deepStrictEqual(generatorEdit!.value, generatorValue, "Should have correct generator value");
+        });
+
+        test("should use correct editMap for meta field (validationCount)", () => {
+            const metadata: { edits?: ProjectEditHistory<["meta", "validationCount"]>[]; } = {};
+            addProjectMetadataEdit(metadata, EditMapUtils.metaField("validationCount"), 5, "test-author");
+
+            const edits = metadata.edits!;
+            assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metaField("validationCount"))), "Should have meta.validationCount editMap");
+            const validationCountEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metaField("validationCount")));
+            assert.ok(validationCountEdit, "Should find meta.validationCount edit");
+            assert.strictEqual(validationCountEdit!.value, 5, "Should have correct validationCount value");
+        });
+
+        test("should use correct editMap for meta field (validationCountAudio)", () => {
+            const metadata: { edits?: ProjectEditHistory<["meta", "validationCountAudio"]>[]; } = {};
+            addProjectMetadataEdit(metadata, EditMapUtils.metaField("validationCountAudio"), 3, "test-author");
+
+            const edits = metadata.edits!;
+            assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metaField("validationCountAudio"))), "Should have meta.validationCountAudio editMap");
+            const validationCountAudioEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metaField("validationCountAudio")));
+            assert.ok(validationCountAudioEdit, "Should find meta.validationCountAudio edit");
+            assert.strictEqual(validationCountAudioEdit!.value, 3, "Should have correct validationCountAudio value");
+        });
+
+        test("should use correct editMap for meta field (abbreviation)", () => {
+            const metadata: { edits?: ProjectEditHistory<["meta", "abbreviation"]>[]; } = {};
+            addProjectMetadataEdit(metadata, EditMapUtils.metaField("abbreviation"), "NT", "test-author");
+
+            const edits = metadata.edits!;
+            assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metaField("abbreviation"))), "Should have meta.abbreviation editMap");
+            const abbreviationEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metaField("abbreviation")));
+            assert.ok(abbreviationEdit, "Should find meta.abbreviation edit");
+            assert.strictEqual(abbreviationEdit!.value, "NT", "Should have correct abbreviation value");
+        });
+
+        test("should use correct editMap for languages", () => {
+            const metadata: { edits?: ProjectEditHistory<["languages"]>[]; } = {};
+            const languagesValue = ["en", "fr"];
+            addProjectMetadataEdit(metadata, EditMapUtils.languages(), languagesValue, "test-author");
+
+            const edits = metadata.edits!;
+            assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.languages())), "Should have languages editMap");
+            const languagesEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.languages()));
+            assert.ok(languagesEdit, "Should find languages edit");
+            assert.deepStrictEqual(languagesEdit!.value, languagesValue, "Should have correct languages value");
+        });
+
+        test("should use correct editMap for spellcheckIsEnabled", () => {
+            const metadata: { edits?: ProjectEditHistory<["spellcheckIsEnabled"]>[]; } = {};
+            addProjectMetadataEdit(metadata, EditMapUtils.spellcheckIsEnabled(), true, "test-author");
+
+            const edits = metadata.edits!;
+            assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.spellcheckIsEnabled())), "Should have spellcheckIsEnabled editMap");
+            const spellcheckEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.spellcheckIsEnabled()));
+            assert.ok(spellcheckEdit, "Should find spellcheckIsEnabled edit");
+            assert.strictEqual(spellcheckEdit!.value, true, "Should have correct spellcheckIsEnabled value");
+        });
+
+        test("should deduplicate identical edits", () => {
+            const metadata: { edits?: ProjectEditHistory<["projectName"]>[]; } = {};
+            const testProjectName = "Test Project";
+            const testAuthor = "test-author";
+
+            // Add first edit
+            addProjectMetadataEdit(metadata, EditMapUtils.projectName(), testProjectName, testAuthor);
+            const firstEdit = metadata.edits![0];
+            const firstTimestamp = firstEdit.timestamp;
+
+            // Manually add a duplicate with same timestamp
+            metadata.edits!.push({
+                editMap: EditMapUtils.projectName(),
+                value: testProjectName,
+                timestamp: firstTimestamp,
+                type: EditType.USER_EDIT,
+                author: testAuthor,
+            });
+
+            assert.strictEqual(metadata.edits!.length, 2, "Should have two edits before deduplication");
+
+            // Add another edit which will trigger deduplication
+            addProjectMetadataEdit(metadata, EditMapUtils.spellcheckIsEnabled(), true, testAuthor);
+
+            // Should have deduplicated the duplicate projectName edit
+            const projectNameEdits = metadata.edits!.filter((e) =>
+                EditMapUtils.equals(e.editMap, EditMapUtils.projectName())
+            );
+            assert.strictEqual(projectNameEdits.length, 1, "Should deduplicate identical edits");
+            assert.strictEqual(projectNameEdits[0].value, testProjectName, "Remaining edit should have correct value");
+        });
+
+        test("should preserve edits with different timestamps", () => {
+            const metadata: { edits?: ProjectEditHistory<["projectName"]>[]; } = {};
+            const testProjectName = "Test Project";
+            const testAuthor = "test-author";
+
+            // Add first edit
+            addProjectMetadataEdit(metadata, EditMapUtils.projectName(), testProjectName, testAuthor);
+            const firstTimestamp = metadata.edits![0].timestamp;
+
+            // Wait a bit to ensure different timestamp
+            const waitTime = 10;
+            return new Promise<void>((resolve) => {
+                setTimeout(() => {
+                    // Manually add edit with different timestamp
+                    metadata.edits!.push({
+                        editMap: EditMapUtils.projectName(),
+                        value: testProjectName,
+                        timestamp: firstTimestamp + waitTime,
+                        type: EditType.USER_EDIT,
+                        author: testAuthor,
+                    });
+
+                    // Trigger deduplication
+                    addProjectMetadataEdit(metadata, EditMapUtils.spellcheckIsEnabled(), true, testAuthor);
+
+                    const projectNameEdits = metadata.edits!.filter((e) =>
+                        EditMapUtils.equals(e.editMap, EditMapUtils.projectName())
+                    );
+                    assert.strictEqual(projectNameEdits.length, 2, "Should preserve edits with different timestamps");
+                    resolve();
+                }, waitTime);
+            });
+        });
+
+        test("should preserve edits with different values", () => {
+            const metadata: { edits?: ProjectEditHistory<["projectName"]>[]; } = {};
+            const testAuthor = "test-author";
+            const timestamp = Date.now();
+
+            // Add first project name
+            addProjectMetadataEdit(metadata, EditMapUtils.projectName(), "Project 1", testAuthor);
+            const firstTimestamp = metadata.edits![0].timestamp;
+
+            // Manually add edit with same timestamp but different value
+            metadata.edits!.push({
+                editMap: EditMapUtils.projectName(),
+                value: "Project 2",
+                timestamp: firstTimestamp,
+                type: EditType.USER_EDIT,
+                author: testAuthor,
+            });
+
+            // Trigger deduplication
+            addProjectMetadataEdit(metadata, EditMapUtils.spellcheckIsEnabled(), true, testAuthor);
+
+            const projectNameEdits = metadata.edits!.filter((e) =>
+                EditMapUtils.equals(e.editMap, EditMapUtils.projectName())
+            );
+            assert.strictEqual(projectNameEdits.length, 2, "Should preserve edits with different values");
+            assert.ok(projectNameEdits.some((e) => e.value === "Project 1"), "Should have first value");
+            assert.ok(projectNameEdits.some((e) => e.value === "Project 2"), "Should have second value");
+        });
+
+        test("should preserve edits with different editMaps", () => {
+            const metadata: { edits?: ProjectEditHistory[]; } = {};
+            const testAuthor = "test-author";
+
+            addProjectMetadataEdit(metadata, EditMapUtils.projectName(), "Test Project", testAuthor);
+            addProjectMetadataEdit(metadata, EditMapUtils.languages(), ["en", "fr"], testAuthor);
+            addProjectMetadataEdit(metadata, EditMapUtils.spellcheckIsEnabled(), true, testAuthor);
+
+            const edits = metadata.edits!;
+            assert.strictEqual(edits.length, 3, "Should preserve edits with different editMaps");
+            assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.projectName())), "Should have projectName edit");
+            assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.languages())), "Should have languages edit");
+            assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.spellcheckIsEnabled())), "Should have spellcheckIsEnabled edit");
+        });
+    });
+
+    suite("EditMapUtils helper functions", () => {
+        test("metaField should return correct editMap", () => {
+            const editMap = EditMapUtils.metaField("validationCount");
+            assert.deepStrictEqual(editMap, ["meta", "validationCount"], "Should return correct editMap");
+        });
+
+        test("isMeta should return true for meta field editMaps", () => {
+            assert.strictEqual(EditMapUtils.isMeta(["meta", "validationCount"]), true, "Should return true for meta field editMap");
+            assert.strictEqual(EditMapUtils.isMeta(["meta", "generator"]), true, "Should return true for meta.generator editMap");
+            assert.strictEqual(EditMapUtils.isMeta(["meta", "abbreviation"]), true, "Should return true for meta.abbreviation editMap");
+        });
+
+        test("isMeta should return false for non-meta editMaps", () => {
+            assert.strictEqual(EditMapUtils.isMeta(["metadata", "videoUrl"]), false, "Should return false for metadata editMap");
+            assert.strictEqual(EditMapUtils.isMeta(["projectName"]), false, "Should return false for projectName editMap");
+            assert.strictEqual(EditMapUtils.isMeta(["value"]), false, "Should return false for value editMap");
+            assert.strictEqual(EditMapUtils.isMeta(["meta"]), false, "Should return false for old meta editMap (length < 2)");
+        });
+
+        test("getMetadataField should return field name for metadata editMaps", () => {
+            assert.strictEqual(EditMapUtils.getMetadataField(["metadata", "videoUrl"]), "videoUrl", "Should return field name for metadata editMap");
+            assert.strictEqual(EditMapUtils.getMetadataField(["metadata", "textDirection"]), "textDirection", "Should return field name for metadata editMap");
+        });
+
+        test("getMetadataField should return field name for meta editMaps", () => {
+            assert.strictEqual(EditMapUtils.getMetadataField(["meta", "validationCount"]), "validationCount", "Should return field name for meta editMap");
+            assert.strictEqual(EditMapUtils.getMetadataField(["meta", "validationCountAudio"]), "validationCountAudio", "Should return field name for meta editMap");
+            assert.strictEqual(EditMapUtils.getMetadataField(["meta", "abbreviation"]), "abbreviation", "Should return field name for meta editMap");
+            assert.strictEqual(EditMapUtils.getMetadataField(["meta", "generator"]), "generator", "Should return field name for meta.generator editMap");
+        });
+
+        test("getMetadataField should return null for non-metadata/meta editMaps", () => {
+            assert.strictEqual(EditMapUtils.getMetadataField(["projectName"]), null, "Should return null for projectName editMap");
+            assert.strictEqual(EditMapUtils.getMetadataField(["value"]), null, "Should return null for value editMap");
+            assert.strictEqual(EditMapUtils.getMetadataField(["meta"]), null, "Should return null for old meta editMap");
         });
     });
 });

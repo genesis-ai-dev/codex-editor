@@ -8,7 +8,7 @@ import { NotebookCommentThread, NotebookComment, CustomNotebookCellData, CustomN
 import { CommentsMigrator } from "../../../utils/commentsMigrationUtils";
 import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
-import { EditHistory, ValidationEntry, FileEditHistory } from "../../../../types/index.d";
+import { EditHistory, ValidationEntry, FileEditHistory, ProjectEditHistory } from "../../../../types/index.d";
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../../utils/editMapUtils";
 import { normalizeAttachmentUrl } from "@/utils/pathUtils";
 
@@ -329,6 +329,26 @@ export async function resolveConflictFile(
                 break;
             }
 
+            // PROJECT_METADATA_MERGE = "project-metadata-merge", // Merge metadata.json using edit history
+            case ConflictResolutionStrategy.PROJECT_METADATA_MERGE: {
+                debugLog("Resolving project metadata merge for:", conflict.filepath);
+                try {
+                    const ourMetadata = JSON.parse(conflict.ours || '{}');
+                    const theirMetadata = JSON.parse(conflict.theirs || '{}');
+                    const resolvedMetadata = resolveProjectMetadataConflictsUsingEditHistory(
+                        ourMetadata,
+                        theirMetadata
+                    );
+                    resolvedContent = JSON.stringify(resolvedMetadata, null, 4);
+                    debugLog("Successfully merged metadata.json using edit history");
+                } catch (error) {
+                    console.error("[Project Metadata Merge] Error merging metadata.json:", error);
+                    // Fallback to our version if merge fails
+                    resolvedContent = conflict.ours;
+                }
+                break;
+            }
+
             default:
                 resolvedContent = conflict.ours; // Default to our version
         }
@@ -629,6 +649,101 @@ function resolveMetadataConflictsUsingEditHistoryForFile(
 
         debugLog(`Applied most recent edit for ${pathKey}: ${mostRecentEdit.value}`);
     }
+
+    return resolvedMetadata;
+}
+
+/**
+ * Helper function to apply a project metadata edit to ProjectMetadata based on its editMap path
+ * Uses parent paths - editMap points to parent, value is entire parent object
+ */
+function applyProjectEditToMetadata(metadata: any, edit: ProjectEditHistory): void {
+    if (!edit.editMap || !Array.isArray(edit.editMap)) {
+        return;
+    }
+
+    const path = edit.editMap;
+    const value = edit.value;
+
+    try {
+        if (path.length === 1) {
+            // Top-level field (e.g., ["projectName"], ["languages"])
+            const field = path[0];
+            metadata[field] = value;
+        } else if (path.length === 2 && path[0] === "meta") {
+            // Meta field edit (e.g., ["meta", "validationCount"], ["meta", "generator"])
+            if (!metadata.meta) {
+                metadata.meta = {};
+            }
+            if (path[1] === "generator") {
+                // Set entire generator object
+                metadata.meta.generator = value;
+            } else {
+                // Set specific meta field
+                metadata.meta[path[1]] = value;
+            }
+        }
+    } catch (error) {
+        debugLog(`Error applying project edit to metadata: ${error}`);
+    }
+}
+
+/**
+ * Resolves conflicts in metadata.json using edit history
+ * Groups edits by editMap path, sorts by timestamp (latest wins), applies most recent edit per path
+ */
+function resolveProjectMetadataConflictsUsingEditHistory(
+    ourMetadata: any,
+    theirMetadata: any
+): any {
+    // Combine all edits from both metadata objects (ProjectEditHistory type)
+    const allEdits: ProjectEditHistory[] = [
+        ...(ourMetadata.edits || []),
+        ...(theirMetadata.edits || [])
+    ].sort((a, b) => a.timestamp - b.timestamp);
+
+    // Group edits by their editMap path
+    const editsByPath = new Map<string, ProjectEditHistory[]>();
+    for (const edit of allEdits) {
+        if (edit.editMap && Array.isArray(edit.editMap)) {
+            const pathKey = edit.editMap.join('.');
+            if (!editsByPath.has(pathKey)) {
+                editsByPath.set(pathKey, []);
+            }
+            editsByPath.get(pathKey)!.push(edit);
+        }
+    }
+
+    // Start with our metadata as the base
+    const resolvedMetadata = JSON.parse(JSON.stringify(ourMetadata));
+
+    // For each metadata path, apply the most recent edit
+    for (const [pathKey, edits] of editsByPath.entries()) {
+        if (edits.length === 0) continue;
+
+        // Find the most recent edit for this path (latest timestamp wins)
+        const sorted = edits.sort((a, b) => {
+            const timeDiff = b.timestamp - a.timestamp;
+            if (timeDiff !== 0) return timeDiff;
+            // Same timestamp: prefer USER_EDIT over INITIAL_IMPORT
+            const aIsUser = a.type === EditType.USER_EDIT;
+            const bIsUser = b.type === EditType.USER_EDIT;
+            const aIsInitial = a.type === EditType.INITIAL_IMPORT;
+            const bIsInitial = b.type === EditType.INITIAL_IMPORT;
+            if (aIsUser !== bIsUser) return bIsUser ? 1 : -1; // b is USER_EDIT comes first
+            if (aIsInitial !== bIsInitial) return aIsInitial ? 1 : -1; // push INITIAL_IMPORT later
+            return 0;
+        });
+        const mostRecentEdit = sorted[0];
+
+        // Apply the edit to the resolved metadata
+        applyProjectEditToMetadata(resolvedMetadata, mostRecentEdit);
+
+        debugLog(`Applied most recent edit for ${pathKey}: ${JSON.stringify(mostRecentEdit.value)}`);
+    }
+
+    // Combine edits arrays and deduplicate
+    resolvedMetadata.edits = deduplicateFileMetadataEdits(allEdits);
 
     return resolvedMetadata;
 }
@@ -1498,7 +1613,6 @@ async function resolveSmartEditsConflict(
 
 /**
  * Resolves conflicts in .vscode/settings.json using intelligent 3-way merge
- * with chatSystemMessage as a tie-breaker signal
  */
 async function resolveSettingsJsonConflict(conflict: ConflictFile): Promise<string> {
     // Parse JSON with error handling
@@ -1541,15 +1655,6 @@ async function resolveSettingsJsonConflict(conflict: ConflictFile): Promise<stri
     // Helper function to clean up settings before returning
     const cleanupSettings = (settings: Record<string, any>) => {
         settings["git.enabled"] = false;
-
-        // Remove legacy key if new key exists
-        const newKey = "codex-editor-extension.chatSystemMessage";
-        const legacyKey = "translators-copilot.chatSystemMessage";
-        if (settings[newKey] !== undefined && settings[legacyKey] !== undefined) {
-            debugLog('[Settings Merge] Removing deprecated translators-copilot.chatSystemMessage');
-            delete settings[legacyKey];
-        }
-
         return settings;
     };
 
@@ -1574,46 +1679,7 @@ async function resolveSettingsJsonConflict(conflict: ConflictFile): Promise<stri
     // STAGE 2: BOTH CHANGED FILE - Complex per-key merge
     debugLog('[Settings Merge] Both sides changed file, performing key-level merge');
 
-    // Check chatSystemMessage as tie-breaker signal (use new key, fallback to legacy)
-    const newChatSystemMessageKey = "codex-editor-extension.chatSystemMessage";
-    const legacyChatSystemMessageKey = "translators-copilot.chatSystemMessage";
-
-    // Determine which key to use (prefer new, fallback to legacy)
-    const chatSystemMessageKey = (base[newChatSystemMessageKey] !== undefined ||
-        ours[newChatSystemMessageKey] !== undefined ||
-        theirs[newChatSystemMessageKey] !== undefined)
-        ? newChatSystemMessageKey
-        : legacyChatSystemMessageKey;
-
-    const baseChatMsg = base[chatSystemMessageKey];
-    const ourChatMsg = ours[chatSystemMessageKey];
-    const theirChatMsg = theirs[chatSystemMessageKey];
-
-    // Compare each to BASE (common ancestor)
-    const ourChatMsgChanged = JSON.stringify(ourChatMsg) !== JSON.stringify(baseChatMsg);
-    const theirChatMsgChanged = JSON.stringify(theirChatMsg) !== JSON.stringify(baseChatMsg);
-
-    // Determine conflict resolution bias based on who changed chatSystemMessage from base
-    let conflictBias: 'ours' | 'theirs';
-    if (ourChatMsgChanged && !theirChatMsgChanged) {
-        // Only we changed chatSystemMessage from base
-        conflictBias = 'ours';
-        debugLog('[Settings Merge] Using LOCAL bias (we changed chatSystemMessage from base)');
-    } else if (!ourChatMsgChanged && theirChatMsgChanged) {
-        // Only they changed chatSystemMessage from base
-        conflictBias = 'theirs';
-        debugLog('[Settings Merge] Using REMOTE bias (they changed chatSystemMessage from base)');
-    } else if (ourChatMsgChanged && theirChatMsgChanged) {
-        // Both changed chatSystemMessage from base - we're syncing last, we win
-        conflictBias = 'ours';
-        debugLog('[Settings Merge] Using LOCAL bias (both changed chatSystemMessage, last write wins)');
-    } else {
-        // Neither changed chatSystemMessage from base - default to remote
-        conflictBias = 'theirs';
-        debugLog('[Settings Merge] Using REMOTE bias (neither changed chatSystemMessage from base)');
-    }
-
-    // Merge all keys using 3-way merge logic + bias
+    // Merge all keys using 3-way merge logic
     const result: Record<string, any> = {};
     const conflicts: Array<{ key: string, resolution: string; }> = [];
 
@@ -1672,74 +1738,34 @@ async function resolveSettingsJsonConflict(conflict: ConflictFile): Promise<stri
             result[key] = theirValue;
         }
         else {
-            // BOTH CHANGED from base - Apply chatSystemMessage bias
-            let chosenValue: any;
-            let resolution: string;
-
-            if (conflictBias === 'ours') {
-                chosenValue = ourValue;
-                resolution = 'local (based on chatSystemMessage analysis)';
-            } else {
-                chosenValue = theirValue;
-                resolution = 'remote (based on chatSystemMessage analysis)';
-            }
-
-            result[key] = chosenValue;
-            conflicts.push({ key, resolution });
-
-            // Special warning for chatSystemMessage itself
-            if (key === chatSystemMessageKey) {
-                console.warn(
-                    `[Settings Merge] CRITICAL: chatSystemMessage conflict resolved - using ${resolution}`
-                );
-            }
+            // BOTH CHANGED from base - default to theirs (remote)
+            result[key] = theirValue;
+            conflicts.push({ key, resolution: 'remote (both changed, defaulting to remote)' });
         }
     }
 
     // Report conflicts to user
     if (conflicts.length > 0) {
-        const criticalConflict = conflicts.some(c => c.key === chatSystemMessageKey);
-
         console.warn(
             `[Settings Merge] Resolved ${conflicts.length} conflict(s):`,
             conflicts
         );
 
-        if (criticalConflict) {
-            // High-priority warning for chatSystemMessage
-            const conflictKey = conflicts.find(c => c.key === chatSystemMessageKey)?.key || chatSystemMessageKey;
-            vscode.window.showWarningMessage(
-                `⚠️ IMPORTANT: Translation prompt (${conflictKey}) was changed by both you and remote. ` +
-                `Using ${conflicts.find(c => c.key === chatSystemMessageKey)?.resolution} version. ` +
-                `Please verify your prompt is correct.`,
-                'Show Settings',
-                'Dismiss'
-            ).then(choice => {
-                if (choice === 'Show Settings') {
-                    vscode.commands.executeCommand('workbench.action.openWorkspaceSettingsFile');
-                }
-            });
-        } else {
-            // Standard conflict notification
-            const conflictKeys = conflicts.map(c => c.key).join(', ');
-            vscode.window.showInformationMessage(
-                `Settings merge: ${conflicts.length} conflict(s) resolved (${conflictKeys}). ` +
-                `Check settings if needed.`,
-                'Show Settings'
-            ).then(choice => {
-                if (choice === 'Show Settings') {
-                    vscode.commands.executeCommand('workbench.action.openWorkspaceSettingsFile');
-                }
-            });
-        }
+        // Standard conflict notification
+        const conflictKeys = conflicts.map(c => c.key).join(', ');
+        vscode.window.showInformationMessage(
+            `Settings merge: ${conflicts.length} conflict(s) resolved (${conflictKeys}). ` +
+            `Check settings if needed.`,
+            'Show Settings'
+        ).then(choice => {
+            if (choice === 'Show Settings') {
+                vscode.commands.executeCommand('workbench.action.openWorkspaceSettingsFile');
+            }
+        });
     }
 
-    // CLEANUP: Always ensure git.enabled is false and remove legacy key if new key exists
+    // CLEANUP: Always ensure git.enabled is false
     result["git.enabled"] = false;
-    if (result[newChatSystemMessageKey] !== undefined && result[legacyChatSystemMessageKey] !== undefined) {
-        debugLog('[Settings Merge] Removing deprecated translators-copilot.chatSystemMessage from merged result');
-        delete result[legacyChatSystemMessageKey];
-    }
 
     return JSON.stringify(result, null, 4);
 }

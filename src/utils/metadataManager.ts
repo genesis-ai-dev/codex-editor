@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { addProjectMetadataEdit } from "./editMapUtils";
 
 /**
  * Thread-safe metadata manager that prevents conflicts between extensions
@@ -19,6 +20,8 @@ interface ProjectMetadata {
         };
         [key: string]: unknown;
     };
+    edits?: any[];
+    chatSystemMessage?: string;
     [key: string]: unknown;
 }
 
@@ -26,6 +29,7 @@ interface MetadataUpdateOptions {
     retryCount?: number;
     retryDelayMs?: number;
     timeoutMs?: number;
+    author?: string;
 }
 
 export class MetadataManager {
@@ -72,6 +76,13 @@ export class MetadataManager {
 
                     // Step 3: Apply updates
                     const originalMetadata = readResult.metadata!;
+                    // Ensure edits array exists if author is provided
+                    if (options.author && originalMetadata && typeof originalMetadata === 'object') {
+                        const metadataObj = originalMetadata as any;
+                        if (!metadataObj.edits) {
+                            metadataObj.edits = [];
+                        }
+                    }
                     const updatedMetadata = await updateFunction(originalMetadata);
 
                     // Step 4: Write back with atomic operation
@@ -147,7 +158,6 @@ export class MetadataManager {
     ): Promise<{ success: boolean; error?: string; }> {
         const workspaceUri = vscode.Uri.joinPath(metadataPath, "..");
         const backupPath = vscode.Uri.joinPath(workspaceUri, ".metadata.json.backup");
-        const tempPath = vscode.Uri.joinPath(workspaceUri, ".metadata.json.tmp");
 
         try {
             // Step 1: Create backup of existing file
@@ -161,36 +171,28 @@ export class MetadataManager {
                 }
             }
 
-            // Step 2: Write to temporary file
+            // Step 2: Validate JSON before writing
             const jsonContent = JSON.stringify(metadata, null, 4);
-            const encoded = new TextEncoder().encode(jsonContent);
-            await vscode.workspace.fs.writeFile(tempPath, encoded);
-
-            // Step 3: Validate the temporary file
             try {
-                const validateContent = await vscode.workspace.fs.readFile(tempPath);
-                const validateText = new TextDecoder().decode(validateContent);
-                JSON.parse(validateText); // Throws if invalid
-            } catch (validateError) {
-                await this.cleanupFile(tempPath);
+                JSON.parse(jsonContent); // Validate JSON is valid
+            } catch (parseError) {
                 return {
                     success: false,
-                    error: `Validation failed for temporary file: ${(validateError as Error).message}`
+                    error: `Invalid JSON generated: ${(parseError as Error).message}`
                 };
             }
 
-            // Step 4: Atomic rename (move temp to final location)
-            await vscode.workspace.fs.rename(tempPath, metadataPath, { overwrite: true });
+            // Step 3: Write directly to metadata.json
+            const encoded = new TextEncoder().encode(jsonContent);
+            await vscode.workspace.fs.writeFile(metadataPath, encoded);
 
-            // Step 5: Cleanup backup after successful write
+            // Step 4: Cleanup backup after successful write
             await this.cleanupFile(backupPath);
 
             return { success: true };
 
         } catch (error) {
             // Rollback on failure
-            await this.cleanupFile(tempPath);
-
             try {
                 // Restore from backup if it exists
                 const backupContent = await vscode.workspace.fs.readFile(backupPath);
@@ -203,7 +205,7 @@ export class MetadataManager {
 
             return {
                 success: false,
-                error: `Atomic write failed: ${(error as Error).message}`
+                error: `Failed to write metadata: ${(error as Error).message}`
             };
         }
     }
@@ -371,39 +373,191 @@ export class MetadataManager {
     }
 
     /**
+     * Get chatSystemMessage from metadata.json
+     */
+    static async getChatSystemMessage(workspaceFolderUri?: vscode.Uri): Promise<string> {
+        const workspaceFolder = workspaceFolderUri || vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) {
+            return "This is a chat between a helpful Bible translation assistant and a Bible translator...";
+        }
+
+        const result = await this.safeReadMetadata<ProjectMetadata>(workspaceFolder);
+        if (!result.success || !result.metadata) {
+            return "This is a chat between a helpful Bible translation assistant and a Bible translator...";
+        }
+
+        const chatSystemMessage = (result.metadata as any).chatSystemMessage as string | undefined;
+        return chatSystemMessage || "This is a chat between a helpful Bible translation assistant and a Bible translator...";
+    }
+
+    /**
+     * Set chatSystemMessage in metadata.json with edit tracking
+     */
+    static async setChatSystemMessage(
+        value: string,
+        workspaceFolderUri?: vscode.Uri,
+        author?: string
+    ): Promise<{ success: boolean; error?: string; }> {
+        const workspaceFolder = workspaceFolderUri || vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) {
+            return { success: false, error: "No workspace folder found" };
+        }
+
+        // Get author if not provided
+        let currentAuthor = author;
+        if (!currentAuthor) {
+            try {
+                const { getAuthApi } = await import("../extension");
+                const authApi = await getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                if (userInfo?.username) {
+                    currentAuthor = userInfo.username;
+                } else {
+                    const gitUsername = vscode.workspace.getConfiguration("git").get<string>("username");
+                    if (gitUsername) {
+                        currentAuthor = gitUsername;
+                    } else {
+                        try {
+                            const session = await vscode.authentication.getSession('github', ['user:email'], { createIfNone: false });
+                            if (session && session.account) {
+                                currentAuthor = session.account.label;
+                            }
+                        } catch (e) {
+                            // Auth provider might not be available
+                        }
+                    }
+                }
+            } catch (error) {
+                // Silent fallback
+            }
+            currentAuthor = currentAuthor || "unknown";
+        }
+
+        const result = await this.safeUpdateMetadata<ProjectMetadata>(
+            workspaceFolder,
+            (metadata) => {
+                const originalChatSystemMessage = (metadata as any).chatSystemMessage;
+
+                // Update the value
+                (metadata as any).chatSystemMessage = value;
+
+                // Track edit if value changed
+                if (originalChatSystemMessage !== value) {
+                    if (!metadata.edits) {
+                        metadata.edits = [];
+                    }
+                    addProjectMetadataEdit(metadata, ["chatSystemMessage"], value, currentAuthor);
+                }
+
+                return metadata;
+            },
+            { author: currentAuthor }
+        );
+
+        return { success: result.success, error: result.error };
+    }
+
+    /**
      * Safely read metadata without locking (read-only operation)
+     * Checks for locks and retries if file is being written
      */
     static async safeReadMetadata<T = ProjectMetadata>(
         workspaceUri: vscode.Uri
     ): Promise<{ success: boolean; metadata?: T; error?: string; }> {
         const metadataPath = vscode.Uri.joinPath(workspaceUri, "metadata.json");
-        try {
-            const content = await vscode.workspace.fs.readFile(metadataPath);
-            const text = new TextDecoder().decode(content);
+        const lockPath = vscode.Uri.joinPath(workspaceUri, ".metadata.lock");
+        const maxRetries = 5;
+        const retryDelayMs = 100;
 
-            // Validate JSON structure
-            let metadata: T;
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
             try {
-                metadata = JSON.parse(text);
-            } catch (parseError) {
+                // Check if lock exists - if so, wait and retry
+                try {
+                    await vscode.workspace.fs.stat(lockPath);
+                    // Lock exists, wait and retry
+                    if (attempt < maxRetries - 1) {
+                        await this.sleep(retryDelayMs * (attempt + 1));
+                        continue;
+                    }
+                } catch (lockError) {
+                    // Lock doesn't exist, proceed with read
+                    if ((lockError as any).code !== 'FileNotFound') {
+                        // Unexpected error checking lock, but continue anyway
+                    }
+                }
+
+                const content = await vscode.workspace.fs.readFile(metadataPath);
+                const text = new TextDecoder().decode(content);
+
+                // Check for empty file (which would cause "Unexpected end of JSON input")
+                if (!text.trim()) {
+                    // File is empty, check if lock exists and retry
+                    try {
+                        await vscode.workspace.fs.stat(lockPath);
+                        // Lock exists, file is being written, retry
+                        if (attempt < maxRetries - 1) {
+                            await this.sleep(retryDelayMs * (attempt + 1));
+                            continue;
+                        }
+                    } catch {
+                        // Lock doesn't exist, file is genuinely empty
+                    }
+                    return {
+                        success: false,
+                        error: `Invalid JSON in metadata.json: File is empty`
+                    };
+                }
+
+                // Validate JSON structure
+                let metadata: T;
+                try {
+                    metadata = JSON.parse(text);
+                } catch (parseError) {
+                    // Invalid JSON - check if lock exists (file might be mid-write)
+                    try {
+                        await vscode.workspace.fs.stat(lockPath);
+                        // Lock exists, file is being written, retry
+                        if (attempt < maxRetries - 1) {
+                            await this.sleep(retryDelayMs * (attempt + 1));
+                            continue;
+                        }
+                    } catch {
+                        // Lock doesn't exist, JSON is genuinely invalid
+                    }
+                    return {
+                        success: false,
+                        error: `Invalid JSON in metadata.json: ${(parseError as Error).message}`
+                    };
+                }
+
+                return { success: true, metadata };
+
+            } catch (error) {
+                if ((error as any).code === 'FileNotFound') {
+                    // Create empty metadata if file doesn't exist
+                    const emptyMetadata = {} as T;
+                    return { success: true, metadata: emptyMetadata };
+                }
+                // For other errors, retry if lock exists
+                try {
+                    await vscode.workspace.fs.stat(lockPath);
+                    if (attempt < maxRetries - 1) {
+                        await this.sleep(retryDelayMs * (attempt + 1));
+                        continue;
+                    }
+                } catch {
+                    // Lock doesn't exist, return error
+                }
                 return {
                     success: false,
-                    error: `Invalid JSON in metadata.json: ${(parseError as Error).message}`
+                    error: `Failed to read metadata.json: ${(error as Error).message}`
                 };
             }
-
-            return { success: true, metadata };
-
-        } catch (error) {
-            if ((error as any).code === 'FileNotFound') {
-                // Create empty metadata if file doesn't exist
-                const emptyMetadata = {} as T;
-                return { success: true, metadata: emptyMetadata };
-            }
-            return {
-                success: false,
-                error: `Failed to read metadata.json: ${(error as Error).message}`
-            };
         }
+
+        return {
+            success: false,
+            error: `Failed to read metadata.json after ${maxRetries} attempts (file may be locked)`
+        };
     }
 }
