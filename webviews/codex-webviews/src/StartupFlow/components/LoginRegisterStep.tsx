@@ -752,7 +752,6 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                         width: "min(100%, 400px)",
                     }}
                 >
-                    <i className="codicon codicon-error"></i>
                     <span>
                         Frontier Authentication extension is missing or disabled. Please{" "}
                         <span
@@ -768,6 +767,8 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                             install or enable it
                         </span>{" "}
                         to proceed.
+                        <br /><br />
+                        You may need to restart the application for changes to apply.
                     </span>
                 </div>
             )}
