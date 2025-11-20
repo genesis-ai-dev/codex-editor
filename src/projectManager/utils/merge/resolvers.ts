@@ -419,6 +419,7 @@ function resolveMetadataConflictsUsingEditHistory(
     }
 
     // Start with our cell as the base
+    // Shallow copy is sufficient - attachments are merged separately later
     const resolvedCell = { ...ourCell };
 
     // For each metadata path, apply the most recent edit
@@ -1434,7 +1435,10 @@ export function mergeAttachments(
                 const ourAttachment = merged[id];
 
                 // Decide base attachment by updatedAt, but merge validatedBy arrays from both sides
-                const baseIsTheirs = (theirAttachment?.updatedAt || 0) > (ourAttachment?.updatedAt || 0);
+                // Use explicit number comparison to handle undefined/null cases properly
+                const ourUpdatedAt = typeof ourAttachment?.updatedAt === "number" ? ourAttachment.updatedAt : 0;
+                const theirUpdatedAt = typeof theirAttachment?.updatedAt === "number" ? theirAttachment.updatedAt : 0;
+                const baseIsTheirs = theirUpdatedAt > ourUpdatedAt;
                 const base = baseIsTheirs ? { ...theirAttachment } : { ...ourAttachment };
                 if (typeof base.url === "string") {
                     base.url = normalizeAttachmentUrl(base.url);
@@ -1452,7 +1456,7 @@ export function mergeAttachments(
                 }
 
                 merged[id] = base;
-                debugLog(`Merged attachment ${id} (preserved validatedBy from both sides)`);
+                debugLog(`Merged attachment ${id} (preserved validatedBy from both sides, used ${baseIsTheirs ? "their" : "our"} version based on updatedAt: ours=${ourUpdatedAt}, theirs=${theirUpdatedAt})`);
             }
         });
     }
