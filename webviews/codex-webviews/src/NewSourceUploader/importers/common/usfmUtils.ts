@@ -18,6 +18,19 @@ import { validateFootnotes } from '../../utils/footnoteUtils';
 // Deprecated: dynamic import of usfm-grammar. Replaced by lightweight regex parser.
 export const initializeUsfmGrammar = async () => { };
 
+/**
+ * Simple hash function for deterministic ID generation
+ */
+const simpleHash = (str: string): string => {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+    }
+    return Math.abs(hash).toString(36).slice(0, 8);
+};
+
 export interface UsfmContent {
     id: string;
     content: string;
@@ -132,6 +145,7 @@ export const processUsfmContent = async (
         chapters.add(chapterNumber);
 
         let seenFirstVerseInChapter = false;
+        let paratextIndex = 0;
         chapter.contents.forEach((content: any) => {
             if (content.verseNumber !== undefined && content.verseText !== undefined) {
                 // This is a verse - process it for footnotes
@@ -158,6 +172,7 @@ export const processUsfmContent = async (
                 });
 
                 // Create child cells for milestone spans (e.g., qt, ts)
+                let childIndex = 0;
                 try {
                     const milestoneTags = new Set(['qt', 'ts']);
                     const parser = new DOMParser();
@@ -169,8 +184,9 @@ export const processUsfmContent = async (
                                 const el = node as HTMLElement;
                                 const tag = el.getAttribute('data-tag');
                                 if (tag && milestoneTags.has(tag)) {
-                                    const childId = `${verseId}:${Math.random().toString(36).slice(2, 11)}`;
                                     const innerHtml = el.innerHTML;
+                                    const childId = `${verseId}:child-${childIndex}`;
+                                    childIndex++;
                                     usfmContent.push({
                                         id: childId,
                                         content: innerHtml,
@@ -193,15 +209,17 @@ export const processUsfmContent = async (
                         };
                         Array.from(container.childNodes).forEach(walker);
                     }
-                } catch {
-                    // ignore child extraction errors
+                } catch (error) {
+                    console.warn('Error creating child cells:', error);
                 }
 
                 seenFirstVerseInChapter = true;
             } else if (content.text && !content.marker) {
                 // This is paratext (content without specific markers)
-                const paratextId = `${bookCode} ${chapterNumber}:${Math.random().toString(36).slice(2, 10)}`;
                 const paratextContent = content.text.trim();
+                const contentHash = simpleHash(paratextContent);
+                const paratextId = `${bookCode} ${chapterNumber}:paratext-${paratextIndex}-${contentHash}`;
+                paratextIndex++;
                 const htmlParatext = paratextContent.length > 0 ? `<p data-tag="p">${convertUsfmInlineMarkersToHtml(paratextContent)}</p>` : paratextContent;
 
                 // Convert USFM to HTML with footnotes if needed
@@ -234,8 +252,10 @@ export const processUsfmContent = async (
                 });
             } else if (content.marker) {
                 // Preserve raw marker lines as paratext for round-trip fidelity
-                const paratextId = `${bookCode} ${chapterNumber}:${Math.random().toString(36).slice(2, 10)}`;
                 const markerLine = String(content.marker).trim();
+                const contentHash = simpleHash(markerLine);
+                const paratextId = `${bookCode} ${chapterNumber}:paratext-${paratextIndex}-${contentHash}`;
+                paratextIndex++;
                 const htmlBlock = usfmBlockToHtml(markerLine);
                 // Determine if style-only (no inner text)
                 let cellType: UsfmContent['type'] = 'text';
@@ -281,6 +301,8 @@ export const processUsfmContent = async (
             cellLabel: item.metadata.verse !== undefined ? item.metadata.verse?.toString() : undefined,
             originalText: item.metadata.originalText,
             fileName: item.metadata.fileName,
+            isChild: item.metadata.isChild,
+            parentId: item.metadata.parentId,
         });
     });
 
@@ -381,7 +403,9 @@ export const createNotebookPair = (
             id: sourceCell.id,
             content: isStyleCell ? sourceCell.content : '',
             images: sourceCell.images,
-            metadata: sourceCell.metadata,
+            metadata: {
+                ...sourceCell.metadata,
+            },
         };
     });
 
