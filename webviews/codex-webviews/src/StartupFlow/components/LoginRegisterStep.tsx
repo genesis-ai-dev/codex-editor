@@ -306,6 +306,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     onRegister,
     onLogout,
     onSkip,
+    isAuthExtensionInstalled,
 }) => {
     const [isRegistering, setIsRegistering] = useState(false);
     const [username, setUsername] = useState("");
@@ -966,7 +967,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                         >
                             <VSCodeButton
                                 type="submit"
-                                disabled={isLoading}
+                                disabled={isLoading || !isAuthExtensionInstalled}
                                 style={{
                                     width: "160px",
                                     display: "flex",
@@ -1011,6 +1012,25 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                 </VSCodeButton>
                             )}
                         </div>
+                        {!isAuthExtensionInstalled && (
+                            <div
+                                style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "8px",
+                                    marginTop: "1rem",
+                                    padding: "8px 12px",
+                                    backgroundColor:
+                                        "var(--vscode-inputValidation-errorBackground)",
+                                    border: "1px solid var(--vscode-inputValidation-errorBorder)",
+                                    borderRadius: "4px",
+                                    width: "min(100%, 400px)",
+                                }}
+                            >
+                                <i className="codicon codicon-warning"></i>
+                                <span>Enable Frontier Authentication extension to login</span>
+                            </div>
+                        )}
                     </form>
                     {isOffline && (
                         <div
