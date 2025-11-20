@@ -946,5 +946,11 @@ export function getNotebookMetadataManager(): NotebookMetadataManager {
 }
 
 export function getAuthApi(): FrontierAPI | undefined {
+    if (!authApi) {
+        const extension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
+        if (extension?.isActive) {
+            authApi = extension.exports;
+        }
+    }
     return authApi;
 }

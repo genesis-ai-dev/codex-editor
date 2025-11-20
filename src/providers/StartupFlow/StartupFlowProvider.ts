@@ -500,6 +500,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         try {
             this.frontierApi = getAuthApi();
             if (this.frontierApi) {
+                // Clear cached preflight check to ensure we get fresh auth state
+                this._preflightPromise = undefined;
+
                 // Get initial auth status
                 const initialStatus = this.frontierApi?.getAuthStatus();
                 this.updateAuthState({
@@ -628,6 +631,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         message: MessagesToStartupFlowProvider
     ) {
         debugLog("Handling authentication message", message.command);
+
+        if (!this.frontierApi) {
+            await this.initializeFrontierApi();
+        }
 
         if (!this.frontierApi) {
             debugLog("Auth extension not installed");
@@ -1732,6 +1739,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 break;
             }
             case "webview.ready": {
+                // Try to initialize Frontier API if it's missing (e.g. extension just installed)
+                if (!this.frontierApi) {
+                    await this.initializeFrontierApi();
+                }
+
                 // Use cached preflight state instead of creating new PreflightCheck
                 const preflightState = await this.getCachedPreflightState();
                 debugLog("Sending cached preflight state:", preflightState);
