@@ -35,7 +35,6 @@ interface ABTestState {
     testId: string;
     testName?: string;
     names?: string[];
-    winRates?: number[];
 }
 
 export interface EditorRef {
@@ -179,19 +178,18 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
                 }
             } else if (event.data.type === "providerSendsABTestVariants") {
                 // Handle A/B test variants: show UI only if variants differ
-                const { variants, cellId, testId, testName, names, winRates } = event.data.content as {
+                const { variants, cellId, testId, testName, names } = event.data.content as {
                     variants: string[];
                     cellId: string;
                     testId: string;
                     testName?: string;
                     names?: string[];
-                    winRates?: number[];
                 };
                 if (cellId === props.currentLineId && Array.isArray(variants) && variants.length > 0) {
                     const norm = (s: string) => (s || "").replace(/\s+/g, " ").trim();
                     const allIdentical = variants.every((v) => norm(v) === norm(variants[0]));
                     if (variants.length > 1 && !allIdentical) {
-                        setAbTestState({ isActive: true, variants, cellId, testId, testName, names, winRates });
+                        setAbTestState({ isActive: true, variants, cellId, testId, testName, names });
                     } else {
                         // Auto-apply first variant silently
                         quillRef.current?.root && (quillRef.current.root.innerHTML = variants[0]);
