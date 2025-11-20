@@ -174,13 +174,33 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
             throw new Error('No subtitle cues found in the file');
         }
 
+        // Check if there are any valid (non-empty) cues after filtering
+        const hasValidCues = parsed.cues.some((cue: any) => {
+            const content = cue.text || "";
+            return content.trim().length > 0;
+        });
+
+        if (!hasValidCues) {
+            throw new Error('No valid subtitle cues found in the file (all cues are empty)');
+        }
+
         onProgress?.(createProgress('Creating Cells', 'Creating notebook cells...', 70));
 
         // Create notebook cells using ProcessedCell format
         const cells: ProcessedCell[] = [];
 
+        // Filter out empty cues - empty cells are parsing errors and should not be imported
+        const validCues = parsed.cues.filter((cue: any) => {
+            const content = cue.text || "";
+            return content.trim().length > 0;
+        });
+
+        console.log(
+            `Filtered ${parsed.cues.length - validCues.length} empty cues, ${validCues.length} valid cues remaining`
+        );
+
         // Add cells using the ProcessedCell format
-        for (const cue of parsed.cues) {
+        for (const cue of validCues) {
             // Generate a unique identifier for the cue that matches the expected format
             const cueId = `${baseNameAsId} 1:cue-${cue.startTime}-${cue.endTime}`;
 

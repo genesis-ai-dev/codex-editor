@@ -14,6 +14,7 @@ import {
 import { parseUsfmToJson as parseUsfmWithRegex } from './regexUsfmParser';
 import { convertUsfmInlineMarkersToHtml, usfmBlockToHtml, htmlInlineToUsfm, htmlBlockToUsfm } from './usfmHtmlMapper';
 import { validateFootnotes } from '../../utils/footnoteUtils';
+import { CodexCellTypes } from '../../../../../../types/enums';
 
 // Deprecated: dynamic import of usfm-grammar. Replaced by lightweight regex parser.
 export const initializeUsfmGrammar = async () => { };
@@ -132,6 +133,7 @@ export const processUsfmContent = async (
         chapters.add(chapterNumber);
 
         let seenFirstVerseInChapter = false;
+        let paratextIndex = 0;
         chapter.contents.forEach((content: any) => {
             if (content.verseNumber !== undefined && content.verseText !== undefined) {
                 // This is a verse - process it for footnotes
@@ -200,7 +202,7 @@ export const processUsfmContent = async (
                 seenFirstVerseInChapter = true;
             } else if (content.text && !content.marker) {
                 // This is paratext (content without specific markers)
-                const paratextId = `${bookCode} ${chapterNumber}:${Math.random().toString(36).slice(2, 10)}`;
+                const paratextId = `${bookCode} ${chapterNumber}:paratext-${paratextIndex++}`;
                 const paratextContent = content.text.trim();
                 const htmlParatext = paratextContent.length > 0 ? `<p data-tag="p">${convertUsfmInlineMarkersToHtml(paratextContent)}</p>` : paratextContent;
 
@@ -208,7 +210,7 @@ export const processUsfmContent = async (
                 const { html: processedText } = convertUsfmToHtmlWithFootnotes(paratextContent);
 
                 // Determine if this is a style-only cell (no text content)
-                let cellType: UsfmContent['type'] = 'text';
+                let cellType: UsfmContent['type'] = 'paratext';
                 try {
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(htmlParatext || '', 'text/html');
@@ -234,11 +236,11 @@ export const processUsfmContent = async (
                 });
             } else if (content.marker) {
                 // Preserve raw marker lines as paratext for round-trip fidelity
-                const paratextId = `${bookCode} ${chapterNumber}:${Math.random().toString(36).slice(2, 10)}`;
+                const paratextId = `${bookCode} ${chapterNumber}:paratext-${paratextIndex++}`;
                 const markerLine = String(content.marker).trim();
                 const htmlBlock = usfmBlockToHtml(markerLine);
                 // Determine if style-only (no inner text)
-                let cellType: UsfmContent['type'] = 'text';
+                let cellType: UsfmContent['type'] = 'paratext';
                 try {
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(htmlBlock, 'text/html');
@@ -272,8 +274,12 @@ export const processUsfmContent = async (
 
     // Convert to processed cells
     const cells = usfmContent.map((item) => {
+        // Map string type to CodexCellTypes enum
+        const cellType = item.type === 'text' ? CodexCellTypes.TEXT :
+            item.type === 'paratext' ? CodexCellTypes.PARATEXT :
+                CodexCellTypes.STYLE;
         return createProcessedCell(item.id, item.content, {
-            type: item.type,
+            type: cellType,
             bookCode: item.metadata.bookCode,
             bookName: item.metadata.bookName,
             chapter: item.metadata.chapter,
@@ -281,7 +287,7 @@ export const processUsfmContent = async (
             cellLabel: item.metadata.verse !== undefined ? item.metadata.verse?.toString() : undefined,
             originalText: item.metadata.originalText,
             fileName: item.metadata.fileName,
-        });
+        } as any);
     });
 
     return {
@@ -331,7 +337,7 @@ export const exportToUSFM = (processed: ProcessedUsfmBook): string => {
             const htmlContent = item.content ?? '';
             const inlineUsfm = htmlInlineToUsfm(htmlContent);
             lines.push(`\\v ${verseNum} ${inlineUsfm}`);
-        } else if (item.type === 'text' || item.type === 'style') {
+        } else if (item.type === 'paratext' || item.type === 'text' || item.type === 'style') {
             const content = (item.content ?? '').trim();
             if (content.length === 0) continue;
             // If content is an HTML block with data-tag, convert to USFM paragraph line
