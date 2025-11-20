@@ -30,6 +30,7 @@ const vscode = acquireVsCodeApi();
 export const StartupFlowView: React.FC = () => {
     const [value, setValue] = useState<StartupFlowStates | null>(null);
     const [isInitializing, setIsInitializing] = useState(false);
+    const [isAuthExtensionInstalled, setIsAuthExtensionInstalled] = useState(false);
 
     // Use ref to maintain current state value for the stable event listener
     const valueRef = useRef<StartupFlowStates | null>(null);
@@ -50,6 +51,11 @@ export const StartupFlowView: React.FC = () => {
             switch (message.command) {
                 case "state.update": {
                     setValue(message.state.value);
+                    if (message.state.context?.authState) {
+                        setIsAuthExtensionInstalled(
+                            message.state.context.authState.isAuthExtensionInstalled || false
+                        );
+                    }
                     break;
                 }
                 case "project.initializationStatus": {
@@ -77,6 +83,7 @@ export const StartupFlowView: React.FC = () => {
                 case "updateAuthState": {
                     console.log("updateAuthState", JSON.stringify(message, null, 2));
                     const authState: AuthState = message.authState;
+                    setIsAuthExtensionInstalled(authState.isAuthExtensionInstalled || false);
                     if (!authState.isAuthExtensionInstalled) {
                         // send({
                         //     type: StartupFlowEvents.NO_AUTH_EXTENSION,
@@ -383,6 +390,7 @@ export const StartupFlowView: React.FC = () => {
                     onRegister={handleRegister}
                     onLogout={handleLogout}
                     onSkip={handleSkipAuth}
+                    isAuthExtensionInstalled={isAuthExtensionInstalled}
                 />
             )}
 

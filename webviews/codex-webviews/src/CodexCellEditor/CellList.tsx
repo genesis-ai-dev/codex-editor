@@ -58,6 +58,7 @@ export interface CellListProps {
     currentUsername?: string | null;
     requiredValidations?: number;
     requiredAudioValidations?: number;
+    isAuthenticated?: boolean;
     // Cells currently undergoing audio transcription
     transcribingCells?: Set<string>;
     isAudioOnly?: boolean;
@@ -107,6 +108,7 @@ const CellList: React.FC<CellListProps> = ({
     isAudioOnly = false,
     showInlineBacktranslations = false,
     backtranslationsMap = new Map(),
+    isAuthenticated = false,
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -414,10 +416,10 @@ const CellList: React.FC<CellListProps> = ({
             // const currentCellMarker = cell.cellMarkers[0];
             // const currentCellParts = currentCellMarker.split(":");
             // if (currentCellParts.length < 2) return 1; // Invalid cell marker format
-            
+
             // const currentChapterId = currentCellParts[0]; // e.g., "GEN 1"
             // const currentVerseNumber = parseInt(currentCellParts[1]); // e.g., 1 from "GEN 1:1"
-            
+
             // if (isNaN(currentVerseNumber)) return 1; // Invalid verse number
 
             // Count non-paratext cells within the same chapter up to and including this one
@@ -427,7 +429,8 @@ const CellList: React.FC<CellListProps> = ({
                 if (
                     allCells[i].cellType !== CodexCellTypes.PARATEXT &&
                     cellIdParts.length >= 2 &&
-                    !allCells[i].merged /* && FIXME: THIS BROKE LINE NUMBERS WHEN UPLOADING SUBTITLES. NEED TO FIX.
+                    !allCells[i]
+                        .merged /* && FIXME: THIS BROKE LINE NUMBERS WHEN UPLOADING SUBTITLES. NEED TO FIX.
                     cellIdParts[0] === currentChapterId // Only count cells from the same chapter */
                 ) {
                     visibleCellCount++;
@@ -667,6 +670,7 @@ const CellList: React.FC<CellListProps> = ({
                                 currentUsername={currentUsername || undefined}
                                 requiredValidations={requiredValidations}
                                 requiredAudioValidations={requiredAudioValidations}
+                                isAuthenticated={isAuthenticated}
                                 isAudioOnly={isAudioOnly}
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
@@ -701,6 +705,7 @@ const CellList: React.FC<CellListProps> = ({
             currentUsername,
             requiredValidations,
             requiredAudioValidations,
+            isAuthenticated,
             isAudioOnly,
             lineNumbersEnabled,
         ]
@@ -845,6 +850,7 @@ const CellList: React.FC<CellListProps> = ({
                                 currentUsername={currentUsername || undefined}
                                 requiredValidations={requiredValidations}
                                 requiredAudioValidations={requiredAudioValidations}
+                                isAuthenticated={isAuthenticated}
                                 isAudioOnly={isAudioOnly}
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
@@ -897,6 +903,7 @@ const CellList: React.FC<CellListProps> = ({
         requiredValidations,
         requiredAudioValidations,
         isAudioOnly,
+        isAuthenticated,
     ]);
 
     // Fetch comments count for all visible cells (batched)

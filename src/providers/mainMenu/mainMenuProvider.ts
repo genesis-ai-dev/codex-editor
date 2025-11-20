@@ -759,12 +759,30 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     );
                 }
 
+                // Check if Frontier Authentication extension is enabled
+                const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
+                const isFrontierExtensionEnabled = frontierExtension !== undefined && frontierExtension.isActive === true;
+
+                // Check authentication status
+                let isAuthenticated = false;
+                try {
+                    const frontierApi = getAuthApi();
+                    if (frontierApi) {
+                        const authStatus = frontierApi.getAuthStatus();
+                        isAuthenticated = authStatus?.isAuthenticated ?? false;
+                    }
+                } catch (error) {
+                    console.debug("Could not get authentication status:", error);
+                }
+
                 if (this._view) {
                     safePostMessageToView(this._view, {
                         command: "syncSettingsUpdate",
                         data: {
                             autoSyncEnabled,
                             syncDelayMinutes,
+                            isFrontierExtensionEnabled,
+                            isAuthenticated,
                         },
                     } as ProjectManagerMessageToWebview, "MainMenu");
                 }

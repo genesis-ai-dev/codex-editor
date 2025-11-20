@@ -578,6 +578,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             const userInfo = await authApi?.getUserInfo();
             const username = userInfo?.username || "anonymous";
 
+            // Check authentication status
+            let isAuthenticated = false;
+            try {
+                if (authApi) {
+                    const authStatus = authApi.getAuthStatus();
+                    isAuthenticated = authStatus?.isAuthenticated ?? false;
+                }
+            } catch (error) {
+                console.debug("Could not get authentication status:", error);
+            }
+
             this.postMessageToWebview(webviewPanel, {
                 type: "providerSendsInitialContent",
                 content: processedData,
@@ -586,6 +597,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 username: username,
                 validationCount: validationCount,
                 validationCountAudio: validationCountAudio,
+                isAuthenticated: isAuthenticated,
             });
 
             // Also send updated metadata plus the autoDownloadAudioOnOpen flag for the project
@@ -3715,7 +3727,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     ): Promise<boolean> {
         try {
             const documentUri = vscode.Uri.parse(uri);
-            
+
             // Use document model for proper undo support
             // Open/get the document instance (VS Code manages lifecycle)
             const document = await this.openCustomDocument(
@@ -3723,36 +3735,36 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 {},
                 new vscode.CancellationTokenSource().token
             );
-            
+
             // Verify cell exists in document
             const existingCell = document.getCellContent(cellId);
             if (!existingCell) {
                 console.warn(`Cell ${cellId} not found in document ${uri}`);
                 return false;
             }
-            
+
             // Ensure author is set correctly before creating edit
             await document.refreshAuthor();
-            
+
             // Use document's updateCellContent method which properly tracks changes for undo
             // This marks the document dirty and fires change events that VS Code tracks
             // For search/replace operations, always skip auto-validation (validation is handled by retainValidations logic)
             await document.updateCellContent(cellId, newContent, EditType.USER_EDIT, true, retainValidations, true);
-            
+
             // Fire custom document change event so VS Code can track for undo/redo
             this._onDidChangeCustomDocument.fire({ document });
-            
+
             // Save the document (VS Code will auto-save, but we ensure it's saved for immediate persistence)
             // Use a cancellation token that won't cancel immediately
             const cancellationToken = new vscode.CancellationTokenSource().token;
             await this.saveCustomDocument(document, cancellationToken);
-            
+
             // Refresh webview if open
             const webviewPanel = this.webviewPanels.get(documentUri.toString());
             if (webviewPanel) {
                 await this.refreshWebview(webviewPanel, document);
             }
-            
+
             return true;
         } catch (error) {
             console.error("Error updating cell content:", error);

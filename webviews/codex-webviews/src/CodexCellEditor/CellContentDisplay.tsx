@@ -23,6 +23,14 @@ import { useTooltip } from "./contextProviders/TooltipContext";
 import CommentsBadge from "./CommentsBadge";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import ReactMarkdown from "react-markdown";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "../components/ui/dialog";
 
 const SHOW_VALIDATION_BUTTON = true;
 interface CellContentDisplayProps {
@@ -60,6 +68,7 @@ interface CellContentDisplayProps {
     currentUsername?: string;
     requiredValidations?: number;
     requiredAudioValidations?: number;
+    isAuthenticated?: boolean;
     isAudioOnly?: boolean;
     showInlineBacktranslations?: boolean;
     backtranslation?: any;
@@ -426,6 +435,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         currentUsername,
         requiredValidations,
         requiredAudioValidations,
+        isAuthenticated = false,
         isAudioOnly = false,
         showInlineBacktranslations = false,
         backtranslation,
@@ -434,6 +444,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         const cellIds = cell.cellMarkers;
         const [fadingOut, setFadingOut] = useState(false);
         const [showSparkleButton, setShowSparkleButton] = useState(false);
+        const [showAuthModal, setShowAuthModal] = useState(false);
         const { showTooltip, hideTooltip } = useTooltip();
 
         const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -558,6 +569,12 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         // Handler for sparkle button click
         const handleSparkleButtonClick = (e: React.MouseEvent) => {
             e.stopPropagation(); // Prevent the cell click handler from firing
+
+            // Check if user is authenticated
+            if (!isAuthenticated) {
+                setShowAuthModal(true);
+                return;
+            }
 
             // Skip if already in translation process
             if (isInTranslationProcess) return;
@@ -750,6 +767,19 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             return cellDisplayMode !== CELL_DISPLAY_MODES.INLINE;
         };
 
+        const handleAuthModalSignIn = () => {
+            vscode.postMessage({
+                command: "openLoginFlow",
+            });
+            setShowAuthModal(false);
+            setShowSparkleButton(false);
+        };
+
+        const handleAuthModalClose = () => {
+            setShowAuthModal(false);
+            setShowSparkleButton(false);
+        };
+
         // Function to render the content with footnote markers and proper spacing
         const renderContent = () => {
             // Handle empty cell case
@@ -906,39 +936,65 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                             >
                                 <div className="action-button-container flex items-center gap-1">
                                     {!isSourceText && (
-                                        <Button
-                                            style={{
-                                                height: "16px",
-                                                width: "16px",
-                                                padding: 0,
-                                                display: "flex",
-                                                alignItems: "center",
-                                                justifyContent: "center",
-                                                position: "relative",
-                                                opacity: showSparkleButton ? 1 : 0,
-                                                transform: `translateX(${
-                                                    showSparkleButton ? "0" : "20px"
-                                                }) scale(${showSparkleButton ? 1 : 0})`,
-                                                transition:
-                                                    "all 0.2s ease-in-out, transform 0.2s cubic-bezier(.68,-0.75,.27,1.75)",
-                                                visibility: showSparkleButton
-                                                    ? "visible"
-                                                    : "hidden",
-                                            }}
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleSparkleButtonClick(e);
-                                            }}
-                                        >
-                                            <i
-                                                className={`codicon ${
-                                                    isInTranslationProcess
-                                                        ? "codicon-loading codicon-modifier-spin"
-                                                        : "codicon-sparkle"
-                                                }`}
-                                                style={{ fontSize: "12px" }}
-                                            ></i>
-                                        </Button>
+                                        <>
+                                            <Button
+                                                style={{
+                                                    height: "16px",
+                                                    width: "16px",
+                                                    padding: 0,
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    justifyContent: "center",
+                                                    position: "relative",
+                                                    opacity: showSparkleButton ? 1 : 0,
+                                                    transform: `translateX(${
+                                                        showSparkleButton ? "0" : "20px"
+                                                    }) scale(${showSparkleButton ? 1 : 0})`,
+                                                    transition:
+                                                        "all 0.2s ease-in-out, transform 0.2s cubic-bezier(.68,-0.75,.27,1.75)",
+                                                    visibility: showSparkleButton
+                                                        ? "visible"
+                                                        : "hidden",
+                                                }}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleSparkleButtonClick(e);
+                                                }}
+                                            >
+                                                <i
+                                                    className={`codicon ${
+                                                        isInTranslationProcess
+                                                            ? "codicon-loading codicon-modifier-spin"
+                                                            : "codicon-sparkle"
+                                                    }`}
+                                                    style={{ fontSize: "12px" }}
+                                                ></i>
+                                            </Button>
+                                            <Dialog
+                                                open={showAuthModal}
+                                                onOpenChange={handleAuthModalClose}
+                                            >
+                                                <DialogContent>
+                                                    <DialogHeader className="sm:text-center">
+                                                        <DialogTitle>
+                                                            Sign in to use AI translating
+                                                        </DialogTitle>
+                                                        <DialogDescription></DialogDescription>
+                                                    </DialogHeader>
+                                                    <DialogFooter className="flex-col sm:justify-center sm:flex-col">
+                                                        <Button onClick={handleAuthModalSignIn}>
+                                                            Sign In
+                                                        </Button>
+                                                        <Button
+                                                            variant="secondary"
+                                                            onClick={handleAuthModalClose}
+                                                        >
+                                                            Cancel
+                                                        </Button>
+                                                    </DialogFooter>
+                                                </DialogContent>
+                                            </Dialog>
+                                        </>
                                     )}
                                     {lineNumber && lineNumbersEnabled && (
                                         <div
