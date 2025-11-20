@@ -219,6 +219,30 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     }
 
     private initializeStateMachine() {
+        const updateAuthStateAction = assign({
+            authState: ({ event }: any) => ({
+                isAuthenticated:
+                    "data" in event ? !!event.data.isAuthenticated : false,
+                isAuthExtensionInstalled:
+                    "data" in event
+                        ? !!event.data.isAuthExtensionInstalled
+                        : false,
+                isLoading: "data" in event ? !!event.data.isLoading : false,
+                error: "data" in event ? event.data.error : undefined,
+                gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
+                workspaceState: {
+                    isWorkspaceOpen:
+                        "data" in event
+                            ? !!event.data.workspaceState?.isWorkspaceOpen
+                            : false,
+                    isProjectInitialized:
+                        "data" in event
+                            ? !!event.data.workspaceState?.isProjectInitialized
+                            : false,
+                },
+            }),
+        }) as any;
+
         const machine = createMachine({
             id: "startupFlow",
             initial: StartupFlowStates.LOGIN_REGISTER,
@@ -301,54 +325,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             {
                                 target: StartupFlowStates.LOGIN_REGISTER,
                                 guard: ({ event }) => !("data" in event ? event.data.isAuthenticated : true),
-                                actions: assign({
-                                    authState: ({ event }) => ({
-                                        isAuthenticated:
-                                            "data" in event ? !!event.data.isAuthenticated : false,
-                                        isAuthExtensionInstalled:
-                                            "data" in event
-                                                ? !!event.data.isAuthExtensionInstalled
-                                                : false,
-                                        isLoading: "data" in event ? !!event.data.isLoading : false,
-                                        error: "data" in event ? event.data.error : undefined,
-                                        gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
-                                        workspaceState: {
-                                            isWorkspaceOpen:
-                                                "data" in event
-                                                    ? !!event.data.workspaceState?.isWorkspaceOpen
-                                                    : false,
-                                            isProjectInitialized:
-                                                "data" in event
-                                                    ? !!event.data.workspaceState?.isProjectInitialized
-                                                    : false,
-                                        },
-                                    }),
-                                }),
+                                actions: updateAuthStateAction,
                             },
                             {
-                                actions: assign({
-                                    authState: ({ event }) => ({
-                                        isAuthenticated:
-                                            "data" in event ? !!event.data.isAuthenticated : false,
-                                        isAuthExtensionInstalled:
-                                            "data" in event
-                                                ? !!event.data.isAuthExtensionInstalled
-                                                : false,
-                                        isLoading: "data" in event ? !!event.data.isLoading : false,
-                                        error: "data" in event ? event.data.error : undefined,
-                                        gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
-                                        workspaceState: {
-                                            isWorkspaceOpen:
-                                                "data" in event
-                                                    ? !!event.data.workspaceState?.isWorkspaceOpen
-                                                    : false,
-                                            isProjectInitialized:
-                                                "data" in event
-                                                    ? !!event.data.workspaceState?.isProjectInitialized
-                                                    : false,
-                                        },
-                                    }),
-                                }),
+                                actions: updateAuthStateAction,
                             },
                         ],
                         [StartupFlowEvents.BACK_TO_LOGIN]: StartupFlowStates.LOGIN_REGISTER,
@@ -360,6 +340,32 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
                         [StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA]:
                             StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
+                        [StartupFlowEvents.NO_AUTH_EXTENSION]: {
+                            target: StartupFlowStates.LOGIN_REGISTER,
+                            actions: assign({
+                                authState: ({ event }) => ({
+                                    isAuthenticated:
+                                        "data" in event ? !!event.data.isAuthenticated : false,
+                                    isAuthExtensionInstalled:
+                                        "data" in event
+                                            ? !!event.data.isAuthExtensionInstalled
+                                            : false,
+                                    isLoading: "data" in event ? !!event.data.isLoading : false,
+                                    error: "data" in event ? event.data.error : undefined,
+                                    gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
+                                    workspaceState: {
+                                        isWorkspaceOpen:
+                                            "data" in event
+                                                ? !!event.data.workspaceState?.isWorkspaceOpen
+                                                : false,
+                                        isProjectInitialized:
+                                            "data" in event
+                                                ? !!event.data.workspaceState?.isProjectInitialized
+                                                : false,
+                                    },
+                                }),
+                            }),
+                        },
                     },
                 },
                 [StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT]: {
@@ -368,54 +374,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             {
                                 target: StartupFlowStates.LOGIN_REGISTER,
                                 guard: ({ event }) => !("data" in event ? event.data.isAuthenticated : true),
-                                actions: assign({
-                                    authState: ({ event }) => ({
-                                        isAuthenticated:
-                                            "data" in event ? !!event.data.isAuthenticated : false,
-                                        isAuthExtensionInstalled:
-                                            "data" in event
-                                                ? !!event.data.isAuthExtensionInstalled
-                                                : false,
-                                        isLoading: "data" in event ? !!event.data.isLoading : false,
-                                        error: "data" in event ? event.data.error : undefined,
-                                        gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
-                                        workspaceState: {
-                                            isWorkspaceOpen:
-                                                "data" in event
-                                                    ? !!event.data.workspaceState?.isWorkspaceOpen
-                                                    : false,
-                                            isProjectInitialized:
-                                                "data" in event
-                                                    ? !!event.data.workspaceState?.isProjectInitialized
-                                                    : false,
-                                        },
-                                    }),
-                                }),
+                                actions: updateAuthStateAction,
                             },
                             {
-                                actions: assign({
-                                    authState: ({ event }) => ({
-                                        isAuthenticated:
-                                            "data" in event ? !!event.data.isAuthenticated : false,
-                                        isAuthExtensionInstalled:
-                                            "data" in event
-                                                ? !!event.data.isAuthExtensionInstalled
-                                                : false,
-                                        isLoading: "data" in event ? !!event.data.isLoading : false,
-                                        error: "data" in event ? event.data.error : undefined,
-                                        gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
-                                        workspaceState: {
-                                            isWorkspaceOpen:
-                                                "data" in event
-                                                    ? !!event.data.workspaceState?.isWorkspaceOpen
-                                                    : false,
-                                            isProjectInitialized:
-                                                "data" in event
-                                                    ? !!event.data.workspaceState?.isProjectInitialized
-                                                    : false,
-                                        },
-                                    }),
-                                }),
+                                actions: updateAuthStateAction,
                             },
                         ],
                         [StartupFlowEvents.INITIALIZE_PROJECT]:
@@ -426,6 +388,32 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
                         [StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT]:
                             StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
+                        [StartupFlowEvents.NO_AUTH_EXTENSION]: {
+                            target: StartupFlowStates.LOGIN_REGISTER,
+                            actions: assign({
+                                authState: ({ event }) => ({
+                                    isAuthenticated:
+                                        "data" in event ? !!event.data.isAuthenticated : false,
+                                    isAuthExtensionInstalled:
+                                        "data" in event
+                                            ? !!event.data.isAuthExtensionInstalled
+                                            : false,
+                                    isLoading: "data" in event ? !!event.data.isLoading : false,
+                                    error: "data" in event ? event.data.error : undefined,
+                                    gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
+                                    workspaceState: {
+                                        isWorkspaceOpen:
+                                            "data" in event
+                                                ? !!event.data.workspaceState?.isWorkspaceOpen
+                                                : false,
+                                        isProjectInitialized:
+                                            "data" in event
+                                                ? !!event.data.workspaceState?.isProjectInitialized
+                                                : false,
+                                    },
+                                }),
+                            }),
+                        },
                     },
                 },
                 [StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA]: {
@@ -434,54 +422,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             {
                                 target: StartupFlowStates.LOGIN_REGISTER,
                                 guard: ({ event }) => !("data" in event ? event.data.isAuthenticated : true),
-                                actions: assign({
-                                    authState: ({ event }) => ({
-                                        isAuthenticated:
-                                            "data" in event ? !!event.data.isAuthenticated : false,
-                                        isAuthExtensionInstalled:
-                                            "data" in event
-                                                ? !!event.data.isAuthExtensionInstalled
-                                                : false,
-                                        isLoading: "data" in event ? !!event.data.isLoading : false,
-                                        error: "data" in event ? event.data.error : undefined,
-                                        gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
-                                        workspaceState: {
-                                            isWorkspaceOpen:
-                                                "data" in event
-                                                    ? !!event.data.workspaceState?.isWorkspaceOpen
-                                                    : false,
-                                            isProjectInitialized:
-                                                "data" in event
-                                                    ? !!event.data.workspaceState?.isProjectInitialized
-                                                    : false,
-                                        },
-                                    }),
-                                }),
+                                actions: updateAuthStateAction,
                             },
                             {
-                                actions: assign({
-                                    authState: ({ event }) => ({
-                                        isAuthenticated:
-                                            "data" in event ? !!event.data.isAuthenticated : false,
-                                        isAuthExtensionInstalled:
-                                            "data" in event
-                                                ? !!event.data.isAuthExtensionInstalled
-                                                : false,
-                                        isLoading: "data" in event ? !!event.data.isLoading : false,
-                                        error: "data" in event ? event.data.error : undefined,
-                                        gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
-                                        workspaceState: {
-                                            isWorkspaceOpen:
-                                                "data" in event
-                                                    ? !!event.data.workspaceState?.isWorkspaceOpen
-                                                    : false,
-                                            isProjectInitialized:
-                                                "data" in event
-                                                    ? !!event.data.workspaceState?.isProjectInitialized
-                                                    : false,
-                                        },
-                                    }),
-                                }),
+                                actions: updateAuthStateAction,
                             },
                         ],
                         [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]:
@@ -489,7 +433,44 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     },
                 },
                 [StartupFlowStates.ALREADY_WORKING]: {
-                    type: "final",
+                    on: {
+                        [StartupFlowEvents.NO_AUTH_EXTENSION]: {
+                            target: StartupFlowStates.LOGIN_REGISTER,
+                            actions: assign({
+                                authState: ({ event }) => ({
+                                    isAuthenticated:
+                                        "data" in event ? !!event.data.isAuthenticated : false,
+                                    isAuthExtensionInstalled:
+                                        "data" in event
+                                            ? !!event.data.isAuthExtensionInstalled
+                                            : false,
+                                    isLoading: "data" in event ? !!event.data.isLoading : false,
+                                    error: "data" in event ? event.data.error : undefined,
+                                    gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
+                                    workspaceState: {
+                                        isWorkspaceOpen:
+                                            "data" in event
+                                                ? !!event.data.workspaceState?.isWorkspaceOpen
+                                                : false,
+                                        isProjectInitialized:
+                                            "data" in event
+                                                ? !!event.data.workspaceState?.isProjectInitialized
+                                                : false,
+                                    },
+                                }),
+                            }),
+                        },
+                        [StartupFlowEvents.UPDATE_AUTH_STATE]: [
+                            {
+                                target: StartupFlowStates.LOGIN_REGISTER,
+                                guard: ({ event }) => !("data" in event ? event.data.isAuthenticated : true),
+                                actions: updateAuthStateAction,
+                            },
+                            {
+                                actions: updateAuthStateAction,
+                            },
+                        ],
+                    },
                 },
             },
         });
@@ -501,6 +482,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             debugLog({ state }, "state in startup flow");
             if (state.value === StartupFlowStates.ALREADY_WORKING) {
                 this.webviewPanel?.dispose();
+                return;
             }
             if (this.webviewPanel) {
                 this.safeSendMessage({
@@ -1065,11 +1047,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         debugLog("Checking remote healing requirement for project:", projectPath);
                         const { checkRemoteHealingRequired } = await import("../../utils/remoteHealingManager");
                         const healingCheck = await checkRemoteHealingRequired(projectPath);
-                        
+
                         if (healingCheck.required) {
                             debugLog("Remote healing required for user:", healingCheck.currentUsername);
                             remoteHealingWasPerformed = true;
-                            
+
                             // Inform webview that healing is starting (not opening)
                             try {
                                 this.safeSendMessage({
@@ -1080,7 +1062,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             } catch (e) {
                                 // non-fatal
                             }
-                            
+
                             // Show notification and perform healing
                             await vscode.window.withProgress(
                                 {
@@ -1090,20 +1072,20 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 },
                                 async (progress) => {
                                     progress.report({ message: "Healing project..." });
-                                    
+
                                     // Get project name for the healing process
                                     const projectName = projectPath.split(/[\\/]/).pop() || "project";
-                                    
+
                                     // Get git origin URL
                                     const git = await import("isomorphic-git");
                                     const fs = await import("fs");
                                     const remotes = await git.listRemotes({ fs, dir: projectPath });
                                     const origin = remotes.find((r) => r.remote === "origin");
-                                    
+
                                     if (!origin) {
                                         throw new Error("No git origin found for project");
                                     }
-                                    
+
                                     // Perform the healing operation (suppress success message, we'll show it after opening)
                                     await this.performProjectHeal(
                                         progress,
@@ -1112,9 +1094,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                         origin.url,
                                         false // Don't show success message yet
                                     );
-                                    
+
                                     debugLog("Remote healing completed successfully");
-                                    
+
                                     // Remove current user from remote healing list
                                     try {
                                         progress.report({ message: "Updating healing list..." });
@@ -1130,11 +1112,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                         debugLog("Failed to remove user from healing list (non-fatal):", removeErr);
                                         console.error("Failed to remove user from healing list:", removeErr);
                                     }
-                                    
+
                                     progress.report({ message: "Opening project..." });
                                 }
                             );
-                            
+
                             // Inform webview that healing is complete
                             try {
                                 this.safeSendMessage({
@@ -1152,7 +1134,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // Don't block project opening if healing check fails
                         debugLog("Remote healing check failed (non-fatal):", healingCheckErr);
                         console.error("Remote healing check error:", healingCheckErr);
-                        
+
                         // Ensure healing state is cleared if there was an error
                         if (remoteHealingWasPerformed) {
                             try {
@@ -1166,7 +1148,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             }
                         }
                     }
-                    
+
                     // Now inform webview that opening is starting (after healing is complete)
                     try {
                         this.safeSendMessage({
@@ -1209,7 +1191,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         const flags = await getFlags(projectUri);
                         const applyState = await getApplyState(projectUri);
                         const switchStarted = await getSwitchStarted(projectUri);
-                        
+
                         // Detect interrupted switches: if switchStarted is true, we need to restart from scratch
                         // regardless of what lastModeRun says, because the previous switch was incomplete
                         if (strategy && (applyState === "pending" || applyState === "applying" || applyState === "failed" || switchStarted || (flags?.lastModeRun && flags.lastModeRun !== strategy))) {
@@ -1227,11 +1209,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             }
                             try {
                                 // Mark applying while we resume and set switchStarted to detect interruptions
-                                try { 
+                                try {
                                     await setApplyState("applying", projectUri);
                                     await setSwitchStarted(true, projectUri); // Mark switch as started
-                                } catch (pendingErr) { 
-                                    debugLog("Failed to set applyState=applying or switchStarted before resume", pendingErr); 
+                                } catch (pendingErr) {
+                                    debugLog("Failed to set applyState=applying or switchStarted before resume", pendingErr);
                                 }
                                 // Force the apply when lastModeRun differs to ensure on-disk state matches selection
                                 await applyMediaStrategy(projectUri, strategy, true);
@@ -2310,7 +2292,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     const flags = await getFlags(projectUri);
                     const { getSwitchStarted, setSwitchStarted } = await import("../../utils/localProjectSettings");
                     const switchStarted = await getSwitchStarted(projectUri);
-                    
+
                     if (flags?.lastModeRun === mediaStrategy && !switchStarted) {
                         debugLog(`Switching back to last applied strategy "${mediaStrategy}" - auto-applying without dialog`);
 
@@ -2376,7 +2358,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                     if (selection === switchButton) {
                         // Switch but do not open; mark changesApplied=false and only update strategy
-                        
+
                         // Initialize switchStarted flag if missing (one-time initialization on strategy change)
                         try {
                             const { readLocalProjectSettings, writeLocalProjectSettings } = await import("../../utils/localProjectSettings");
@@ -2389,7 +2371,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         } catch (initErr) {
                             debugLog("Failed to initialize switchStarted flag", initErr);
                         }
-                        
+
                         await setMediaFilesStrategy(mediaStrategy, projectUri);
 
                         const { lastModeRun } = await getFlags(projectUri);
@@ -2430,7 +2412,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     // BUT: if switchStarted is true, we must reapply to recover from interruption
                     try {
                         const { getFlags, setLastModeRun, setChangesApplied, setMediaFilesStrategy, setApplyState, getSwitchStarted, setSwitchStarted, readLocalProjectSettings, writeLocalProjectSettings } = await import("../../utils/localProjectSettings");
-                        
+
                         // Initialize switchStarted flag if missing (one-time initialization on strategy change)
                         try {
                             const settings = await readLocalProjectSettings(projectUri);
@@ -2442,10 +2424,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         } catch (initErr) {
                             debugLog("Failed to initialize switchStarted flag", initErr);
                         }
-                        
+
                         const flags = await getFlags(projectUri);
                         const switchStartedHere = await getSwitchStarted(projectUri);
-                        
+
                         if (flags?.lastModeRun === mediaStrategy && !switchStartedHere) {
                             // Return to last-run mode: do not touch files. Just ensure
                             // the selected strategy is stored and flags are consistent.
