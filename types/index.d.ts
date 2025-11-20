@@ -277,6 +277,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "showProgressDashboard"; }
     | { command: "startup.dismiss"; }
     | { command: "webview.ready"; }
+    | { command: "extension.installFrontier"; }
     | { command: "navigateToMainMenu"; }
     | { command: "zipProject"; projectName: string; projectPath: string; includeGit?: boolean; }
     | { command: "project.heal"; projectName: string; projectPath: string; gitOriginUrl?: string; }

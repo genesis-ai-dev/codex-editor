@@ -754,7 +754,20 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                 >
                     <i className="codicon codicon-error"></i>
                     <span>
-                        Frontier Authentication extension is missing or disabled. Please install or enable it to proceed.
+                        Frontier Authentication extension is missing or disabled. Please{" "}
+                        <span
+                            onClick={() => vscode.postMessage({ command: "extension.installFrontier" })}
+                            style={{
+                                textDecoration: "underline",
+                                cursor: "pointer",
+                                fontWeight: "600",
+                            }}
+                            role="button"
+                            tabIndex={0}
+                        >
+                            install or enable it
+                        </span>{" "}
+                        to proceed.
                     </span>
                 </div>
             )}

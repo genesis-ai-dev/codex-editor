@@ -1788,6 +1788,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 debugLog("Dismissing startup flow");
                 this.webviewPanel?.dispose();
                 break;
+            case "extension.installFrontier":
+                debugLog("Opening extensions view");
+                await vscode.commands.executeCommand("workbench.view.extensions");
+                break;
             case "project.triggerSync":
                 // Trigger a sync operation via the SyncManager
                 try {
