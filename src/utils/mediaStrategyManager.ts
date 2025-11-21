@@ -418,14 +418,14 @@ async function trySmartRecovery(
     lastStrategy: MediaFilesStrategy | undefined
 ): Promise<boolean> {
     const projectPath = projectUri.fsPath;
-    
+
     // Smart recovery scenario 1: auto-download -> (interrupted stream-only) -> auto-download
     // In this case, we likely have some media files still intact and some pointer stubs
     // Solution: Just remove pointer stubs (preserving media files), avoiding re-downloads
     if (lastStrategy === "auto-download" && targetStrategy === "auto-download") {
         debug("Smart recovery: auto-download -> interrupted switch -> auto-download");
         debug("Preserving existing media files and removing only pointer stubs");
-        
+
         const removed = await removeFilesPointerStubs(projectPath);
         if (removed > 0) {
             vscode.window.showInformationMessage(
@@ -434,14 +434,14 @@ async function trySmartRecovery(
         }
         return true;
     }
-    
+
     // Smart recovery scenario 2: stream-only -> (interrupted auto-download) -> stream-only
     // In this case, we might have partially downloaded files mixed with pointers
     // Solution: Replace everything with pointers to ensure consistent state
     if (lastStrategy === "stream-only" && targetStrategy === "stream-only") {
         debug("Smart recovery: stream-only -> interrupted switch -> stream-only");
         debug("Ensuring all files are replaced with pointers");
-        
+
         const replacedCount = await replaceFilesWithPointers(projectPath);
         if (replacedCount > 0) {
             vscode.window.showInformationMessage(
@@ -450,13 +450,13 @@ async function trySmartRecovery(
         }
         return true;
     }
-    
+
     // Smart recovery scenario 3: stream-and-save -> (interrupted) -> stream-and-save
     // Similar to stream-only, ensure pointers are in place
     if (lastStrategy === "stream-and-save" && targetStrategy === "stream-and-save") {
         debug("Smart recovery: stream-and-save -> interrupted switch -> stream-and-save");
         debug("Ensuring all files are replaced with pointers for streaming");
-        
+
         const replacedCount = await replaceFilesWithPointers(projectPath);
         if (replacedCount > 0) {
             vscode.window.showInformationMessage(
@@ -465,7 +465,7 @@ async function trySmartRecovery(
         }
         return true;
     }
-    
+
     // For other scenarios (switching to a different strategy than last run),
     // fall through to normal apply logic
     debug(`No smart recovery applicable for ${lastStrategy} -> ${targetStrategy}, using normal apply`);
@@ -487,7 +487,7 @@ export async function applyMediaStrategyAndRecord(
         const { lastModeRun } = await getFlags(projectUri);
         const settingsMod = await import("./localProjectSettings");
         const switchStarted = await settingsMod.getSwitchStarted(projectUri);
-        
+
         // Only skip if returning to last run strategy AND no interrupted switch
         if (lastModeRun === newStrategy && !switchStarted) {
             await setMediaFilesStrategy(newStrategy, projectUri);
@@ -496,7 +496,7 @@ export async function applyMediaStrategyAndRecord(
             await settingsMod.setSwitchStarted(false, projectUri);
             return;
         }
-        
+
         // If there was an interrupted switch and we're returning to the same strategy,
         // try smart recovery to minimize unnecessary work
         if (lastModeRun === newStrategy && switchStarted) {
@@ -541,19 +541,40 @@ export async function applyMediaStrategyAndRecord(
         debug("Failed to set applying state before apply", e);
     }
 
-    await applyMediaStrategy(projectUri, newStrategy);
-    
-    // Mark switch as complete: update lastModeRun and clear switchStarted flag
-    await setLastModeRun(newStrategy, projectUri);
     try {
-        const settingsMod = await import("./localProjectSettings");
-        const s = await settingsMod.readLocalProjectSettings(projectUri);
-        s.mediaFileStrategyApplyState = "applied";
-        s.mediaFileStrategySwitchStarted = false; // Clear the flag on successful completion
-        await settingsMod.writeLocalProjectSettings(s, projectUri);
-    } catch (e) {
-        // best effort already applied
-        debug("Failed to clear switchStarted flag after successful apply", e);
+        await applyMediaStrategy(projectUri, newStrategy);
+
+        // Mark switch as complete: update lastModeRun and clear switchStarted flag
+        await setLastModeRun(newStrategy, projectUri);
+        try {
+            const settingsMod = await import("./localProjectSettings");
+            const s = await settingsMod.readLocalProjectSettings(projectUri);
+            s.mediaFileStrategyApplyState = "applied";
+            s.mediaFileStrategySwitchStarted = false; // Clear the flag on successful completion
+            await settingsMod.writeLocalProjectSettings(s, projectUri);
+        } catch (e) {
+            // best effort already applied
+            debug("Failed to clear switchStarted flag after successful apply", e);
+        }
+    } catch (error) {
+        // Ensure switchStarted flag is always cleared on failure
+        try {
+            const settingsMod = await import("./localProjectSettings");
+            const s = await settingsMod.readLocalProjectSettings(projectUri);
+            s.mediaFileStrategyApplyState = "failed";
+            s.mediaFileStrategySwitchStarted = false;
+            await settingsMod.writeLocalProjectSettings(s, projectUri);
+        } catch (writeErr) {
+            try {
+                const settingsMod = await import("./localProjectSettings");
+                await settingsMod.setSwitchStarted(false, projectUri);
+                await settingsMod.setApplyState("failed", projectUri);
+            } catch (fallbackErr) {
+                debug("Failed to reset switchStarted flag after failed apply", fallbackErr);
+            }
+            debug("Failed to write full settings after apply failure", writeErr);
+        }
+        throw error;
     }
 }
 
