@@ -89,7 +89,13 @@ export async function mergeAudioFiles(
         }
 
         const tempListFile = path.join(tempDir, `concat_list_${Date.now()}.txt`);
-        const listContent = `file '${inputFile1.replace(/'/g, "\\'")}'\nfile '${inputFile2.replace(/'/g, "\\'")}'`;
+        // Use absolute paths for FFmpeg concat demuxer to avoid path resolution issues
+        const absInputFile1 = path.isAbsolute(inputFile1) ? inputFile1 : path.resolve(inputFile1);
+        const absInputFile2 = path.isAbsolute(inputFile2) ? inputFile2 : path.resolve(inputFile2);
+        // Escape single quotes and backslashes for FFmpeg concat format
+        const escapedFile1 = absInputFile1.replace(/\\/g, '/').replace(/'/g, "\\'");
+        const escapedFile2 = absInputFile2.replace(/\\/g, '/').replace(/'/g, "\\'");
+        const listContent = `file '${escapedFile1}'\nfile '${escapedFile2}'`;
         fs.writeFileSync(tempListFile, listContent);
 
         return new Promise((resolve, reject) => {

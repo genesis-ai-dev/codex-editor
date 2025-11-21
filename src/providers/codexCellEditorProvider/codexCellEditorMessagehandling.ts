@@ -2495,23 +2495,69 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     startTime: mergedStartTime,
                     endTime: mergedEndTime
                 };
-
-                console.log("Merged time ranges:", {
-                    previousStartTime: previousData.startTime,
-                    previousEndTime: previousData.endTime,
-                    currentStartTime: currentData.startTime,
-                    currentEndTime: currentData.endTime,
-                    mergedStartTime: mergedStartTime,
-                    mergedEndTime: mergedEndTime,
-                    totalDuration: mergedEndTime - mergedStartTime
-                });
             }
 
             // 5. Merge audio files if both cells have audio attachments
             if (workspaceFolder) {
                 try {
-                    const previousAudioPath = await getAudioFilePathForCell(previousCell, previousCellId, workspaceFolder);
-                    const currentAudioPath = await getAudioFilePathForCell(currentCell, currentCellId, workspaceFolder);
+                    // Get current attachments - read directly from previousCell to ensure we have the latest state
+                    // This is important because previousCell may have been modified in a previous merge operation
+                    let previousAttachment: { attachmentId: string; attachment: any; } | null = null;
+
+                    // Check if previousCell has a selectedAudioId, otherwise get the latest attachment
+                    if (previousCell.metadata?.selectedAudioId && previousCell.metadata?.attachments) {
+                        const selectedId = previousCell.metadata.selectedAudioId;
+                        const selectedAtt = previousCell.metadata.attachments[selectedId];
+                        if (selectedAtt && selectedAtt.type === "audio" && !selectedAtt.isDeleted) {
+                            previousAttachment = { attachmentId: selectedId, attachment: selectedAtt };
+                            console.log(`[mergeCellWithPrevious] Using selected audio attachment: ${selectedId} for cell ${previousCellId}`);
+                        }
+                    }
+
+                    // Fallback to latest non-deleted attachment if no explicit selection
+                    if (!previousAttachment && previousCell.metadata?.attachments) {
+                        const attachments = Object.entries(previousCell.metadata.attachments)
+                            .filter(([_, att]: [string, any]) =>
+                                att && att.type === "audio" && !att.isDeleted
+                            )
+                            .sort(([_, a]: [string, any], [__, b]: [string, any]) =>
+                                (b.updatedAt || 0) - (a.updatedAt || 0)
+                            );
+                        if (attachments.length > 0) {
+                            const [attachmentId, attachment] = attachments[0];
+                            previousAttachment = { attachmentId, attachment };
+                            console.log(`[mergeCellWithPrevious] Using latest audio attachment: ${attachmentId} (updatedAt: ${attachment.updatedAt}) for cell ${previousCellId}`);
+                        }
+                    }
+
+                    // Get current cell's attachment using getCurrentAttachment (this should be fine for current cell)
+                    const currentAttachment = document.getCurrentAttachment(currentCellId, "audio");
+
+                    // Resolve file paths from attachment URLs
+                    let previousAudioPath: string | null = null;
+                    let currentAudioPath: string | null = null;
+
+                    if (previousAttachment?.attachment?.url) {
+                        const attachmentPath = toPosixPath(previousAttachment.attachment.url);
+                        previousAudioPath = path.isAbsolute(attachmentPath)
+                            ? attachmentPath
+                            : path.join(workspaceFolder.uri.fsPath, attachmentPath);
+                        // Verify file exists
+                        if (!(await pathExists(previousAudioPath))) {
+                            previousAudioPath = null;
+                        }
+                    }
+
+                    if (currentAttachment?.attachment?.url) {
+                        const attachmentPath = toPosixPath(currentAttachment.attachment.url);
+                        currentAudioPath = path.isAbsolute(attachmentPath)
+                            ? attachmentPath
+                            : path.join(workspaceFolder.uri.fsPath, attachmentPath);
+                        // Verify file exists
+                        if (!(await pathExists(currentAudioPath))) {
+                            currentAudioPath = null;
+                        }
+                    }
 
                     if (previousAudioPath && currentAudioPath) {
                         // Both cells have audio - merge them
@@ -2571,10 +2617,61 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             outputDir = legacyAttachmentsPath;
                         }
 
-                        const outputPath = path.join(outputDir, outputFilename);
+                        let outputPath = path.join(outputDir, outputFilename);
+
+                        // Normalize paths for comparison (resolve to absolute and normalize separators)
+                        const normalizedOutputPath = path.resolve(outputPath);
+                        const normalizedPreviousPath = path.resolve(previousAudioPath);
+
+                        // CRITICAL: If outputPath is the same as previousAudioPath, use a temporary path first
+                        // to avoid overwriting the input file during merge (which can cause corruption)
+                        let tempOutputPath: string | null = null;
+                        const finalOutputPath = outputPath;
+                        if (normalizedOutputPath === normalizedPreviousPath) {
+                            // Use a temp filename that preserves the extension but adds timestamp before it
+                            const ext = path.extname(outputFilename);
+                            const basenameWithoutExt = path.basename(outputFilename, ext);
+                            tempOutputPath = path.join(outputDir, `${basenameWithoutExt}_tmp_${timestamp}${ext}`);
+                            outputPath = tempOutputPath;
+                            console.log(`[mergeCellWithPrevious] WARNING: Output path matches input path, using temporary path: ${tempOutputPath}`);
+                        }
 
                         // Merge audio files using FFmpeg
                         const mergedAudioPath = await mergeAudioFiles(previousAudioPath, currentAudioPath, outputPath);
+
+                        // If we used a temp path and merge succeeded, move it to the final location
+                        if (tempOutputPath && mergedAudioPath && mergedAudioPath === tempOutputPath) {
+                            try {
+                                // Verify temp file exists before moving
+                                if (!(await pathExists(tempOutputPath))) {
+                                    console.error(`[mergeCellWithPrevious] ERROR: Temp file does not exist: ${tempOutputPath}`);
+                                    // Don't throw - just log and continue with temp path
+                                } else {
+                                    // Remove old file if it exists
+                                    if (await pathExists(finalOutputPath)) {
+                                        await vscode.workspace.fs.delete(vscode.Uri.file(finalOutputPath));
+                                    }
+
+                                    // Move temp file to final location
+                                    await vscode.workspace.fs.rename(
+                                        vscode.Uri.file(tempOutputPath),
+                                        vscode.Uri.file(finalOutputPath),
+                                        { overwrite: true }
+                                    );
+                                    console.log(`[mergeCellWithPrevious] Successfully moved temporary file to final location: ${finalOutputPath}`);
+
+                                    // Verify final file exists
+                                    if (!(await pathExists(finalOutputPath))) {
+                                        console.error(`[mergeCellWithPrevious] ERROR: Final file does not exist after move: ${finalOutputPath}`);
+                                        // Don't throw - file might still be at temp path
+                                    }
+                                }
+                            } catch (moveError) {
+                                console.error(`[mergeCellWithPrevious] Failed to move temp file to final location:`, moveError);
+                                // If move fails, log error but don't throw - the merge succeeded, just in wrong location
+                                // The file is still usable at tempOutputPath
+                            }
+                        }
 
                         if (mergedAudioPath) {
                             // Create/update attachment metadata in previous cell
@@ -2582,15 +2679,24 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 previousCell.metadata.attachments = {};
                             }
 
-                            // Get existing attachment info to preserve properties
-                            const previousAttachment = document.getCurrentAttachment(previousCellId, "audio");
-                            const currentAttachment = document.getCurrentAttachment(currentCellId, "audio");
-
                             // Generate new unique attachment ID
                             const newAttachmentId = `merged_${timestamp}`;
 
                             // Calculate relative path from workspace root
-                            let relativePath = path.relative(workspaceFolder.uri.fsPath, mergedAudioPath);
+                            // Use finalOutputPath if we used a temp path and it exists, otherwise use mergedAudioPath
+                            let pathForAttachment = mergedAudioPath;
+                            if (tempOutputPath) {
+                                // Check if final file exists (move succeeded), otherwise use temp path
+                                if (await pathExists(finalOutputPath)) {
+                                    pathForAttachment = finalOutputPath;
+                                } else {
+                                    // Move failed or not attempted, use temp path
+                                    pathForAttachment = tempOutputPath;
+                                    console.warn(`[mergeCellWithPrevious] Using temp path for attachment since final move failed or not attempted: ${tempOutputPath}`);
+                                }
+                            }
+
+                            let relativePath = path.relative(workspaceFolder.uri.fsPath, pathForAttachment);
                             // Ensure path starts with .project or similar for relative paths
                             if (!relativePath.startsWith('.') && !path.isAbsolute(relativePath)) {
                                 relativePath = `.${path.sep}${relativePath}`;
@@ -2605,12 +2711,17 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 isDeleted: false
                             };
 
-                            // Merge startTime from previous and endTime from current
+                            // Calculate duration: startTime from previous cell, endTime from current cell
+                            // This ensures the total duration reflects all merged audio segments
                             if (previousAttachment?.attachment?.startTime !== undefined) {
                                 mergedAttachment.startTime = previousAttachment.attachment.startTime;
                             }
                             if (currentAttachment?.attachment?.endTime !== undefined) {
                                 mergedAttachment.endTime = currentAttachment.attachment.endTime;
+                            } else if (previousAttachment?.attachment?.endTime !== undefined && currentAttachment?.attachment?.startTime !== undefined) {
+                                // Fallback: if current doesn't have endTime, use previous endTime
+                                // This handles cases where the current cell's audio doesn't have timing metadata
+                                mergedAttachment.endTime = previousAttachment.attachment.endTime;
                             }
 
                             // Preserve transcription if available (prefer previous, fallback to current)
@@ -2633,12 +2744,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         }
                     } else if (previousAudioPath || currentAudioPath) {
                         // Only one cell has audio - preserve it in the previous cell
-                        const audioPath = previousAudioPath || currentAudioPath;
-                        const sourceCell = previousAudioPath ? previousCell : currentCell;
+                        const sourceAttachment = previousAudioPath ? previousAttachment : currentAttachment;
                         const sourceCellId = previousAudioPath ? previousCellId : currentCellId;
 
-                        // Copy attachment from source cell to previous cell
-                        const sourceAttachment = document.getCurrentAttachment(sourceCellId, "audio");
                         if (sourceAttachment && !previousCell.metadata.attachments) {
                             previousCell.metadata.attachments = {};
                         }
