@@ -3990,5 +3990,127 @@ suite("CodexCellEditorProvider Test Suite", () => {
             // Note: Network call to analytics is mocked/optional and tested separately
             assert.ok(true, "Variant selection recorded successfully");
         });
+
+        test("merge buttons show up in source when toggle source editing mode is turned on", async function () {
+            this.timeout(10000);
+
+            // This test verifies that when source editing mode (correction editor mode) is toggled on,
+            // all conditions are met for merge buttons (with codicon-merge icon) to appear in the webview.
+            // The merge button appears on non-first, non-merged cells in source text when correction editor mode is enabled.
+            // Since the merge icon is rendered by React in the webview, we verify the provider sends the correct
+            // state and data that would cause React to render the merge button.
+
+            // Create a source file
+            const srcPath = path.join(os.tmpdir(), `test-source-${Date.now()}-${Math.random().toString(36).slice(2)}.source`);
+            const srcUri = vscode.Uri.file(srcPath);
+            const base = JSON.parse(JSON.stringify(codexSubtitleContent));
+            await vscode.workspace.fs.writeFile(srcUri, Buffer.from(JSON.stringify(base, null, 2)));
+
+            try {
+                const document = await provider.openCustomDocument(
+                    srcUri,
+                    { backupId: undefined },
+                    new vscode.CancellationTokenSource().token
+                );
+
+                // Track all postMessage calls
+                const postMessageCalls: any[] = [];
+                let webviewHtml = "";
+
+                const webviewPanel = {
+                    webview: {
+                        get html() {
+                            return webviewHtml;
+                        },
+                        set html(value: string) {
+                            webviewHtml = value;
+                        },
+                        options: { enableScripts: true },
+                        asWebviewUri: (uri: vscode.Uri) => uri,
+                        cspSource: "https://example.com",
+                        onDidReceiveMessage: (_callback: (message: any) => void) => ({ dispose: () => { } }),
+                        postMessage: (message: any) => {
+                            postMessageCalls.push(message);
+                            return Promise.resolve();
+                        }
+                    },
+                    onDidDispose: () => ({ dispose: () => { } }),
+                    onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+                } as any as vscode.WebviewPanel;
+
+                // Resolve the editor to initialize the webview
+                await provider.resolveCustomEditor(
+                    document,
+                    webviewPanel,
+                    new vscode.CancellationTokenSource().token
+                );
+
+                // Wait for initial setup
+                await sleep(100);
+
+                // Clear previous messages to focus on toggleCorrectionEditorMode messages
+                postMessageCalls.length = 0;
+
+                // Toggle correction editor mode on
+                await provider.toggleCorrectionEditorMode();
+
+                // Wait for messages to be sent and webview refresh to complete
+                await sleep(200);
+
+                // Verify that correctionEditorModeChanged message was sent with enabled: true
+                const correctionModeMessage = postMessageCalls.find(
+                    (msg) => msg.type === "correctionEditorModeChanged"
+                );
+                assert.ok(
+                    correctionModeMessage,
+                    "correctionEditorModeChanged message should be sent"
+                );
+                assert.strictEqual(
+                    correctionModeMessage.enabled,
+                    true,
+                    "correctionEditorModeChanged should have enabled: true"
+                );
+
+                // Verify that the HTML contains isCorrectionEditorMode: true
+                // The HTML is set during refreshWebview which is called after toggleCorrectionEditorMode
+                assert.ok(
+                    webviewHtml.includes("isCorrectionEditorMode: true"),
+                    "HTML should contain isCorrectionEditorMode: true when source editing mode is on"
+                );
+
+                // Verify that providerSendsInitialContent message is sent with isSourceText: true
+                // This ensures the webview knows it's displaying source text, which is required for merge buttons
+                const initialContentMessage = postMessageCalls.find(
+                    (msg) => msg.type === "providerSendsInitialContent"
+                );
+                assert.ok(
+                    initialContentMessage,
+                    "providerSendsInitialContent message should be sent after refresh"
+                );
+                assert.strictEqual(
+                    initialContentMessage.isSourceText,
+                    true,
+                    "isSourceText should be true for source files"
+                );
+
+                // Verify that we have multiple cells (merge buttons only show on non-first cells)
+                const cellContent = initialContentMessage.content || [];
+                assert.ok(
+                    Array.isArray(cellContent) && cellContent.length >= 2,
+                    "Source file should have at least 2 cells for merge buttons to appear (merge buttons only show on non-first cells)"
+                );
+
+                // Verify that the second cell is not merged (merged cells show cancel merge button, not merge button)
+                const secondCell = cellContent[1];
+                assert.ok(
+                    secondCell && !secondCell.merged,
+                    "Second cell should exist and not be merged for merge button to appear"
+                );
+
+                document.dispose();
+            } finally {
+                await deleteIfExists(srcUri);
+            }
+        });
     });
 });
