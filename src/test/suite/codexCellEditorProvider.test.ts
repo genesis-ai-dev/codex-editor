@@ -4078,6 +4078,14 @@ suite("CodexCellEditorProvider Test Suite", () => {
                     "HTML should contain isCorrectionEditorMode: true when source editing mode is on"
                 );
 
+                // Simulate webview-ready message to trigger pending updates
+                // refreshWebview resets the webview ready state, so scheduled messages won't be sent
+                // until the webview reports ready
+                await provider.receiveMessage({ command: 'webviewReady' });
+
+                // Wait for scheduled messages to be sent
+                await sleep(100);
+
                 // Verify that providerSendsInitialContent message is sent with isSourceText: true
                 // This ensures the webview knows it's displaying source text, which is required for merge buttons
                 const initialContentMessage = postMessageCalls.find(
