@@ -29,6 +29,7 @@ const vscode = acquireVsCodeApi();
 
 export const StartupFlowView: React.FC = () => {
     const [value, setValue] = useState<StartupFlowStates | null>(null);
+    const [authState, setAuthState] = useState<AuthState | null>(null);
     const [isInitializing, setIsInitializing] = useState(false);
 
     // Use ref to maintain current state value for the stable event listener
@@ -50,6 +51,7 @@ export const StartupFlowView: React.FC = () => {
             switch (message.command) {
                 case "state.update": {
                     setValue(message.state.value);
+                    setAuthState(message.state.context.authState);
                     break;
                 }
                 case "project.initializationStatus": {
@@ -77,6 +79,7 @@ export const StartupFlowView: React.FC = () => {
                 case "updateAuthState": {
                     console.log("updateAuthState", JSON.stringify(message, null, 2));
                     const authState: AuthState = message.authState;
+                    setAuthState(authState);
                     if (!authState.isAuthExtensionInstalled) {
                         // send({
                         //     type: StartupFlowEvents.NO_AUTH_EXTENSION,
@@ -377,7 +380,7 @@ export const StartupFlowView: React.FC = () => {
 
             {value === StartupFlowStates.LOGIN_REGISTER && (
                 <LoginRegisterStep
-                    // authState={value.context.authState}
+                    authState={authState || undefined}
                     vscode={vscode}
                     onLogin={handleLogin}
                     onRegister={handleRegister}

@@ -185,7 +185,7 @@ const testConfig = {
         path: path.resolve(__dirname, "out", "test", "suite"),
         filename: "index.js",
         libraryTarget: "commonjs2",
-        publicPath: '', // Disable automatic publicPath for extension host compatibility
+        publicPath: "", // Disable automatic publicPath for extension host compatibility
     },
     externals: {
         vscode: "commonjs vscode",
@@ -196,6 +196,10 @@ const testConfig = {
         extensions: [".ts", ".js"],
         alias: {
             "@": path.resolve(__dirname, "src"),
+            "@startupFlowTypes": path.resolve(
+                __dirname,
+                "webviews/codex-webviews/src/StartupFlow/types.ts"
+            ),
             "fs/promises": "memfs",
             "process/browser": require.resolve("process/browser"),
             // Map Node.js scheme imports to browser polyfills for the test bundle
