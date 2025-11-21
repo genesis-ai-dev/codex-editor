@@ -1053,7 +1053,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     try {
                         debugLog("Checking remote healing requirement for project:", projectPath);
                         const { checkRemoteHealingRequired } = await import("../../utils/remoteHealingManager");
-                        const healingCheck = await checkRemoteHealingRequired(projectPath);
+                        // Pass true for bypassCache to ensure we verify connectivity before deciding to heal
+                        const healingCheck = await checkRemoteHealingRequired(projectPath, undefined, true);
 
                         if (healingCheck.required) {
                             debugLog("Remote healing required for user:", healingCheck.currentUsername);

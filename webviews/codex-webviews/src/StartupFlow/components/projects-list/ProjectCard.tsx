@@ -36,6 +36,7 @@ interface ProjectCardProps {
     };
     isProgressDataLoaded?: boolean;
     isAnyOperationApplying?: boolean;
+    isOnline?: boolean;
 }
 
 export const ProjectCard: React.FC<ProjectCardProps> = ({
@@ -52,6 +53,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     getStatusIcon,
     isProgressDataLoaded = false,
     isAnyOperationApplying = false,
+    isOnline = true,
 }) => {
     const [mediaStrategy, setMediaStrategy] = useState<MediaFilesStrategy>(
         project.mediaStrategy || "auto-download"
@@ -548,7 +550,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                         "h-6 text-xs text-yellow-600 hover:text-yellow-700",
                                         isHealing && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
                                     )}
-                                    disabled={disableControls}
+                                    disabled={disableControls || !isOnline}
                                     title="Heal project by backing up, re-cloning, and merging local changes"
                                 >
                                     {isHealing ? (

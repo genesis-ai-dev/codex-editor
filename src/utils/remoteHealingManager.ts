@@ -190,11 +190,13 @@ async function getGitOriginUrl(projectPath: string): Promise<string | null> {
  * 
  * @param projectPath - Local path to the project
  * @param gitOriginUrl - Git origin URL (optional, will be fetched if not provided)
+ * @param bypassCache - Whether to bypass the cache and force a network fetch (useful to verify connectivity)
  * @returns Object indicating if healing is required and why
  */
 export async function checkRemoteHealingRequired(
     projectPath: string,
-    gitOriginUrl?: string
+    gitOriginUrl?: string,
+    bypassCache: boolean = false
 ): Promise<RemoteHealingCheckResult> {
     try {
         debug("Checking remote healing requirement for:", projectPath);
@@ -225,7 +227,7 @@ export async function checkRemoteHealingRequired(
         }
 
         // Fetch remote metadata
-        const remoteMetadata = await fetchRemoteMetadata(projectId);
+        const remoteMetadata = await fetchRemoteMetadata(projectId, !bypassCache);
         if (!remoteMetadata) {
             debug("Could not fetch remote metadata, skipping remote healing check");
             return { required: false, reason: "Could not fetch remote metadata" };
