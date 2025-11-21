@@ -1,5 +1,7 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
+import * as os from "os";
+import * as path from "path";
 import { TextEncoder } from "util";
 import { CodexContentSerializer } from "../serializer";
 import { addCellLabelsToBibleBook, isBibleBook } from "../projectManager/utils/migrationUtils";
@@ -7,9 +9,10 @@ import { addCellLabelsToBibleBook, isBibleBook } from "../projectManager/utils/m
 // Utility to create a temporary in-memory notebook file
 async function createTempCodexFile(cells: Array<{ id?: string; cellLabel?: string; value?: string; }>, metadata: any = {}): Promise<vscode.Uri> {
     const serializer = new CodexContentSerializer();
-    const tmp = await vscode.workspace.fs.createTemporaryFile?.();
-    // Fallback for older VS Code test runners
-    const uri = tmp?.uri || vscode.Uri.file(`${vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "/tmp"}/test-${Date.now()}.codex`);
+    // Use os.tmpdir() for test environment compatibility
+    const tmpDir = os.tmpdir();
+    const fileName = `test-${Date.now()}-${Math.random().toString(36).slice(2)}.codex`;
+    const uri = vscode.Uri.file(path.join(tmpDir, fileName));
 
     const notebook = {
         cells: cells.map((c) => ({
