@@ -353,57 +353,40 @@ export async function initiateRemoteHealing(): Promise<void> {
                     const now = Date.now();
                     const currentUser = currentUserInfo.username;
 
-                    // Create a map of existing entries for easy lookup
-                    const existingEntries = new Map<string, any>();
-                    for (const entry of currentList) {
-                        if (typeof entry === 'object' && entry !== null) {
-                            existingEntries.set(entry.userToHeal, entry);
-                        }
-                    }
-
                     const newList: any[] = [];
-                    const processedUsers = new Set<string>();
+                    const usersWithActiveEntry = new Set<string>();
 
                     // 1. Process all existing entries
-                    existingEntries.forEach((entry, username) => {
-                        processedUsers.add(username);
+                    // We iterate the list directly instead of using a Map to preserve ALL history
+                    for (const entry of currentList) {
+                        if (typeof entry !== 'object' || entry === null) continue;
 
-                        if (selectedUsernames.includes(username)) {
-                            // User is selected in UI -> Should be Active (not executed, not deleted)
-                            if (entry.executed || entry.deleted) {
-                                // Reactivate
-                                newList.push({
-                                    ...entry,
-                                    updatedAt: now,
-                                    deleted: false,
-                                    deletedBy: "",
-                                    executed: false,
-                                    addedBy: currentUser // Update addedBy on reactivation? Or keep original? Keeping original "addedBy" but updating "updatedAt".
-                                });
-                            } else {
-                                // Already pending/active, keep as is
-                                newList.push(entry);
-                            }
+                        const username = entry.userToHeal;
+
+                        if (entry.executed || entry.deleted) {
+                            // Always keep executed or deleted entries (History)
+                            newList.push(entry);
                         } else {
-                            // User is NOT selected in UI -> Should be Deleted (Cancelled)
-                            if (!entry.deleted && !entry.executed) {
-                                // Cancel it
+                            // This is a PENDING (Active) entry
+                            if (selectedUsernames.includes(username)) {
+                                // User is still selected -> Keep active
+                                newList.push(entry);
+                                usersWithActiveEntry.add(username);
+                            } else {
+                                // User is NOT selected -> Cancel this pending entry
                                 newList.push({
                                     ...entry,
                                     deleted: true,
                                     deletedBy: currentUser,
                                     updatedAt: now
                                 });
-                            } else {
-                                // Already deleted or executed, keep as is
-                                newList.push(entry);
                             }
                         }
-                    });
+                    }
 
-                    // 2. Add new users who weren't in the list before
+                    // 2. Add new entries for selected users who didn't have an active entry
                     for (const username of selectedUsernames) {
-                        if (!processedUsers.has(username)) {
+                        if (!usersWithActiveEntry.has(username)) {
                             newList.push({
                                 userToHeal: username,
                                 addedBy: currentUser,
@@ -534,20 +517,140 @@ export async function viewRemoteHealingList(): Promise<void> {
 
         if (healingList.length === 0) {
             vscode.window.showInformationMessage("No users are currently marked for remote healing.");
-        } else {
-            const lines = healingList.map(entry => {
-                // Skip any legacy strings if they somehow exist, though we assume they don't
-                if (typeof entry === 'string') {
-                    return null;
-                }
-                const status = entry.deleted ? "Deleted" : (entry.executed ? "Executed" : "Pending");
-                const dateStr = new Date(entry.createdAt).toLocaleString();
-                return `${entry.userToHeal} - ${status} (Added by ${entry.addedBy} on ${dateStr})`;
-            }).filter(line => line !== null);
-
-            const message = `Remote Healing History:\n${lines.join("\n")}`;
-            vscode.window.showInformationMessage(message, { modal: true });
+            return;
         }
+
+        // Helper to generate items based on filter
+        const generateItems = (filterType: 'all' | 'pending' | 'executed' | 'deleted'): vscode.QuickPickItem[] => {
+            const now = Date.now();
+            const ONE_DAY = 24 * 60 * 60 * 1000;
+            const SEVEN_DAYS = 7 * ONE_DAY;
+            const FOURTEEN_DAYS = 14 * ONE_DAY;
+
+            // Filter raw list first
+            const filteredRawList = healingList.filter(entry => {
+                if (typeof entry === 'string') return false;
+                if (filterType === 'all') return true;
+                if (filterType === 'pending') return !entry.executed && !entry.deleted;
+                if (filterType === 'executed') return entry.executed;
+                if (filterType === 'deleted') return entry.deleted;
+                return true;
+            });
+
+            // Sort by Status then Time (newest first)
+            const sortedList = [...filteredRawList].sort((a, b) => {
+                if (typeof a === 'string' || typeof b === 'string') return 0;
+
+                const getPriority = (entry: any) => {
+                    if (!entry.deleted && !entry.executed) return 0; // Pending
+                    if (entry.executed) return 1; // Executed
+                    return 2; // Deleted
+                };
+
+                const priorityA = getPriority(a);
+                const priorityB = getPriority(b);
+
+                if (priorityA !== priorityB) return priorityA - priorityB;
+                return b.createdAt - a.createdAt;
+            });
+
+            // Group by time buckets
+            const last7Days: any[] = [];
+            const last7To14Days: any[] = [];
+            const over14Days: any[] = [];
+
+            sortedList.forEach(entry => {
+                if (typeof entry === 'string') return;
+                const age = now - entry.createdAt;
+                if (age <= SEVEN_DAYS) {
+                    last7Days.push(entry);
+                } else if (age <= FOURTEEN_DAYS) {
+                    last7To14Days.push(entry);
+                } else {
+                    over14Days.push(entry);
+                }
+            });
+
+            const items: vscode.QuickPickItem[] = [];
+
+            const addGroup = (label: string, entries: any[]) => {
+                if (entries.length === 0) return;
+
+                items.push({
+                    label: label,
+                    kind: vscode.QuickPickItemKind.Separator
+                });
+
+                entries.forEach(entry => {
+                    let icon = "$(clock)";
+                    let statusText = "Pending";
+
+                    if (entry.deleted) {
+                        icon = "$(trash)";
+                        statusText = "Deleted";
+                    } else if (entry.executed) {
+                        icon = "$(check)";
+                        statusText = "Executed";
+                    }
+
+                    const dateStr = new Date(entry.createdAt).toLocaleString();
+
+                    items.push({
+                        label: `${icon} ${entry.userToHeal}`,
+                        description: statusText,
+                        detail: `Added by ${entry.addedBy} on ${dateStr}`
+                    });
+                });
+            };
+
+            addGroup("Last 7 Days", last7Days);
+            addGroup("Between 7 and 14 Days", last7To14Days);
+            addGroup("Over 14 Days", over14Days);
+
+            return items;
+        };
+
+        // Create QuickPick
+        const quickPick = vscode.window.createQuickPick();
+        quickPick.title = "Remote Healing History";
+        quickPick.placeholder = "Select an item to view details (currently read-only)";
+        quickPick.ignoreFocusOut = true;
+        quickPick.matchOnDescription = true;
+        quickPick.matchOnDetail = true;
+
+        // Define buttons
+        const btnAll = { iconPath: new vscode.ThemeIcon("list-unordered"), tooltip: "Show All" };
+        const btnPending = { iconPath: new vscode.ThemeIcon("clock"), tooltip: "Show Pending" };
+        const btnExecuted = { iconPath: new vscode.ThemeIcon("check"), tooltip: "Show Executed" };
+        const btnDeleted = { iconPath: new vscode.ThemeIcon("trash"), tooltip: "Show Deleted" };
+
+        quickPick.buttons = [btnAll, btnPending, btnExecuted, btnDeleted];
+
+        // Update items based on filter
+        const updateItems = (filterType: 'all' | 'pending' | 'executed' | 'deleted') => {
+            quickPick.items = generateItems(filterType);
+        };
+
+        // Initial state
+        updateItems('all');
+
+        // Handle button clicks
+        quickPick.onDidTriggerButton(button => {
+            if (button === btnAll) updateItems('all');
+            else if (button === btnPending) updateItems('pending');
+            else if (button === btnExecuted) updateItems('executed');
+            else if (button === btnDeleted) updateItems('deleted');
+        });
+
+        // Handle selection (optional: could show more details or actions)
+        quickPick.onDidAccept(() => {
+            // Currently just close, but could be expanded
+            quickPick.hide();
+        });
+
+        quickPick.onDidHide(() => quickPick.dispose());
+        quickPick.show();
+
     } catch (error) {
         console.error("Error viewing remote healing list:", error);
         vscode.window.showErrorMessage(
