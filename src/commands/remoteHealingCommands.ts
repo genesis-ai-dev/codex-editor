@@ -374,10 +374,10 @@ export async function initiateRemoteHealing(): Promise<void> {
                                 // Reactivate
                                 newList.push({
                                     ...entry,
-                                    executed: false,
+                                    updatedAt: now,
                                     deleted: false,
                                     deletedBy: "",
-                                    updatedAt: now,
+                                    executed: false,
                                     addedBy: currentUser // Update addedBy on reactivation? Or keep original? Keeping original "addedBy" but updating "updatedAt".
                                 });
                             } else {
@@ -409,9 +409,9 @@ export async function initiateRemoteHealing(): Promise<void> {
                                 addedBy: currentUser,
                                 createdAt: now,
                                 updatedAt: now,
-                                executed: false,
                                 deleted: false,
-                                deletedBy: ""
+                                deletedBy: "",
+                                executed: false
                             });
                         }
                     }

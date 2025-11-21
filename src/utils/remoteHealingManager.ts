@@ -12,9 +12,9 @@ export interface RemoteHealingEntry {
     addedBy: string;
     createdAt: number;
     updatedAt: number;
-    executed: boolean;
     deleted: boolean;
     deletedBy: string;
+    executed: boolean;
 }
 
 interface ProjectMetadata {
