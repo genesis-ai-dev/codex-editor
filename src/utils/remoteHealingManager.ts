@@ -5,11 +5,21 @@ import * as git from "isomorphic-git";
 import * as fs from "fs";
 
 const DEBUG = false;
-const debug = DEBUG ? (...args: any[]) => console.log("[RemoteHealing]", ...args) : () => {};
+const debug = DEBUG ? (...args: any[]) => console.log("[RemoteHealing]", ...args) : () => { };
+
+export interface RemoteHealingEntry {
+    userToHeal: string;
+    addedBy: string;
+    createdAt: number;
+    updatedAt: number;
+    executed: boolean;
+    deleted: boolean;
+    deletedBy: string;
+}
 
 interface ProjectMetadata {
     meta?: {
-        initiateRemoteHealingFor?: string[];
+        initiateRemoteHealingFor?: RemoteHealingEntry[];
         [key: string]: unknown;
     };
     [key: string]: unknown;
@@ -23,7 +33,7 @@ interface RemoteHealingCheckResult {
 }
 
 // Cache for remote metadata checks to avoid repeated API calls
-const remoteMetadataCache = new Map<string, { metadata: ProjectMetadata; timestamp: number }>();
+const remoteMetadataCache = new Map<string, { metadata: ProjectMetadata; timestamp: number; }>();
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
@@ -37,7 +47,7 @@ const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 export function extractProjectIdFromUrl(gitUrl: string): string | null {
     try {
         debug("Extracting project ID from URL:", gitUrl);
-        
+
         // Handle SSH format: git@gitlab.com:group/project.git
         const sshMatch = gitUrl.match(/git@[^:]+:(.+?)(?:\.git)?$/);
         if (sshMatch) {
@@ -46,13 +56,13 @@ export function extractProjectIdFromUrl(gitUrl: string): string | null {
             return projectId;
         }
 
-    // Handle HTTPS format: https://gitlab.com/group/project.git
-    const httpsMatch = gitUrl.match(/https?:\/\/[^/]+\/(.+?)(?:\.git)?$/);
-    if (httpsMatch) {
-        const projectId = httpsMatch[1];
-        debug("Extracted project ID (HTTPS):", projectId);
-        return projectId;
-    }
+        // Handle HTTPS format: https://gitlab.com/group/project.git
+        const httpsMatch = gitUrl.match(/https?:\/\/[^/]+\/(.+?)(?:\.git)?$/);
+        if (httpsMatch) {
+            const projectId = httpsMatch[1];
+            debug("Extracted project ID (HTTPS):", projectId);
+            return projectId;
+        }
 
         debug("Could not extract project ID from URL");
         return null;
@@ -157,15 +167,15 @@ async function getGitOriginUrl(projectPath: string): Promise<string | null> {
     try {
         const git = await import("isomorphic-git");
         const fs = await import("fs");
-        
+
         const remotes = await git.listRemotes({ fs, dir: projectPath });
         const origin = remotes.find((r) => r.remote === "origin");
-        
+
         if (origin) {
             debug("Found git origin URL:", origin.url);
             return origin.url;
         }
-        
+
         debug("No origin remote found");
         return null;
     } catch (error) {
@@ -223,10 +233,21 @@ export async function checkRemoteHealingRequired(
 
         // Check if current user is in the healing list
         const healingList = remoteMetadata.meta?.initiateRemoteHealingFor || [];
-        const isInHealingList = healingList.includes(currentUsername);
+
+        let isInHealingList = false;
+
+        // Check for new objects
+        for (const entry of healingList) {
+            if (typeof entry === 'object' && entry !== null) {
+                if (entry.userToHeal === currentUsername && !entry.executed && !entry.deleted) {
+                    isInHealingList = true;
+                    break;
+                }
+            }
+        }
 
         if (!isInHealingList) {
-            debug("Current user not in healing list");
+            debug("Current user not in healing list (or executed/deleted)");
             return { required: false, reason: "User not in healing list", currentUsername };
         }
 
@@ -269,7 +290,7 @@ export function clearRemoteMetadataCache(projectId?: string): void {
  */
 export async function fetchProjectContributors(
     projectId: string
-): Promise<Array<{ username: string; name: string; email: string; commits: number }> | null> {
+): Promise<Array<{ username: string; name: string; email: string; commits: number; }> | null> {
     try {
         debug("Fetching contributors for project:", projectId);
 
@@ -304,10 +325,10 @@ export async function fetchProjectContributors(
  */
 export async function fetchProjectMembers(
     projectId: string
-): Promise<Array<{ 
-    username: string; 
-    name: string; 
-    email: string; 
+): Promise<Array<{
+    username: string;
+    name: string;
+    email: string;
     accessLevel: number;
     roleName: string;
 }> | null> {
@@ -340,48 +361,54 @@ export async function fetchProjectMembers(
 }
 
 /**
- * Remove a user from the remote healing list after they have been healed
- * This updates the local metadata.json and pushes the changes to the remote
+ * Mark a user as having completed remote healing
+ * This updates the local metadata.json setting 'executed' to true and pushes the changes
  * 
  * @param projectPath - Path to the project directory
- * @param username - Username to remove from the healing list
- * @param email - Optional email to also remove from the healing list
+ * @param username - Username to mark as healed
  */
-export async function removeUserFromRemoteHealingList(
+export async function markUserAsHealedInRemoteList(
     projectPath: string,
-    username: string,
-    email?: string
+    username: string
 ): Promise<void> {
     try {
-        debug("Removing user from remote healing list:", username, email);
-        
+        debug("Marking user as healed in remote list:", username);
+
         const projectUri = vscode.Uri.file(projectPath);
-        
+
         // Read current metadata
         const readResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(projectUri);
         if (!readResult.success || !readResult.metadata) {
             throw new Error("Failed to read metadata.json");
         }
-        
+
         const metadata = readResult.metadata;
         const healingList = metadata.meta?.initiateRemoteHealingFor || [];
-        
-        // Check if user is in the list
-        const hasUsername = healingList.includes(username);
-        const hasEmail = email && healingList.includes(email);
-        
-        if (!hasUsername && !hasEmail) {
-            debug("User not in healing list, nothing to remove");
+
+        let listChanged = false;
+
+        const updatedList = healingList
+            .filter((entry): entry is RemoteHealingEntry => typeof entry === 'object' && entry !== null)
+            .map(entry => {
+                // Update existing object
+                if (entry.userToHeal === username && !entry.executed) {
+                    listChanged = true;
+                    return {
+                        ...entry,
+                        executed: true,
+                        updatedAt: Date.now()
+                    };
+                }
+                return entry;
+            });
+
+        if (!listChanged) {
+            debug("User not pending in healing list, nothing to update");
             return;
         }
-        
-        // Remove user from the list
-        const updatedList = healingList.filter(
-            (entry) => entry !== username && entry !== email
-        );
-        
+
         debug("Updated healing list:", updatedList);
-        
+
         // Update metadata
         const updateResult = await MetadataManager.safeUpdateMetadata<ProjectMetadata>(
             projectUri,
@@ -389,37 +416,31 @@ export async function removeUserFromRemoteHealingList(
                 if (!meta.meta) {
                     meta.meta = {};
                 }
-                
-                if (updatedList.length === 0) {
-                    // Remove the field if empty
-                    delete meta.meta.initiateRemoteHealingFor;
-                } else {
-                    meta.meta.initiateRemoteHealingFor = updatedList;
-                }
-                
+
+                meta.meta.initiateRemoteHealingFor = updatedList;
                 return meta;
             }
         );
-        
+
         if (!updateResult.success) {
             throw new Error(updateResult.error || "Failed to update metadata.json");
         }
-        
+
         debug("Metadata updated successfully, committing and pushing changes...");
-        
+
         // Trigger sync using the same command as the manual sync button
-        const commitMessage = `Removed ${username} from remote healing list (healing completed)`;
+        const commitMessage = `Marked ${username} as healed in remote healing list`;
         await vscode.commands.executeCommand(
             "codex-editor-extension.triggerSync",
             commitMessage
         );
-        
-        debug("Successfully removed user from remote healing list and triggered sync");
-        
+
+        debug("Successfully updated remote healing list and triggered sync");
+
         // Clear the cache for this project so future checks get the updated list
         const remotes = await git.listRemotes({ fs, dir: projectPath });
         const origin = remotes.find((r) => r.remote === "origin");
-        
+
         if (origin?.url) {
             const projectId = extractProjectIdFromUrl(origin.url);
             if (projectId) {
@@ -427,7 +448,7 @@ export async function removeUserFromRemoteHealingList(
             }
         }
     } catch (error) {
-        debug("Error removing user from remote healing list:", error);
+        debug("Error marking user as healed:", error);
         throw error;
     }
 }

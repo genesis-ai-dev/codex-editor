@@ -167,9 +167,20 @@ export async function initiateRemoteHealing(): Promise<void> {
             return;
         }
 
-        const currentHealingList: string[] =
-            (metadataResult.metadata?.meta?.initiateRemoteHealingFor as string[] | undefined) || [];
-        debug("Current healing list:", currentHealingList);
+        const healingList = (metadataResult.metadata?.meta?.initiateRemoteHealingFor as (string | any)[] | undefined) || [];
+
+        // Get list of currently active (pending) healing requests
+        const activeHealingUsernames: string[] = [];
+
+        for (const entry of healingList) {
+            if (typeof entry === 'object' && entry !== null) {
+                if (!entry.executed && !entry.deleted) {
+                    activeHealingUsernames.push(entry.userToHeal);
+                }
+            }
+        }
+
+        debug("Active healing usernames:", activeHealingUsernames);
 
         // Create a map of contributors by username for quick lookup
         const contributorMap = new Map(
@@ -196,8 +207,7 @@ export async function initiateRemoteHealing(): Promise<void> {
                     : showName
                         ? `${member.name} — ${member.roleName}`
                         : member.roleName,
-                picked: currentHealingList.includes(member.username) ||
-                    (!!member.email && currentHealingList.includes(member.email)),
+                picked: activeHealingUsernames.includes(member.username),
                 username: member.username,
                 email: member.email,
                 accessLevel: member.accessLevel,
@@ -262,10 +272,10 @@ export async function initiateRemoteHealing(): Promise<void> {
             .map((item) => item.username);
         debug("Selected usernames:", selectedUsernames);
 
-        // Calculate what's changing
-        const addedUsers = selectedUsernames.filter(u => !currentHealingList.includes(u));
-        const removedUsers = currentHealingList.filter(u => !selectedUsernames.includes(u));
-        const unchangedUsers = selectedUsernames.filter(u => currentHealingList.includes(u));
+        // Calculate what's changing (based on active list)
+        const addedUsers = selectedUsernames.filter(u => !activeHealingUsernames.includes(u));
+        const removedUsers = activeHealingUsernames.filter(u => !selectedUsernames.includes(u));
+        const unchangedUsers = selectedUsernames.filter(u => activeHealingUsernames.includes(u));
 
         // Check if there are any changes
         if (addedUsers.length === 0 && removedUsers.length === 0) {
@@ -339,14 +349,74 @@ export async function initiateRemoteHealing(): Promise<void> {
                         metadata.meta = {};
                     }
 
-                    // Update the healing list
-                    if (selectedUsernames.length === 0) {
-                        // Remove the field if empty
-                        delete metadata.meta.initiateRemoteHealingFor;
-                    } else {
-                        metadata.meta.initiateRemoteHealingFor = selectedUsernames;
+                    const currentList = (metadata.meta.initiateRemoteHealingFor || []) as (string | any)[];
+                    const now = Date.now();
+                    const currentUser = currentUserInfo.username;
+
+                    // Create a map of existing entries for easy lookup
+                    const existingEntries = new Map<string, any>();
+                    for (const entry of currentList) {
+                        if (typeof entry === 'object' && entry !== null) {
+                            existingEntries.set(entry.userToHeal, entry);
+                        }
                     }
 
+                    const newList: any[] = [];
+                    const processedUsers = new Set<string>();
+
+                    // 1. Process all existing entries
+                    existingEntries.forEach((entry, username) => {
+                        processedUsers.add(username);
+
+                        if (selectedUsernames.includes(username)) {
+                            // User is selected in UI -> Should be Active (not executed, not deleted)
+                            if (entry.executed || entry.deleted) {
+                                // Reactivate
+                                newList.push({
+                                    ...entry,
+                                    executed: false,
+                                    deleted: false,
+                                    deletedBy: "",
+                                    updatedAt: now,
+                                    addedBy: currentUser // Update addedBy on reactivation? Or keep original? Keeping original "addedBy" but updating "updatedAt".
+                                });
+                            } else {
+                                // Already pending/active, keep as is
+                                newList.push(entry);
+                            }
+                        } else {
+                            // User is NOT selected in UI -> Should be Deleted (Cancelled)
+                            if (!entry.deleted && !entry.executed) {
+                                // Cancel it
+                                newList.push({
+                                    ...entry,
+                                    deleted: true,
+                                    deletedBy: currentUser,
+                                    updatedAt: now
+                                });
+                            } else {
+                                // Already deleted or executed, keep as is
+                                newList.push(entry);
+                            }
+                        }
+                    });
+
+                    // 2. Add new users who weren't in the list before
+                    for (const username of selectedUsernames) {
+                        if (!processedUsers.has(username)) {
+                            newList.push({
+                                userToHeal: username,
+                                addedBy: currentUser,
+                                createdAt: now,
+                                updatedAt: now,
+                                executed: false,
+                                deleted: false,
+                                deletedBy: ""
+                            });
+                        }
+                    }
+
+                    metadata.meta.initiateRemoteHealingFor = newList;
                     return metadata;
                 }
             );
@@ -358,11 +428,11 @@ export async function initiateRemoteHealing(): Promise<void> {
             debug("Metadata updated successfully");
 
             // Determine what changed for a precise commit message
-            const addedUsers = selectedUsernames.filter(u => !currentHealingList.includes(u));
-            const removedUsers = currentHealingList.filter(u => !selectedUsernames.includes(u));
+            const addedUsers = selectedUsernames.filter(u => !activeHealingUsernames.includes(u));
+            const removedUsers = activeHealingUsernames.filter(u => !selectedUsernames.includes(u));
 
             let commitMessage: string;
-            if (selectedUsernames.length === 0) {
+            if (selectedUsernames.length === 0 && activeHealingUsernames.length > 0) {
                 commitMessage = "Cleared remote healing list";
             } else if (addedUsers.length > 0 && removedUsers.length > 0) {
                 commitMessage = `Updated remote healing list (added: ${addedUsers.join(", ")}; removed: ${removedUsers.join(", ")})`;
@@ -460,13 +530,22 @@ export async function viewRemoteHealingList(): Promise<void> {
             return;
         }
 
-        const healingList: string[] =
-            (metadataResult.metadata?.meta?.initiateRemoteHealingFor as string[] | undefined) || [];
+        const healingList = (metadataResult.metadata?.meta?.initiateRemoteHealingFor as (string | any)[] | undefined) || [];
 
         if (healingList.length === 0) {
             vscode.window.showInformationMessage("No users are currently marked for remote healing.");
         } else {
-            const message = `Users marked for remote healing:\n${healingList.join("\n")}`;
+            const lines = healingList.map(entry => {
+                // Skip any legacy strings if they somehow exist, though we assume they don't
+                if (typeof entry === 'string') {
+                    return null;
+                }
+                const status = entry.deleted ? "Deleted" : (entry.executed ? "Executed" : "Pending");
+                const dateStr = new Date(entry.createdAt).toLocaleString();
+                return `${entry.userToHeal} - ${status} (Added by ${entry.addedBy} on ${dateStr})`;
+            }).filter(line => line !== null);
+
+            const message = `Remote Healing History:\n${lines.join("\n")}`;
             vscode.window.showInformationMessage(message, { modal: true });
         }
     } catch (error) {

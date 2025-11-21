@@ -1107,11 +1107,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     // Remove current user from remote healing list
                                     try {
                                         progress.report({ message: "Updating healing list..." });
-                                        const { removeUserFromRemoteHealingList } = await import("../../utils/remoteHealingManager");
-                                        await removeUserFromRemoteHealingList(
+                                        const { markUserAsHealedInRemoteList } = await import("../../utils/remoteHealingManager");
+                                        await markUserAsHealedInRemoteList(
                                             projectPath,
-                                            healingCheck.currentUsername!,
-                                            healingCheck.currentUserEmail
+                                            healingCheck.currentUsername!
                                         );
                                         debugLog("User removed from remote healing list");
                                     } catch (removeErr) {

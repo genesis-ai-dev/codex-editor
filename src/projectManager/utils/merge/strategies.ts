@@ -10,7 +10,6 @@ export const filePatternsToResolve: Record<ConflictResolutionStrategy, string[]>
 
     // Simple JSON override files - keep newest version
     [ConflictResolutionStrategy.OVERRIDE]: [
-        "metadata.json",
         "chat-threads.json",
         "files/chat_history.jsonl",
         "files/silver_path_memories.json",
@@ -25,7 +24,10 @@ export const filePatternsToResolve: Record<ConflictResolutionStrategy, string[]>
     [ConflictResolutionStrategy.JSONL]: ["files/project.dictionary"],
 
     // Special JSON merges - merge based on timestamps
-    [ConflictResolutionStrategy.SPECIAL]: ["files/smart_edits.json"],
+    [ConflictResolutionStrategy.SPECIAL]: [
+        "files/smart_edits.json",
+        "metadata.json"
+    ],
 
     // Source files - keep newest version (DEPRECATED: now using CODEX_CUSTOM_MERGE)
     [ConflictResolutionStrategy.SOURCE]: [],
