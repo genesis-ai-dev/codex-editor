@@ -193,9 +193,6 @@ export async function detectSilence(
         });
 
         ffmpeg.on('exit', async (code: number | null) => {
-            console.log(`[audioProcessor] FFmpeg silence detection exit code: ${code}`);
-            console.log(`[audioProcessor] FFmpeg stderr length: ${stderr.length} chars`);
-
             // Log a sample of the actual output for debugging
             const sampleLines = stderr.split('\n').filter(line =>
                 line.includes('silence_start') || line.includes('silence_end')
