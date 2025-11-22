@@ -791,8 +791,16 @@ export async function exportIdmlRoundtrip(
                     // The regex matched: cvMarker + spacing + openingMeta + _oldContent + closingMeta
                     // So we replace the entire match with: cvMarker + spacing + verseStructureXml
                     // (verseStructureXml already includes the meta markers)
-                    const replacement = `${cvMarker}${spacing}${update.verseStructureXml}`;
-
+                    
+                    // Convert &nbsp; entities to actual non-breaking space characters (\u00A0) for IDML export
+                    // The &nbsp; entities are preserved in verseStructureXml for round-trip, but IDML uses actual Unicode characters
+                    let verseStructureWithNbsp = update.verseStructureXml.replace(/&nbsp;/gi, '\u00A0');
+                    // Also handle HTML entity &#160; (decimal) and &#xA0; (hex) if present
+                    verseStructureWithNbsp = verseStructureWithNbsp.replace(/&#160;/g, '\u00A0');
+                    verseStructureWithNbsp = verseStructureWithNbsp.replace(/&#xA0;/gi, '\u00A0');
+                    
+                    const replacement = `${cvMarker}${spacing}${verseStructureWithNbsp}`;
+                    
                     result = result.replace(fullMatch, replacement);
                     processedVerses.add(verseNumber);
                     console.log(`[Export] Replaced verse ${book} ${chapter}:${verseNumber} with full structure (preserving footnotes in original positions)`);
@@ -1232,6 +1240,8 @@ ${footnoteString.split('\n').map(line => `                    ${line}`).join('\n
 
     // Process verse-based updates SECOND (after paragraph replacement)
     // This ensures paragraph structure is stable before verse replacement
+    // COMMENTED OUT: Only exporting notes, not verse content
+    /*
     if (hasVerseBasedCells && Object.keys(verseUpdates).length > 0) {
         console.log('[Export] Processing verse-based updates...');
 
@@ -1306,6 +1316,7 @@ ${footnoteString.split('\n').map(line => `                    ${line}`).join('\n
             }
         }
     }
+    */
 
     // Generate updated IDML
     const updatedIdmlData = await zip.generateAsync({ type: "uint8array" });

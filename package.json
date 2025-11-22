@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.7.0",
+    "version": "0.8.0",
     "engines": {
         "node": ">=18.0.0",
         "vscode": "^1.78.0"
@@ -148,6 +148,16 @@
             {
                 "command": "codex-editor-extension.submitProgressReport",
                 "title": "Submit Progress Report",
+                "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor.initiateRemoteHealing",
+                "title": "Initiate Remote Healing",
+                "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor.viewRemoteHealingList",
+                "title": "View Remote Healing List",
                 "category": "Codex Editor"
             },
             {
@@ -877,7 +887,7 @@
                     "codex-editor-extension.abTestingProbability": {
                         "title": "A/B Testing Probability",
                         "type": "number",
-                        "default": 0.05,
+                        "default": 0.15,
                         "minimum": 0,
                         "maximum": 1,
                         "description": "Probability (0-1) that any eligible event will run a true A/B test. When not triggered, the system returns identical variants to keep UX consistent without doubling compute."

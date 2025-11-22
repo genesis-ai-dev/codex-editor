@@ -5,6 +5,56 @@ import type { TranslationPair } from "../../types";
 import type { CompletionConfig } from "./llmUtils";
 import { buildFewShotExamplesText, buildMessages } from "../providers/translationSuggestions/shared";
 
+// Helper function to normalize format to valid type
+function normalizeFormat(format: string): "source-and-target" | "target-only" {
+  return format === "target-only" ? "target-only" : "source-and-target";
+}
+
+// Helper function to fetch translation pairs using a specific algorithm
+async function fetchTranslationPairs(
+  executeCommand: <T = any>(command: string, ...rest: any[]) => Thenable<T>,
+  algorithm: string,
+  sourceContent: string,
+  count: number,
+  useOnlyValidatedExamples: boolean
+): Promise<TranslationPair[]> {
+  return await executeCommand<TranslationPair[]>(
+    "codex-editor-extension.getTranslationPairsFromSourceCellQueryWithAlgorithm",
+    algorithm,
+    sourceContent,
+    Math.max(count, 2),
+    useOnlyValidatedExamples
+  );
+}
+
+// Helper function to generate LLM completion from translation pairs
+async function generateCompletionFromPairs(
+  pairs: TranslationPair[],
+  count: number,
+  format: "source-and-target" | "target-only",
+  ctx: SearchAlgorithmContext
+): Promise<string> {
+  const examplePairs = (pairs || []).slice(0, count);
+  
+  const examplesText = buildFewShotExamplesText(
+    examplePairs,
+    ctx.allowHtmlPredictions,
+    format
+  );
+
+  const msgs = buildMessages(
+    ctx.targetLanguage,
+    ctx.systemMessage,
+    ctx.userMessageInstructions.split("\n"),
+    examplesText,
+    ctx.precedingTranslationPairs,
+    ctx.currentCellSourceContent,
+    ctx.allowHtmlPredictions,
+    format
+  );
+  
+  return await callLLM(msgs, ctx.completionConfig, ctx.token);
+}
 
 export function initializeABTesting() {
   // All test probabilities are set to 1.0; global gating is applied at call sites.
@@ -19,33 +69,18 @@ export function initializeABTesting() {
       const extConfig = ctx.vscodeWorkspaceConfig ?? undefined;
       const currentAlg = (extConfig?.get?.("searchAlgorithm") as string) || "fts5-bm25";
       const altAlg = currentAlg === "sbs" ? "fts5-bm25" : "sbs";
+      const format = normalizeFormat(ctx.fewShotExampleFormat || "source-and-target");
+      const count = ctx.numberOfFewShotExamples;
 
       const fetchForAlg = async (alg: string): Promise<string> => {
-        const pairs = await ctx.executeCommand<TranslationPair[]>(
-          "codex-editor-extension.getTranslationPairsFromSourceCellQueryWithAlgorithm",
+        const pairs = await fetchTranslationPairs(
+          ctx.executeCommand,
           alg,
           ctx.currentCellSourceContent,
-          Math.max(ctx.numberOfFewShotExamples, 2),
+          count,
           ctx.useOnlyValidatedExamples
         );
-
-        const examplesText = buildFewShotExamplesText(
-          (pairs || []).slice(0, ctx.numberOfFewShotExamples),
-          ctx.allowHtmlPredictions,
-          ctx.fewShotExampleFormat || "source-and-target"
-        );
-
-        const msgs = buildMessages(
-          ctx.targetLanguage,
-          ctx.systemMessage,
-          ctx.userMessageInstructions.split("\n"),
-          examplesText,
-          ctx.precedingTranslationPairs,
-          ctx.currentCellSourceContent,
-          ctx.allowHtmlPredictions,
-          ctx.fewShotExampleFormat || "source-and-target"
-        );
-        return await callLLM(msgs, ctx.completionConfig, ctx.token);
+        return await generateCompletionFromPairs(pairs, count, format, ctx);
       };
 
       const [compA, compB] = await Promise.all([
@@ -67,34 +102,18 @@ export function initializeABTesting() {
         "target-only",
       ];
 
+      // Reuse pairs from the user's configured searchAlgorithm
+      const currentAlg = (ctx.vscodeWorkspaceConfig?.get?.("searchAlgorithm") as string) || "fts5-bm25";
+      const pairs = await fetchTranslationPairs(
+        ctx.executeCommand,
+        currentAlg,
+        ctx.currentCellSourceContent,
+        ctx.numberOfFewShotExamples,
+        ctx.useOnlyValidatedExamples
+      );
+
       const runForFormat = async (fmt: "source-and-target" | "target-only"): Promise<string> => {
-        // Reuse pairs from the user's configured searchAlgorithm
-        const currentAlg = (ctx.vscodeWorkspaceConfig?.get?.("searchAlgorithm") as string) || "fts5-bm25";
-        const pairs = await ctx.executeCommand<TranslationPair[]>(
-          "codex-editor-extension.getTranslationPairsFromSourceCellQueryWithAlgorithm",
-          currentAlg,
-          ctx.currentCellSourceContent,
-          Math.max(ctx.numberOfFewShotExamples, 2),
-          ctx.useOnlyValidatedExamples
-        );
-
-        const examplesText = buildFewShotExamplesText(
-          (pairs || []).slice(0, ctx.numberOfFewShotExamples),
-          ctx.allowHtmlPredictions,
-          fmt
-        );
-
-        const msgs = buildMessages(
-          ctx.targetLanguage,
-          ctx.systemMessage,
-          ctx.userMessageInstructions.split("\n"),
-          examplesText,
-          ctx.precedingTranslationPairs,
-          ctx.currentCellSourceContent,
-          ctx.allowHtmlPredictions,
-          fmt
-        );
-        return await callLLM(msgs, ctx.completionConfig, ctx.token);
+        return await generateCompletionFromPairs(pairs, ctx.numberOfFewShotExamples, fmt, ctx);
       };
 
       const [compA, compB] = await Promise.all([
@@ -103,6 +122,105 @@ export function initializeABTesting() {
       ]);
 
       return { variants: [compA, compB], names: formats };
+    }
+  );
+
+  // Few-shot example count test: 15 vs 30 examples
+  abTestingRegistry.register<SearchAlgorithmContext, string>(
+    "Few-Shot Example Count Test",
+    1.0,
+    async (ctx) => {
+      const counts = [15, 30];
+      
+      // Use user's configured search algorithm and format
+      const currentAlg = (ctx.vscodeWorkspaceConfig?.get?.("searchAlgorithm") as string) || "fts5-bm25";
+      const format = normalizeFormat(ctx.fewShotExampleFormat || "source-and-target");
+      
+      // Fetch enough pairs for the larger count
+      const maxCount = Math.max(...counts);
+      const pairs = await fetchTranslationPairs(
+        ctx.executeCommand,
+        currentAlg,
+        ctx.currentCellSourceContent,
+        maxCount,
+        ctx.useOnlyValidatedExamples
+      );
+
+      const runForCount = async (count: number): Promise<string> => {
+        return await generateCompletionFromPairs(pairs, count, format, ctx);
+      };
+
+      const [compA, compB] = await Promise.all([
+        runForCount(counts[0]),
+        runForCount(counts[1]),
+      ]);
+
+      return { 
+        variants: [compA, compB], 
+        names: [`${counts[0]} examples`, `${counts[1]} examples`] 
+      };
+    }
+  );
+
+  // Low-resource search algorithm test: fts5-bm25 vs sbs with 10 examples each
+  abTestingRegistry.register<SearchAlgorithmContext, string>(
+    "Low-Resource Search Algorithm Test",
+    1.0,
+    async (ctx) => {
+      const algorithms = ["fts5-bm25", "sbs"];
+      const format = normalizeFormat(ctx.fewShotExampleFormat || "source-and-target");
+      const count = 10; // Fixed at 10 examples for low-resource test
+
+      const fetchForAlg = async (alg: string): Promise<string> => {
+        const pairs = await fetchTranslationPairs(
+          ctx.executeCommand,
+          alg,
+          ctx.currentCellSourceContent,
+          count,
+          ctx.useOnlyValidatedExamples
+        );
+        return await generateCompletionFromPairs(pairs, count, format, ctx);
+      };
+
+      const [compA, compB] = await Promise.all([
+        fetchForAlg(algorithms[0]),
+        fetchForAlg(algorithms[1]),
+      ]);
+
+      return { 
+        variants: [compA, compB], 
+        names: [`${algorithms[0]} (10 examples)`, `${algorithms[1]} (10 examples)`] 
+      };
+    }
+  );
+
+  // SBS efficiency test: sbs with 15 examples vs fts5-bm25 with 30 examples
+  abTestingRegistry.register<SearchAlgorithmContext, string>(
+    "SBS Efficiency Test",
+    1.0,
+    async (ctx) => {
+      const format = normalizeFormat(ctx.fewShotExampleFormat || "source-and-target");
+      
+      const fetchForConfig = async (alg: string, count: number): Promise<string> => {
+        const pairs = await fetchTranslationPairs(
+          ctx.executeCommand,
+          alg,
+          ctx.currentCellSourceContent,
+          count,
+          ctx.useOnlyValidatedExamples
+        );
+        return await generateCompletionFromPairs(pairs, count, format, ctx);
+      };
+
+      const [compA, compB] = await Promise.all([
+        fetchForConfig("sbs", 15),
+        fetchForConfig("fts5-bm25", 30),
+      ]);
+
+      return { 
+        variants: [compA, compB], 
+        names: ["sbs (15 examples)", "fts5-bm25 (30 examples)"] 
+      };
     }
   );
 }

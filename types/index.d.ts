@@ -252,6 +252,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "auth.logout"; }
     | { command: "auth.status"; }
     | { command: "auth.checkAuthStatus"; }
+    | { command: "auth.requestPasswordReset"; resetEmail: string; }
     | { command: "project.clone"; repoUrl: string; mediaStrategy?: MediaFilesStrategy; }
     | { command: "project.new"; }
     | { command: "workspace.status"; }
@@ -276,6 +277,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "showProgressDashboard"; }
     | { command: "startup.dismiss"; }
     | { command: "webview.ready"; }
+    | { command: "extension.installFrontier"; }
     | { command: "navigateToMainMenu"; }
     | { command: "zipProject"; projectName: string; projectPath: string; includeGit?: boolean; }
     | { command: "project.heal"; projectName: string; projectPath: string; gitOriginUrl?: string; }
@@ -325,6 +327,8 @@ export type MessagesFromStartupFlowProvider =
     | { command: "error"; message: string; }
     | { command: "extension.checkResponse"; isInstalled: boolean; }
     | { command: "auth.statusResponse"; isAuthenticated: boolean; error?: string; }
+    | { command: "passwordReset.success"; }
+    | { command: "passwordReset.error"; error: string; }
     | { command: "project.deleteResponse"; success: boolean; projectPath?: string; error?: string; }
     | {
         command: "updateAuthState";
@@ -752,7 +756,7 @@ export type EditorPostMessages =
             totalVariants: number;
         };
     }
-    | { command: "adjustABTestingProbability"; content: { delta: number; }; };
+    | { command: "adjustABTestingProbability"; content: { delta: number; buttonChoice?: "more" | "less"; testId?: string; cellId?: string; }; };
 
 // (revalidateMissingForCell added above in EditorPostMessages union)
 
@@ -1010,6 +1014,8 @@ type ProjectMetadata = {
             codexEditor?: string;
             frontierAuthentication?: string;
         };
+        /** List of users that should be forced to restore/heal their project when opening */
+        initiateRemoteHealingFor?: RemoteHealingEntry[];
     };
     idAuthorities: {
         [key: string]: {
@@ -1146,6 +1152,16 @@ export interface FileTypeMap {
     SFM: "usfm";
     USFM: "usfm";
     codex: "codex";
+}
+
+export interface RemoteHealingEntry {
+    userToHeal: string;
+    addedBy: string;
+    createdAt: number;
+    updatedAt: number;
+    deleted: boolean;
+    deletedBy: string;
+    executed: boolean;
 }
 
 export interface AggregatedMetadata {
@@ -1700,7 +1716,7 @@ type EditorReceiveMessages =
     }
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl"; }
     | { type: "providerSendsLLMCompletionResponse"; content: { completion: string; cellId: string; }; }
-    | { type: "providerSendsABTestVariants"; content: { variants: string[]; cellId: string; testId: string; testName?: string; names?: string[]; winRates?: Record<string, { wins: number; total: number; winRate: number; }>; abProbability?: number; }; }
+    | { type: "providerSendsABTestVariants"; content: { variants: string[]; cellId: string; testId: string; testName?: string; names?: string[]; abProbability?: number; }; }
     | { type: "abTestingProbabilityUpdated"; content: { value: number; }; }
     | { type: "jumpToSection"; content: string; }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }

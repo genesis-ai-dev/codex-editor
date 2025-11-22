@@ -396,8 +396,9 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                         // Create verse label (e.g., "MAT 1:1") - must match Study Bible format
                         const verseLabel = `${book} ${chapter}:${verseNumber}`;
                         
-                        // Replace &nbsp; entities (non-breaking spaces) with regular spaces
-                        // They are converted to regular spaces during import so they appear correctly in Codex cells
+                        // Replace &nbsp; entities (non-breaking spaces) with regular spaces for display
+                        // NOTE: &nbsp; entities are preserved in verseStructureXml for round-trip export
+                        // They are only replaced here in the displayed value (verseContentWithBreaks) for Codex editor
                         const cleanedVerseContent = verseContent.replace(/&nbsp;/gi, ' ').replace(/\u00A0/g, ' ');
                         
                         // Preserve verse content structure - convert newlines to <br/> tags
@@ -632,6 +633,8 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                     content: codexContent,
                     metadata: {
                         ...metadata,
+                        // Mark Bible verses as non-editable (right after isBibleVerse)
+                        isEditable: isBibleVerse ? false : undefined,
                         originalContent: cell.content,
                         // Mark that this came from translated bible
                         translatedBibleFile: translatedBibleFile?.name || null,

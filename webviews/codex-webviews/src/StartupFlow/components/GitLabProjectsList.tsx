@@ -420,6 +420,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                 filterProjects={filterProjects}
                                 isProgressDataLoaded={!!progressData}
                                 isAnyOperationApplying={isAnyApplying}
+                                isOnline={!!isOnline}
                             />
                         ) : null
                     )}
@@ -461,6 +462,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                             getStatusIcon={getStatusIcon}
                                             isProgressDataLoaded={!!progressData}
                                             isAnyOperationApplying={isAnyApplying}
+                                            isOnline={!!isOnline}
                                         />
                                     ))}
                                 </div>

@@ -755,7 +755,8 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
         }
     });
 
-    test("file-level metadata edits by different users merge by most recent per field", async () => {
+    test("file-level metadata edits by different users merge by most recent per field", async function() {
+        this.timeout(10000); // Increase timeout for this test with multiple sleep calls
         const context = createMockExtensionContext();
         const providerLocal = new CodexCellEditorProvider(context);
 

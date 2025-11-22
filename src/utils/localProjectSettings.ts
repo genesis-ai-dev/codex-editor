@@ -15,6 +15,12 @@ export interface LocalProjectSettings {
     changesApplied?: boolean; // legacy boolean (mirrored from applyState)
     /** Granular state machine for media apply lifecycle */
     mediaFileStrategyApplyState?: "idle" | "pending" | "applying" | "applied" | "failed";
+    /** 
+     * When true, indicates a media strategy switch was started but not completed.
+     * Used to detect interrupted switches (e.g., due to crashes) and trigger recovery on next open/switch.
+     * Set to true when beginning a strategy switch, false when switch completes successfully.
+     */
+    mediaFileStrategySwitchStarted?: boolean;
     /** When true, the editor will download/stream audio as soon as a cell opens */
     autoDownloadAudioOnOpen?: boolean;
     /** When true, AI Metrics view shows detailed technical metrics instead of simple mode */
@@ -120,6 +126,7 @@ export async function writeLocalProjectSettings(
             currentMediaFilesStrategy: settings.currentMediaFilesStrategy ?? settings.mediaFilesStrategy,
             lastMediaFileStrategyRun: settings.lastMediaFileStrategyRun ?? settings.lastModeRun,
             mediaFileStrategyApplyState: settings.mediaFileStrategyApplyState ?? (settings as any).applyState,
+            mediaFileStrategySwitchStarted: settings.mediaFileStrategySwitchStarted,
             autoDownloadAudioOnOpen: settings.autoDownloadAudioOnOpen,
             detailedAIMetrics: settings.detailedAIMetrics,
         };
@@ -248,4 +255,25 @@ export async function setAutoDownloadAudioOnOpen(
     settings.autoDownloadAudioOnOpen = !!value;
     await writeLocalProjectSettings(settings, workspaceFolderUri);
 }
+
+/**
+ * Gets whether a media strategy switch was started but not completed
+ */
+export async function getSwitchStarted(workspaceFolderUri?: vscode.Uri): Promise<boolean> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    return !!settings.mediaFileStrategySwitchStarted;
+}
+
+/**
+ * Sets whether a media strategy switch was started but not completed
+ */
+export async function setSwitchStarted(
+    value: boolean,
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    settings.mediaFileStrategySwitchStarted = !!value;
+    await writeLocalProjectSettings(settings, workspaceFolderUri);
+}
+
 
