@@ -3992,7 +3992,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             assert.ok(true, "Variant selection recorded successfully");
         });
 
-        test.only("merge buttons show up in source when toggle source editing mode is turned on", async function () {
+        test("merge buttons show up in source when toggle source editing mode is turned on", async function () {
             this.timeout(10000);
 
             // This test verifies that when source editing mode (correction editor mode) is toggled on,
@@ -4017,6 +4017,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 // Track all postMessage calls
                 const postMessageCalls: any[] = [];
                 let webviewHtml = "";
+                let messageCallback: ((message: any) => Promise<void> | void) | null = null;
 
                 const webviewPanel = {
                     webview: {
@@ -4029,7 +4030,11 @@ suite("CodexCellEditorProvider Test Suite", () => {
                         options: { enableScripts: true },
                         asWebviewUri: (uri: vscode.Uri) => uri,
                         cspSource: "https://example.com",
-                        onDidReceiveMessage: (_callback: (message: any) => void) => ({ dispose: () => { } }),
+                        onDidReceiveMessage: (callback: (message: any) => void) => {
+                            // Store the callback so we can invoke it to trigger markWebviewReady
+                            messageCallback = callback;
+                            return { dispose: () => { } };
+                        },
                         postMessage: (message: any) => {
                             postMessageCalls.push(message);
                             return Promise.resolve();
@@ -4082,19 +4087,32 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 // Simulate webview-ready message to trigger pending updates
                 // refreshWebview resets the webview ready state, so scheduled messages won't be sent
                 // until the webview reports ready
-                await provider.receiveMessage({ command: 'webviewReady' });
+                // Call the actual message callback that was registered during resolveCustomEditor
+                // This will trigger markWebviewReady which executes the scheduled messages
+                if (messageCallback) {
+                    await (messageCallback as (message: any) => Promise<void> | void)({ command: 'webviewReady' });
+                }
 
-                // Wait for scheduled messages to be sent
-                await sleep(100);
+                // Wait for scheduled messages to be sent with polling/retries
+                // CI environments may be slower, so we poll with exponential backoff
+                let initialContentMessage = postMessageCalls.find(
+                    (msg) => msg.type === "providerSendsInitialContent"
+                );
+                let attempts = 0;
+                const maxAttempts = 20;
+                while (!initialContentMessage && attempts < maxAttempts) {
+                    await sleep(50 * (attempts + 1)); // Exponential backoff: 50ms, 100ms, 150ms...
+                    initialContentMessage = postMessageCalls.find(
+                        (msg) => msg.type === "providerSendsInitialContent"
+                    );
+                    attempts++;
+                }
 
                 // Verify that providerSendsInitialContent message is sent with isSourceText: true
                 // This ensures the webview knows it's displaying source text, which is required for merge buttons
-                const initialContentMessage = postMessageCalls.find(
-                    (msg) => msg.type === "providerSendsInitialContent"
-                );
                 assert.ok(
-                    initialContentMessage.type,
-                    "providerSendsInitialContent"
+                    initialContentMessage,
+                    `providerSendsInitialContent message should be sent after refresh (attempted ${attempts} times, found messages: ${postMessageCalls.map(m => m.type).join(', ')})`
                 );
                 assert.strictEqual(
                     initialContentMessage.isSourceText,
