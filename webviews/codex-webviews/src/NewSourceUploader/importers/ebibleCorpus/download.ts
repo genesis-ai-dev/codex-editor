@@ -365,6 +365,7 @@ const createBookNotebooks = (
                 verseCount: verses.length,
                 chapters: [...new Set(verses.map(v => v.chapter))].sort((a, b) => a - b),
                 corpusMarker: getCorpusMarkerForBook(bookCode), // Ensure corpus marker is set
+                ...(metadata.textDirection && { textDirection: metadata.textDirection }),
             }
         );
 

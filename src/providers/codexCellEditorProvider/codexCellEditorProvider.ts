@@ -2940,47 +2940,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             debug("Error comparing variants for identity; proceeding with A/B UI", { error: e });
                         }
 
-                        // Compute simple win rates per variant name from stored JSONL
-                        let winRates: Record<string, { wins: number; total: number; winRate: number; }> | undefined;
-                        if (names && Array.isArray(names) && names.length > 0) {
-                            try {
-                                const workspaceFolders = vscode.workspace.workspaceFolders;
-                                if (workspaceFolders && workspaceFolders.length > 0) {
-                                    const abTestPath = vscode.Uri.joinPath(workspaceFolders[0].uri, "files", "ab-test-results.jsonl");
-                                    const stats: Record<string, { wins: number; total: number; }> = {};
-                                    for (const n of names) stats[n] = { wins: 0, total: 0 };
-                                    try {
-                                        const data = await vscode.workspace.fs.readFile(abTestPath);
-                                        const content = new TextDecoder().decode(data);
-                                        const lines = content.split('\n').filter(l => !!l.trim());
-                                        for (const line of lines) {
-                                            try {
-                                                const rec = JSON.parse(line);
-                                                if (rec && Array.isArray(rec.names) && typeof rec.selectedIndex === 'number') {
-                                                    const pickedName = rec.names[rec.selectedIndex];
-                                                    // Count totals for any names mentioned
-                                                    for (const n of rec.names) {
-                                                        if (stats[n]) {
-                                                            stats[n].total += 1;
-                                                        }
-                                                    }
-                                                    if (pickedName && stats[pickedName]) {
-                                                        stats[pickedName].wins += 1;
-                                                    }
-                                                }
-                                            } catch (error) {
-                                                debug("Error parsing AB test result", { line });
-                                            }
-                                        }
-                                        winRates = Object.fromEntries(Object.entries(stats).map(([n, s]) => [n, { wins: s.wins, total: s.total, winRate: s.total > 0 ? Math.round((s.wins / s.total) * 100) : 0 }]));
-                                    } catch {
-                                        // no stats file yet
-                                    }
-                                }
-                            } catch (error) {
-                                debug("Error computing AB test win rates", { error });
-                            }
-                        }
+                        // Win rates are tracked in cloud analytics, not shown in UI
 
                         if (webviewPanel) {
                             const abProb = (vscode.workspace.getConfiguration("codex-editor-extension").get("abTestingProbability") as number) ?? 0;
@@ -2992,7 +2952,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     testId: testId || `${currentCellId}-${Date.now()}`,
                                     testName,
                                     names,
-                                    winRates,
                                     abProbability: Math.max(0, Math.min(1, abProb)),
                                 },
                             } as any);

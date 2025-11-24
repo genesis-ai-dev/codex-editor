@@ -309,7 +309,11 @@ export async function resolveConflictFile(
             // SPECIAL = "special", // Merge based on timestamps/rules
             case ConflictResolutionStrategy.SPECIAL: {
                 debugLog("Resolving special conflict for:", conflict.filepath);
-                resolvedContent = await resolveSmartEditsConflict(conflict.ours, conflict.theirs);
+                if (conflict.filepath === "metadata.json") {
+                    resolvedContent = await resolveMetadataJsonConflict(conflict);
+                } else {
+                    resolvedContent = await resolveSmartEditsConflict(conflict.ours, conflict.theirs);
+                }
                 break;
             }
 
@@ -399,6 +403,7 @@ function resolveMetadataConflictsUsingEditHistory(
     }
 
     // Start with our cell as the base
+    // Shallow copy is sufficient - attachments are merged separately later
     const resolvedCell = { ...ourCell };
 
     // For each metadata path, apply the most recent edit
@@ -1319,7 +1324,10 @@ export function mergeAttachments(
                 const ourAttachment = merged[id];
 
                 // Decide base attachment by updatedAt, but merge validatedBy arrays from both sides
-                const baseIsTheirs = (theirAttachment?.updatedAt || 0) > (ourAttachment?.updatedAt || 0);
+                // Use explicit number comparison to handle undefined/null cases properly
+                const ourUpdatedAt = typeof ourAttachment?.updatedAt === "number" ? ourAttachment.updatedAt : 0;
+                const theirUpdatedAt = typeof theirAttachment?.updatedAt === "number" ? theirAttachment.updatedAt : 0;
+                const baseIsTheirs = theirUpdatedAt > ourUpdatedAt;
                 const base = baseIsTheirs ? { ...theirAttachment } : { ...ourAttachment };
                 if (typeof base.url === "string") {
                     base.url = normalizeAttachmentUrl(base.url);
@@ -1337,7 +1345,7 @@ export function mergeAttachments(
                 }
 
                 merged[id] = base;
-                debugLog(`Merged attachment ${id} (preserved validatedBy from both sides)`);
+                debugLog(`Merged attachment ${id} (preserved validatedBy from both sides, used ${baseIsTheirs ? "their" : "our"} version based on updatedAt: ours=${ourUpdatedAt}, theirs=${theirUpdatedAt})`);
             }
         });
     }
@@ -1489,6 +1497,182 @@ async function resolveSmartEditsConflict(
     } catch (error) {
         console.error("Error resolving smart_edits.json conflict:", error);
         return "{}"; // Return empty object if parsing fails
+    }
+}
+
+/**
+ * Resolves conflicts in metadata.json, specifically merging the remote healing list
+ */
+async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<string> {
+    try {
+        const base = JSON.parse(conflict.base || "{}");
+        const ours = JSON.parse(conflict.ours || "{}");
+        const theirs = JSON.parse(conflict.theirs || "{}");
+
+        // 1. Resolve initiateRemoteHealingFor (Complex Merge Logic)
+        // Helper to extract healing list
+        const getList = (obj: any) => (obj?.meta?.initiateRemoteHealingFor || []) as any[];
+
+        const baseList = getList(base);
+        const ourList = getList(ours);
+        const theirList = getList(theirs);
+
+        // Map all entries by userToHeal
+        const allUsers = new Set<string>();
+        const entryMap = new Map<string, { base?: any, ours?: any, theirs?: any; }>();
+
+        // Helper to normalize entry to object (filtering out strings)
+        const normalize = (entry: any): any => {
+            if (typeof entry === 'string' || entry === null || typeof entry !== 'object') {
+                return null;
+            }
+            return entry;
+        };
+
+        // Populate map
+        const processList = (list: any[], source: 'base' | 'ours' | 'theirs') => {
+            if (!Array.isArray(list)) return;
+            for (const item of list) {
+                const entry = normalize(item);
+                if (!entry || !entry.userToHeal) continue;
+
+                const username = entry.userToHeal;
+                allUsers.add(username);
+                if (!entryMap.has(username)) {
+                    entryMap.set(username, {});
+                }
+                entryMap.get(username)![source] = entry;
+            }
+        };
+
+        processList(baseList, 'base');
+        processList(ourList, 'ours');
+        processList(theirList, 'theirs');
+
+        const mergedHealingList: any[] = [];
+
+        for (const username of allUsers) {
+            const { base: baseEntry, ours: ourEntry, theirs: theirEntry } = entryMap.get(username)!;
+
+            // If only one side exists/modified, take it. If both, resolve.
+            let finalEntry: any;
+
+            if (!ourEntry && !theirEntry) {
+                continue; // Should not happen if in allUsers
+            }
+
+            if (!ourEntry && theirEntry) {
+                // We deleted it (or it wasn't there), they have it
+                if (baseEntry) {
+                    // We deleted it. Check if they updated it since base
+                    if ((theirEntry.updatedAt || 0) > (baseEntry.updatedAt || 0)) {
+                        finalEntry = theirEntry; // They updated it, keep their version
+                    } else {
+                        // They didn't update (or updated less than our deletion?), so our deletion wins
+                        continue;
+                    }
+                } else {
+                    // No base. They added it.
+                    finalEntry = theirEntry;
+                }
+            } else if (ourEntry && !theirEntry) {
+                // We have it, they don't
+                if (!baseEntry) {
+                    finalEntry = ourEntry; // We added it
+                } else {
+                    // They deleted it. Check if we updated it
+                    if ((ourEntry.updatedAt || 0) > (baseEntry.updatedAt || 0)) {
+                        finalEntry = ourEntry;
+                    } else {
+                        continue; // Accept their deletion
+                    }
+                }
+            } else {
+                // Both exist.
+                // Compare updated timestamps
+                if ((ourEntry.updatedAt || 0) >= (theirEntry.updatedAt || 0)) {
+                    finalEntry = ourEntry;
+                } else {
+                    finalEntry = theirEntry;
+                }
+
+                // Ensure createdAt is preserved from base or oldest
+                const oldestCreated = Math.min(
+                    ourEntry.createdAt || Infinity,
+                    theirEntry.createdAt || Infinity,
+                    baseEntry?.createdAt || Infinity
+                );
+                if (oldestCreated !== Infinity) {
+                    finalEntry.createdAt = oldestCreated;
+                }
+            }
+
+            if (finalEntry) {
+                mergedHealingList.push(finalEntry);
+            }
+        }
+
+        // 2. Generic 3-Way Merge for the rest of the file
+        // This ensures we don't lose other metadata changes from remote
+        const mergeObjects = (baseObj: any, ourObj: any, theirObj: any, path: string[] = []): any => {
+            // Use local if not object (or array)
+            if (typeof ourObj !== 'object' || ourObj === null || Array.isArray(ourObj)) {
+                // 3-way merge for leaf values
+                const bStr = JSON.stringify(baseObj);
+                const oStr = JSON.stringify(ourObj);
+                // const tStr = JSON.stringify(theirObj); // Unused but conceptually part of the check
+
+                if (oStr === bStr) {
+                    return theirObj !== undefined ? theirObj : ourObj;
+                }
+                return ourObj; // Local wins on conflict or local change
+            }
+
+            const result: any = {};
+            const keys = new Set([
+                ...Object.keys(baseObj || {}),
+                ...Object.keys(ourObj || {}),
+                ...Object.keys(theirObj || {})
+            ]);
+
+            for (const key of keys) {
+                // Intercept specific path for initiateRemoteHealingFor
+                if (path.length === 1 && path[0] === 'meta' && key === 'initiateRemoteHealingFor') {
+                    result[key] = mergedHealingList;
+                    continue;
+                }
+
+                const bVal = baseObj?.[key];
+                const oVal = ourObj?.[key];
+                const tVal = theirObj?.[key];
+
+                // Recurse for objects
+                const isObj = (v: any) => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+                if (path.length < 5 && (isObj(bVal) || bVal === undefined) && (isObj(oVal) || oVal === undefined) && (isObj(tVal) || tVal === undefined)) {
+                    result[key] = mergeObjects(bVal, oVal, tVal, [...path, key]);
+                } else {
+                    // Leaf merge
+                    const bStr = JSON.stringify(bVal);
+                    const oStr = JSON.stringify(oVal);
+                    // const tStr = JSON.stringify(tVal); // Unused
+
+                    if (oStr === bStr) {
+                        result[key] = tVal !== undefined ? tVal : oVal;
+                    } else {
+                        result[key] = oVal;
+                    }
+                }
+            }
+            return result;
+        };
+
+        const finalResult = mergeObjects(base, ours, theirs);
+        return JSON.stringify(finalResult, null, 4);
+
+    } catch (error) {
+        console.error("Error resolving metadata.json conflict:", error);
+        return conflict.ours; // Fallback
     }
 }
 

@@ -334,5 +334,132 @@ suite("NewSourceUploaderProvider Test Suite", () => {
             "Should have undefined fileDisplayName when originalFileName is missing"
         );
     });
+
+    test("convertToNotebookPreview preserves RTL textDirection from processedNotebook metadata", async () => {
+        // Skip if no workspace folder
+        if (!vscode.workspace.workspaceFolders?.[0]) {
+            return;
+        }
+
+        // Create a processed notebook with RTL textDirection
+        const processedNotebook = {
+            name: "GEN",
+            cells: [],
+            metadata: {
+                id: "test-gen-rtl",
+                originalFileName: "GEN",
+                createdAt: new Date().toISOString(),
+                corpusMarker: "OT",
+                textDirection: "rtl",
+                importerType: "ebibleCorpus",
+            },
+        };
+
+        // Call convertToNotebookPreview
+        const convertToNotebookPreview = (provider as any).convertToNotebookPreview.bind(provider);
+        const result = await convertToNotebookPreview(processedNotebook);
+
+        // Verify textDirection is preserved as RTL
+        assert.strictEqual(
+            result.metadata.textDirection,
+            "rtl",
+            "Should preserve RTL textDirection from processedNotebook metadata"
+        );
+    });
+
+    test("convertToNotebookPreview preserves LTR textDirection from processedNotebook metadata", async () => {
+        // Skip if no workspace folder
+        if (!vscode.workspace.workspaceFolders?.[0]) {
+            return;
+        }
+
+        // Create a processed notebook with LTR textDirection
+        const processedNotebook = {
+            name: "MAT",
+            cells: [],
+            metadata: {
+                id: "test-mat-ltr",
+                originalFileName: "MAT",
+                createdAt: new Date().toISOString(),
+                corpusMarker: "NT",
+                textDirection: "ltr",
+                importerType: "ebibleCorpus",
+            },
+        };
+
+        // Call convertToNotebookPreview
+        const convertToNotebookPreview = (provider as any).convertToNotebookPreview.bind(provider);
+        const result = await convertToNotebookPreview(processedNotebook);
+
+        // Verify textDirection is preserved as LTR
+        assert.strictEqual(
+            result.metadata.textDirection,
+            "ltr",
+            "Should preserve LTR textDirection from processedNotebook metadata"
+        );
+    });
+
+    test("convertToNotebookPreview defaults to LTR when textDirection is missing", async () => {
+        // Skip if no workspace folder
+        if (!vscode.workspace.workspaceFolders?.[0]) {
+            return;
+        }
+
+        // Create a processed notebook without textDirection
+        const processedNotebook = {
+            name: "MAT",
+            cells: [],
+            metadata: {
+                id: "test-mat-no-direction",
+                originalFileName: "MAT",
+                createdAt: new Date().toISOString(),
+                corpusMarker: "NT",
+                importerType: "usfm",
+            },
+        };
+
+        // Call convertToNotebookPreview
+        const convertToNotebookPreview = (provider as any).convertToNotebookPreview.bind(provider);
+        const result = await convertToNotebookPreview(processedNotebook);
+
+        // Verify textDirection defaults to LTR
+        assert.strictEqual(
+            result.metadata.textDirection,
+            "ltr",
+            "Should default to LTR when textDirection is missing from processedNotebook metadata"
+        );
+    });
+
+    test("convertToNotebookPreview defaults to LTR when textDirection is undefined", async () => {
+        // Skip if no workspace folder
+        if (!vscode.workspace.workspaceFolders?.[0]) {
+            return;
+        }
+
+        // Create a processed notebook with undefined textDirection
+        const processedNotebook = {
+            name: "MAT",
+            cells: [],
+            metadata: {
+                id: "test-mat-undefined-direction",
+                originalFileName: "MAT",
+                createdAt: new Date().toISOString(),
+                corpusMarker: "NT",
+                textDirection: undefined,
+                importerType: "usfm",
+            },
+        };
+
+        // Call convertToNotebookPreview
+        const convertToNotebookPreview = (provider as any).convertToNotebookPreview.bind(provider);
+        const result = await convertToNotebookPreview(processedNotebook);
+
+        // Verify textDirection defaults to LTR
+        assert.strictEqual(
+            result.metadata.textDirection,
+            "ltr",
+            "Should default to LTR when textDirection is undefined"
+        );
+    });
 });
 

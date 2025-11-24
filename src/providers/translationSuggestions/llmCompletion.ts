@@ -10,6 +10,71 @@ import { buildFewShotExamplesText, buildMessages, fetchFewShotExamples, getPrece
 import { abTestingRegistry } from "../../utils/abTestingRegistry";
 // A/B testing disabled for now
 
+// Helper function to build A/B test context object
+function buildABTestContext(
+    extConfig: vscode.WorkspaceConfiguration,
+    currentCellId: string,
+    currentCellSourceContent: string,
+    numberOfFewShotExamples: number,
+    completionConfig: CompletionConfig,
+    fewShotExampleFormat: string,
+    targetLanguage: string | null,
+    systemMessage: string,
+    userMessageInstructions: string,
+    precedingTranslationPairs: any[],
+    token: vscode.CancellationToken
+): any {
+    return {
+        vscodeWorkspaceConfig: extConfig,
+        executeCommand: vscode.commands.executeCommand,
+        currentCellId: currentCellId,
+        currentCellSourceContent,
+        numberOfFewShotExamples,
+        useOnlyValidatedExamples: Boolean(completionConfig.useOnlyValidatedExamples),
+        allowHtmlPredictions: Boolean(completionConfig.allowHtmlPredictions),
+        fewShotExampleFormat: fewShotExampleFormat || "source-and-target",
+        targetLanguage,
+        systemMessage,
+        userMessageInstructions,
+        precedingTranslationPairs,
+        completionConfig,
+        token,
+    };
+}
+
+// Helper function to post-process A/B test result text
+function postProcessABTestResult(
+    txt: string,
+    allowHtml: boolean,
+    returnHTML: boolean
+): string {
+    const lines = (txt || "").split(/\r?\n/);
+    const processed = lines.map((line) => line.replace(/^\s*.*?->\s*/, "").trimEnd()).join(allowHtml || returnHTML ? "<br/>" : "\n");
+    return allowHtml ? (returnHTML ? processed : processed) : (returnHTML ? `<span>${processed}</span>` : processed);
+}
+
+// Helper function to handle A/B test result
+function handleABTestResult(
+    result: { variants: string[]; names?: string[]; testName?: string } | null,
+    currentCellId: string,
+    testIdPrefix: string,
+    completionConfig: CompletionConfig,
+    returnHTML: boolean
+): LLMCompletionResult | null {
+    if (result && Array.isArray(result.variants) && result.variants.length === 2) {
+        const allowHtml = Boolean(completionConfig.allowHtmlPredictions);
+        const variants = result.variants.map((txt) => postProcessABTestResult(txt, allowHtml, returnHTML));
+        return {
+            variants,
+            isABTest: true,
+            testId: `${currentCellId}-${testIdPrefix}-${Date.now()}`,
+            testName: result.testName,
+            names: result.names,
+        };
+    }
+    return null;
+}
+
 export interface LLMCompletionResult {
     variants: string[]; // Always present; length 1 for non-AB scenarios
     isABTest: boolean; // True only when variants.length > 1
@@ -60,8 +125,29 @@ export async function llmCompletion(
             throw new Error(`No source content found for cell ${currentCellId}. The search index may be incomplete. Try running "Force Complete Rebuild" from the command palette.`);
         }
 
+        // Sanitize HTML content to extract plain text (handles transcription spans, etc.)
+        const sanitizeHtmlContent = (html: string): string => {
+            if (!html) return '';
+            return html
+                .replace(/<sup[^>]*class=["']footnote-marker["'][^>]*>[\s\S]*?<\/sup>/gi, '')
+                .replace(/<sup[^>]*data-footnote[^>]*>[\s\S]*?<\/sup>/gi, '')
+                .replace(/<sup[^>]*>[\s\S]*?<\/sup>/gi, '')
+                .replace(/<\/p>/gi, ' ')
+                .replace(/<[^>]*>/g, '')
+                .replace(/&nbsp;/g, ' ')
+                .replace(/&amp;/g, '&')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&quot;/g, '"')
+                .replace(/&#39;/g, "'")
+                .replace(/&#\d+;/g, ' ')
+                .replace(/&[a-zA-Z]+;/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+        };
+
         const sourceContent = validSourceCells
-            .map((cell) => cell!.content)
+            .map((cell) => sanitizeHtmlContent(cell!.content || ""))
             .join(" ");
 
         // Get few-shot examples (existing behavior encapsulated)
@@ -99,9 +185,10 @@ export async function llmCompletion(
             Boolean(completionConfig.allowHtmlPredictions)
         );
 
-        // Get the target language
+        // Get the source and target languages
         const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
         const targetLanguage = projectConfig.get<any>("targetLanguage")?.tag || null;
+        const sourceLanguage = projectConfig.get<any>("sourceLanguage")?.tag || null;
 
         try {
             const currentCellIdString = currentCellIds.join(", ");
@@ -144,113 +231,104 @@ export async function llmCompletion(
                 precedingTranslationPairs,
                 currentCellSourceContent,
                 Boolean(completionConfig.allowHtmlPredictions),
-                fewShotExampleFormat || "source-and-target"
+                fewShotExampleFormat || "source-and-target",
+                sourceLanguage
             );
 
             // Unified AB testing via registry with random test selection (global gating)
             const extConfig = vscode.workspace.getConfiguration("codex-editor-extension");
-            const abEnabled = Boolean(extConfig.get("abTestingEnabled"));
-            const abProbability = Math.max(0, Math.min(1, Number(extConfig.get("abTestingProbability")) || 0));
-            const triggerAB = abEnabled && Math.random() < abProbability;
+            const abEnabled = Boolean(extConfig.get("abTestingEnabled") ?? true);
+            const abProbabilityRaw = extConfig.get<number>("abTestingProbability");
+            const abProbability = Math.max(0, Math.min(1, typeof abProbabilityRaw === "number" ? abProbabilityRaw : 0.15));
+            const randomValue = Math.random();
+            const triggerAB = abEnabled && randomValue < abProbability;
+
+            if (completionConfig.debugMode) {
+                console.debug(`[llmCompletion] A/B testing: enabled=${abEnabled}, probability=${abProbability}, random=${randomValue.toFixed(3)}, trigger=${triggerAB}`);
+            }
+
+            if (!triggerAB && completionConfig.debugMode) {
+                if (!abEnabled) {
+                    console.debug(`[llmCompletion] A/B testing disabled in settings`);
+                } else {
+                    console.debug(`[llmCompletion] A/B test not triggered (random ${randomValue.toFixed(3)} >= probability ${abProbability})`);
+                }
+            }
 
             if (triggerAB) {
                 const candidates = [
                     "Search Algorithm Test",
                     "Source vs Target Inclusion",
+                    "Few-Shot Example Count Test",
+                    "Low-Resource Search Algorithm Test",
+                    "SBS Efficiency Test",
                     // "llmGeneration" // intentionally disabled for now
                 ] as const;
                 const available = candidates.filter((name) => !!abTestingRegistry.get(name as any));
+                
+                if (completionConfig.debugMode) {
+                    console.debug(`[llmCompletion] A/B test candidates: ${available.length} available out of ${candidates.length} total`);
+                }
+                
                 const pick = available.length > 0 ? available[Math.floor(Math.random() * available.length)] : null;
 
-                if (pick === "Search Algorithm Test") {
-                    try {
-                        const searchCtx = {
-                            vscodeWorkspaceConfig: extConfig,
-                            executeCommand: vscode.commands.executeCommand,
-                            currentCellId: currentCellId,
-                            currentCellSourceContent,
-                            numberOfFewShotExamples,
-                            useOnlyValidatedExamples: Boolean(completionConfig.useOnlyValidatedExamples),
-                            allowHtmlPredictions: Boolean(completionConfig.allowHtmlPredictions),
-                            fewShotExampleFormat: fewShotExampleFormat || "source-and-target",
-                            targetLanguage,
-                            systemMessage,
-                            userMessageInstructions,
-                            precedingTranslationPairs,
-                            completionConfig,
-                            token,
-                        } as any;
-
-                        const searchResult = await abTestingRegistry.maybeRun<typeof searchCtx, string>(
-                            "Search Algorithm Test",
-                            searchCtx
-                        );
-
-                        const allowHtml = Boolean(completionConfig.allowHtmlPredictions);
-                        const postProcess = (txt: string) => {
-                            const lines = (txt || "").split(/\r?\n/);
-                            const processed = lines.map((line) => line.replace(/^\s*.*?->\s*/, "").trimEnd()).join(allowHtml || returnHTML ? "<br/>" : "\n");
-                            return allowHtml ? (returnHTML ? processed : processed) : (returnHTML ? `<span>${processed}</span>` : processed);
-                        };
-
-                        if (searchResult && Array.isArray(searchResult.variants) && searchResult.variants.length === 2) {
-                            const variants = searchResult.variants.map(postProcess);
-                            return {
-                                variants,
-                                isABTest: true,
-                                testId: `${currentCellId}-searchAB-${Date.now()}`,
-                                testName: searchResult.testName,
-                                names: searchResult.names,
-                            };
-                        }
-                    } catch (e) {
-                        console.warn("[llmCompletion] Registry A/B (searchAlgorithm) failed; falling back", e);
-                    }
+                if (!pick && completionConfig.debugMode) {
+                    console.debug(`[llmCompletion] No A/B test available (${available.length} tests registered)`);
                 }
 
-                if (pick === "Source vs Target Inclusion") {
+                if (pick) {
+                    if (completionConfig.debugMode) {
+                        console.debug(`[llmCompletion] Running A/B test: ${pick}`);
+                    }
                     try {
-                        const ctx = {
-                            vscodeWorkspaceConfig: extConfig,
-                            executeCommand: vscode.commands.executeCommand,
-                            currentCellId: currentCellId,
+                        const ctx = buildABTestContext(
+                            extConfig,
+                            currentCellId,
                             currentCellSourceContent,
                             numberOfFewShotExamples,
-                            useOnlyValidatedExamples: Boolean(completionConfig.useOnlyValidatedExamples),
-                            allowHtmlPredictions: Boolean(completionConfig.allowHtmlPredictions),
-                            fewShotExampleFormat: fewShotExampleFormat || "source-and-target",
+                            completionConfig,
+                            fewShotExampleFormat || "source-and-target",
                             targetLanguage,
                             systemMessage,
                             userMessageInstructions,
                             precedingTranslationPairs,
-                            completionConfig,
-                            token,
-                        } as any;
-
-                        const result = await abTestingRegistry.maybeRun<typeof ctx, string>(
-                            "Source vs Target Inclusion",
-                            ctx
+                            token
                         );
 
-                        const allowHtml = Boolean(completionConfig.allowHtmlPredictions);
-                        const postProcess = (txt: string) => {
-                            const lines = (txt || "").split(/\r?\n/);
-                            const processed = lines.map((line) => line.replace(/^\s*.*?->\s*/, "").trimEnd()).join(allowHtml || returnHTML ? "<br/>" : "\n");
-                            return allowHtml ? (returnHTML ? processed : processed) : (returnHTML ? `<span>${processed}</span>` : processed);
+                        const result = await abTestingRegistry.maybeRun<typeof ctx, string>(pick, ctx);
+
+                        if (completionConfig.debugMode) {
+                            console.debug(`[llmCompletion] A/B test result: ${result ? `got ${result.variants?.length || 0} variants` : "null (test probability check failed)"}`);
+                        }
+
+                        const testIdPrefixes: Record<string, string> = {
+                            "Search Algorithm Test": "searchAB",
+                            "Source vs Target Inclusion": "fmtAB",
+                            "Few-Shot Example Count Test": "countAB",
+                            "Low-Resource Search Algorithm Test": "lowResAB",
+                            "SBS Efficiency Test": "sbsEffAB",
                         };
 
-                        if (result && Array.isArray(result.variants) && result.variants.length === 2) {
-                            const variants = result.variants.map(postProcess);
-                            return {
-                                variants,
-                                isABTest: true,
-                                testId: `${currentCellId}-fmtAB-${Date.now()}`,
-                                testName: result.testName,
-                                names: result.names,
-                            };
+                        const testResult = handleABTestResult(
+                            result,
+                            currentCellId,
+                            testIdPrefixes[pick] || "ab",
+                            completionConfig,
+                            returnHTML
+                        );
+
+                        if (testResult) {
+                            return testResult;
                         }
                     } catch (e) {
-                        console.warn("[llmCompletion] Registry A/B (fewShotFormat) failed; falling back", e);
+                        const testNames: Record<string, string> = {
+                            "Search Algorithm Test": "searchAlgorithm",
+                            "Source vs Target Inclusion": "fewShotFormat",
+                            "Few-Shot Example Count Test": "exampleCount",
+                            "Low-Resource Search Algorithm Test": "lowResourceSearch",
+                            "SBS Efficiency Test": "sbsEfficiency",
+                        };
+                        console.warn(`[llmCompletion] Registry A/B (${testNames[pick] || "unknown"}) failed; falling back`, e);
                     }
                 }
             }
