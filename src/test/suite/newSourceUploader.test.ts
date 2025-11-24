@@ -6,6 +6,7 @@ import sinon from "sinon";
 import { WriteNotebooksMessage, WriteTranslationMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
 import { ProcessedNotebook } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/common";
 import { CodexCellTypes } from "../../../types/enums";
+import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
 
 suite("NewSourceUploaderProvider Test Suite", () => {
     let context: vscode.ExtensionContext;
@@ -475,85 +476,114 @@ suite("NewSourceUploaderProvider Test Suite", () => {
             const workspaceFolder = vscode.workspace.workspaceFolders[0];
             const { panel } = createMockWebviewPanel();
 
-            // Create a test notebook pair with subtitle-like cells (with timestamps)
-            const testNotebookPair: ProcessedNotebook = {
-                name: "test-subtitles",
-                cells: [
-                    {
-                        id: "cell-1",
-                        content: "First subtitle",
-                        metadata: {
-                            type: CodexCellTypes.TEXT,
-                            data: {
-                                startTime: 0,
-                                endTime: 5,
-                            },
-                        },
-                        images: []
-                    },
-                    {
-                        id: "cell-2",
-                        content: "Second subtitle",
-                        metadata: {
-                            type: CodexCellTypes.TEXT,
-                            data: {
-                                startTime: 5,
-                                endTime: 10,
-                            },
-                        },
-                        images: []
-                    },
-                    {
-                        id: "paratext-1",
-                        content: "Paratext content",
-                        metadata: {
-                            type: CodexCellTypes.PARATEXT,
-                            data: {},
-                        },
-                        images: []
-                    },
-                ],
-                metadata: {
-                    id: "test-subtitles",
-                    originalFileName: "test.vtt",
-                    importerType: "subtitles",
-                    createdAt: new Date().toISOString(),
-                },
-            };
+            // Initialize NotebookMetadataManager before use
+            NotebookMetadataManager.resetInstance();
+            const metadataManager = NotebookMetadataManager.getInstance(context);
+            await metadataManager.initialize();
 
-            const writeMessage: WriteNotebooksMessage = {
-                command: "writeNotebooks",
-                notebookPairs: [
-                    {
-                        source: testNotebookPair,
-                        codex: {
-                            ...testNotebookPair,
-                            cells: testNotebookPair.cells.map((cell) => ({
-                                ...cell,
-                                content: cell.metadata?.type === CodexCellTypes.PARATEXT ? cell.content : "",
-                            })),
-                        },
-                    },
-                ],
-            };
+            // Mock dialogs to avoid UI during tests
+            const showWarningMessageStub = sinon.stub(vscode.window, "showWarningMessage" as any).resolves("Overwrite Files");
+            const showInformationMessageStub = sinon.stub(vscode.window, "showInformationMessage").resolves(undefined);
+
+            // Mock executeCommand to handle indexSpecificFiles command
+            const executeCommandStub = sinon.stub(vscode.commands, "executeCommand").callsFake(async (command: string, ...args: any[]) => {
+                if (command === "codex-editor-extension.indexSpecificFiles") {
+                    // Just return undefined for this command in tests
+                    return undefined;
+                }
+                // For other commands, call the original (though we shouldn't hit this in this test)
+                return undefined;
+            });
 
             // Track progress messages
             const progressMessages: any[] = [];
-            const originalPostMessage = panel.webview.postMessage.bind(panel.webview);
-            panel.webview.postMessage = async (message: any) => {
-                if (message.command === "notification" || message.command === "projectInventory") {
-                    progressMessages.push(message);
-                }
-                return originalPostMessage(message);
-            };
 
-            // Call handleWriteNotebooks
-            const handleWriteNotebooks = (provider as any).handleWriteNotebooks.bind(provider);
-            await handleWriteNotebooks(
-                writeMessage,
-                new vscode.CancellationTokenSource().token,
-                panel
-            );
+            try {
+                // Create a test notebook pair with subtitle-like cells (with timestamps)
+                const testNotebookPair: ProcessedNotebook = {
+                    name: "test-subtitles",
+                    cells: [
+                        {
+                            id: "cell-1",
+                            content: "First subtitle",
+                            metadata: {
+                                type: CodexCellTypes.TEXT,
+                                data: {
+                                    startTime: 0,
+                                    endTime: 5,
+                                },
+                            },
+                            images: []
+                        },
+                        {
+                            id: "cell-2",
+                            content: "Second subtitle",
+                            metadata: {
+                                type: CodexCellTypes.TEXT,
+                                data: {
+                                    startTime: 5,
+                                    endTime: 10,
+                                },
+                            },
+                            images: []
+                        },
+                        {
+                            id: "paratext-1",
+                            content: "Paratext content",
+                            metadata: {
+                                type: CodexCellTypes.PARATEXT,
+                                data: {},
+                            },
+                            images: []
+                        },
+                    ],
+                    metadata: {
+                        id: "test-subtitles",
+                        originalFileName: "test.vtt",
+                        importerType: "subtitles",
+                        createdAt: new Date().toISOString(),
+                    },
+                };
+
+                const writeMessage: WriteNotebooksMessage = {
+                    command: "writeNotebooks",
+                    notebookPairs: [
+                        {
+                            source: testNotebookPair,
+                            codex: {
+                                ...testNotebookPair,
+                                cells: testNotebookPair.cells.map((cell) => ({
+                                    ...cell,
+                                    content: cell.metadata?.type === CodexCellTypes.PARATEXT ? cell.content : "",
+                                })),
+                            },
+                        },
+                    ],
+                };
+
+                const originalPostMessage = panel.webview.postMessage.bind(panel.webview);
+                panel.webview.postMessage = async (message: any) => {
+                    if (message.command === "notification" || message.command === "projectInventory") {
+                        progressMessages.push(message);
+                    }
+                    return originalPostMessage(message);
+                };
+
+                // Call handleWriteNotebooks
+                const handleWriteNotebooks = (provider as any).handleWriteNotebooks.bind(provider);
+                await handleWriteNotebooks(
+                    writeMessage,
+                    new vscode.CancellationTokenSource().token,
+                    panel
+                );
+            } finally {
+                // Restore mocks
+                showWarningMessageStub.restore();
+                showInformationMessageStub.restore();
+                executeCommandStub.restore();
+                // Reset NotebookMetadataManager instance to avoid affecting other tests
+                NotebookMetadataManager.resetInstance();
+            }
 
             // Verify success notification was sent
             const successNotification = progressMessages.find(
@@ -968,175 +998,237 @@ suite("NewSourceUploaderProvider Test Suite", () => {
             const workspaceFolder = vscode.workspace.workspaceFolders[0];
             const { panel } = createMockWebviewPanel();
 
-            // Step 1: Import source file
-            const sourceCells = [
-                {
-                    id: "subtitle-1",
-                    content: "Hello world",
-                    metadata: {
-                        type: CodexCellTypes.TEXT,
-                        data: { startTime: 0, endTime: 3 },
-                    },
-                    images: []
-                },
-                {
-                    id: "subtitle-2",
-                    content: "How are you?",
-                    metadata: {
-                        type: CodexCellTypes.TEXT,
-                        data: { startTime: 3, endTime: 6 },
-                    },
-                    images: []
-                },
-                {
-                    id: "paratext-1",
-                    content: "Note: This is a test",
-                    metadata: {
-                        type: CodexCellTypes.PARATEXT,
-                        data: {},
-                    },
-                    images: []
-                },
-            ];
+            // Initialize NotebookMetadataManager before use
+            NotebookMetadataManager.resetInstance();
+            const metadataManager = NotebookMetadataManager.getInstance(context);
+            await metadataManager.initialize();
 
-            const sourceNotebook: ProcessedNotebook = {
-                name: "test-subtitles-workflow",
-                cells: sourceCells,
-                metadata: {
-                    id: "test-subtitles-workflow",
-                    originalFileName: "test.vtt",
-                    importerType: "subtitles",
-                    createdAt: new Date().toISOString(),
-                },
-            };
+            // Mock dialogs to avoid UI during tests
+            const showWarningMessageStub = sinon.stub(vscode.window, "showWarningMessage" as any).resolves("Overwrite Files");
+            const showInformationMessageStub = sinon.stub(vscode.window, "showInformationMessage").resolves(undefined);
 
-            const writeSourceMessage: WriteNotebooksMessage = {
-                command: "writeNotebooks",
-                notebookPairs: [
+            // Mock executeCommand to handle indexSpecificFiles command
+            const executeCommandStub = sinon.stub(vscode.commands, "executeCommand").callsFake(async (command: string, ...args: any[]) => {
+                if (command === "codex-editor-extension.indexSpecificFiles") {
+                    // Just return undefined for this command in tests
+                    return undefined;
+                }
+                // For other commands, call the original (though we shouldn't hit this in this test)
+                return undefined;
+            });
+
+            try {
+                // Step 1: Import source file
+                const sourceCells = [
                     {
-                        source: sourceNotebook,
-                        codex: {
-                            ...sourceNotebook,
-                            cells: sourceNotebook.cells.map((cell) => ({
-                                ...cell,
-                                content: cell.metadata?.type === CodexCellTypes.PARATEXT ? cell.content : "",
-                            })),
+                        id: "subtitle-1",
+                        content: "Hello world",
+                        metadata: {
+                            type: CodexCellTypes.TEXT,
+                            data: { startTime: 0, endTime: 3 },
                         },
+                        images: []
                     },
-                ],
-            };
+                    {
+                        id: "subtitle-2",
+                        content: "How are you?",
+                        metadata: {
+                            type: CodexCellTypes.TEXT,
+                            data: { startTime: 3, endTime: 6 },
+                        },
+                        images: []
+                    },
+                    {
+                        id: "paratext-1",
+                        content: "Note: This is a test",
+                        metadata: {
+                            type: CodexCellTypes.PARATEXT,
+                            data: {},
+                        },
+                        images: []
+                    },
+                ];
 
-            const handleWriteNotebooks = (provider as any).handleWriteNotebooks.bind(provider);
-            await handleWriteNotebooks(
-                writeSourceMessage,
-                new vscode.CancellationTokenSource().token,
-                panel
-            );
+                const sourceNotebook: ProcessedNotebook = {
+                    name: "test-subtitles-workflow",
+                    cells: sourceCells,
+                    metadata: {
+                        id: "test-subtitles-workflow",
+                        originalFileName: "test.vtt",
+                        importerType: "subtitles",
+                        createdAt: new Date().toISOString(),
+                    },
+                };
 
-            // Verify source and codex files exist
-            const sourceUri = vscode.Uri.joinPath(
-                workspaceFolder.uri,
-                ".project",
-                "sourceTexts",
-                "test-subtitles-workflow.source"
-            );
-            const codexUri = vscode.Uri.joinPath(
-                workspaceFolder.uri,
-                "files",
-                "target",
-                "test-subtitles-workflow.codex"
-            );
+                const writeSourceMessage: WriteNotebooksMessage = {
+                    command: "writeNotebooks",
+                    notebookPairs: [
+                        {
+                            source: sourceNotebook,
+                            codex: {
+                                ...sourceNotebook,
+                                cells: sourceNotebook.cells.map((cell) => ({
+                                    ...cell,
+                                    content: cell.metadata?.type === CodexCellTypes.PARATEXT ? cell.content : "",
+                                })),
+                            },
+                        },
+                    ],
+                };
 
-            let sourceContent, codexContent;
-            try {
-                sourceContent = await vscode.workspace.fs.readFile(sourceUri);
-                codexContent = await vscode.workspace.fs.readFile(codexUri);
-            } catch (error) {
-                assert.fail(`Files should exist after import: ${error}`);
-            }
+                const handleWriteNotebooks = (provider as any).handleWriteNotebooks.bind(provider);
+                await handleWriteNotebooks(
+                    writeSourceMessage,
+                    new vscode.CancellationTokenSource().token,
+                    panel
+                );
 
-            const sourceNotebookData = JSON.parse(new TextDecoder().decode(sourceContent));
-            const codexNotebookData = JSON.parse(new TextDecoder().decode(codexContent));
+                // Verify source and codex files exist
+                const sourceUri = vscode.Uri.joinPath(
+                    workspaceFolder.uri,
+                    ".project",
+                    "sourceTexts",
+                    "test-subtitles-workflow.source"
+                );
+                const codexUri = vscode.Uri.joinPath(
+                    workspaceFolder.uri,
+                    "files",
+                    "target",
+                    "test-subtitles-workflow.codex"
+                );
 
-            // Step 2: Create target from same file (simulate translation import)
-            // This simulates importing the same subtitle file as a target
-            const alignedContent = sourceCells.map((cell, index) => ({
-                notebookCell: codexNotebookData.cells[index],
-                importedContent: {
-                    id: cell.id,
-                    content: cell.content + " [translated]",
-                    startTime: cell.metadata.data?.startTime,
-                    endTime: cell.metadata.data?.endTime,
-                },
-                isParatext: cell.metadata.type === CodexCellTypes.PARATEXT,
-                alignmentMethod: "exact-id" as const,
-                confidence: 1.0,
-            }));
+                let sourceContent, codexContent;
+                try {
+                    sourceContent = await vscode.workspace.fs.readFile(sourceUri);
+                    codexContent = await vscode.workspace.fs.readFile(codexUri);
+                } catch (error) {
+                    assert.fail(`Files should exist after import: ${error}`);
+                }
 
-            const writeTranslationMessage: WriteTranslationMessage = {
-                command: "writeTranslation",
-                alignedContent,
-                sourceFilePath: sourceUri.fsPath,
-                targetFilePath: codexUri.fsPath,
-                importerType: "subtitles",
-            };
+                const sourceNotebookData = JSON.parse(new TextDecoder().decode(sourceContent));
+                const codexNotebookData = JSON.parse(new TextDecoder().decode(codexContent));
 
-            const handleWriteTranslation = (provider as any).handleWriteTranslation.bind(provider);
-            await handleWriteTranslation(
-                writeTranslationMessage,
-                new vscode.CancellationTokenSource().token
-            );
-
-            // Step 3: Verify final state
-            const finalSourceContent = await vscode.workspace.fs.readFile(sourceUri);
-            const finalTargetContent = await vscode.workspace.fs.readFile(codexUri);
-            const finalSourceNotebook = JSON.parse(new TextDecoder().decode(finalSourceContent));
-            const finalTargetNotebook = JSON.parse(new TextDecoder().decode(finalTargetContent));
-
-            // Verify cell counts match
-            assert.strictEqual(
-                finalSourceNotebook.cells.length,
-                finalTargetNotebook.cells.length,
-                "Source and target should have matching cell counts after translation import"
-            );
-
-            // Verify paratext cells are preserved
-            const sourceParatextCells = finalSourceNotebook.cells.filter(
-                (cell: any) => cell.metadata?.type === CodexCellTypes.PARATEXT
-            );
-            const targetParatextCells = finalTargetNotebook.cells.filter(
-                (cell: any) => cell.metadata?.type === CodexCellTypes.PARATEXT
-            );
-
-            assert.strictEqual(
-                sourceParatextCells.length,
-                targetParatextCells.length,
-                "Source and target should have matching paratext cell counts"
-            );
-
-            // Verify all cells are aligned correctly
-            for (let i = 0; i < finalSourceNotebook.cells.length; i++) {
-                const sourceCell = finalSourceNotebook.cells[i];
-                const targetCell = finalTargetNotebook.cells[i];
-
+                // Verify initial cell counts match
                 assert.strictEqual(
-                    sourceCell.metadata.id,
-                    targetCell.metadata.id,
-                    `Cell ${i} should have matching IDs`
+                    sourceNotebookData.cells.length,
+                    3,
+                    "Source notebook should have 3 cells after initial import"
                 );
                 assert.strictEqual(
-                    sourceCell.metadata.type,
-                    targetCell.metadata.type,
-                    `Cell ${i} should have matching types`
+                    codexNotebookData.cells.length,
+                    3,
+                    "Codex notebook should have 3 cells after initial import"
                 );
-            }
 
-            // Cleanup
-            try {
-                await vscode.workspace.fs.delete(sourceUri);
-                await vscode.workspace.fs.delete(codexUri);
-            } catch {
-                // Ignore cleanup errors
+                // Step 2: Create target from same file (simulate translation import)
+                // This simulates importing the same subtitle file as a target
+                // Create a map of source cells by ID for lookup
+                const sourceCellsMap = new Map(sourceCells.map(cell => [cell.id, cell]));
+
+                // Build alignedContent from ALL codex notebook cells to ensure we don't miss any
+                const alignedContent = codexNotebookData.cells.map((codexCell: any) => {
+                    const sourceCell = sourceCellsMap.get(codexCell.metadata?.id);
+                    if (!sourceCell) {
+                        // If no matching source cell, use the codex cell as-is (shouldn't happen in this test)
+                        return {
+                            notebookCell: codexCell,
+                            importedContent: {
+                                id: codexCell.metadata?.id,
+                                content: codexCell.value || "",
+                                startTime: codexCell.metadata?.data?.startTime,
+                                endTime: codexCell.metadata?.data?.endTime,
+                            },
+                            isParatext: codexCell.metadata?.type === CodexCellTypes.PARATEXT,
+                            alignmentMethod: "exact-id" as const,
+                            confidence: 1.0,
+                        };
+                    }
+                    return {
+                        notebookCell: codexCell,
+                        importedContent: {
+                            id: sourceCell.id,
+                            content: sourceCell.content + " [translated]",
+                            startTime: sourceCell.metadata.data?.startTime,
+                            endTime: sourceCell.metadata.data?.endTime,
+                        },
+                        isParatext: sourceCell.metadata.type === CodexCellTypes.PARATEXT,
+                        alignmentMethod: "exact-id" as const,
+                        confidence: 1.0,
+                    };
+                });
+
+                const writeTranslationMessage: WriteTranslationMessage = {
+                    command: "writeTranslation",
+                    alignedContent,
+                    sourceFilePath: sourceUri.fsPath,
+                    targetFilePath: codexUri.fsPath,
+                    importerType: "subtitles",
+                };
+
+                const handleWriteTranslation = (provider as any).handleWriteTranslation.bind(provider);
+                await handleWriteTranslation(
+                    writeTranslationMessage,
+                    new vscode.CancellationTokenSource().token
+                );
+
+                // Step 3: Verify final state
+                const finalSourceContent = await vscode.workspace.fs.readFile(sourceUri);
+                const finalTargetContent = await vscode.workspace.fs.readFile(codexUri);
+                const finalSourceNotebook = JSON.parse(new TextDecoder().decode(finalSourceContent));
+                const finalTargetNotebook = JSON.parse(new TextDecoder().decode(finalTargetContent));
+
+                // Verify cell counts match
+                assert.strictEqual(
+                    finalSourceNotebook.cells.length,
+                    finalTargetNotebook.cells.length,
+                    "Source and target should have matching cell counts after translation import"
+                );
+
+                // Verify paratext cells are preserved
+                const sourceParatextCells = finalSourceNotebook.cells.filter(
+                    (cell: any) => cell.metadata?.type === CodexCellTypes.PARATEXT
+                );
+                const targetParatextCells = finalTargetNotebook.cells.filter(
+                    (cell: any) => cell.metadata?.type === CodexCellTypes.PARATEXT
+                );
+
+                assert.strictEqual(
+                    sourceParatextCells.length,
+                    targetParatextCells.length,
+                    "Source and target should have matching paratext cell counts"
+                );
+
+                // Verify all cells are aligned correctly
+                for (let i = 0; i < finalSourceNotebook.cells.length; i++) {
+                    const sourceCell = finalSourceNotebook.cells[i];
+                    const targetCell = finalTargetNotebook.cells[i];
+
+                    assert.strictEqual(
+                        sourceCell.metadata.id,
+                        targetCell.metadata.id,
+                        `Cell ${i} should have matching IDs`
+                    );
+                    assert.strictEqual(
+                        sourceCell.metadata.type,
+                        targetCell.metadata.type,
+                        `Cell ${i} should have matching types`
+                    );
+                }
+
+                // Cleanup
+                try {
+                    await vscode.workspace.fs.delete(sourceUri);
+                    await vscode.workspace.fs.delete(codexUri);
+                } catch {
+                    // Ignore cleanup errors
+                }
+            } finally {
+                // Restore mocks
+                showWarningMessageStub.restore();
+                showInformationMessageStub.restore();
+                executeCommandStub.restore();
+                // Reset NotebookMetadataManager instance to avoid affecting other tests
+                NotebookMetadataManager.resetInstance();
             }
         });
     });

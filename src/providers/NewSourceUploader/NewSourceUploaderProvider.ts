@@ -1044,6 +1044,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     const cell = processedCells.get(cellId);
                     if (cell) {
                         newCells.push(cell);
+                        // Mark this cell as used to prevent duplicate addition from existing cells
+                        usedExistingCellIds.add(cellId);
                     }
                 } else if (alignedCell.notebookCell) {
                     const targetId = alignedCell.importedContent.id;
