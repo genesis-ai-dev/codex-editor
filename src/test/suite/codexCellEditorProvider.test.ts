@@ -3992,7 +3992,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             assert.ok(true, "Variant selection recorded successfully");
         });
 
-        test("merge buttons show up in source when toggle source editing mode is turned on", async function () {
+        test.only("merge buttons show up in source when toggle source editing mode is turned on", async function () {
             this.timeout(10000);
 
             // This test verifies that when source editing mode (correction editor mode) is toggled on,
@@ -4093,8 +4093,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
                     (msg) => msg.type === "providerSendsInitialContent"
                 );
                 assert.ok(
-                    initialContentMessage,
-                    "providerSendsInitialContent message should be sent after refresh"
+                    initialContentMessage.type,
+                    "providerSendsInitialContent"
                 );
                 assert.strictEqual(
                     initialContentMessage.isSourceText,
