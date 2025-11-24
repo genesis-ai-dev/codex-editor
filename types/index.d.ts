@@ -277,6 +277,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "showProgressDashboard"; }
     | { command: "startup.dismiss"; }
     | { command: "webview.ready"; }
+    | { command: "extension.installFrontier"; }
     | { command: "navigateToMainMenu"; }
     | { command: "zipProject"; projectName: string; projectPath: string; includeGit?: boolean; }
     | { command: "project.heal"; projectName: string; projectPath: string; gitOriginUrl?: string; }
@@ -1014,6 +1015,8 @@ type ProjectMetadata = {
             codexEditor?: string;
             frontierAuthentication?: string;
         };
+        /** List of users that should be forced to restore/heal their project when opening */
+        initiateRemoteHealingFor?: RemoteHealingEntry[];
     };
     idAuthorities: {
         [key: string]: {
@@ -1150,6 +1153,16 @@ export interface FileTypeMap {
     SFM: "usfm";
     USFM: "usfm";
     codex: "codex";
+}
+
+export interface RemoteHealingEntry {
+    userToHeal: string;
+    addedBy: string;
+    createdAt: number;
+    updatedAt: number;
+    deleted: boolean;
+    deletedBy: string;
+    executed: boolean;
 }
 
 export interface AggregatedMetadata {

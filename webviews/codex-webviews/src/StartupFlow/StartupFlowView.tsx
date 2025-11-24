@@ -29,6 +29,7 @@ const vscode = acquireVsCodeApi();
 
 export const StartupFlowView: React.FC = () => {
     const [value, setValue] = useState<StartupFlowStates | null>(null);
+    const [authState, setAuthState] = useState<AuthState | null>(null);
     const [isInitializing, setIsInitializing] = useState(false);
     const [isAuthExtensionInstalled, setIsAuthExtensionInstalled] = useState(false);
 
@@ -51,6 +52,7 @@ export const StartupFlowView: React.FC = () => {
             switch (message.command) {
                 case "state.update": {
                     setValue(message.state.value);
+                    setAuthState(message.state.context.authState);
                     if (message.state.context?.authState) {
                         setIsAuthExtensionInstalled(
                             message.state.context.authState.isAuthExtensionInstalled || false
@@ -83,6 +85,7 @@ export const StartupFlowView: React.FC = () => {
                 case "updateAuthState": {
                     console.log("updateAuthState", JSON.stringify(message, null, 2));
                     const authState: AuthState = message.authState;
+                    setAuthState(authState);
                     setIsAuthExtensionInstalled(authState.isAuthExtensionInstalled || false);
                     if (!authState.isAuthExtensionInstalled) {
                         // send({
@@ -384,7 +387,7 @@ export const StartupFlowView: React.FC = () => {
 
             {value === StartupFlowStates.LOGIN_REGISTER && (
                 <LoginRegisterStep
-                    // authState={value.context.authState}
+                    authState={authState || undefined}
                     vscode={vscode}
                     onLogin={handleLogin}
                     onRegister={handleRegister}
