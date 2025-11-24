@@ -1494,6 +1494,7 @@ const CodexCellEditor: React.FC = () => {
 
     // State for current user - initialize with a default test username to ensure logic works
     const [username, setUsername] = useState<string | null>("test-user");
+    const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
 
     // Fetch username from extension and add extensive debugging
     useEffect(() => {
@@ -1542,6 +1543,9 @@ const CodexCellEditor: React.FC = () => {
                 }
                 if (event.data.validationCountAudio !== undefined) {
                     setRequiredAudioValidations(event.data.validationCountAudio);
+                }
+                if (event.data.isAuthenticated !== undefined) {
+                    setIsAuthenticated(event.data.isAuthenticated);
                 }
             }
         },
@@ -2473,6 +2477,7 @@ const CodexCellEditor: React.FC = () => {
                             currentUsername={username}
                             requiredValidations={requiredValidations ?? undefined}
                             requiredAudioValidations={requiredAudioValidations ?? undefined}
+                            isAuthenticated={isAuthenticated}
                             transcribingCells={transcribingCells}
                             showInlineBacktranslations={showInlineBacktranslations}
                             backtranslationsMap={backtranslationsMap}
