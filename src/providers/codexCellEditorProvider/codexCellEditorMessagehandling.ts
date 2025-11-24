@@ -1060,6 +1060,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         await vscode.commands.executeCommand(typedEvent.content.command, ...typedEvent.content.args);
     },
 
+    openLoginFlow: async () => {
+        await vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
+    },
+
     togglePinPrompt: async ({ event }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "togglePinPrompt"; }>;
         console.log("togglePinPrompt message received", { event });
