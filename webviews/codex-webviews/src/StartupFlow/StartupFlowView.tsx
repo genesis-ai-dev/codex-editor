@@ -31,7 +31,6 @@ export const StartupFlowView: React.FC = () => {
     const [value, setValue] = useState<StartupFlowStates | null>(null);
     const [authState, setAuthState] = useState<AuthState | null>(null);
     const [isInitializing, setIsInitializing] = useState(false);
-    const [isAuthExtensionInstalled, setIsAuthExtensionInstalled] = useState(false);
 
     // Use ref to maintain current state value for the stable event listener
     const valueRef = useRef<StartupFlowStates | null>(null);
@@ -53,11 +52,6 @@ export const StartupFlowView: React.FC = () => {
                 case "state.update": {
                     setValue(message.state.value);
                     setAuthState(message.state.context.authState);
-                    if (message.state.context?.authState) {
-                        setIsAuthExtensionInstalled(
-                            message.state.context.authState.isAuthExtensionInstalled || false
-                        );
-                    }
                     break;
                 }
                 case "project.initializationStatus": {
@@ -86,7 +80,6 @@ export const StartupFlowView: React.FC = () => {
                     console.log("updateAuthState", JSON.stringify(message, null, 2));
                     const authState: AuthState = message.authState;
                     setAuthState(authState);
-                    setIsAuthExtensionInstalled(authState.isAuthExtensionInstalled || false);
                     if (!authState.isAuthExtensionInstalled) {
                         // send({
                         //     type: StartupFlowEvents.NO_AUTH_EXTENSION,
@@ -393,7 +386,6 @@ export const StartupFlowView: React.FC = () => {
                     onRegister={handleRegister}
                     onLogout={handleLogout}
                     onSkip={handleSkipAuth}
-                    isAuthExtensionInstalled={isAuthExtensionInstalled}
                 />
             )}
 

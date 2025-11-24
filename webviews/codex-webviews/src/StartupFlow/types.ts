@@ -71,7 +71,6 @@ export interface LoginRegisterStepProps {
     onRegister: (username: string, email: string, password: string) => Promise<boolean>;
     onLogout: () => void;
     onSkip: () => void;
-    isAuthExtensionInstalled: boolean;
 }
 
 export interface WorkspaceStepProps {
