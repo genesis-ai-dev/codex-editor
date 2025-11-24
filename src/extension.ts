@@ -408,6 +408,11 @@ export async function activate(context: vscode.ExtensionContext) {
         const startupStart = globalThis.performance.now();
         await registerStartupFlowCommands(context);
         registerPreflightCommand(context);
+
+        // Register remote healing commands (for admins to force project healing)
+        const { registerRemoteHealingCommands } = await import("./commands/remoteHealingCommands");
+        registerRemoteHealingCommands(context);
+
         stepStart = trackTiming("Configuring Startup Workflow", startupStart);
 
         // Initialize SqlJs with real-time progress since it loads WASM files
@@ -945,5 +950,11 @@ export function getNotebookMetadataManager(): NotebookMetadataManager {
 }
 
 export function getAuthApi(): FrontierAPI | undefined {
+    if (!authApi) {
+        const extension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
+        if (extension?.isActive) {
+            authApi = extension.exports;
+        }
+    }
     return authApi;
 }

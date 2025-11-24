@@ -43,6 +43,7 @@ interface GroupSectionProps {
     filterProjects: (projects: ProjectWithSyncStatus[]) => ProjectWithSyncStatus[];
     isProgressDataLoaded?: boolean;
     isAnyOperationApplying?: boolean;
+    isOnline?: boolean;
 }
 
 const INDENTATION_SIZE_REM = 1.25;
@@ -67,6 +68,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
     filterProjects,
     isProgressDataLoaded = false,
     isAnyOperationApplying = false,
+    isOnline = true,
 }) => {
     if (!group || typeof group !== "object") return null;
 
@@ -177,6 +179,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                                         getStatusIcon={getStatusIcon}
                                         isProgressDataLoaded={isProgressDataLoaded}
                                         isAnyOperationApplying={isAnyOperationApplying}
+                                        isOnline={isOnline}
                                     />
                                 ))}
                             </div>
@@ -214,6 +217,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                                         filterProjects={filterProjects}
                                         isProgressDataLoaded={isProgressDataLoaded}
                                         isAnyOperationApplying={isAnyOperationApplying}
+                                        isOnline={isOnline}
                                     />
                                 </div>
                             );

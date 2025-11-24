@@ -162,6 +162,10 @@ export const startupFlowMachine = setup({
         [StartupFlowStates.OPEN_OR_CREATE_PROJECT]: {
             on: {
                 [StartupFlowEvents.BACK_TO_LOGIN]: StartupFlowStates.LOGIN_REGISTER,
+                [StartupFlowEvents.NO_AUTH_EXTENSION]: {
+                    target: StartupFlowStates.LOGIN_REGISTER,
+                    actions: "updateAuthState",
+                },
                 [StartupFlowEvents.PROJECT_CREATE_EMPTY]:
                     StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
                 [StartupFlowEvents.PROJECT_CLONE_OR_OPEN]: StartupFlowStates.ALREADY_WORKING,
@@ -174,10 +178,19 @@ export const startupFlowMachine = setup({
             on: {
                 [StartupFlowEvents.INITIALIZE_PROJECT]: StartupFlowStates.ALREADY_WORKING,
                 [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]: StartupFlowStates.ALREADY_WORKING,
+                [StartupFlowEvents.NO_AUTH_EXTENSION]: {
+                    target: StartupFlowStates.LOGIN_REGISTER,
+                    actions: "updateAuthState",
+                },
             },
         },
         [StartupFlowStates.ALREADY_WORKING]: {
-            type: "final",
+            on: {
+                [StartupFlowEvents.NO_AUTH_EXTENSION]: {
+                    target: StartupFlowStates.LOGIN_REGISTER,
+                    actions: "updateAuthState",
+                },
+            },
         },
     },
 });

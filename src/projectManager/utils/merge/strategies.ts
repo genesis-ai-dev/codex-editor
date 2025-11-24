@@ -29,7 +29,10 @@ export const filePatternsToResolve: Record<ConflictResolutionStrategy, string[]>
     [ConflictResolutionStrategy.JSONL]: ["files/project.dictionary"],
 
     // Special JSON merges - merge based on timestamps
-    [ConflictResolutionStrategy.SPECIAL]: ["files/smart_edits.json"],
+    [ConflictResolutionStrategy.SPECIAL]: [
+        "files/smart_edits.json",
+        "metadata.json"
+    ],
 
     // Source files - keep newest version (DEPRECATED: now using CODEX_CUSTOM_MERGE)
     [ConflictResolutionStrategy.SOURCE]: [],

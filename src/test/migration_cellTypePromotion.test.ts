@@ -1,12 +1,16 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
+import * as os from "os";
+import * as path from "path";
 import { CodexContentSerializer } from "../serializer";
 import { migration_promoteCellTypeToTopLevel } from "../projectManager/utils/migrationUtils";
 
 async function createTempNotebookWithDataType(typeInData: string | undefined, typeTopLevel?: string): Promise<vscode.Uri> {
     const serializer = new CodexContentSerializer();
-    const tmp = await vscode.workspace.fs.createTemporaryFile?.();
-    const uri = tmp?.uri || vscode.Uri.file(`${vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "/tmp"}/type-test-${Date.now()}.codex`);
+    // Use os.tmpdir() for test environment compatibility
+    const tmpDir = os.tmpdir();
+    const fileName = `type-test-${Date.now()}-${Math.random().toString(36).slice(2)}.codex`;
+    const uri = vscode.Uri.file(path.join(tmpDir, fileName));
 
     const notebook: any = {
         cells: [
