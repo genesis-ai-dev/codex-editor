@@ -555,7 +555,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const finalContent = typedEvent.content.cellContent === "<span></span>" ? "" : typedEvent.content.cellContent;
 
         const cellId = typedEvent.content.cellMarkers[0];
-        
+
         // For source file transcriptions, wait for index update to complete
         // so that the source content is immediately available for translation
         if (isSourceText && isTranscription) {
@@ -955,6 +955,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         await vscode.commands.executeCommand(typedEvent.content.command, ...typedEvent.content.args);
     },
 
+    openLoginFlow: async () => {
+        await vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
+    },
+
     togglePinPrompt: async ({ event }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "togglePinPrompt"; }>;
         console.log("togglePinPrompt message received", { event });
@@ -1009,9 +1013,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     getBatchBacktranslations: async ({ event, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "getBatchBacktranslations"; }>;
         const cellIds = typedEvent.content.cellIds;
-        
+
         // Fetch backtranslations for all cell IDs
-        const backtranslations: { [cellId: string]: SavedBacktranslation | null } = {};
+        const backtranslations: { [cellId: string]: SavedBacktranslation | null; } = {};
         for (const cellId of cellIds) {
             const backtranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
                 "codex-smart-edits.getBacktranslation",
@@ -1019,7 +1023,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             );
             backtranslations[cellId] = backtranslation;
         }
-        
+
         provider.postMessageToWebview(webviewPanel, {
             type: "providerSendsBatchBacktranslations",
             content: backtranslations,

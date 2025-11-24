@@ -52,6 +52,8 @@ interface State {
     projectState: ProjectManagerState;
     autoSyncEnabled: boolean;
     syncDelayMinutes: number;
+    isFrontierExtensionEnabled: boolean;
+    isAuthenticated: boolean;
     progressData: any;
 }
 
@@ -79,6 +81,8 @@ function MainMenu() {
         },
         autoSyncEnabled: true,
         syncDelayMinutes: 5,
+        isFrontierExtensionEnabled: true,
+        isAuthenticated: false,
         progressData: null,
     });
 
@@ -110,6 +114,10 @@ function MainMenu() {
                         autoSyncEnabled: message.data.autoSyncEnabled ?? prevState.autoSyncEnabled,
                         syncDelayMinutes:
                             message.data.syncDelayMinutes ?? prevState.syncDelayMinutes,
+                        isFrontierExtensionEnabled:
+                            message.data.isFrontierExtensionEnabled ??
+                            prevState.isFrontierExtensionEnabled,
+                        isAuthenticated: message.data.isAuthenticated ?? prevState.isAuthenticated,
                     }));
                     break;
                 case "progressData":
@@ -692,6 +700,8 @@ function MainMenu() {
                                     syncDelayMinutes={state.syncDelayMinutes}
                                     isSyncInProgress={projectState.isSyncInProgress}
                                     syncStage={projectState.syncStage}
+                                    isFrontierExtensionEnabled={state.isFrontierExtensionEnabled}
+                                    isAuthenticated={state.isAuthenticated}
                                     onToggleAutoSync={handleToggleAutoSync}
                                     onChangeSyncDelay={handleChangeSyncDelay}
                                     onTriggerSync={handleTriggerSync}
