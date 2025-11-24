@@ -57,6 +57,7 @@ import { registerTestingCommands } from "./evaluation/testingCommands";
 import { initializeABTesting } from "./utils/abTestingSetup";
 import { migration_addValidationsForUserEdits, migration_moveTimestampsToMetadataData, migration_promoteCellTypeToTopLevel, migration_addImporterTypeToMetadata } from "./projectManager/utils/migrationUtils";
 import { initializeAudioProcessor } from "./utils/audioProcessor";
+import { initializeAudioMerger } from "./utils/audioMerger";
 import * as fs from "fs";
 import * as os from "os";
 
@@ -299,6 +300,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Initialize audio processor for on-demand FFmpeg downloads
     initializeAudioProcessor(context);
+    // Initialize audio merger for merging audio files
+    initializeAudioMerger(context);
 
     // Register and show splash screen immediately before anything else
     try {
