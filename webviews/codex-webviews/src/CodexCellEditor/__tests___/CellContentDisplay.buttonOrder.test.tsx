@@ -343,6 +343,173 @@ describe("CellContentDisplay - Button Order Tests", () => {
         });
     });
 
+    describe("Merge buttons in source editing mode", () => {
+        it("should show merge button when source editing mode is turned on for non-first, non-merged cells", () => {
+            // Create two cells - first cell should not have merge button, second should
+            const firstCell = createMockCell("cell-source-first");
+            const secondCell = createMockCell("cell-source-second");
+            const translationUnits = [firstCell, secondCell];
+
+            const props = {
+                cell: secondCell, // Second cell (not first)
+                vscode: mockVscode as any,
+                textDirection: "ltr" as const,
+                isSourceText: true, // .source file
+                hasDuplicateId: false,
+                alertColorCode: undefined,
+                highlightedCellId: null,
+                scrollSyncEnabled: true,
+                lineNumber: "2",
+                label: "Test Label",
+                lineNumbersEnabled: true,
+                isInTranslationProcess: false,
+                translationState: null as any,
+                allTranslationsComplete: false,
+                handleCellClick: vi.fn(),
+                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
+                audioAttachments: {
+                    "cell-source-second": "available" as const,
+                },
+                currentUsername: "test-user",
+                requiredValidations: 1,
+                requiredAudioValidations: 1,
+                isCorrectionEditorMode: true, // Source editing mode ON
+                translationUnits: translationUnits,
+            };
+
+            const { container } = render(<CellContentDisplay {...props} />);
+
+            // Verify merge button exists (codicon-merge)
+            const mergeButton = container.querySelector(".codicon-merge");
+            expect(mergeButton).toBeTruthy();
+            expect(mergeButton?.closest("button")?.getAttribute("title")).toBe("Merge with previous cell");
+        });
+
+        it("should NOT show merge button when source editing mode is turned off", () => {
+            const firstCell = createMockCell("cell-source-first");
+            const secondCell = createMockCell("cell-source-second");
+            const translationUnits = [firstCell, secondCell];
+
+            const props = {
+                cell: secondCell,
+                vscode: mockVscode as any,
+                textDirection: "ltr" as const,
+                isSourceText: true,
+                hasDuplicateId: false,
+                alertColorCode: undefined,
+                highlightedCellId: null,
+                scrollSyncEnabled: true,
+                lineNumber: "2",
+                label: "Test Label",
+                lineNumbersEnabled: true,
+                isInTranslationProcess: false,
+                translationState: null as any,
+                allTranslationsComplete: false,
+                handleCellClick: vi.fn(),
+                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
+                audioAttachments: {
+                    "cell-source-second": "available" as const,
+                },
+                currentUsername: "test-user",
+                requiredValidations: 1,
+                requiredAudioValidations: 1,
+                isCorrectionEditorMode: false, // Source editing mode OFF
+                translationUnits: translationUnits,
+            };
+
+            const { container } = render(<CellContentDisplay {...props} />);
+
+            // Verify merge button does NOT exist
+            const mergeButton = container.querySelector(".codicon-merge");
+            expect(mergeButton).toBeNull();
+        });
+
+        it("should NOT show merge button on the first cell even when source editing mode is on", () => {
+            const firstCell = createMockCell("cell-source-first");
+            const secondCell = createMockCell("cell-source-second");
+            const translationUnits = [firstCell, secondCell];
+
+            const props = {
+                cell: firstCell, // First cell
+                vscode: mockVscode as any,
+                textDirection: "ltr" as const,
+                isSourceText: true,
+                hasDuplicateId: false,
+                alertColorCode: undefined,
+                highlightedCellId: null,
+                scrollSyncEnabled: true,
+                lineNumber: "1",
+                label: "Test Label",
+                lineNumbersEnabled: true,
+                isInTranslationProcess: false,
+                translationState: null as any,
+                allTranslationsComplete: false,
+                handleCellClick: vi.fn(),
+                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
+                audioAttachments: {
+                    "cell-source-first": "available" as const,
+                },
+                currentUsername: "test-user",
+                requiredValidations: 1,
+                requiredAudioValidations: 1,
+                isCorrectionEditorMode: true, // Source editing mode ON
+                translationUnits: translationUnits,
+            };
+
+            const { container } = render(<CellContentDisplay {...props} />);
+
+            // Verify merge button does NOT exist on first cell
+            const mergeButton = container.querySelector(".codicon-merge");
+            expect(mergeButton).toBeNull();
+        });
+
+        it("should NOT show merge button on merged cells even when source editing mode is on", () => {
+            const firstCell = createMockCell("cell-source-first");
+            const mergedCell = {
+                ...createMockCell("cell-source-merged"),
+                merged: true, // Cell is already merged
+            };
+            const translationUnits = [firstCell, mergedCell];
+
+            const props = {
+                cell: mergedCell,
+                vscode: mockVscode as any,
+                textDirection: "ltr" as const,
+                isSourceText: true,
+                hasDuplicateId: false,
+                alertColorCode: undefined,
+                highlightedCellId: null,
+                scrollSyncEnabled: true,
+                lineNumber: "2",
+                label: "Test Label",
+                lineNumbersEnabled: true,
+                isInTranslationProcess: false,
+                translationState: null as any,
+                allTranslationsComplete: false,
+                handleCellClick: vi.fn(),
+                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
+                audioAttachments: {
+                    "cell-source-merged": "available" as const,
+                },
+                currentUsername: "test-user",
+                requiredValidations: 1,
+                requiredAudioValidations: 1,
+                isCorrectionEditorMode: true, // Source editing mode ON
+                translationUnits: translationUnits,
+            };
+
+            const { container } = render(<CellContentDisplay {...props} />);
+
+            // Verify merge button does NOT exist (should show cancel merge button instead)
+            const mergeButton = container.querySelector(".codicon-merge");
+            expect(mergeButton).toBeNull();
+
+            // Verify cancel merge button exists instead
+            const cancelMergeButton = container.querySelector(".codicon-debug-step-back");
+            expect(cancelMergeButton).toBeTruthy();
+        });
+    });
+
     describe("Button order consistency across display modes", () => {
         it("should maintain correct button order in ONE_LINE_PER_CELL mode for .codex files", () => {
             const mockCell = createMockCell("cell-mode-1");

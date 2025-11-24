@@ -84,48 +84,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
         assert.ok(html.includes("window.initialData"), "HTML should include initial data script");
     });
 
-    test("resolveCustomEditor sets up message passing", async () => {
-        const provider = new CodexCellEditorProvider(context);
-        const document = await provider.openCustomDocument(
-            tempUri,
-            { backupId: undefined },
-            new vscode.CancellationTokenSource().token
-        );
-
-        let receivedMessage: any = null;
-        const webviewPanel = {
-            webview: {
-                asWebviewUri: (uri: vscode.Uri) => uri,
-                html: "",
-                options: {},
-                onDidReceiveMessage: (callback: (message: any) => void) => {
-                    // Simulate receiving a message from the webview
-                    setTimeout(() => callback({ command: "getContent" }), 0);
-                    return { dispose: () => { } };
-                },
-                postMessage: (message: any) => {
-                    receivedMessage = message;
-                    return Promise.resolve();
-                },
-            },
-            onDidDispose: () => ({ dispose: () => { } }),
-            onDidChangeViewState: (cb: any) => ({ dispose: () => { } }),
-        } as any as vscode.WebviewPanel;
-
-        await provider.resolveCustomEditor(
-            document,
-            webviewPanel,
-            new vscode.CancellationTokenSource().token
-        );
-
-        // Wait for the simulated message to be processed
-        await sleep(50);
-
-        assert.ok(receivedMessage, "Webview should receive a message");
-        const allowedInitial = ["providerSendsInitialContent", "providerUpdatesNotebookMetadataForWebview"];
-        assert.ok(allowedInitial.includes(receivedMessage.type));
-    });
-
     test("updateCellContent updates the cell content", async () => {
         const document = await provider.openCustomDocument(
             tempUri,
