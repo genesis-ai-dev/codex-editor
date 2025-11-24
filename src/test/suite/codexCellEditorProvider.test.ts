@@ -263,7 +263,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         await sleep(50);
 
         assert.ok(receivedMessage, "Webview should receive a message");
-        const allowedInitialMessages = ["providerSendsInitialContent", "providerUpdatesNotebookMetadataForWebview"];
+        const allowedInitialMessages = ["providerSendsInitialContent", "providerUpdatesNotebookMetadataForWebview", "providerSendsAudioAttachments"];
         assert.ok(
             allowedInitialMessages.includes(receivedMessage.type),
             `Initial message should be one of ${allowedInitialMessages.join(", ")}`
@@ -1890,13 +1890,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const mergedEditExists = (targetCurrent.metadata?.edits || []).some((e: any) => Array.isArray(e.editMap) && e.editMap.join(".") === "metadata.data.merged" && e.value === true);
             assert.ok(mergedEditExists, "Target current cell should log a merged edit entry");
 
-            // Now unmerge from source and confirm target unmerges with edit
-            await handleMessages({
-                command: "cancelMerge",
-                content: { cellId: currentCellId }
-            } as any, webviewPanel, sourceDoc, () => { }, provider as any);
-
-            // Invoke provider unmerge for target to mirror behavior (stub openWith to avoid UI)
+            // Stub openWith BEFORE calling cancelMerge (since cancelMerge internally calls unmergeMatchingCellsInTargetFile)
             const originalExec = vscode.commands.executeCommand;
             // @ts-expect-error test stub
             vscode.commands.executeCommand = async (command: string, ...args: any[]) => {
@@ -1906,6 +1900,13 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 return originalExec(command, ...args);
             };
             try {
+                // Now unmerge from source and confirm target unmerges with edit
+                await handleMessages({
+                    command: "cancelMerge",
+                    content: { cellId: currentCellId }
+                } as any, webviewPanel, sourceDoc, () => { }, provider as any);
+
+                // Invoke provider unmerge for target to mirror behavior (stub openWith to avoid UI)
                 await provider.unmergeMatchingCellsInTargetFile(currentCellId, sourceUri.toString(), workspaceFolder);
             } finally {
                 vscode.commands.executeCommand = originalExec;
