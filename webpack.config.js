@@ -30,6 +30,7 @@ const extensionConfig = {
         "fts5-sql-bundle": "commonjs fts5-sql-bundle",
         vm: "commonjs vm",
         encoding: "commonjs encoding",
+        tar: "commonjs tar",
     },
     resolve: {
         // support reading TypeScript and JavaScript files, 📖 -> https://github.com/TypeStrong/ts-loader
@@ -191,6 +192,7 @@ const testConfig = {
         vscode: "commonjs vscode",
         child_process: "commonjs child_process", // Required for audioMigration utility
         util: "commonjs util", // Required for promisify
+        tar: "commonjs tar",
     },
     resolve: {
         extensions: [".ts", ".js"],

@@ -531,7 +531,9 @@ export class IDMLParser {
                 verseNumber: string;
                 beforeVerse: string;
                 verseContent: string;
+                verseStructureXml?: string; // Full XML structure with footnotes in original positions
                 afterVerse: string;
+                footnotes?: string[]; // Array of footnote XML strings for round-trip preservation
             }> = [];
             const csrNodes = Array.from(paragraphElement.getElementsByTagName('CharacterStyleRange')) as Element[];
 
@@ -555,6 +557,33 @@ export class IDMLParser {
 
             const serializer = new XMLSerializer();
             const serializeEl = (el: Element): string => serializer.serializeToString(el);
+
+            // Helper to remove ACE processing instructions from XML string
+            const removeAceInstructions = (xml: string): string => {
+                // Remove ACE processing instructions (<?ACE ...?>) from Content elements
+                // These appear as text nodes inside Content elements and should be filtered out
+                // Handle multiline content with ACE instructions
+                xml = xml.replace(/<Content>([\s\S]*?)<\?ACE[^?]*\?>([\s\S]*?)<\/Content>/g, (match, before, after) => {
+                    const cleanedBefore = before.trim();
+                    const cleanedAfter = after.trim();
+                    if (cleanedBefore || cleanedAfter) {
+                        return `<Content>${cleanedBefore}${cleanedAfter}</Content>`;
+                    }
+                    return '<Content></Content>';
+                });
+                // Handle ACE at start of Content
+                xml = xml.replace(/<Content>\s*<\?ACE[^?]*\?>\s*/g, '<Content>');
+                // Handle ACE at end of Content
+                xml = xml.replace(/\s*<\?ACE[^?]*\?>\s*<\/Content>/g, '</Content>');
+                // Handle Content with only ACE (empty after removal)
+                xml = xml.replace(/<Content>\s*<\?ACE[^?]*\?>\s*<\/Content>/g, '<Content></Content>');
+                return xml;
+            };
+
+            // Helper to serialize element and remove ACE processing instructions from Content elements
+            const serializeElClean = (el: Element): string => {
+                return removeAceInstructions(serializer.serializeToString(el));
+            };
 
             let i = 0;
             let chapterInParagraph = currentChapter; // Use the chapter passed from story level
@@ -628,20 +657,66 @@ export class IDMLParser {
 
                 // Check for verse meta (meta:v) - always present before verse content
                 if (i < csrNodes.length && isMetaVerseStyle(csrNodes[i])) {
-                    beforeVerse += serializeEl(csrNodes[i]);
+                    beforeVerse += serializeElClean(csrNodes[i]);
                     this.debugLog(`Found verse meta before: ${csrNodes[i].textContent}`);
                     i++;
                 }
 
                 // Extract verse content (everything until the next meta:v)
-                // Preserve the exact structure: <Content>text</Content><Br/><Content>text</Content>
-                let verseContent = '';
+                // NEW APPROACH: Preserve the FULL structure including footnotes in their original positions
+                let verseContent = ''; // Plain text content for display in Codex cells
+                let verseStructureXml = ''; // Full XML structure with footnotes preserved
+                const footnotes: string[] = []; // Also collect footnotes separately for backward compatibility
+
+                // Track the start position for serializing the full structure
+                const verseStartIndex = i;
+
                 while (i < csrNodes.length && !isMetaVerseStyle(csrNodes[i]) && !isVerseNumberStyle(csrNodes[i])) {
                     const csrNode = csrNodes[i];
 
                     // Check if this CharacterStyleRange has a special style (not the default)
                     const appliedStyle = csrNode.getAttribute('AppliedCharacterStyle') || '';
                     const isDefaultStyle = appliedStyle.includes('$ID/[No character style]');
+
+                    // Check if this is a footnote call marker (notes%3af_call)
+                    const isFootnoteCall = appliedStyle.includes('notes%3af_call') || appliedStyle.includes('notes:f_call');
+
+                    // Check if this is inline footnote content (should be excluded from structure)
+                    // These styles appear after the footnote call and duplicate the footnote content inline
+                    const isInlineFootnoteContent = appliedStyle.includes('notes%3af_c') || // Footnote callout number
+                        appliedStyle.includes('notes%3af_v') || // Footnote verse number
+                        appliedStyle.includes('notes%3afr_sp') || // Footnote reference spacing
+                        appliedStyle.includes('notes%3aft'); // Footnote text
+
+                    if (isFootnoteCall) {
+                        // Extract the footnote XML - look for <Footnote> element inside this CharacterStyleRange
+                        const footnoteElement = csrNode.getElementsByTagName('Footnote')[0];
+                        if (footnoteElement) {
+                            // Serialize the entire footnote element for round-trip preservation
+                            // Clean ACE processing instructions from footnote content
+                            let footnoteXml = serializer.serializeToString(footnoteElement);
+                            footnoteXml = removeAceInstructions(footnoteXml);
+                            footnotes.push(footnoteXml);
+                            this.debugLog(`Found footnote in verse ${verseNumber}: ${footnoteXml.substring(0, 100)}...`);
+                        }
+                        // Serialize the footnote call marker (contains the <Footnote> element)
+                        // Use clean serialization to remove ACE processing instructions
+                        verseStructureXml += serializeElClean(csrNode);
+                        // Skip the footnote call marker itself - don't add its content to verseContent
+                        i++;
+                        continue;
+                    }
+
+                    // Skip inline footnote content - it duplicates what's already in the <Footnote> element
+                    if (isInlineFootnoteContent) {
+                        this.debugLog(`Skipping inline footnote content in verse ${verseNumber}: ${appliedStyle}`);
+                        i++;
+                        continue;
+                    }
+
+                    // Serialize the entire CharacterStyleRange to preserve structure
+                    // Use clean serialization to remove ACE processing instructions
+                    verseStructureXml += serializeElClean(csrNode);
 
                     // Walk through the children in order to preserve Content/Br sequence
                     const children = Array.from(csrNode.childNodes);
@@ -652,7 +727,9 @@ export class IDMLParser {
                                 // Only include content from default styled ranges
                                 // Skip content from special styled ranges (e.g., "source serif" for apostrophes)
                                 if (isDefaultStyle) {
-                                    const text = element.textContent || '';
+                                    let text = element.textContent || '';
+                                    // Replace &nbsp; entities (non-breaking spaces) with regular spaces
+                                    text = text.replace(/&nbsp;/gi, ' ').replace(/\u00A0/g, ' ');
                                     verseContent += text;
                                 }
                             } else if (element.tagName === 'Br') {
@@ -668,7 +745,7 @@ export class IDMLParser {
                 // Collect "afterVerse" metadata (closing meta:v)
                 let afterVerse = '';
                 if (i < csrNodes.length && isMetaVerseStyle(csrNodes[i])) {
-                    afterVerse = serializeEl(csrNodes[i]);
+                    afterVerse = serializeElClean(csrNodes[i]);
                     this.debugLog(`Found verse meta after: ${csrNodes[i].textContent}`);
                     i++;
                 }
@@ -698,10 +775,12 @@ export class IDMLParser {
                         chapterNumber: chapterInParagraph,
                         verseNumber,
                         beforeVerse,
-                        verseContent: verseContent,
-                        afterVerse
+                        verseContent: verseContent, // Plain text for Codex cells
+                        verseStructureXml: verseStructureXml || undefined, // Full XML structure with footnotes in original positions
+                        afterVerse,
+                        footnotes: footnotes.length > 0 ? footnotes : undefined // Also keep for backward compatibility
                     });
-                    this.debugLog(`Extracted verse ${currentBook} ${chapterInParagraph}:${verseNumber} - "${verseContent.substring(0, 50)}..."`);
+                    this.debugLog(`Extracted verse ${currentBook} ${chapterInParagraph}:${verseNumber} - "${verseContent.substring(0, 50)}..."${footnotes.length > 0 ? ` with ${footnotes.length} footnote(s)` : ''}${verseStructureXml ? ' (with full structure)' : ''}`);
                 }
             }
 
