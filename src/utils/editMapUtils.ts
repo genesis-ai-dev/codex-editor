@@ -214,7 +214,11 @@ export function deduplicateFileMetadataEdits(
     edits.forEach((edit) => {
         if (edit.editMap && Array.isArray(edit.editMap)) {
             const editMapKey = edit.editMap.join('.');
-            const key = `${edit.timestamp}:${editMapKey}:${edit.value}`;
+            // Properly serialize object values to avoid [object Object] issue
+            const valueKey = typeof edit.value === 'object' && edit.value !== null
+                ? JSON.stringify(edit.value)
+                : String(edit.value);
+            const key = `${edit.timestamp}:${editMapKey}:${valueKey}`;
 
             // Keep the first occurrence of a duplicate (file-level edits don't have validatedBy)
             if (!editMap.has(key)) {
