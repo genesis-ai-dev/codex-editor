@@ -653,7 +653,8 @@ function applyEditToCell(cell: CustomNotebookCellData, edit: EditHistory): void 
         cell.metadata = {
             id: (cell as any).id || '',
             type: CodexCellTypes.TEXT,
-            edits: []
+            edits: [],
+            isEditable: false,
         };
     }
 
@@ -884,7 +885,8 @@ export async function resolveCodexCustomMerge(
                 mergedCell.metadata = {
                     id: cellId,
                     type: CodexCellTypes.TEXT,
-                    edits: []
+                    edits: [],
+                    isEditable: false,
                 };
             }
             mergedCell.metadata.edits = uniqueEdits;
