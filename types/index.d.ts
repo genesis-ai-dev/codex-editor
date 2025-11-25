@@ -1337,7 +1337,8 @@ type ProjectManagerMessageToWebview =
     }
     | { command: "asrSettings"; data: { endpoint: string; provider: string; model: string; language: string; phonetic: boolean; }; }
     | { command: "asrModels"; data: string[]; }
-    | { command: "asrSettingsSaved"; };
+    | { command: "asrSettingsSaved"; }
+    | { command: "showVSCodeVersionWarning"; };
 
 // Ensure the Project type is correctly defined
 interface LocalProject {
@@ -1885,6 +1886,9 @@ type EditorReceiveMessages =
     | {
         type: "correctionEditorModeChanged";
         enabled: boolean;
+    }
+    | {
+        type: "showVSCodeVersionWarning";
     }
     | {
         type: "audioAttachmentSaved";

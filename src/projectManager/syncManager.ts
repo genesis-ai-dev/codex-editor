@@ -8,7 +8,7 @@ import { updateSplashScreenSync } from "../providers/SplashScreen/register";
 import git from "isomorphic-git";
 import fs from "fs";
 import http from "isomorphic-git/http/web";
-import { getFrontierVersionStatus } from "./utils/versionChecks";
+import { getFrontierVersionStatus, checkVSCodeVersion } from "./utils/versionChecks";
 import { BookCompletionData } from "../progressReporting/progressReportingService";
 import { ProgressReportingService, registerProgressReportingCommands } from "../progressReporting/progressReportingService";
 import { CommentsMigrator } from "../utils/commentsMigrationUtils";
@@ -518,6 +518,25 @@ export class SyncManager {
                 : `Frontier Authentication not found. Version ${versionStatus.requiredVersion} or newer is required to sync.`;
             await vscode.window.showWarningMessage(details, { modal: true });
             return;
+        }
+
+        // Check VS Code version and show warning modal if needed (non-blocking)
+        const vscodeVersionStatus = checkVSCodeVersion();
+        if (!vscodeVersionStatus.ok) {
+            debug("VS Code version requirement not met. Showing warning modal.");
+            try {
+                const { CodexCellEditorProvider } = await import("../providers/codexCellEditorProvider/codexCellEditorProvider");
+                const provider = CodexCellEditorProvider.getInstance();
+                if (provider) {
+                    provider.postMessageToWebviews({
+                        type: "showVSCodeVersionWarning",
+                    });
+                } else {
+                    debug("[SyncManager] Codex cell editor provider not available");
+                }
+            } catch (error) {
+                console.error("Error sending VS Code version warning to codex webviews:", error);
+            }
         }
 
         // Clear any pending scheduled sync (manual sync takes priority)
