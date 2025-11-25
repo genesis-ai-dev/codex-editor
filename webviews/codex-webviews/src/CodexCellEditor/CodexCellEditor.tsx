@@ -38,7 +38,6 @@ import { Subsection, ProgressPercentages } from "../lib/types";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { WhisperTranscriptionClient, type AsrMeta } from "./WhisperTranscriptionClient";
-import { VSCodeVersionWarningModal } from "../components/VSCodeVersionWarningModal";
 
 // eslint-disable-next-line react-refresh/only-export-components
 export enum CELL_DISPLAY_MODES {
@@ -127,7 +126,6 @@ const CodexCellEditor: React.FC = () => {
     );
     const [isSourceText, setIsSourceText] = useState<boolean>(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
-    const [showVSCodeVersionWarning, setShowVSCodeVersionWarning] = useState<boolean>(false);
 
     // Track if user has manually navigated away from the highlighted chapter in source files
     const [hasManuallyNavigatedAway, setHasManuallyNavigatedAway] = useState<boolean>(false);
@@ -665,11 +663,6 @@ const CodexCellEditor: React.FC = () => {
             // Handle correction editor mode changes from provider
             if (message.type === "correctionEditorModeChanged") {
                 setIsCorrectionEditorMode(message.enabled);
-            }
-
-            // Handle VS Code version warning
-            if (message.type === "showVSCodeVersionWarning") {
-                setShowVSCodeVersionWarning(true);
             }
 
             // Handle metadata refresh requests (font size, text direction, etc.)
@@ -2560,12 +2553,6 @@ const CodexCellEditor: React.FC = () => {
                     <i className="codicon codicon-loading spin"></i>
                     <span className="button-text">Applying...</span>
                 </div>
-            )}
-            {isSourceText && (
-                <VSCodeVersionWarningModal
-                    open={showVSCodeVersionWarning}
-                    onClose={() => setShowVSCodeVersionWarning(false)}
-                />
             )}
         </div>
     );

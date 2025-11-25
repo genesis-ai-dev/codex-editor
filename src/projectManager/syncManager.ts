@@ -524,18 +524,13 @@ export class SyncManager {
         const vscodeVersionStatus = checkVSCodeVersion();
         if (!vscodeVersionStatus.ok) {
             debug("VS Code version requirement not met. Showing warning modal.");
-            try {
-                const { CodexCellEditorProvider } = await import("../providers/codexCellEditorProvider/codexCellEditorProvider");
-                const provider = CodexCellEditorProvider.getInstance();
-                if (provider) {
-                    provider.postMessageToWebviews({
-                        type: "showVSCodeVersionWarning",
-                    });
-                } else {
-                    debug("[SyncManager] Codex cell editor provider not available");
-                }
-            } catch (error) {
-                console.error("Error sending VS Code version warning to codex webviews:", error);
+            const result = await vscode.window.showInformationMessage(
+                "Please visit codexeditor.app to update Codex to the latest version.",
+                { modal: true },
+                "Visit Website"
+            );
+            if (result === "Visit Website") {
+                await vscode.env.openExternal(vscode.Uri.parse("https://codexeditor.app"));
             }
         }
 
