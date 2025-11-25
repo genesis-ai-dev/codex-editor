@@ -845,6 +845,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 type: CodexCellTypes.TEXT,
                 edits: [],
                 data: {},
+                isEditable: false,
             };
         }
 
@@ -924,6 +925,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 cellLabel: content?.cellLabel,
                 edits: content?.editHistory || [],
                 data: data,
+                isEditable: false,
             },
         });
 
@@ -1681,6 +1683,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 type: CodexCellTypes.TEXT,
                 data: {},
                 edits: [],
+                isEditable: false,
             };
         }
 
@@ -1734,6 +1737,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 type: CodexCellTypes.TEXT,
                 edits: [],
                 data: {},
+                isEditable: false,
             };
         }
 

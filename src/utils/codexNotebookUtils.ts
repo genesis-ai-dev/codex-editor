@@ -293,6 +293,7 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
                             newCell.metadata = {
                                 type: "paratext",
                                 id: cellId,
+                                isEditable: false,
                             };
                             navigationCells.push({
                                 cellId: cellId,
@@ -341,6 +342,7 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
                             id: verseRef,
                             data: {},
                             cellLabel: verseRef,
+                            isEditable: false,
                         };
                         newCells.push(verseCell as CodexCell);
                     }
@@ -508,6 +510,7 @@ async function processUsfmFile(fileUri: vscode.Uri, notebookId?: string): Promis
             chapterHeadingCell.metadata = {
                 type: "paratext",
                 id: `${bookCode} ${chapter.chapterNumber}:0`,
+                isEditable: false,
             };
             cells.push(chapterHeadingCell);
 
@@ -522,6 +525,7 @@ async function processUsfmFile(fileUri: vscode.Uri, notebookId?: string): Promis
                     verseCell.metadata = {
                         type: "text",
                         id: `${bookCode} ${chapter.chapterNumber}:${content.verseNumber}`,
+                        isEditable: false,
                     };
                     cells.push(verseCell);
                 }
@@ -681,6 +685,7 @@ export async function createProjectNotebooks({
                 newCell.metadata = {
                     type: "paratext",
                     id: cellId,
+                    isEditable: false,
                 };
                 navigationCells.push({
                     cellId: cellId,
@@ -703,6 +708,7 @@ export async function createProjectNotebooks({
                         id: verse,
                         data: {},
                         cellLabel: verse,
+                        isEditable: false,
                     };
                     newCells.push(verseCell);
                 }

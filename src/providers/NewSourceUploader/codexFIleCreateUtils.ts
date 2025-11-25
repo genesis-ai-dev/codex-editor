@@ -25,6 +25,7 @@ export async function writeNotebook(uri: vscode.Uri, notebook: NotebookPreview):
             id: cell.metadata?.id,
             data: cell.metadata?.data || {},
             edits: cell.metadata?.edits || [],
+            isEditable: cell.metadata?.isEditable ?? false,
             ...cell.metadata,
         },
     }));

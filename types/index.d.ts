@@ -861,6 +861,7 @@ type BaseCustomCellMetaData = {
     id: string;
     type: CodexCellTypes;
     edits: EditHistory[];
+    isEditable: boolean;
 };
 
 export type BaseCustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {
