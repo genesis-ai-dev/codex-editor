@@ -1,6 +1,10 @@
 /**
- * Biblica Importer Form Component - Minimal Test Version
- * Provides UI for importing Biblica IDML files with round-trip validation
+ * Biblica Importer Form Component
+ * Provides UI for importing Biblica Study Bible (IDML) and Translated Bible files
+ * 
+ * Features:
+ * - Study Bible (IDML): Populates source file with all notes and bible verses
+ * - Translated Bible: Populates target/codex file with translated verse content
  */
 
 import React, { useState, useCallback } from 'react';
@@ -18,12 +22,15 @@ import { Alert, AlertDescription } from '../../../components/ui/alert';
 import { 
     FileText, 
     Upload, 
-    ArrowLeft
+    ArrowLeft,
+    BookOpen,
+    Languages
 } from 'lucide-react';
 import { IDMLParser } from './biblicaParser';
 import { HTMLMapper } from './htmlMapper';
 import { createProcessedCell, sanitizeFileName, createStandardCellId } from '../../utils/workflowHelpers';
 import { extractImagesFromHtml } from '../../utils/imageProcessor';
+import { CodexCellTypes } from 'types/enums';
 
 /**
  * Escape HTML characters and convert newlines to <br> tags
@@ -72,7 +79,11 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
     existingFiles,
     wizardContext
 }) => {
-    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    // Study Bible (IDML) - populates source file
+    const [studyBibleFile, setStudyBibleFile] = useState<File | null>(null);
+    // Translated Bible - populates target/codex file with verse content
+    const [translatedBibleFile, setTranslatedBibleFile] = useState<File | null>(null);
+    
     const [isProcessing, setIsProcessing] = useState(false);
     const [progress, setProgress] = useState<string>('');
     const [debugLogs, setDebugLogs] = useState<string[]>([]);
@@ -86,7 +97,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
         // No console logging - only send to debug panel
     }, []);
 
-    const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const handleStudyBibleSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (!file) return;
         
@@ -95,10 +106,34 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
             return;
         }
         
-        setSelectedFile(file);
-    }, []);
+        setStudyBibleFile(file);
+        addDebugLog(`Study Bible file selected: ${file.name}`);
+    }, [addDebugLog]);
 
-    const createCellsFromStories = useCallback(async (stories: any[], htmlRepresentation: any, document: any) => {
+    const handleTranslatedBibleSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        
+        if (!file.name.toLowerCase().endsWith('.idml')) {
+            alert('Please select a valid IDML file (.idml extension)');
+            return;
+        }
+        
+        setTranslatedBibleFile(file);
+        addDebugLog(`Translated Bible file selected: ${file.name}`);
+    }, [addDebugLog]);
+
+    /**
+     * Create cells from Study Bible stories (populates source file)
+     * Maps verses by their labels (e.g., MAT 1:1) for later matching with translated bible
+     */
+    const createCellsFromStories = useCallback(async (
+        stories: any[], 
+        htmlRepresentation: any, 
+        document: any,
+        verseMap?: Map<string, string>, // Map of verse labels to translated content
+        footnotesMap?: Map<string, string[]> // Map of verse labels to footnote XML arrays
+    ) => {
         const cells: any[] = [];
         let globalCellIndex = 0; // Global counter for sequential numbering across all content
         
@@ -126,54 +161,67 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                         // Use simple sequential numbering for all cells
                         globalCellIndex++;
                         const cellId = `biblica 1:${globalCellIndex}`;
-                        // Store original verse reference for metadata
+                        // Store original verse reference for metadata (e.g., "MAT 1:1")
                         const originalVerseRef = bookAbbreviation ? `${bookAbbreviation} ${chapterNumber}:${verseNumber}` : `${chapterNumber}:${verseNumber}`;
                         
-                        // Create HTML content for the verse
-                        const htmlContent = `<p class="biblica-verse" data-book="${bookAbbreviation}" data-chapter="${chapterNumber}" data-verse="${verseNumber}" data-paragraph-style="${paragraphStyle}" data-story-id="${story.id}">${escapeHtml(verseContent)}</p>`;
+                        // Check if we have translated content for this verse
+                        const translatedContent = verseMap?.get(originalVerseRef);
+                        // Get footnotes for this verse from translated Bible
+                        const footnotes = footnotesMap?.get(originalVerseRef);
+                        
+                        // Replace &nbsp; entities (non-breaking spaces) with regular spaces
+                        // They are converted to regular spaces during import so they appear correctly in Codex cells
+                        const cleanedVerseContent = verseContent.replace(/&nbsp;/gi, ' ').replace(/\u00A0/g, ' ');
+                        
+                        // Create HTML content for the verse (source file - study bible content)
+                        const htmlContent = `<p class="biblica-verse" data-book="${bookAbbreviation}" data-chapter="${chapterNumber}" data-verse="${verseNumber}" data-paragraph-style="${paragraphStyle}" data-story-id="${story.id}">${escapeHtml(cleanedVerseContent)}</p>`;
                         
                         const cellMetadata = {
+                            id: cellId,
+                            type: CodexCellTypes.TEXT,
+                            edits: [],
                             cellLabel: originalVerseRef, // Keep original verse reference in label
                             isBibleVerse: true,
                             bookAbbreviation,
                             chapterNumber,
                             verseNumber,
-                            verseId: originalVerseRef, // Keep original verse reference
+                            verseId: originalVerseRef, // Keep original verse reference for matching
                             storyId: story.id,
-                            storyName: story.name,
                             paragraphId: paragraph.id,
                             appliedParagraphStyle: paragraphStyle,
                             beforeVerse,  // Serialized XML for round-trip
                             afterVerse,   // Serialized XML for round-trip
+                            footnotes: footnotes || undefined, // Footnotes from translated Bible (for round-trip preservation)
                             data: {
-                                originalContent: verseContent,
-                                sourceFile: selectedFile?.name || 'unknown',
+                                originalContent: cleanedVerseContent, // Store cleaned content (with &nbsp; replaced by spaces)
+                                sourceFile: studyBibleFile?.name || 'unknown',
+                                // Minimal structure needed for export fallback
                                 idmlStructure: {
                                     storyId: story.id,
-                                    storyName: story.name,
                                     paragraphId: paragraph.id,
-                                    paragraphStyleRange: paragraph.paragraphStyleRange,
-                                    characterStyleRanges: paragraph.characterStyleRanges,
+                                    paragraphStyleRange: {
+                                        appliedParagraphStyle: paragraphStyle,
+                                        // Only keep dataAfter if present (used for paragraph-based export fallback)
+                                        dataAfter: paragraph.paragraphStyleRange.dataAfter
+                                    }
                                 },
+                                // Minimal context - only what's needed for identification
                                 documentContext: {
-                                    documentId: document.id,
-                                    documentVersion: document.version,
                                     originalHash: htmlRepresentation.originalHash,
                                     importerType: 'biblica',
-                                    fileName: selectedFile?.name || 'unknown',
-                                    importTimestamp: new Date().toISOString(),
+                                    fileName: studyBibleFile?.name || 'unknown',
                                 }
                             }
                         };
                         
-                        const cell = createProcessedCell(cellId, htmlContent, cellMetadata);
+                        const cell = createProcessedCell(cellId, htmlContent, cellMetadata as any);
                         const images = await extractImagesFromHtml(htmlContent);
                         cell.images = images;
                         cells.push(cell);
-                        addDebugLog(`Created verse cell: ${cellId} (original: ${originalVerseRef})`);
+                        addDebugLog(`Created verse cell: ${cellId} (original: ${originalVerseRef})${translatedContent ? ' - with translated content' : ''}`);
                     }
                 } else {
-                    // Fallback: Create one cell per paragraph (for non-verse content)
+                    // Fallback: Create one cell per paragraph (for non-verse content like notes)
                     const content = paragraph.paragraphStyleRange.content;
                     
                     // Preserve newlines for structure, convert to <br /> for HTML
@@ -210,43 +258,41 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                     
                     const htmlContent = `<p class="biblica-paragraph" data-paragraph-style="${paragraphStyle}" data-story-id="${story.id}">${inlineHTML}</p>`;
                     const cellMetadata = {
+                        id: cellId,
+                        type: CodexCellTypes.TEXT,
+                        edits: [],
                         cellLabel: globalCellIndex.toString(), // Use sequential number as label
                         storyId: story.id,
-                        storyName: story.name,
                         paragraphId: paragraph.id,
                         appliedParagraphStyle: paragraphStyle,
                         data: {
                             originalContent: cleanText,
-                            sourceFile: selectedFile?.name || 'unknown',
+                            sourceFile: studyBibleFile?.name || 'unknown',
+                            // Minimal structure needed for export
                             idmlStructure: {
                                 storyId: story.id,
-                                storyName: story.name,
                                 paragraphId: paragraph.id,
-                                paragraphStyleRange: paragraph.paragraphStyleRange,
-                                characterStyleRanges: paragraph.characterStyleRanges,
+                                paragraphStyleRange: {
+                                    appliedParagraphStyle: paragraphStyle,
+                                    // Only keep dataAfter if present (used for paragraph-based export)
+                                    dataAfter: paragraph.paragraphStyleRange.dataAfter
+                                }
                             },
-                            layoutData: {
-                                storyMetadata: story.metadata,
-                                paragraphMetadata: paragraph.metadata,
-                            },
+                            // Minimal relationships needed for export
                             relationships: {
                                 parentStory: story.id,
-                                parentStoryName: story.name,
                                 storyOrder: stories.indexOf(story),
                                 paragraphOrder: i,
-                                totalParagraphsInStory: story.paragraphs.length,
                             },
+                            // Minimal context - only what's needed for identification
                             documentContext: {
-                                documentId: document.id,
-                                documentVersion: document.version,
                                 originalHash: htmlRepresentation.originalHash,
-                                importerType: 'biblica',
-                                fileName: selectedFile?.name || 'unknown',
-                                importTimestamp: new Date().toISOString(),
+                                importerType: 'biblica-experimental',
+                                fileName: studyBibleFile?.name || 'unknown',
                             }
                         }
                     };
-                    const cell = createProcessedCell(cellId, htmlContent, cellMetadata);
+                    const cell = createProcessedCell(cellId, htmlContent, cellMetadata as any);
                     const images = await extractImagesFromHtml(htmlContent);
                     cell.images = images;
                     cells.push(cell);
@@ -255,23 +301,239 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
             }
         }
         return cells;
-    }, [addDebugLog, selectedFile]);
+    }, [addDebugLog, studyBibleFile]);
+
+    /**
+     * Parse translated bible file and extract verse content
+     * Parses IDML file and extracts ONLY bible verses (ignores notes, titles, etc.)
+     * Returns verse map and footnotes map for verse labels (e.g., "MAT 1:1")
+     */
+    const parseTranslatedBible = useCallback(async (file: File): Promise<{ verseMap: Map<string, string>; footnotesMap: Map<string, string[]> }> => {
+        addDebugLog(`Parsing translated bible file: ${file.name}`);
+        
+        try {
+            // Step 1: Read file content
+            const arrayBuffer = await file.arrayBuffer();
+            addDebugLog(`Translated Bible ArrayBuffer size: ${arrayBuffer.byteLength}`);
+            
+            // Validate ZIP signature
+            const uint8Array = new Uint8Array(arrayBuffer);
+            const firstBytes = Array.from(uint8Array.slice(0, 4)).map(b => String.fromCharCode(b)).join('');
+            if (firstBytes !== 'PK\u0003\u0004') {
+                throw new Error('The translated Bible file does not appear to be a valid IDML file');
+            }
+            
+            // Step 2: Parse IDML
+            const parser = new IDMLParser({
+                preserveAllFormatting: true,
+                preserveObjectIds: true,
+                validateRoundTrip: false,
+                strictMode: false
+            });
+            
+            parser.setDebugCallback((msg) => addDebugLog(`[Translated Bible Parser] ${msg}`));
+            
+            const document = await parser.parseIDML(arrayBuffer);
+            addDebugLog(`Parsed translated Bible: ${document.stories.length} stories`);
+            
+            // Step 3: Extract verses from all stories
+            const verseMap = new Map<string, string>();
+            const footnotesMap = new Map<string, string[]>(); // Map verse labels to footnote XML arrays
+            let currentBook = '';
+            
+            for (const story of document.stories) {
+                let currentChapter = '1';
+                
+                for (const paragraph of story.paragraphs) {
+                    const paragraphStyle = paragraph.paragraphStyleRange.appliedParagraphStyle;
+                    
+                    // Check for book abbreviation (meta:bk)
+                    if (paragraphStyle.includes('meta%3abk') || paragraphStyle.includes('meta:bk')) {
+                        const bookAbbrev = paragraph.paragraphStyleRange.content.trim();
+                        if (bookAbbrev && bookAbbrev.length >= 2 && bookAbbrev.length <= 4) {
+                            currentBook = bookAbbrev;
+                            addDebugLog(`Found book abbreviation in translated Bible: ${currentBook}`);
+                        }
+                        continue;
+                    }
+                    
+                    // Extract chapter number from paragraph if it contains chapter markers
+                    // Look for cv%3adc style in character style ranges
+                    const characterRanges = paragraph.characterStyleRanges || [];
+                    for (const range of characterRanges) {
+                        const style = range.appliedCharacterStyle || '';
+                        if (style.includes('cv%3adc') || style.includes('cv:dc')) {
+                            const chapterNum = range.content.trim();
+                            if (chapterNum && /^\d+$/.test(chapterNum)) {
+                                currentChapter = chapterNum;
+                                addDebugLog(`Found chapter ${currentChapter} in translated Bible`);
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // Skip non-verse paragraphs (titles, notes, etc.)
+                    // Only process paragraphs that contain verse segments
+                    const verseSegments = (paragraph.metadata as any)?.biblicaVerseSegments;
+                    if (!verseSegments || !Array.isArray(verseSegments) || verseSegments.length === 0) {
+                        continue;
+                    }
+                    
+                    // Extract verses from this paragraph
+                    for (const verse of verseSegments) {
+                        const { bookAbbreviation, chapterNumber, verseNumber, verseContent, verseStructureXml, footnotes, beforeVerse, afterVerse } = verse;
+                        
+                        // Use book from verse segment if available, otherwise use current book
+                        const book = bookAbbreviation || currentBook;
+                        // Use chapter from verse segment if available, otherwise use current chapter
+                        const chapter = chapterNumber || currentChapter;
+                        
+                        if (!book || !chapter || !verseNumber) {
+                            addDebugLog(`Skipping verse with missing metadata: book=${book}, chapter=${chapter}, verse=${verseNumber}`);
+                            continue;
+                        }
+                        
+                        // Create verse label (e.g., "MAT 1:1") - must match Study Bible format
+                        const verseLabel = `${book} ${chapter}:${verseNumber}`;
+                        
+                        // Replace &nbsp; entities (non-breaking spaces) with regular spaces for display
+                        // NOTE: &nbsp; entities are preserved in verseStructureXml for round-trip export
+                        // They are only replaced here in the displayed value (verseContentWithBreaks) for Codex editor
+                        const cleanedVerseContent = verseContent.replace(/&nbsp;/gi, ' ').replace(/\u00A0/g, ' ');
+                        
+                        // Preserve verse content structure - convert newlines to <br/> tags
+                        // The verseContent already has newlines from <Br/> tags preserved by the parser
+                        // We need to preserve these as HTML <br/> tags for the codex cells
+                        let verseContentWithBreaks = cleanedVerseContent;
+                        
+                        // Convert newlines to <br/> tags while preserving the structure
+                        // Don't trim lines - preserve leading/trailing spaces within lines
+                        verseContentWithBreaks = cleanedVerseContent
+                            .split('\n')
+                            .map((line: string) => {
+                                // Preserve the line as-is (don't trim) but escape HTML
+                                return escapeHtml(line);
+                            })
+                            .join('<br/>');
+                        
+                        // If content is empty or just whitespace, skip
+                        const trimmedContent = cleanedVerseContent.trim();
+                        if (!trimmedContent || trimmedContent.length === 0) {
+                            continue;
+                        }
+                        
+                        // Build full verse structure XML (beforeVerse + verseStructureXml + afterVerse)
+                        // This preserves footnotes in their original positions
+                        let fullVerseStructureXml: string | undefined;
+                        if (verseStructureXml) {
+                            fullVerseStructureXml = (beforeVerse || '') + verseStructureXml + (afterVerse || '');
+                            if (fullVerseStructureXml) {
+                                addDebugLog(`Preserved full verse structure for ${verseLabel} (${fullVerseStructureXml.length} chars)`);
+                            }
+                        }
+                        
+                        // If verse already exists (may span paragraphs), append content
+                        if (verseMap.has(verseLabel)) {
+                            const existingContent = verseMap.get(verseLabel)!;
+                            // Append with space separator if needed
+                            verseContentWithBreaks = existingContent + ' ' + verseContentWithBreaks;
+                            addDebugLog(`Appending to verse ${verseLabel} (verse spans multiple paragraphs)`);
+                            
+                            // For structure XML, also append if exists
+                            if (fullVerseStructureXml) {
+                                const existingStructure = footnotesMap.get(verseLabel + '_structure');
+                                if (existingStructure && existingStructure.length > 0) {
+                                    fullVerseStructureXml = existingStructure[0] + fullVerseStructureXml;
+                                }
+                            }
+                        }
+                        
+                        // Store verse content (preserving structure)
+                        verseMap.set(verseLabel, verseContentWithBreaks);
+                        
+                        // Store full verse structure XML (with footnotes in original positions)
+                        // The structure includes beforeVerse + verseStructureXml + afterVerse
+                        // This will be used to replace the entire verse section in export
+                        if (fullVerseStructureXml && fullVerseStructureXml.length > 0) {
+                            // Use a special key format to store structure separately
+                            footnotesMap.set(verseLabel + '_structure', [fullVerseStructureXml]);
+                        }
+                        
+                        // Store footnotes if present (for backward compatibility)
+                        if (footnotes && Array.isArray(footnotes) && footnotes.length > 0) {
+                            // If verse already exists, merge footnotes
+                            if (footnotesMap.has(verseLabel)) {
+                                const existingFootnotes = footnotesMap.get(verseLabel)!;
+                                footnotesMap.set(verseLabel, [...existingFootnotes, ...footnotes]);
+                            } else {
+                                footnotesMap.set(verseLabel, [...footnotes]);
+                            }
+                            addDebugLog(`Extracted ${footnotes.length} footnote(s) for verse ${verseLabel}`);
+                        }
+                        
+                        addDebugLog(`Extracted verse ${verseLabel}: "${verseContentWithBreaks.substring(0, 50)}..."${fullVerseStructureXml ? ' (with full structure)' : ''}`);
+                        
+                        // Update current chapter if this verse has a different chapter
+                        if (chapterNumber && chapterNumber !== currentChapter) {
+                            currentChapter = chapterNumber;
+                        }
+                    }
+                }
+            }
+            
+            addDebugLog(`Successfully extracted ${verseMap.size} verses from translated Bible`);
+            addDebugLog(`Extracted footnotes for ${footnotesMap.size} verses`);
+            
+            // Return both verse map and footnotes map
+            return { verseMap, footnotesMap };
+            
+        } catch (error) {
+            addDebugLog(`Error parsing translated Bible: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            throw error;
+        }
+    }, [addDebugLog]);
 
     const handleImport = useCallback(async () => {
-        if (!selectedFile) return;
+        if (!studyBibleFile) {
+            alert('Please select a Study Bible file (IDML format)');
+            return;
+        }
 
         setIsProcessing(true);
         setProgress('Starting import...');
         
         try {
-            addDebugLog('Starting import process...');
+            addDebugLog('Starting Biblica import process...');
+            addDebugLog(`Study Bible: ${studyBibleFile.name}`);
+            if (translatedBibleFile) {
+                addDebugLog(`Translated Bible: ${translatedBibleFile.name}`);
+            } else {
+                addDebugLog('Translated Bible: Not provided (will create empty codex cells)');
+            }
             
-            // Step 1: Read file content
-            setProgress('Reading Biblica IDML file...');
-            addDebugLog(`Reading file: ${selectedFile.name}, Size: ${selectedFile.size}`);
+            // Step 1: Parse translated bible if provided (for populating codex file)
+            let verseMap = new Map<string, string>();
+            let footnotesMap = new Map<string, string[]>();
+            if (translatedBibleFile) {
+                setProgress('Parsing translated bible file...');
+                try {
+                    const result = await parseTranslatedBible(translatedBibleFile);
+                    verseMap = result.verseMap;
+                    footnotesMap = result.footnotesMap;
+                    addDebugLog(`Parsed ${verseMap.size} verses from translated bible`);
+                    addDebugLog(`Extracted footnotes for ${footnotesMap.size} verses`);
+                } catch (parseError) {
+                    addDebugLog(`Warning: Failed to parse translated bible: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+                    addDebugLog('Continuing with empty verse map...');
+                }
+            }
+            
+            // Step 2: Read Study Bible file content
+            setProgress('Reading Study Bible IDML file...');
+            addDebugLog(`Reading file: ${studyBibleFile.name}, Size: ${studyBibleFile.size}`);
             
             // Read as ArrayBuffer to preserve binary data
-            const arrayBuffer = await selectedFile.arrayBuffer();
+            const arrayBuffer = await studyBibleFile.arrayBuffer();
             addDebugLog(`ArrayBuffer size: ${arrayBuffer.byteLength}`);
             
             // Convert to Uint8Array to check ZIP signature
@@ -284,8 +546,8 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                 throw new Error('The selected file does not appear to be a valid IDML file. IDML files should be ZIP-compressed starting with PK');
             }
             
-            // Step 2: Parse IDML
-            setProgress('Parsing Biblica IDML content...');
+            // Step 3: Parse IDML
+            setProgress('Parsing Study Bible IDML content...');
             addDebugLog('Creating Biblica IDML parser...');
             const parser = new IDMLParser({
                 preserveAllFormatting: true,
@@ -297,7 +559,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
             // Set debug callback to capture parser logs
             parser.setDebugCallback(addDebugLog);
             
-            addDebugLog('Parsing Biblica IDML content from ArrayBuffer...');
+            addDebugLog('Parsing Study Bible IDML content from ArrayBuffer...');
             let document;
             try {
                 document = await parser.parseIDML(arrayBuffer);
@@ -310,7 +572,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
             // Check if we actually got any content
             if (document.stories.length === 0) {
                 addDebugLog('WARNING: No stories found in document!');
-                throw new Error('No stories found in the Biblica IDML file. The file may be corrupted or empty.');
+                throw new Error('No stories found in the Study Bible IDML file. The file may be corrupted or empty.');
             }
             
             // Check if stories have content
@@ -321,91 +583,128 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
             
             if (totalParagraphs === 0) {
                 addDebugLog('WARNING: No paragraphs found in any story!');
-                throw new Error('No paragraphs found in the Biblica IDML file. The file may be corrupted or empty.');
+                throw new Error('No paragraphs found in the Study Bible IDML file. The file may be corrupted or empty.');
             }
             
-            // Step 3: Convert to HTML
-            setProgress('Converting to HTML representation (Biblica)...');
+            // Step 4: Convert to HTML
+            setProgress('Converting to HTML representation...');
             const htmlMapper = new HTMLMapper();
             const htmlRepresentation = htmlMapper.convertToHTML(document);
             
-            // Step 4: Create cells from stories
-            setProgress('Creating notebook cells (Biblica)...');
-            let cells;
+            // Step 5: Create source cells from Study Bible stories
+            setProgress('Creating source notebook cells from Study Bible...');
+            let sourceCells;
             try {
-                cells = await createCellsFromStories(document.stories, htmlRepresentation, document);
+                sourceCells = await createCellsFromStories(document.stories, htmlRepresentation, document, verseMap, footnotesMap);
             } catch (cellError) {
                 addDebugLog(`Cell creation error: ${cellError instanceof Error ? cellError.message : 'Unknown error'}`);
                 addDebugLog(`Cell creation error stack: ${cellError instanceof Error ? cellError.stack : 'No stack'}`);
                 throw cellError;
             }
             
-            if (cells.length === 0) {
+            if (sourceCells.length === 0) {
                 addDebugLog('WARNING: No cells were created!');
                 throw new Error('No cells were created from the parsed content. Check the cell creation logic.');
             }
+            
+            // Step 6: Create codex cells (target file) with translated content
+            setProgress('Creating codex notebook cells...');
+            const codexCells = sourceCells.map((cell, index) => {
+                const metadata = cell.metadata;
+                const isBibleVerse = metadata?.isBibleVerse;
+                const verseId = metadata?.verseId;
+                
+                // For bible verses, populate with translated content if available
+                let codexContent = '';
+                if (isBibleVerse && verseId && verseMap.has(verseId)) {
+                    const translatedVerse = verseMap.get(verseId)!;
+                    // Preserve structure (br tags, etc.) from translated bible
+                    codexContent = translatedVerse;
+                    addDebugLog(`Matched verse ${verseId} with translated content`);
+                }
+                
+                // Get footnotes for this verse if available
+                const cellFootnotes = isBibleVerse && verseId ? footnotesMap.get(verseId) : undefined;
+                // Get full verse structure XML (with footnotes in original positions)
+                const verseStructureXml = isBibleVerse && verseId ? footnotesMap.get(verseId + '_structure')?.[0] : undefined;
+                
+                return {
+                    id: cell.id,
+                    content: codexContent,
+                    metadata: {
+                        ...metadata,
+                        // Mark Bible verses as non-editable (right after isBibleVerse)
+                        isEditable: isBibleVerse ? false : undefined,
+                        originalContent: cell.content,
+                        // Mark that this came from translated bible
+                        translatedBibleFile: translatedBibleFile?.name || null,
+                        // Preserve footnotes from translated Bible (for backward compatibility)
+                        footnotes: cellFootnotes || metadata.footnotes || undefined,
+                        // Preserve full verse structure XML (with footnotes in original positions)
+                        verseStructureXml: verseStructureXml || metadata.verseStructureXml || undefined
+                    }
+                };
+            });
             
             setProgress('Import completed successfully!');
 
             // Complete the import
             if (onComplete) {
                 addDebugLog('Calling onComplete...');
-                addDebugLog(`Cells count: ${cells.length}`);
+                addDebugLog(`Source cells count: ${sourceCells.length}`);
+                addDebugLog(`Codex cells count: ${codexCells.length}`);
                 addDebugLog(`Document ID: ${document.id}`);
                 addDebugLog(`Stories count: ${document.stories.length}`);
                 
                 try {
                     // Preserve full metadata structure (don't simplify)
-                    const simplifiedCells = cells.map(cell => ({
+                    const simplifiedSourceCells = sourceCells.map(cell => ({
                         id: cell.id,
                         content: cell.content,
                         metadata: cell.metadata // Keep the full metadata structure
                     }));
                     
-                    addDebugLog(`Simplified cells count: ${simplifiedCells.length}`);
+                    addDebugLog(`Simplified source cells count: ${simplifiedSourceCells.length}`);
                     
-                    const baseName = sanitizeFileName(selectedFile.name);
+                    const baseName = sanitizeFileName(studyBibleFile.name.replace(/\.idml$/i, ''));
                     const notebookName = sanitizeFileName(`${baseName}-biblica`);
+                    // Add -biblica suffix to originalFileName to match naming convention (e.g., "mat-john.idml" -> "mat-john-biblica.idml")
+                    // This ensures the saved file in attachments matches what the exporter will look for
+                    const originalFileName = studyBibleFile.name.replace(/\.idml$/i, '-biblica.idml');
                     addDebugLog(`Base name: "${baseName}"`);
                     addDebugLog(`Notebook name: "${notebookName}"`);
-                    addDebugLog(`Original file name: "${selectedFile.name}"`);
+                    addDebugLog(`Original file name: "${originalFileName}"`);
                     
                     const result = {
                         source: { 
                             name: notebookName, 
-                            cells: simplifiedCells,
+                            cells: simplifiedSourceCells,
                             metadata: {
                                 id: `biblica-source-${Date.now()}`,
-                                originalFileName: selectedFile.name,
+                                originalFileName: originalFileName,
                                 originalFileData: arrayBuffer,
                                 importerType: 'biblica',
                                 createdAt: new Date().toISOString(),
                                 documentId: document.id,
                                 storyCount: document.stories.length,
                                 originalHash: document.originalHash,
-                                totalCells: simplifiedCells.length,
+                                totalCells: simplifiedSourceCells.length,
                                 fileType: 'biblica'
                             }
                         },
                         codex: { 
                             name: notebookName,
-                            cells: simplifiedCells.map(cell => ({
-                                id: cell.id,
-                                content: '',
-                                metadata: {
-                                    ...cell.metadata,
-                                    originalContent: cell.content
-                                }
-                            })),
+                            cells: codexCells,
                             metadata: {
                                 id: `biblica-codex-${Date.now()}`,
-                                originalFileName: selectedFile.name,
+                                originalFileName: originalFileName,
+                                translatedBibleFileName: translatedBibleFile?.name || null,
                                 importerType: 'biblica',
                                 createdAt: new Date().toISOString(),
                                 documentId: document.id,
                                 storyCount: document.stories.length,
                                 originalHash: document.originalHash,
-                                totalCells: simplifiedCells.length,
+                                totalCells: codexCells.length,
                                 fileType: 'biblica',
                                 isCodex: true
                             }
@@ -440,7 +739,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
         } finally {
             setIsProcessing(false);
         }
-    }, [selectedFile, onComplete, addDebugLog, createCellsFromStories]);
+    }, [studyBibleFile, translatedBibleFile, onComplete, addDebugLog, createCellsFromStories, parseTranslatedBible]);
 
     const handleCompleteImport = useCallback(() => {
         if (importResult && onComplete) {
@@ -460,10 +759,10 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                 <div>
                     <h1 className="text-2xl font-bold flex items-center gap-2">
                         <FileText className="h-6 w-6" />
-                        Import InDesign File
+                        Biblica Importer
                     </h1>
                     <p className="text-muted-foreground">
-                        Import Adobe InDesign IDML files
+                        Import Study Bible (IDML) and Translated Bible files
                     </p>
                 </div>
                 <Button onClick={onCancel} className="flex items-center gap-2">
@@ -472,11 +771,26 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                 </Button>
             </div>
 
+            <Alert>
+                <BookOpen className="h-4 w-4" />
+                <AlertDescription>
+                    <strong>Two-File Import:</strong> This importer supports two-file import:
+                    <ul className="list-disc list-inside mt-2 space-y-1">
+                        <li><strong>Study Bible (IDML):</strong> Populates source file with all notes and bible verses</li>
+                        <li><strong>Translated Bible:</strong> Populates target/codex file with translated verse content (format TBD)</li>
+                    </ul>
+                </AlertDescription>
+            </Alert>
+
+            {/* Study Bible File Input */}
             <Card>
                 <CardHeader>
-                    <CardTitle>Select IDML File</CardTitle>
+                    <CardTitle className="flex items-center gap-2">
+                        <BookOpen className="h-5 w-5" />
+                        Study Bible File (IDML) - Required
+                    </CardTitle>
                     <CardDescription>
-                        Import Adobe InDesign Markup Language files
+                        Select the Biblica Study Bible file in IDML format. This will populate the source file with all notes and bible verses, mapped by verse labels (e.g., MAT 1:1).
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -484,30 +798,80 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                         <input
                             type="file"
                             accept=".idml"
-                            onChange={handleFileSelect}
+                            onChange={handleStudyBibleSelect}
                             className="hidden"
-                            id="idml-file-input"
+                            id="study-bible-file-input"
                             disabled={isProcessing}
                         />
                         <label
-                            htmlFor="idml-file-input"
+                            htmlFor="study-bible-file-input"
                             className="cursor-pointer inline-flex flex-col items-center gap-2"
                         >
                             <Upload className="h-12 w-12 text-muted-foreground" />
                             <span className="text-sm text-muted-foreground">
-                                Click to select an IDML file or drag and drop
+                                Click to select Study Bible IDML file or drag and drop
                             </span>
                         </label>
                     </div>
 
-                    {selectedFile && (
+                    {studyBibleFile && (
                         <div className="space-y-2">
-                            <div className="text-sm font-medium">Selected File</div>
+                            <div className="text-sm font-medium">Selected Study Bible File</div>
                             <div className="flex items-center gap-2 p-2 bg-muted/50 rounded text-sm">
                                 <FileText className="h-4 w-4 text-muted-foreground" />
-                                <span className="flex-1">{selectedFile.name}</span>
+                                <span className="flex-1">{studyBibleFile.name}</span>
                                 <span className="text-muted-foreground">
-                                    {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                                    {(studyBibleFile.size / 1024 / 1024).toFixed(2)} MB
+                                </span>
+                            </div>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+
+            {/* Translated Bible File Input */}
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <Languages className="h-5 w-5" />
+                        Translated Bible File - Optional
+                    </CardTitle>
+                    <CardDescription>
+                        Select the translated Bible file (IDML format). This will populate the target/codex file with translated verse content, matching verses by their labels (e.g., MAT 1:1). The structure (br tags, etc.) will be preserved from the translated file.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-8 text-center">
+                        <input
+                            type="file"
+                            accept=".idml"
+                            onChange={handleTranslatedBibleSelect}
+                            className="hidden"
+                            id="translated-bible-file-input"
+                            disabled={isProcessing}
+                        />
+                        <label
+                            htmlFor="translated-bible-file-input"
+                            className="cursor-pointer inline-flex flex-col items-center gap-2"
+                        >
+                            <Upload className="h-12 w-12 text-muted-foreground" />
+                            <span className="text-sm text-muted-foreground">
+                                Click to select Translated Bible file or drag and drop
+                            </span>
+                            <span className="text-xs text-muted-foreground/75 italic">
+                                (IDML format)
+                            </span>
+                        </label>
+                    </div>
+
+                    {translatedBibleFile && (
+                        <div className="space-y-2">
+                            <div className="text-sm font-medium">Selected Translated Bible File</div>
+                            <div className="flex items-center gap-2 p-2 bg-muted/50 rounded text-sm">
+                                <FileText className="h-4 w-4 text-muted-foreground" />
+                                <span className="flex-1">{translatedBibleFile.name}</span>
+                                <span className="text-muted-foreground">
+                                    {(translatedBibleFile.size / 1024 / 1024).toFixed(2)} MB
                                 </span>
                             </div>
                         </div>
@@ -556,7 +920,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                 </Button>
                 <Button
                     onClick={handleImport}
-                    disabled={!selectedFile || isProcessing}
+                    disabled={!studyBibleFile || isProcessing}
                     className="flex items-center gap-2"
                 >
                     {isProcessing ? (
@@ -567,7 +931,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                     ) : (
                         <>
                             <FileText className="h-4 w-4" />
-                            Import InDesign File
+                            Import Biblica Files
                         </>
                     )}
                 </Button>
