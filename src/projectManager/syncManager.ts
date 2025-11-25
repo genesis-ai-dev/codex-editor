@@ -8,7 +8,7 @@ import { updateSplashScreenSync } from "../providers/SplashScreen/register";
 import git from "isomorphic-git";
 import fs from "fs";
 import http from "isomorphic-git/http/web";
-import { getFrontierVersionStatus } from "./utils/versionChecks";
+import { getFrontierVersionStatus, checkVSCodeVersion } from "./utils/versionChecks";
 import { BookCompletionData } from "../progressReporting/progressReportingService";
 import { ProgressReportingService, registerProgressReportingCommands } from "../progressReporting/progressReportingService";
 import { CommentsMigrator } from "../utils/commentsMigrationUtils";
@@ -518,6 +518,20 @@ export class SyncManager {
                 : `Frontier Authentication not found. Version ${versionStatus.requiredVersion} or newer is required to sync.`;
             await vscode.window.showWarningMessage(details, { modal: true });
             return;
+        }
+
+        // Check VS Code version and show warning modal if needed (non-blocking)
+        const vscodeVersionStatus = checkVSCodeVersion();
+        if (!vscodeVersionStatus.ok) {
+            debug("VS Code version requirement not met. Showing warning modal.");
+            const result = await vscode.window.showInformationMessage(
+                "Please visit codexeditor.app to update Codex to the latest version.",
+                { modal: true },
+                "Visit Website"
+            );
+            if (result === "Visit Website") {
+                await vscode.env.openExternal(vscode.Uri.parse("https://codexeditor.app"));
+            }
         }
 
         // Clear any pending scheduled sync (manual sync takes priority)
