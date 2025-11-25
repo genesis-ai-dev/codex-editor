@@ -36,17 +36,17 @@ export function checkVSCodeVersion(): VSCodeVersionStatus {
     const installedVersion = vscode.version;
 
     if (!semver.gte(installedVersion, REQUIRED_VSCODE_VERSION)) {
-        return { 
-            ok: false, 
-            installedVersion, 
-            requiredVersion: REQUIRED_VSCODE_VERSION 
+        return {
+            ok: false,
+            installedVersion,
+            requiredVersion: REQUIRED_VSCODE_VERSION
         };
     }
 
-    return { 
-        ok: true, 
-        installedVersion, 
-        requiredVersion: REQUIRED_VSCODE_VERSION 
+    return {
+        ok: true,
+        installedVersion,
+        requiredVersion: REQUIRED_VSCODE_VERSION
     };
 }
 
