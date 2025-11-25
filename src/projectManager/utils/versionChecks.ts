@@ -11,7 +11,7 @@ interface VSCodeVersionStatus {
 export const REQUIRED_FRONTIER_VERSION = "0.4.18"; // Prevent concurrent metadata.json changes by Frontier Authentication
 
 // Required VS Code version for Codex Editor
-export const REQUIRED_VSCODE_VERSION = "1.93.0";
+export const REQUIRED_VSCODE_VERSION = "1.99.0";
 
 /**
  * Checks if the Frontier Authentication extension meets the minimum version requirement
@@ -35,7 +35,7 @@ export async function getFrontierVersionStatus(): Promise<{ ok: boolean; install
 export function checkVSCodeVersion(): VSCodeVersionStatus {
     const installedVersion = vscode.version;
 
-    if (!semver.gte(installedVersion, REQUIRED_VSCODE_VERSION)) {
+    if (semver.lt(installedVersion, REQUIRED_VSCODE_VERSION)) {
         return {
             ok: false,
             installedVersion,
