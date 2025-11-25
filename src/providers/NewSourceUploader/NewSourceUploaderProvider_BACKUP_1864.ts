@@ -5,18 +5,7 @@ import { promisify } from "util";
 import { exec } from "child_process";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { createNoteBookPair } from "./codexFIleCreateUtils";
-import { 
-    WriteNotebooksMessage, 
-    WriteTranslationMessage, 
-    OverwriteResponseMessage, 
-    WriteNotebooksWithAttachmentsMessage, 
-    SelectAudioFileMessage, 
-    ReprocessAudioFileMessage, 
-    RequestAudioSegmentMessage, 
-    FinalizeAudioImportMessage, 
-    UpdateAudioSegmentsMessage, 
-    ImportedContent 
-} from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
+import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteResponseMessage, WriteNotebooksWithAttachmentsMessage, SelectAudioFileMessage, ReprocessAudioFileMessage, RequestAudioSegmentMessage, FinalizeAudioImportMessage, UpdateAudioSegmentsMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
 import {
     handleSelectAudioFile,
     handleReprocessAudioFile,
@@ -38,20 +27,6 @@ import { removeLocalizedBooksJsonIfPresent as removeLocalizedBooksJson } from ".
 // import { parseRtfWithPandoc as parseRtfNode } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/pandocNodeBridge";
 
 const execAsync = promisify(exec);
-
-// ImportedContent has [key: string]: any, so we can safely access these properties
-type ImportedContentWithType = ImportedContent & {
-    type?: string;
-    metadata?: {
-        type?: string;
-        bookCode?: string;
-        bookName?: string;
-        chapter?: number;
-        originalText?: string;
-        fileName?: string;
-        [key: string]: unknown;
-    };
-};
 
 const DEBUG_NEW_SOURCE_UPLOADER_PROVIDER = false;
 function debug(message: string, ...args: any[]): void {
@@ -915,58 +890,27 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             const processedSourceCells = new Set<string>();
 
             for (const alignedCell of message.alignedContent) {
-                if (alignedCell.isParatext || (!alignedCell.notebookCell && alignedCell.importedContent)) {
-                    // Handle paratext or unmatched cells (style/paratext that didn't match)
-                    // Check the actual type from imported content to preserve style cells
-                    const importedContent = alignedCell.importedContent as ImportedContentWithType;
-                    const importedType = importedContent.type || importedContent.metadata?.type;
-                    const isStyle = importedType === 'style';
-                    const cellId = alignedCell.importedContent.id;
-
-                    const cellType = isStyle ? CodexCellTypes.STYLE : CodexCellTypes.PARATEXT;
-                    const newCell = {
+                if (alignedCell.isParatext) {
+                    // Add paratext cells
+                    const paratextId = alignedCell.importedContent.id;
+                    const paratextCell = {
                         kind: 1, // vscode.NotebookCellKind.Code
                         languageId: "html",
                         value: alignedCell.importedContent.content,
                         metadata: {
-                            type: cellType,
-                            id: cellId,
+                            type: CodexCellTypes.PARATEXT,
+                            id: paratextId,
                             data: {
                                 startTime: alignedCell.importedContent.startTime,
                                 endTime: alignedCell.importedContent.endTime,
                             },
                         },
                     };
-
-                    // Preserve additional metadata for style cells (like chapter, bookCode, etc.)
-                    if (isStyle && alignedCell.importedContent) {
-                        const importedMeta = importedContent.metadata || {};
-                        newCell.metadata = {
-                            ...newCell.metadata,
-                            ...(importedMeta.bookCode && { bookCode: importedMeta.bookCode }),
-                            ...(importedMeta.bookName && { bookName: importedMeta.bookName }),
-                            ...(importedMeta.chapter !== undefined && { chapter: importedMeta.chapter }),
-                            ...(importedMeta.originalText && { originalText: importedMeta.originalText }),
-                            ...(importedMeta.fileName && { fileName: importedMeta.fileName }),
-                        } as any;
-                    }
-
-                    processedCells.set(cellId, newCell);
-                    if (isStyle) {
-                        // Count style cells separately if needed
-                    } else {
-                        paratextCount++;
-                    }
+                    processedCells.set(paratextId, paratextCell);
+                    paratextCount++;
                 } else if (alignedCell.notebookCell) {
                     const targetId = alignedCell.importedContent.id;
                     const existingCell = existingCellsMap.get(targetId);
-
-                    // Skip cells with empty content - empty cells are parsing errors and should not be included
-                    const importedContentText = alignedCell.importedContent.content || '';
-                    if (!importedContentText.trim() && !existingCell) {
-                        // Skip empty cells that don't already exist
-                        continue;
-                    }
 
                     if (existingCell && existingCell.value && existingCell.value.trim() !== "") {
                         // Keep existing content if cell already has content
@@ -974,43 +918,20 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         skippedCount++;
                     } else {
                         // Update empty cell with new content
-                        // Preserve original cell type (style, paratext, or text) instead of hardcoding TEXT
-                        const originalType = alignedCell.notebookCell.metadata?.type;
-                        const cellType = originalType === CodexCellTypes.STYLE || originalType === CodexCellTypes.PARATEXT
-                            ? originalType
-                            : CodexCellTypes.TEXT;
-
-                        // For style cells, exclude cellLabel and verse from metadata
-                        const baseMetadata = { ...alignedCell.notebookCell.metadata };
-                        const finalMetadata = cellType === CodexCellTypes.STYLE
-                            ? {
-                                ...baseMetadata,
-                                type: cellType,
-                                id: targetId,
-                                cellLabel: undefined, // Style cells should not have cellLabel
-                                verse: undefined, // Style cells should not have verse numbers
-                                data: {
-                                    ...baseMetadata.data,
-                                    startTime: alignedCell.importedContent.startTime,
-                                    endTime: alignedCell.importedContent.endTime,
-                                },
-                            }
-                            : {
-                                ...baseMetadata,
-                                type: cellType,
-                                id: targetId,
-                                data: {
-                                    ...baseMetadata.data,
-                                    startTime: alignedCell.importedContent.startTime,
-                                    endTime: alignedCell.importedContent.endTime,
-                                },
-                            };
-
                         const updatedCell = {
                             kind: 1, // vscode.NotebookCellKind.Code
                             languageId: "html",
                             value: alignedCell.importedContent.content,
-                            metadata: finalMetadata,
+                            metadata: {
+                                ...alignedCell.notebookCell.metadata,
+                                type: CodexCellTypes.TEXT,
+                                id: targetId,
+                                data: {
+                                    ...alignedCell.notebookCell.metadata.data,
+                                    startTime: alignedCell.importedContent.startTime,
+                                    endTime: alignedCell.importedContent.endTime,
+                                },
+                            },
                         };
                         processedCells.set(targetId, updatedCell);
 
@@ -1029,14 +950,12 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
             // Process cells in the order they appear in alignedContent (temporal order)
             for (const alignedCell of message.alignedContent) {
-                if (alignedCell.isParatext || (!alignedCell.notebookCell && alignedCell.importedContent)) {
-                    // Add paratext or unmatched style/paratext cells
-                    const cellId = alignedCell.importedContent.id;
-                    const cell = processedCells.get(cellId);
-                    if (cell) {
-                        newCells.push(cell);
-                        // Mark this cell as used to prevent duplicate addition from existing cells
-                        usedExistingCellIds.add(cellId);
+                if (alignedCell.isParatext) {
+                    // Add paratext cell
+                    const paratextId = alignedCell.importedContent.id;
+                    const paratextCell = processedCells.get(paratextId);
+                    if (paratextCell) {
+                        newCells.push(paratextCell);
                     }
                 } else if (alignedCell.notebookCell) {
                     const targetId = alignedCell.importedContent.id;
