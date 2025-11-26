@@ -324,7 +324,8 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     const [resetEmailComplete, setResetEmailComplete] = useState(false);
     const [resetEmailErrorMessage, setResetEmailErrorMessage] = useState<string | null>(null);
 
-    const isMissingExtension = authState !== undefined && !authState.isLoading && !authState.isAuthExtensionInstalled;
+    const isMissingExtension =
+        authState !== undefined && !authState.isLoading && !authState.isAuthExtensionInstalled;
 
     useEffect(() => {
         const handleOnlineStatusChange = () => {
@@ -755,7 +756,9 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                     <span>
                         Frontier Authentication extension is missing or disabled. Please{" "}
                         <span
-                            onClick={() => vscode.postMessage({ command: "extension.installFrontier" })}
+                            onClick={() =>
+                                vscode.postMessage({ command: "extension.installFrontier" })
+                            }
                             style={{
                                 textDecoration: "underline",
                                 cursor: "pointer",
@@ -767,7 +770,8 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                             install or enable it
                         </span>{" "}
                         to proceed.
-                        <br /><br />
+                        <br />
+                        <br />
                         You may need to restart the application for changes to apply.
                     </span>
                 </div>
@@ -943,7 +947,9 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                 <div className="flex justify-end w-full">
                                     <span
                                         className="text-sm cursor-pointer hover:underline text-var(--vscode-editor-foreground)"
-                                        onClick={isMissingExtension ? undefined : handleForgotPassword}
+                                        onClick={
+                                            isMissingExtension ? undefined : handleForgotPassword
+                                        }
                                         style={{
                                             opacity: isMissingExtension ? 0.5 : 1,
                                             pointerEvents: isMissingExtension ? "none" : "auto",
@@ -1007,7 +1013,11 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                         >
                             <VSCodeButton
                                 type="submit"
-                                disabled={isLoading || isMissingExtension}
+                                disabled={
+                                    isLoading ||
+                                    isMissingExtension ||
+                                    !authState?.isAuthExtensionInstalled
+                                }
                                 style={{
                                     width: "160px",
                                     display: "flex",

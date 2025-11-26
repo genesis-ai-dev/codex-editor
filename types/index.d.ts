@@ -756,7 +756,8 @@ export type EditorPostMessages =
             totalVariants: number;
         };
     }
-    | { command: "adjustABTestingProbability"; content: { delta: number; buttonChoice?: "more" | "less"; testId?: string; cellId?: string; }; };
+    | { command: "adjustABTestingProbability"; content: { delta: number; buttonChoice?: "more" | "less"; testId?: string; cellId?: string; }; }
+    | { command: "openLoginFlow"; };
 
 // (revalidateMissingForCell added above in EditorPostMessages union)
 
@@ -1254,6 +1255,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
     | { command: "openCellLabelImporter"; }
     | { command: "navigateToMainMenu"; }
+    | { command: "openLoginFlow"; }
     | { command: "getProjectProgress"; }
     | { command: "showProgressDashboard"; }
     | { command: "project.delete"; data: { path: string; }; }
@@ -1303,6 +1305,8 @@ type ProjectManagerMessageToWebview =
         data: {
             autoSyncEnabled: boolean;
             syncDelayMinutes: number;
+            isFrontierExtensionEnabled: boolean;
+            isAuthenticated: boolean;
         };
     }
     | {
@@ -1617,6 +1621,7 @@ type EditorReceiveMessages =
         username?: string;
         validationCount?: number;
         validationCountAudio?: number;
+        isAuthenticated?: boolean;
     }
     | {
         type: "preferredEditorTab";
