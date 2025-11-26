@@ -375,11 +375,9 @@ export class IDMLParser {
         const paragraphs: IDMLParagraph[] = [];
         const paragraphElements = storyElement.getElementsByTagName('ParagraphStyleRange');
 
-        // Also check for other possible paragraph elements
-        const allElements = storyElement.children;
-        for (let i = 0; i < allElements.length; i++) {
-            const child = allElements[i];
-        }
+        // Get raw XML of the story for cross-paragraph verse extraction
+        const serializer = new XMLSerializer();
+        const storyXml = serializer.serializeToString(storyElement);
 
         // Track current book abbreviation and chapter number across paragraphs
         let currentBook = '';
@@ -387,7 +385,7 @@ export class IDMLParser {
 
         for (let i = 0; i < paragraphElements.length; i++) {
             const paragraphElement = paragraphElements[i];
-            const paragraph = await this.extractParagraph(paragraphElement, currentBook, currentChapter);
+            const paragraph = await this.extractParagraph(paragraphElement, currentBook, currentChapter, storyXml, i);
 
             // Update current book if this paragraph defines it
             if ((paragraph.metadata as any)?.bookAbbreviation) {
@@ -481,7 +479,7 @@ export class IDMLParser {
     /**
      * Extract individual paragraph
      */
-    private async extractParagraph(paragraphElement: Element, currentBook: string = '', currentChapter: string = '1'): Promise<IDMLParagraph> {
+    private async extractParagraph(paragraphElement: Element, currentBook: string = '', currentChapter: string = '1', storyXml: string = '', paragraphIndex: number = -1): Promise<IDMLParagraph> {
         const paragraphId = paragraphElement.getAttribute('id') || paragraphElement.getAttribute('Self') || undefined; // Only use ID if it exists in original
 
         const paragraphStyleRange = await this.extractParagraphStyleRange(paragraphElement);
@@ -557,6 +555,11 @@ export class IDMLParser {
 
             const serializer = new XMLSerializer();
             const serializeEl = (el: Element): string => serializer.serializeToString(el);
+
+            // Helper to escape special regex characters
+            const escapeRegExp = (str: string): string => {
+                return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            };
 
             // Helper to remove ACE processing instructions from XML string
             const removeAceInstructions = (xml: string): string => {
@@ -656,98 +659,234 @@ export class IDMLParser {
                 }
 
                 // Check for verse meta (meta:v) - always present before verse content
+                const openingMetaIndex = i;
+                let openingMetaXml = '';
                 if (i < csrNodes.length && isMetaVerseStyle(csrNodes[i])) {
-                    beforeVerse += serializeElClean(csrNodes[i]);
+                    openingMetaXml = serializeElClean(csrNodes[i]);
+                    beforeVerse += openingMetaXml;
                     this.debugLog(`Found verse meta before: ${csrNodes[i].textContent}`);
                     i++;
                 }
 
-                // Extract verse content (everything until the next meta:v)
-                // NEW APPROACH: Preserve the FULL structure including footnotes in their original positions
-                let verseContent = ''; // Plain text content for display in Codex cells
-                let verseStructureXml = ''; // Full XML structure with footnotes preserved
-                const footnotes: string[] = []; // Also collect footnotes separately for backward compatibility
+                // NEW APPROACH: Extract full verse structure across paragraphs
+                // Find the closing meta%3av marker in the raw XML (may be in a different paragraph)
+                let verseStructureXml = '';
+                let verseContent = '';
+                const footnotes: string[] = [];
+                let afterVerse = '';
 
-                // Track the start position for serializing the full structure
-                const verseStartIndex = i;
-
-                while (i < csrNodes.length && !isMetaVerseStyle(csrNodes[i]) && !isVerseNumberStyle(csrNodes[i])) {
-                    const csrNode = csrNodes[i];
-
-                    // Check if this CharacterStyleRange has a special style (not the default)
-                    const appliedStyle = csrNode.getAttribute('AppliedCharacterStyle') || '';
-                    const isDefaultStyle = appliedStyle.includes('$ID/[No character style]');
-
-                    // Check if this is a footnote call marker (notes%3af_call)
-                    const isFootnoteCall = appliedStyle.includes('notes%3af_call') || appliedStyle.includes('notes:f_call');
-
-                    // Check if this is inline footnote content (should be excluded from structure)
-                    // These styles appear after the footnote call and duplicate the footnote content inline
-                    const isInlineFootnoteContent = appliedStyle.includes('notes%3af_c') || // Footnote callout number
-                        appliedStyle.includes('notes%3af_v') || // Footnote verse number
-                        appliedStyle.includes('notes%3afr_sp') || // Footnote reference spacing
-                        appliedStyle.includes('notes%3aft'); // Footnote text
-
-                    if (isFootnoteCall) {
-                        // Extract the footnote XML - look for <Footnote> element inside this CharacterStyleRange
-                        const footnoteElement = csrNode.getElementsByTagName('Footnote')[0];
-                        if (footnoteElement) {
-                            // Serialize the entire footnote element for round-trip preservation
-                            // Clean ACE processing instructions from footnote content
-                            let footnoteXml = serializer.serializeToString(footnoteElement);
-                            footnoteXml = removeAceInstructions(footnoteXml);
-                            footnotes.push(footnoteXml);
-                            this.debugLog(`Found footnote in verse ${verseNumber}: ${footnoteXml.substring(0, 100)}...`);
-                        }
-                        // Serialize the footnote call marker (contains the <Footnote> element)
-                        // Use clean serialization to remove ACE processing instructions
-                        verseStructureXml += serializeElClean(csrNode);
-                        // Skip the footnote call marker itself - don't add its content to verseContent
-                        i++;
-                        continue;
-                    }
-
-                    // Skip inline footnote content - it duplicates what's already in the <Footnote> element
-                    if (isInlineFootnoteContent) {
-                        this.debugLog(`Skipping inline footnote content in verse ${verseNumber}: ${appliedStyle}`);
-                        i++;
-                        continue;
-                    }
-
-                    // Serialize the entire CharacterStyleRange to preserve structure
-                    // Use clean serialization to remove ACE processing instructions
-                    verseStructureXml += serializeElClean(csrNode);
-
-                    // Walk through the children in order to preserve Content/Br sequence
-                    const children = Array.from(csrNode.childNodes);
-                    for (const child of children) {
-                        if (child.nodeType === Node.ELEMENT_NODE) {
-                            const element = child as Element;
-                            if (element.tagName === 'Content') {
-                                // Only include content from default styled ranges
-                                // Skip content from special styled ranges (e.g., "source serif" for apostrophes)
-                                if (isDefaultStyle) {
-                                    let text = element.textContent || '';
-                                    // Replace &nbsp; entities (non-breaking spaces) with regular spaces
-                                    text = text.replace(/&nbsp;/gi, ' ').replace(/\u00A0/g, ' ');
-                                    verseContent += text;
+                if (storyXml && paragraphIndex >= 0 && openingMetaXml && verseNumber) {
+                    // Find all paragraph start positions in the story XML
+                    const paragraphMatches = [...storyXml.matchAll(/<ParagraphStyleRange[^>]*>/g)];
+                    
+                    if (paragraphMatches.length > paragraphIndex) {
+                        // Find the current paragraph's start position
+                        const currentParaStart = paragraphMatches[paragraphIndex].index || 0;
+                        
+                        // Find the next paragraph's start (or end of story)
+                        const nextParaStart = paragraphIndex + 1 < paragraphMatches.length 
+                            ? (paragraphMatches[paragraphIndex + 1].index || storyXml.length)
+                            : storyXml.length;
+                        
+                        // Search in the current paragraph area for the opening meta marker
+                        const currentParaXml = storyXml.substring(currentParaStart, nextParaStart);
+                        const openingMetaPos = currentParaXml.indexOf(openingMetaXml);
+                        
+                        if (openingMetaPos >= 0) {
+                            // Calculate absolute position of opening meta marker
+                            const openingMetaAbsPos = currentParaStart + openingMetaPos;
+                            
+                            // Search forward from after the opening meta marker for the closing meta marker
+                            // Pattern: <CharacterStyleRange ... meta%3av ...><Content>verseNumber</Content></CharacterStyleRange>
+                            const closingMetaPattern = new RegExp(
+                                `<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*meta%3av[^"]*"[^>]*>\\s*<Content>${escapeRegExp(verseNumber)}</Content>\\s*</CharacterStyleRange>`,
+                                'i'
+                            );
+                            
+                            const searchStart = openingMetaAbsPos + openingMetaXml.length;
+                            const searchText = storyXml.substring(searchStart);
+                            const closingMatch = searchText.match(closingMetaPattern);
+                            
+                            if (closingMatch && closingMatch.index !== undefined) {
+                                // Extract everything from opening meta marker to closing meta marker (including entire paragraphs)
+                                // verseStructureXml should include: opening meta + content + closing meta
+                                const verseStart = openingMetaAbsPos;
+                                const verseEnd = searchStart + closingMatch.index + closingMatch[0].length;
+                                const fullVerseXml = storyXml.substring(verseStart, verseEnd);
+                                
+                                // Extract the closing meta marker
+                                afterVerse = closingMatch[0];
+                                
+                                // Parse the extracted XML to extract content and footnotes
+                                const parser = new DOMParser();
+                                const verseDoc = parser.parseFromString(`<root>${fullVerseXml}</root>`, 'text/xml');
+                                
+                                // Extract plain text content (skip meta markers and verse numbers)
+                                const allContentNodes = verseDoc.getElementsByTagName('Content');
+                                for (let j = 0; j < allContentNodes.length; j++) {
+                                    const contentNode = allContentNodes[j];
+                                    const parentCSR = contentNode.closest('CharacterStyleRange');
+                                    if (parentCSR) {
+                                        const style = parentCSR.getAttribute('AppliedCharacterStyle') || '';
+                                        const isDefaultStyle = style.includes('$ID/[No character style]');
+                                        const isMetaVerse = style.includes('meta%3av') || style.includes('meta:v');
+                                        const isVerseNumber = style.includes('cv%3av') || style.includes('cv:v');
+                                        
+                                        // Only include content from default styled ranges (not meta markers or verse numbers)
+                                        if (isDefaultStyle && !isMetaVerse && !isVerseNumber) {
+                                            let text = contentNode.textContent || '';
+                                            text = text.replace(/&nbsp;/gi, ' ').replace(/\u00A0/g, ' ');
+                                            verseContent += text;
+                                        }
+                                    }
                                 }
-                            } else if (element.tagName === 'Br') {
-                                // Always preserve line breaks regardless of style
-                                verseContent += '\n';
+                                
+                                // Extract footnotes
+                                const footnoteElements = verseDoc.getElementsByTagName('Footnote');
+                                for (let j = 0; j < footnoteElements.length; j++) {
+                                    const footnoteEl = footnoteElements[j];
+                                    let footnoteXml = serializer.serializeToString(footnoteEl);
+                                    footnoteXml = removeAceInstructions(footnoteXml);
+                                    footnotes.push(footnoteXml);
+                                }
+                                
+                                // Clean the full verse XML and use it as verseStructureXml
+                                // This includes opening meta + content + closing meta
+                                verseStructureXml = removeAceInstructions(fullVerseXml);
+                                
+                                this.debugLog(`Extracted cross-paragraph verse ${verseNumber} structure (${fullVerseXml.length} chars, spans ${fullVerseXml.split('</ParagraphStyleRange>').length - 1} paragraphs)`);
+                                
+                                // Skip all CharacterStyleRanges in current paragraph that are part of this verse
+                                // Continue until we hit a new verse marker or the end of the paragraph
+                                while (i < csrNodes.length) {
+                                    const csrNode = csrNodes[i];
+                                    const appliedStyle = csrNode.getAttribute('AppliedCharacterStyle') || '';
+                                    
+                                    // Stop if we hit the closing meta marker (in same paragraph)
+                                    if (isMetaVerseStyle(csrNode) && csrNode.textContent?.trim() === verseNumber) {
+                                        i++; // Skip the closing marker
+                                        break;
+                                    }
+                                    
+                                    // Stop if we hit a new verse marker
+                                    if (isVerseNumberStyle(csrNode)) {
+                                        break;
+                                    }
+                                    
+                                    i++;
+                                }
+                            } else {
+                                // Fallback: process verse within current paragraph only
+                                this.debugLog(`Closing meta marker not found for verse ${verseNumber}, processing within paragraph only`);
+                                i = openingMetaIndex + 1; // Reset to after opening meta
+                                
+                                // Process verse content within current paragraph
+                                while (i < csrNodes.length && !isMetaVerseStyle(csrNodes[i]) && !isVerseNumberStyle(csrNodes[i])) {
+                                    const csrNode = csrNodes[i];
+                                    const appliedStyle = csrNode.getAttribute('AppliedCharacterStyle') || '';
+                                    const isDefaultStyle = appliedStyle.includes('$ID/[No character style]');
+                                    const isFootnoteCall = appliedStyle.includes('notes%3af_call') || appliedStyle.includes('notes:f_call');
+                                    const isInlineFootnoteContent = appliedStyle.includes('notes%3af_c') || 
+                                        appliedStyle.includes('notes%3af_v') || 
+                                        appliedStyle.includes('notes%3afr_sp') || 
+                                        appliedStyle.includes('notes%3aft');
+
+                                    if (isFootnoteCall) {
+                                        const footnoteElement = csrNode.getElementsByTagName('Footnote')[0];
+                                        if (footnoteElement) {
+                                            let footnoteXml = serializer.serializeToString(footnoteElement);
+                                            footnoteXml = removeAceInstructions(footnoteXml);
+                                            footnotes.push(footnoteXml);
+                                        }
+                                        verseStructureXml += serializeElClean(csrNode);
+                                        i++;
+                                        continue;
+                                    }
+
+                                    if (isInlineFootnoteContent) {
+                                        i++;
+                                        continue;
+                                    }
+
+                                    verseStructureXml += serializeElClean(csrNode);
+
+                                    const children = Array.from(csrNode.childNodes);
+                                    for (const child of children) {
+                                        if (child.nodeType === Node.ELEMENT_NODE) {
+                                            const element = child as Element;
+                                            if (element.tagName === 'Content' && isDefaultStyle) {
+                                                let text = element.textContent || '';
+                                                text = text.replace(/&nbsp;/gi, ' ').replace(/\u00A0/g, ' ');
+                                                verseContent += text;
+                                            } else if (element.tagName === 'Br') {
+                                                verseContent += '\n';
+                                            }
+                                        }
+                                    }
+
+                                    i++;
+                                }
+                                
+                                // Collect closing meta marker if found
+                                if (i < csrNodes.length && isMetaVerseStyle(csrNodes[i])) {
+                                    afterVerse = serializeElClean(csrNodes[i]);
+                                    i++;
+                                }
                             }
                         }
                     }
+                } else {
+                    // Fallback: original single-paragraph processing
+                    while (i < csrNodes.length && !isMetaVerseStyle(csrNodes[i]) && !isVerseNumberStyle(csrNodes[i])) {
+                        const csrNode = csrNodes[i];
+                        const appliedStyle = csrNode.getAttribute('AppliedCharacterStyle') || '';
+                        const isDefaultStyle = appliedStyle.includes('$ID/[No character style]');
+                        const isFootnoteCall = appliedStyle.includes('notes%3af_call') || appliedStyle.includes('notes:f_call');
+                        const isInlineFootnoteContent = appliedStyle.includes('notes%3af_c') || 
+                            appliedStyle.includes('notes%3af_v') || 
+                            appliedStyle.includes('notes%3afr_sp') || 
+                            appliedStyle.includes('notes%3aft');
 
-                    i++;
-                }
+                        if (isFootnoteCall) {
+                            const footnoteElement = csrNode.getElementsByTagName('Footnote')[0];
+                            if (footnoteElement) {
+                                let footnoteXml = serializer.serializeToString(footnoteElement);
+                                footnoteXml = removeAceInstructions(footnoteXml);
+                                footnotes.push(footnoteXml);
+                            }
+                            verseStructureXml += serializeElClean(csrNode);
+                            i++;
+                            continue;
+                        }
 
-                // Collect "afterVerse" metadata (closing meta:v)
-                let afterVerse = '';
-                if (i < csrNodes.length && isMetaVerseStyle(csrNodes[i])) {
-                    afterVerse = serializeElClean(csrNodes[i]);
-                    this.debugLog(`Found verse meta after: ${csrNodes[i].textContent}`);
-                    i++;
+                        if (isInlineFootnoteContent) {
+                            i++;
+                            continue;
+                        }
+
+                        verseStructureXml += serializeElClean(csrNode);
+
+                        const children = Array.from(csrNode.childNodes);
+                        for (const child of children) {
+                            if (child.nodeType === Node.ELEMENT_NODE) {
+                                const element = child as Element;
+                                if (element.tagName === 'Content' && isDefaultStyle) {
+                                    let text = element.textContent || '';
+                                    text = text.replace(/&nbsp;/gi, ' ').replace(/\u00A0/g, ' ');
+                                    verseContent += text;
+                                } else if (element.tagName === 'Br') {
+                                    verseContent += '\n';
+                                }
+                            }
+                        }
+
+                        i++;
+                    }
+                    
+                    if (i < csrNodes.length && isMetaVerseStyle(csrNodes[i])) {
+                        afterVerse = serializeElClean(csrNodes[i]);
+                        i++;
+                    }
                 }
 
                 // Skip trailing <Br/> or whitespace before next verse
