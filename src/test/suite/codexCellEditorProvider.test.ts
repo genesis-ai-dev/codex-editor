@@ -318,8 +318,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
         );
     });
 
-    suite("updateCellIsEditable functionality", () => {
-        test("updateCellIsEditable updates cell metadata correctly", async () => {
+    suite("updateCellIsLocked functionality", () => {
+        test("updateCellIsLocked updates cell metadata correctly", async () => {
             const document = await provider.openCustomDocument(
                 tempUri,
                 { backupId: undefined },
@@ -328,29 +328,29 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const cellId = codexSubtitleContent.cells[0].metadata.id;
 
             // Lock the cell
-            document.updateCellIsEditable(cellId, false);
+            document.updateCellIsLocked(cellId, true);
             let updatedContent = await document.getText();
             let cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
             assert.strictEqual(
-                cell.metadata.isEditable,
-                false,
-                "Cell should be locked after updateCellIsEditable(false)"
+                cell.metadata.isLocked,
+                true,
+                "Cell should be locked after updateCellIsLocked(true)"
             );
 
             // Unlock the cell
-            document.updateCellIsEditable(cellId, true);
+            document.updateCellIsLocked(cellId, false);
             updatedContent = await document.getText();
             cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
             assert.strictEqual(
-                cell.metadata.isEditable,
-                true,
-                "Cell should be unlocked after updateCellIsEditable(true)"
+                cell.metadata.isLocked,
+                false,
+                "Cell should be unlocked after updateCellIsLocked(false)"
             );
 
             document.dispose();
         });
 
-        test("updateCellIsEditable adds edit history entry", async () => {
+        test("updateCellIsLocked adds edit history entry", async () => {
             const document = await provider.openCustomDocument(
                 tempUri,
                 { backupId: undefined },
@@ -358,38 +358,38 @@ suite("CodexCellEditorProvider Test Suite", () => {
             );
             const cellId = codexSubtitleContent.cells[0].metadata.id;
 
-            document.updateCellIsEditable(cellId, false);
+            document.updateCellIsLocked(cellId, true);
 
             const updatedContent = await document.getText();
             const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
             const edits = cell.metadata.edits || [];
 
-            // Find the isEditable edit entry
-            const isEditableEdit = edits.find(
+            // Find the isLocked edit entry
+            const isLockedEdit = edits.find(
                 (e: any) =>
                     Array.isArray(e.editMap) &&
                     e.editMap.length === 2 &&
                     e.editMap[0] === "metadata" &&
-                    e.editMap[1] === "isEditable"
+                    e.editMap[1] === "isLocked"
             );
 
-            assert.ok(isEditableEdit, "Should have edit history entry for isEditable");
-            assert.strictEqual(isEditableEdit.value, false, "Edit value should be false");
-            assert.strictEqual(isEditableEdit.type, EditType.USER_EDIT, "Edit type should be USER_EDIT");
+            assert.ok(isLockedEdit, "Should have edit history entry for isLocked");
+            assert.strictEqual(isLockedEdit.value, true, "Edit value should be true");
+            assert.strictEqual(isLockedEdit.type, EditType.USER_EDIT, "Edit type should be USER_EDIT");
             assert.strictEqual(
-                isEditableEdit.author,
+                isLockedEdit.author,
                 (document as any)._author,
                 "Edit author should match document author"
             );
             assert.ok(
-                Array.isArray(isEditableEdit.validatedBy) && isEditableEdit.validatedBy.length > 0,
+                Array.isArray(isLockedEdit.validatedBy) && isLockedEdit.validatedBy.length > 0,
                 "Edit should have validatedBy array"
             );
 
             document.dispose();
         });
 
-        test("updateCellIsEditable records edit in document edits array", async () => {
+        test("updateCellIsLocked records edit in document edits array", async () => {
             const document = await provider.openCustomDocument(
                 tempUri,
                 { backupId: undefined },
@@ -397,21 +397,21 @@ suite("CodexCellEditorProvider Test Suite", () => {
             );
             const cellId = codexSubtitleContent.cells[0].metadata.id;
 
-            document.updateCellIsEditable(cellId, false);
+            document.updateCellIsLocked(cellId, true);
 
             const edits = (document as any)._edits || [];
-            const isEditableEdit = edits.find(
-                (e: any) => e.type === "updateCellIsEditable" && e.cellId === cellId
+            const isLockedEdit = edits.find(
+                (e: any) => e.type === "updateCellIsLocked" && e.cellId === cellId
             );
 
-            assert.ok(isEditableEdit, "Should have edit entry in document edits array");
-            assert.strictEqual(isEditableEdit.cellId, cellId, "Edit cellId should match");
-            assert.strictEqual(isEditableEdit.isEditable, false, "Edit isEditable should match");
+            assert.ok(isLockedEdit, "Should have edit entry in document edits array");
+            assert.strictEqual(isLockedEdit.cellId, cellId, "Edit cellId should match");
+            assert.strictEqual(isLockedEdit.isLocked, true, "Edit isLocked should match");
 
             document.dispose();
         });
 
-        test("updateCellIsEditable sets dirty flag and fires change event", async () => {
+        test("updateCellIsLocked sets dirty flag and fires change event", async () => {
             const document = await provider.openCustomDocument(
                 tempUri,
                 { backupId: undefined },
@@ -426,7 +426,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 changeEventData = event;
             });
 
-            document.updateCellIsEditable(cellId, false);
+            document.updateCellIsLocked(cellId, true);
 
             // Wait a bit for event to fire
             await sleep(50);
@@ -440,13 +440,13 @@ suite("CodexCellEditorProvider Test Suite", () => {
             );
             const edit = changeEventData.edits.find((e: any) => e.cellId === cellId);
             assert.ok(edit, "Change event should contain edit for the cell");
-            assert.strictEqual(edit.isEditable, false, "Change event edit should have correct isEditable value");
+            assert.strictEqual(edit.isLocked, true, "Change event edit should have correct isLocked value");
 
             disposable.dispose();
             document.dispose();
         });
 
-        test("updateCellIsEditable throws error for invalid cellId", async () => {
+        test("updateCellIsLocked throws error for invalid cellId", async () => {
             const document = await provider.openCustomDocument(
                 tempUri,
                 { backupId: undefined },
@@ -455,7 +455,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
             assert.throws(
                 () => {
-                    document.updateCellIsEditable("invalid-cell-id", false);
+                    document.updateCellIsLocked("invalid-cell-id", true);
                 },
                 /Could not find cell to update/,
                 "Should throw error for invalid cellId"
@@ -464,7 +464,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             document.dispose();
         });
 
-        test("updateCellIsEditable message handler processes correctly", async () => {
+        test("updateCellIsLocked message handler processes correctly", async () => {
             const provider = new CodexCellEditorProvider(context);
             const document = await provider.openCustomDocument(
                 tempUri,
@@ -499,12 +499,12 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
             const cellId = codexSubtitleContent.cells[0].metadata.id;
 
-            // Send updateCellIsEditable message
+            // Send updateCellIsLocked message
             onDidReceiveMessageCallback!({
-                command: "updateCellIsEditable",
+                command: "updateCellIsLocked",
                 content: {
                     cellId: cellId,
-                    isEditable: false,
+                    isLocked: true,
                 },
             });
 
@@ -514,26 +514,26 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const updatedContent = await document.getText();
             const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
             assert.strictEqual(
-                cell.metadata.isEditable,
-                false,
-                "Cell isEditable should be updated after updateCellIsEditable message"
+                cell.metadata.isLocked,
+                true,
+                "Cell isLocked should be updated after updateCellIsLocked message"
             );
 
             // Verify edit history was updated
             const edits = cell.metadata.edits || [];
-            const isEditableEdit = edits.find(
+            const isLockedEdit = edits.find(
                 (e: any) =>
                     Array.isArray(e.editMap) &&
                     e.editMap.length === 2 &&
                     e.editMap[0] === "metadata" &&
-                    e.editMap[1] === "isEditable"
+                    e.editMap[1] === "isLocked"
             );
-            assert.ok(isEditableEdit, "Edit history should contain isEditable edit");
+            assert.ok(isLockedEdit, "Edit history should contain isLocked edit");
 
             document.dispose();
         });
 
-        test("updateCellIsEditable defaults to true when undefined", async () => {
+        test("updateCellIsLocked defaults to false when undefined", async () => {
             const document = await provider.openCustomDocument(
                 tempUri,
                 { backupId: undefined },
@@ -541,27 +541,27 @@ suite("CodexCellEditorProvider Test Suite", () => {
             );
             const cellId = codexSubtitleContent.cells[0].metadata.id;
 
-            // When isEditable is undefined, it should default to true (editable)
-            // The getCellContent returns isEditable from metadata, which may be undefined
-            // In that case, the UI treats it as editable (true)
+            // When isLocked is undefined, it should default to false (unlocked)
+            // The getCellContent returns isLocked from metadata, which may be undefined
+            // In that case, the UI treats it as unlocked (false)
 
             // Now lock the cell
-            document.updateCellIsEditable(cellId, false);
+            document.updateCellIsLocked(cellId, true);
 
             const updatedContent = await document.getText();
             const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
             assert.strictEqual(
-                cell.metadata.isEditable,
-                false,
-                "Cell should be locked after updateCellIsEditable(false)"
+                cell.metadata.isLocked,
+                true,
+                "Cell should be locked after updateCellIsLocked(true)"
             );
 
             // Verify via getCellContent
             const lockedQuillCell = document.getCellContent(cellId);
             assert.ok(lockedQuillCell, "getCellContent should return a cell");
             assert.strictEqual(
-                lockedQuillCell?.metadata?.isEditable,
-                false,
+                lockedQuillCell?.metadata?.isLocked,
+                true,
                 "QuillCellContent should reflect locked state"
             );
 

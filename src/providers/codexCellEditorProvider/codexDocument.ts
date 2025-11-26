@@ -705,7 +705,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             cellLabel: cell.metadata.cellLabel,
             attachments: cell.metadata.attachments || {},
             metadata: {
-                isEditable: cell.metadata.isEditable,
+                isLocked: cell.metadata.isLocked,
             },
         };
     }
@@ -848,7 +848,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 type: CodexCellTypes.TEXT,
                 edits: [],
                 data: {},
-                isEditable: true,
             };
         }
 
@@ -928,7 +927,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 cellLabel: content?.cellLabel,
                 edits: content?.editHistory || [],
                 data: data,
-                isEditable: true,
             },
         });
 
@@ -1109,7 +1107,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         });
     }
 
-    public updateCellIsEditable(cellId: string, isEditable: boolean) {
+    public updateCellIsLocked(cellId: string, isLocked: boolean) {
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
             (cell) => cell.metadata?.id === cellId
         );
@@ -1120,8 +1118,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
 
-        // Update isEditable in memory
-        cellToUpdate.metadata.isEditable = isEditable;
+        // Update isLocked in memory
+        cellToUpdate.metadata.isLocked = isLocked;
 
         // Add edit to cell's edit history
         if (!cellToUpdate.metadata.edits) {
@@ -1129,8 +1127,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
         const currentTimestamp = Date.now();
         cellToUpdate.metadata.edits.push({
-            editMap: EditMapUtils.isEditable(),
-            value: isEditable, // TypeScript infers: boolean
+            editMap: EditMapUtils.isLocked(),
+            value: isLocked, // TypeScript infers: boolean
             timestamp: currentTimestamp,
             type: EditType.USER_EDIT,
             author: this._author,
@@ -1146,15 +1144,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Record the edit
         this._edits.push({
-            type: "updateCellIsEditable",
+            type: "updateCellIsLocked",
             cellId,
-            isEditable,
+            isLocked,
         });
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
         this._onDidChangeForVsCodeAndWebview.fire({
-            edits: [{ cellId, isEditable }],
+            edits: [{ cellId, isLocked }],
         });
     }
 
@@ -1735,7 +1733,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 type: CodexCellTypes.TEXT,
                 data: {},
                 edits: [],
-                isEditable: true,
             };
         }
 
@@ -1789,7 +1786,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 type: CodexCellTypes.TEXT,
                 edits: [],
                 data: {},
-                isEditable: true,
             };
         }
 

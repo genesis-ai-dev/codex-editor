@@ -293,7 +293,6 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
                             newCell.metadata = {
                                 type: "paratext",
                                 id: cellId,
-                                isEditable: true,
                             };
                             navigationCells.push({
                                 cellId: cellId,
@@ -342,7 +341,6 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
                             id: verseRef,
                             data: {},
                             cellLabel: verseRef,
-                            isEditable: true,
                         };
                         newCells.push(verseCell as CodexCell);
                     }
@@ -510,7 +508,6 @@ async function processUsfmFile(fileUri: vscode.Uri, notebookId?: string): Promis
             chapterHeadingCell.metadata = {
                 type: "paratext",
                 id: `${bookCode} ${chapter.chapterNumber}:0`,
-                isEditable: true,
             };
             cells.push(chapterHeadingCell);
 
@@ -525,7 +522,6 @@ async function processUsfmFile(fileUri: vscode.Uri, notebookId?: string): Promis
                     verseCell.metadata = {
                         type: "text",
                         id: `${bookCode} ${chapter.chapterNumber}:${content.verseNumber}`,
-                        isEditable: true,
                     };
                     cells.push(verseCell);
                 }
@@ -685,7 +681,6 @@ export async function createProjectNotebooks({
                 newCell.metadata = {
                     type: "paratext",
                     id: cellId,
-                    isEditable: true,
                 };
                 navigationCells.push({
                     cellId: cellId,
@@ -708,7 +703,6 @@ export async function createProjectNotebooks({
                         id: verse,
                         data: {},
                         cellLabel: verse,
-                        isEditable: true,
                     };
                     newCells.push(verseCell);
                 }

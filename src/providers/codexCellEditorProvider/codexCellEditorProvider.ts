@@ -2002,7 +2002,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             metadata: {
                 selectedAudioId: cell.metadata?.selectedAudioId,
                 selectionTimestamp: cell.metadata?.selectionTimestamp,
-                isEditable: cell.metadata?.isEditable,
+                isLocked: cell.metadata?.isLocked,
             },
         }));
         debug("Translation units:", translationUnits);

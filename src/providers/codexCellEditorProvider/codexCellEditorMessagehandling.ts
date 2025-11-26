@@ -976,10 +976,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         document.updateCellLabel(typedEvent.content.cellId, typedEvent.content.cellLabel);
     },
 
-    updateCellIsEditable: ({ event, document }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellIsEditable"; }>;
-        console.log("updateCellIsEditable message received", { event });
-        document.updateCellIsEditable(typedEvent.content.cellId, typedEvent.content.isEditable);
+    updateCellIsLocked: ({ event, document }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellIsLocked"; }>;
+        console.log("updateCellIsLocked message received", { event });
+        document.updateCellIsLocked(typedEvent.content.cellId, typedEvent.content.isLocked);
     },
 
     updateNotebookMetadata: async ({ event, document, webviewPanel, provider }) => {

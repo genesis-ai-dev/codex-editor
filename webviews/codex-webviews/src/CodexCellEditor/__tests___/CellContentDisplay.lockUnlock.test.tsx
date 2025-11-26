@@ -88,7 +88,7 @@ vi.mock("react-markdown", () => ({
 const createMockCell = (
     cellId: string,
     content: string = "<p>Test content</p>",
-    isEditable?: boolean
+    isLocked?: boolean
 ): QuillCellContent => ({
     cellMarkers: [cellId],
     cellContent: content,
@@ -108,7 +108,7 @@ const createMockCell = (
         startTime: 0,
         endTime: 5,
     },
-    metadata: isEditable !== undefined ? { isEditable } : {},
+    metadata: isLocked !== undefined ? { isLocked } : {},
 });
 
 describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
@@ -117,7 +117,7 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
     });
 
     it("should render lock icon when cell is locked", () => {
-        const mockCell = createMockCell("cell-1", "<p>Test content</p>", false);
+        const mockCell = createMockCell("cell-1", "<p>Test content</p>", true);
         const handleCellClick = vi.fn();
 
         const { container } = render(
@@ -155,7 +155,7 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
     });
 
     it("should render unlock icon when cell is editable", () => {
-        const mockCell = createMockCell("cell-1", "<p>Test content</p>", true);
+        const mockCell = createMockCell("cell-1", "<p>Test content</p>", false);
         const handleCellClick = vi.fn();
 
         const { container } = render(
@@ -194,7 +194,52 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
         expect(lockIcon).toBeNull();
     });
 
-    it("should send updateCellIsEditable message when lock button is clicked on editable cell", () => {
+    it("should send updateCellIsLocked message when lock button is clicked on editable cell", () => {
+        const mockCell = createMockCell("cell-1", "<p>Test content</p>", false);
+        const handleCellClick = vi.fn();
+
+        const { container } = render(
+            <CellContentDisplay
+                cell={mockCell}
+                vscode={mockVscode as any}
+                textDirection="ltr"
+                isSourceText={false}
+                hasDuplicateId={false}
+                alertColorCode={undefined}
+                highlightedCellId={null}
+                scrollSyncEnabled={true}
+                lineNumber="1"
+                label="Test Label"
+                lineNumbersEnabled={true}
+                isInTranslationProcess={false}
+                translationState={null as any}
+                allTranslationsComplete={false}
+                handleCellClick={handleCellClick}
+                cellDisplayMode={CELL_DISPLAY_MODES.ONE_LINE_PER_CELL}
+                audioAttachments={{}}
+                currentUsername="test-user"
+                requiredValidations={1}
+                requiredAudioValidations={1}
+            />
+        );
+
+        // Find and click the lock button
+        const lockButton = container.querySelector('button[title="Toggle cell lock"]');
+        expect(lockButton).toBeTruthy();
+
+        fireEvent.click(lockButton!);
+
+        // Verify postMessage was called with correct parameters
+        expect(mockVscode.postMessage).toHaveBeenCalledWith({
+            command: "updateCellIsLocked",
+            content: {
+                cellId: "cell-1",
+                isLocked: true,
+            },
+        });
+    });
+
+    it("should send updateCellIsLocked message when unlock button is clicked on locked cell", () => {
         const mockCell = createMockCell("cell-1", "<p>Test content</p>", true);
         const handleCellClick = vi.fn();
 
@@ -231,61 +276,16 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
 
         // Verify postMessage was called with correct parameters
         expect(mockVscode.postMessage).toHaveBeenCalledWith({
-            command: "updateCellIsEditable",
+            command: "updateCellIsLocked",
             content: {
                 cellId: "cell-1",
-                isEditable: false,
-            },
-        });
-    });
-
-    it("should send updateCellIsEditable message when unlock button is clicked on locked cell", () => {
-        const mockCell = createMockCell("cell-1", "<p>Test content</p>", false);
-        const handleCellClick = vi.fn();
-
-        const { container } = render(
-            <CellContentDisplay
-                cell={mockCell}
-                vscode={mockVscode as any}
-                textDirection="ltr"
-                isSourceText={false}
-                hasDuplicateId={false}
-                alertColorCode={undefined}
-                highlightedCellId={null}
-                scrollSyncEnabled={true}
-                lineNumber="1"
-                label="Test Label"
-                lineNumbersEnabled={true}
-                isInTranslationProcess={false}
-                translationState={null as any}
-                allTranslationsComplete={false}
-                handleCellClick={handleCellClick}
-                cellDisplayMode={CELL_DISPLAY_MODES.ONE_LINE_PER_CELL}
-                audioAttachments={{}}
-                currentUsername="test-user"
-                requiredValidations={1}
-                requiredAudioValidations={1}
-            />
-        );
-
-        // Find and click the lock button
-        const lockButton = container.querySelector('button[title="Toggle cell lock"]');
-        expect(lockButton).toBeTruthy();
-
-        fireEvent.click(lockButton!);
-
-        // Verify postMessage was called with correct parameters
-        expect(mockVscode.postMessage).toHaveBeenCalledWith({
-            command: "updateCellIsEditable",
-            content: {
-                cellId: "cell-1",
-                isEditable: true,
+                isLocked: false,
             },
         });
     });
 
     it("should prevent cell content click when cell is locked", () => {
-        const mockCell = createMockCell("cell-1", "<p>Test content</p>", false);
+        const mockCell = createMockCell("cell-1", "<p>Test content</p>", true);
         const handleCellClick = vi.fn();
 
         const { container } = render(
@@ -328,7 +328,7 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
     });
 
     it("should allow cell content click when cell is editable", () => {
-        const mockCell = createMockCell("cell-1", "<p>Test content</p>", true);
+        const mockCell = createMockCell("cell-1", "<p>Test content</p>", false);
         const handleCellClick = vi.fn();
 
         const { container } = render(
@@ -373,7 +373,7 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
 
     it("should show correct tooltip message based on lock state", () => {
         // Test editable cell
-        const editableCell = createMockCell("cell-1", "<p>Test content</p>", true);
+        const editableCell = createMockCell("cell-1", "<p>Test content</p>", false);
         const { container: editableContainer } = render(
             <CellContentDisplay
                 cell={editableCell}
@@ -404,7 +404,7 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
         expect(editableContentDiv).toBeTruthy();
 
         // Test locked cell
-        const lockedCell = createMockCell("cell-2", "<p>Test content</p>", false);
+        const lockedCell = createMockCell("cell-2", "<p>Test content</p>", true);
         const { container: lockedContainer } = render(
             <CellContentDisplay
                 cell={lockedCell}
@@ -436,7 +436,7 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
 
     it("should show lock button visibility correctly", () => {
         // Test editable cell - unlock icon should have invisible class
-        const editableCell = createMockCell("cell-1", "<p>Test content</p>", true);
+        const editableCell = createMockCell("cell-1", "<p>Test content</p>", false);
         const { container: editableContainer } = render(
             <CellContentDisplay
                 cell={editableCell}
@@ -468,7 +468,7 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
         expect(unlockIcon?.classList.contains("group-hover:visible")).toBe(true);
 
         // Test locked cell - lock icon should always be visible
-        const lockedCell = createMockCell("cell-2", "<p>Test content</p>", false);
+        const lockedCell = createMockCell("cell-2", "<p>Test content</p>", true);
         const { container: lockedContainer } = render(
             <CellContentDisplay
                 cell={lockedCell}
@@ -499,7 +499,7 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
         expect(lockIcon?.classList.contains("invisible")).toBe(false);
     });
 
-    it("should default to editable when isEditable is undefined", () => {
+    it("should default to unlocked when isLocked is undefined", () => {
         const mockCell = createMockCell("cell-1", "<p>Test content</p>", undefined);
         const handleCellClick = vi.fn();
 

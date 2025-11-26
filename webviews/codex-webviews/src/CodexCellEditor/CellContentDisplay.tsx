@@ -783,19 +783,19 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
         const handleToggleCellLock = () => {
             const cellId = cellIds[0];
-            const newIsEditable = !(cell.metadata?.isEditable ?? true);
+            const newIsLocked = !(cell.metadata?.isLocked ?? false);
             vscode.postMessage({
-                command: "updateCellIsEditable",
+                command: "updateCellIsLocked",
                 content: {
                     cellId,
-                    isEditable: newIsEditable,
+                    isLocked: newIsLocked,
                 },
             } as EditorPostMessages);
         };
 
         const handleCellContentClick = () => {
             hideTooltip();
-            if (cell.metadata?.isEditable ?? true) {
+            if (!(cell.metadata?.isLocked ?? false)) {
                 handleCellClick(cellIds[0]);
             }
         };
@@ -1213,7 +1213,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                             lineNumbersEnabled ? "pr-[0.25rem]" : "px-[0.25rem]"
                         }`}
                         title={
-                            cell.metadata?.isEditable ?? true ? "Click to edit" : "Cell is locked"
+                            !(cell.metadata?.isLocked ?? false) ? "Click to edit" : "Cell is locked"
                         }
                     >
                         {renderContent()}
@@ -1271,7 +1271,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         className="p-1 h-[18px]"
                         onClick={handleToggleCellLock}
                     >
-                        {cell.metadata?.isEditable ?? true ? (
+                        {!(cell.metadata?.isLocked ?? false) ? (
                             <i
                                 className="codicon codicon-unlock invisible group-hover:visible"
                                 style={{ fontSize: "1.2em" }}
