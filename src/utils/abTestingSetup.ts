@@ -79,10 +79,9 @@ export function initializeABTesting() {
         return await generateCompletionFromPairs(pairs, count, ctx);
       };
 
-      const [compA, compB] = await Promise.all([
-        runForCount(counts[0]),
-        runForCount(counts[1]),
-      ]);
+      // Run sequentially to avoid concurrent API request limits
+      const compA = await runForCount(counts[0]);
+      const compB = await runForCount(counts[1]);
 
       return {
         variants: [compA, compB],
