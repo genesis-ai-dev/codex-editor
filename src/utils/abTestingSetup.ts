@@ -79,9 +79,11 @@ export function initializeABTesting() {
         return await generateCompletionFromPairs(pairs, count, ctx);
       };
 
-      // Run sequentially to avoid concurrent API request limits
-      const compA = await runForCount(counts[0]);
-      const compB = await runForCount(counts[1]);
+      // Run concurrently using Promise.all for improved performance
+      const [compA, compB] = await Promise.all([
+        runForCount(counts[0]),
+        runForCount(counts[1]),
+      ]);
 
       return {
         variants: [compA, compB],
@@ -93,7 +95,7 @@ export function initializeABTesting() {
 
 // Context for A/B tests
 interface ABTestContext {
-  vscodeWorkspaceConfig?: { get: (key: string) => unknown };
+  vscodeWorkspaceConfig?: { get: (key: string) => unknown; };
   executeCommand: <T = any>(command: string, ...rest: any[]) => Thenable<T>;
   currentCellId: string;
   currentCellSourceContent: string;
