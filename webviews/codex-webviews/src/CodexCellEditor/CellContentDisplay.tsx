@@ -768,7 +768,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             return cellDisplayMode !== CELL_DISPLAY_MODES.INLINE;
         };
 
-        const handleAuthModalSignIn = () => {
+        const handleAuthModalLogIn = () => {
             vscode.postMessage({
                 command: "openLoginFlow",
             });
@@ -1001,13 +1001,13 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                 <DialogContent>
                                                     <DialogHeader className="sm:text-center">
                                                         <DialogTitle>
-                                                            Sign in to translate using AI
+                                                            Log in to translate using AI
                                                         </DialogTitle>
                                                         <DialogDescription></DialogDescription>
                                                     </DialogHeader>
                                                     <DialogFooter className="flex-col sm:justify-center sm:flex-col">
-                                                        <Button onClick={handleAuthModalSignIn}>
-                                                            Sign In
+                                                        <Button onClick={handleAuthModalLogIn}>
+                                                            Log In
                                                         </Button>
                                                         <Button
                                                             variant="secondary"
