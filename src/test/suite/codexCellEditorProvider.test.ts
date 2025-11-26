@@ -318,6 +318,257 @@ suite("CodexCellEditorProvider Test Suite", () => {
         );
     });
 
+    suite("updateCellIsEditable functionality", () => {
+        test("updateCellIsEditable updates cell metadata correctly", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+
+            // Lock the cell
+            document.updateCellIsEditable(cellId, false);
+            let updatedContent = await document.getText();
+            let cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
+            assert.strictEqual(
+                cell.metadata.isEditable,
+                false,
+                "Cell should be locked after updateCellIsEditable(false)"
+            );
+
+            // Unlock the cell
+            document.updateCellIsEditable(cellId, true);
+            updatedContent = await document.getText();
+            cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
+            assert.strictEqual(
+                cell.metadata.isEditable,
+                true,
+                "Cell should be unlocked after updateCellIsEditable(true)"
+            );
+
+            document.dispose();
+        });
+
+        test("updateCellIsEditable adds edit history entry", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+
+            document.updateCellIsEditable(cellId, false);
+
+            const updatedContent = await document.getText();
+            const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
+            const edits = cell.metadata.edits || [];
+
+            // Find the isEditable edit entry
+            const isEditableEdit = edits.find(
+                (e: any) =>
+                    Array.isArray(e.editMap) &&
+                    e.editMap.length === 2 &&
+                    e.editMap[0] === "metadata" &&
+                    e.editMap[1] === "isEditable"
+            );
+
+            assert.ok(isEditableEdit, "Should have edit history entry for isEditable");
+            assert.strictEqual(isEditableEdit.value, false, "Edit value should be false");
+            assert.strictEqual(isEditableEdit.type, EditType.USER_EDIT, "Edit type should be USER_EDIT");
+            assert.strictEqual(
+                isEditableEdit.author,
+                (document as any)._author,
+                "Edit author should match document author"
+            );
+            assert.ok(
+                Array.isArray(isEditableEdit.validatedBy) && isEditableEdit.validatedBy.length > 0,
+                "Edit should have validatedBy array"
+            );
+
+            document.dispose();
+        });
+
+        test("updateCellIsEditable records edit in document edits array", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+
+            document.updateCellIsEditable(cellId, false);
+
+            const edits = (document as any)._edits || [];
+            const isEditableEdit = edits.find(
+                (e: any) => e.type === "updateCellIsEditable" && e.cellId === cellId
+            );
+
+            assert.ok(isEditableEdit, "Should have edit entry in document edits array");
+            assert.strictEqual(isEditableEdit.cellId, cellId, "Edit cellId should match");
+            assert.strictEqual(isEditableEdit.isEditable, false, "Edit isEditable should match");
+
+            document.dispose();
+        });
+
+        test("updateCellIsEditable sets dirty flag and fires change event", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+
+            let changeEventFired = false;
+            let changeEventData: any = null;
+            const disposable = document.onDidChangeForVsCodeAndWebview((event) => {
+                changeEventFired = true;
+                changeEventData = event;
+            });
+
+            document.updateCellIsEditable(cellId, false);
+
+            // Wait a bit for event to fire
+            await sleep(50);
+
+            assert.strictEqual((document as any)._isDirty, true, "Document should be marked as dirty");
+            assert.ok(changeEventFired, "Change event should be fired");
+            assert.ok(changeEventData, "Change event data should exist");
+            assert.ok(
+                Array.isArray(changeEventData.edits) && changeEventData.edits.length > 0,
+                "Change event should have edits array"
+            );
+            const edit = changeEventData.edits.find((e: any) => e.cellId === cellId);
+            assert.ok(edit, "Change event should contain edit for the cell");
+            assert.strictEqual(edit.isEditable, false, "Change event edit should have correct isEditable value");
+
+            disposable.dispose();
+            document.dispose();
+        });
+
+        test("updateCellIsEditable throws error for invalid cellId", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            assert.throws(
+                () => {
+                    document.updateCellIsEditable("invalid-cell-id", false);
+                },
+                /Could not find cell to update/,
+                "Should throw error for invalid cellId"
+            );
+
+            document.dispose();
+        });
+
+        test("updateCellIsEditable message handler processes correctly", async () => {
+            const provider = new CodexCellEditorProvider(context);
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            let onDidReceiveMessageCallback: any = null;
+            const webviewPanel = {
+                webview: {
+                    html: "",
+                    options: { enableScripts: true },
+                    asWebviewUri: (uri: vscode.Uri) => uri,
+                    cspSource: "https://example.com",
+                    onDidReceiveMessage: (callback: (message: any) => void) => {
+                        if (!onDidReceiveMessageCallback) {
+                            onDidReceiveMessageCallback = callback;
+                        }
+                        return { dispose: () => { } };
+                    },
+                    postMessage: (_message: any) => Promise.resolve(),
+                },
+                onDidDispose: () => ({ dispose: () => { } }),
+                onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+            } as any as vscode.WebviewPanel;
+
+            await provider.resolveCustomEditor(
+                document,
+                webviewPanel,
+                new vscode.CancellationTokenSource().token
+            );
+
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+
+            // Send updateCellIsEditable message
+            onDidReceiveMessageCallback!({
+                command: "updateCellIsEditable",
+                content: {
+                    cellId: cellId,
+                    isEditable: false,
+                },
+            });
+
+            await sleep(50);
+
+            // Verify that the cell metadata was updated
+            const updatedContent = await document.getText();
+            const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
+            assert.strictEqual(
+                cell.metadata.isEditable,
+                false,
+                "Cell isEditable should be updated after updateCellIsEditable message"
+            );
+
+            // Verify edit history was updated
+            const edits = cell.metadata.edits || [];
+            const isEditableEdit = edits.find(
+                (e: any) =>
+                    Array.isArray(e.editMap) &&
+                    e.editMap.length === 2 &&
+                    e.editMap[0] === "metadata" &&
+                    e.editMap[1] === "isEditable"
+            );
+            assert.ok(isEditableEdit, "Edit history should contain isEditable edit");
+
+            document.dispose();
+        });
+
+        test("updateCellIsEditable defaults to true when undefined", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+
+            // When isEditable is undefined, it should default to true (editable)
+            // The getCellContent returns isEditable from metadata, which may be undefined
+            // In that case, the UI treats it as editable (true)
+
+            // Now lock the cell
+            document.updateCellIsEditable(cellId, false);
+
+            const updatedContent = await document.getText();
+            const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
+            assert.strictEqual(
+                cell.metadata.isEditable,
+                false,
+                "Cell should be locked after updateCellIsEditable(false)"
+            );
+
+            // Verify via getCellContent
+            const lockedQuillCell = document.getCellContent(cellId);
+            assert.ok(lockedQuillCell, "getCellContent should return a cell");
+            assert.strictEqual(
+                lockedQuillCell?.metadata?.isEditable,
+                false,
+                "QuillCellContent should reflect locked state"
+            );
+
+            document.dispose();
+        });
+    });
+
     test("deleteCell performs a soft delete (cell retained with deleted flag)", async () => {
         const document = await provider.openCustomDocument(
             tempUri,
