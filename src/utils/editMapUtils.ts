@@ -7,6 +7,7 @@ type DataStartTimeEditMap = ["metadata", "data", "startTime"];
 type DataEndTimeEditMap = ["metadata", "data", "endTime"];
 type SelectedAudioIdEditMap = ["metadata", "selectedAudioId"];
 type SelectionTimestampEditMap = ["metadata", "selectionTimestamp"];
+type IsEditableEditMap = ["metadata", "isEditable"];
 // File-level metadata editMaps
 type MetadataVideoUrlEditMap = ["metadata", "videoUrl"];
 type MetadataTextDirectionEditMap = ["metadata", "textDirection"];
@@ -63,6 +64,10 @@ export const EditMapUtils = {
 
     selectionTimestamp(): SelectionTimestampEditMap {
         return ["metadata", "selectionTimestamp"];
+    },
+
+    isEditable(): IsEditableEditMap {
+        return ["metadata", "isEditable"];
     },
 
     // File-level metadata field helpers

@@ -704,6 +704,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
             timestamps: cell.metadata.data,
             cellLabel: cell.metadata.cellLabel,
             attachments: cell.metadata.attachments || {},
+            metadata: {
+                isEditable: cell.metadata.isEditable,
+            },
         };
     }
 
@@ -1103,6 +1106,55 @@ export class CodexCellDocument implements vscode.CustomDocument {
         this._isDirty = true;
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, newLabel }],
+        });
+    }
+
+    public updateCellIsEditable(cellId: string, isEditable: boolean) {
+        const indexOfCellToUpdate = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error("Could not find cell to update");
+        }
+
+        const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
+
+        // Update isEditable in memory
+        cellToUpdate.metadata.isEditable = isEditable;
+
+        // Add edit to cell's edit history
+        if (!cellToUpdate.metadata.edits) {
+            cellToUpdate.metadata.edits = [];
+        }
+        const currentTimestamp = Date.now();
+        cellToUpdate.metadata.edits.push({
+            editMap: EditMapUtils.isEditable(),
+            value: isEditable, // TypeScript infers: boolean
+            timestamp: currentTimestamp,
+            type: EditType.USER_EDIT,
+            author: this._author,
+            validatedBy: [
+                {
+                    username: this._author,
+                    creationTimestamp: currentTimestamp,
+                    updatedTimestamp: currentTimestamp,
+                    isDeleted: false,
+                },
+            ],
+        });
+
+        // Record the edit
+        this._edits.push({
+            type: "updateCellIsEditable",
+            cellId,
+            isEditable,
+        });
+
+        // Set dirty flag and notify listeners about the change
+        this._isDirty = true;
+        this._onDidChangeForVsCodeAndWebview.fire({
+            edits: [{ cellId, isEditable }],
         });
     }
 

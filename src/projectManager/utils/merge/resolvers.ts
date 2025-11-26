@@ -673,6 +673,8 @@ function applyEditToCell(cell: CustomNotebookCellData, edit: EditHistory): void 
                     cell.metadata.selectedAudioId = value as string;
                 } else if (field === 'selectionTimestamp') {
                     cell.metadata.selectionTimestamp = value as number;
+                } else if (field === 'isEditable') {
+                    cell.metadata.isEditable = value as boolean;
                 }
             } else if (path.length === 3 && path[1] === 'data') {
                 // Data field edit (e.g., startTime, endTime)

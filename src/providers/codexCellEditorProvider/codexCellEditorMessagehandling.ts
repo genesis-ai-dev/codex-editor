@@ -976,6 +976,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         document.updateCellLabel(typedEvent.content.cellId, typedEvent.content.cellLabel);
     },
 
+    updateCellIsEditable: ({ event, document }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellIsEditable"; }>;
+        console.log("updateCellIsEditable message received", { event });
+        document.updateCellIsEditable(typedEvent.content.cellId, typedEvent.content.isEditable);
+    },
+
     updateNotebookMetadata: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "updateNotebookMetadata"; }>;
         console.log("updateNotebookMetadata message received", { event });

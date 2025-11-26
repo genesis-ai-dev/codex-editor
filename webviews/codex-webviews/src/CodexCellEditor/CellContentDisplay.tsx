@@ -780,6 +780,25 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             setShowSparkleButton(false);
         };
 
+        const handleToggleCellLock = () => {
+            const cellId = cellIds[0];
+            const newIsEditable = !(cell.metadata?.isEditable ?? true);
+            vscode.postMessage({
+                command: "updateCellIsEditable",
+                content: {
+                    cellId,
+                    isEditable: newIsEditable,
+                },
+            } as EditorPostMessages);
+        };
+
+        const handleCellContentClick = () => {
+            hideTooltip();
+            if (cell.metadata?.isEditable) {
+                handleCellClick(cellIds[0]);
+            }
+        };
+
         // Function to render the content with footnote markers and proper spacing
         const renderContent = () => {
             // Handle empty cell case
@@ -820,10 +839,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         dangerouslySetInnerHTML={{
                             __html: processedHtml,
                         }}
-                        onClick={() => {
-                            hideTooltip();
-                            handleCellClick(cellIds[0]);
-                        }}
+                        onClick={handleCellContentClick}
                     />
                 );
             }
@@ -831,10 +847,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             // Render content with timestamp display when timestamps are present
             return (
                 <div
-                    onClick={() => {
-                        hideTooltip();
-                        handleCellClick(cellIds[0]);
-                    }}
+                    onClick={handleCellContentClick}
                     style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}
                 >
                     <div
@@ -881,7 +894,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         return (
             <div
                 ref={cellRef}
-                className={`cell-content-display my-4 ${getAnimationClassName()}`}
+                className={`cell-content-display my-4 group ${getAnimationClassName()}`}
                 style={{
                     backgroundColor: getBackgroundColor(),
                     direction: textDirection,
@@ -1171,13 +1184,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
                 {/* Right side: wrappable label + content */}
                 <div
-                    className={`flex flex-wrap items-baseline gap-[0.25rem] flex-1 min-w-0 ${
+                    className={`relative flex flex-wrap items-baseline gap-[0.25rem] flex-1 min-w-0 ${
                         lineNumbersEnabled ? "flex-col" : "flex-row"
                     }`}
-                    onClick={() => {
-                        hideTooltip();
-                        handleCellClick(cellIds[0]);
-                    }}
+                    onClick={handleCellContentClick}
                 >
                     {/* Cell label - shown after line number when present */}
                     {label && (
@@ -1191,6 +1201,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         className={`flex-1 min-w-0 min-h-[1rem] ${
                             lineNumbersEnabled ? "pr-[0.25rem]" : "px-[0.25rem]"
                         }`}
+                        title={cell.metadata?.isEditable ? "Click to edit" : "Cell is locked"}
                     >
                         {renderContent()}
 
@@ -1221,11 +1232,29 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 </div>
 
                 {/* Comments Badge positioned at far right of row */}
-                <div style={{ flexShrink: 0, marginLeft: "0.5rem" }}>
+                <div
+                    className="flex flex-col items-center justify-center gap-[0.25rem] w-[2rem]"
+                    style={{ flexShrink: 0, marginLeft: "0.5rem" }}
+                >
                     <CommentsBadge
+                        className="invisible group-hover:visible"
                         cellId={cellIds[0]}
                         unresolvedCount={initialUnresolvedCommentsCount}
                     />
+
+                    <Button variant="ghost" className="p-1 h-[18px]" onClick={handleToggleCellLock}>
+                        {cell.metadata?.isEditable ? (
+                            <i 
+                                className="codicon codicon-unlock invisible group-hover:visible"
+                                style={{ fontSize: "1.2em" }} 
+                            />
+                        ) : (
+                            <i 
+                                className="codicon codicon-lock"
+                                style={{ fontSize: "1.2em" }}
+                            />
+                        )}
+                    </Button>
                 </div>
             </div>
         );
