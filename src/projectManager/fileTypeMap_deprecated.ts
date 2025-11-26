@@ -248,7 +248,7 @@ async function insertZeroDrafts(
                         endTime: alignedCell.importedContent.endTime,
                     },
                     edits: [],
-                    isEditable: false,
+                    isEditable: true,
                 },
             };
             newCells.push(newCellData);
@@ -271,7 +271,7 @@ async function insertZeroDrafts(
                             endTime: alignedCell.importedContent.endTime,
                         },
                         edits: [],
-                        isEditable: alignedCell.notebookCell.metadata?.isEditable ?? false,
+                        isEditable: alignedCell.notebookCell.metadata?.isEditable ?? true,
                     },
                 };
                 newCells.push(updatedCellData);

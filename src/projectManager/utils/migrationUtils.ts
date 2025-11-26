@@ -1388,9 +1388,9 @@ export const migration_addImporterTypeToMetadata = async (context?: vscode.Exten
 };
 
 /**
- * Migration: Add isEditable field to all cell metadata objects, initialized to false.
+ * Migration: Add isEditable field to all cell metadata objects, initialized to true.
  * - Idempotent
- * - Sets isEditable to false for all cells that don't have this field
+ * - Sets isEditable to true for all cells that don't have this field
  */
 export const migration_addIsEditableToCellMetadata = async (context?: vscode.ExtensionContext) => {
     try {
@@ -1501,9 +1501,9 @@ async function migrateIsEditableForFile(fileUri: vscode.Uri): Promise<boolean> {
         for (const cell of cells) {
             const md: any = cell.metadata || {};
 
-            // If isEditable is undefined, set it to false
+            // If isEditable is undefined, set it to true
             if (md.isEditable === undefined) {
-                md.isEditable = false;
+                md.isEditable = true;
                 cell.metadata = md;
                 hasChanges = true;
             }
