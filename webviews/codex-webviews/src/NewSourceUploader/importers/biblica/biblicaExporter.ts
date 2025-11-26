@@ -528,6 +528,8 @@ export interface ParagraphUpdate {
     appliedParagraphStyle?: string;
     translated: string;
     dataAfter?: string[];
+    segmentIndex?: number; // Index of this segment within the paragraph (0-based)
+    totalSegments?: number; // Total number of segments for this paragraph
 }
 
 /**
@@ -697,6 +699,14 @@ export async function exportIdmlRoundtrip(
             ? relationships.paragraphOrder
             : undefined;
 
+        // Check if this cell is part of a segmented paragraph
+        const segmentIndex: number | undefined = typeof relationships?.segmentIndex === 'number'
+            ? relationships.segmentIndex
+            : undefined;
+        const totalSegments: number | undefined = typeof relationships?.totalSegments === 'number'
+            ? relationships.totalSegments
+            : undefined;
+
         // If paragraphOrder is not provided, assign sequential order per story
         if (paragraphOrder === undefined && storyId) {
             const current = storyOrderCounters.get(storyId) || 0;
@@ -704,14 +714,29 @@ export async function exportIdmlRoundtrip(
             storyOrderCounters.set(storyId, current + 1);
         }
 
-        // Add to appropriate map
+        // Add to appropriate map with segment information
         if (storyId) {
             const updates = storyIdToUpdates.get(storyId) || [];
-            updates.push({ paragraphId, paragraphOrder, appliedParagraphStyle, translated, dataAfter: dataAfterRuns });
+            updates.push({ 
+                paragraphId, 
+                paragraphOrder, 
+                appliedParagraphStyle, 
+                translated, 
+                dataAfter: dataAfterRuns,
+                segmentIndex,
+                totalSegments
+            });
             storyIdToUpdates.set(storyId, updates);
         } else if (storyOrder !== undefined) {
             const updates = storyIndexToUpdates.get(storyOrder) || [];
-            updates.push({ paragraphOrder, appliedParagraphStyle, translated, dataAfter: dataAfterRuns });
+            updates.push({ 
+                paragraphOrder, 
+                appliedParagraphStyle, 
+                translated, 
+                dataAfter: dataAfterRuns,
+                segmentIndex,
+                totalSegments
+            });
             storyIndexToUpdates.set(storyOrder, updates);
         }
     }
@@ -1146,9 +1171,56 @@ ${footnoteString.split('\n').map(line => `                    ${line}`).join('\n
         const xmlText = await zip.file(storyKey)!.async("string");
         let updated = xmlText;
 
+        // Group updates by paragraphOrder to merge segmented paragraphs
+        const updatesByParagraph = new Map<number, ParagraphUpdate[]>();
+        const standaloneUpdates: ParagraphUpdate[] = [];
+        
+        for (const u of updates) {
+            if (typeof u.paragraphOrder === 'number' && typeof u.segmentIndex === 'number') {
+                // This is a segmented paragraph - group by paragraphOrder
+                const group = updatesByParagraph.get(u.paragraphOrder) || [];
+                group.push(u);
+                updatesByParagraph.set(u.paragraphOrder, group);
+            } else {
+                // Standalone update (not segmented)
+                standaloneUpdates.push(u);
+            }
+        }
+        
+        // Merge segmented paragraphs: combine segments with \n between them
+        const mergedUpdates: ParagraphUpdate[] = [];
+        for (const [paragraphOrder, segments] of updatesByParagraph.entries()) {
+            // Sort segments by segmentIndex
+            segments.sort((a, b) => {
+                const aIdx = a.segmentIndex ?? 0;
+                const bIdx = b.segmentIndex ?? 0;
+                return aIdx - bIdx;
+            });
+            
+            // Merge segments with \n between them
+            const mergedText = segments.map(s => s.translated).join('\n');
+            
+            // Use dataAfter from the last segment only
+            const lastSegment = segments[segments.length - 1];
+            const dataAfter = lastSegment?.dataAfter;
+            
+            // Use other properties from first segment
+            const firstSegment = segments[0];
+            mergedUpdates.push({
+                paragraphId: firstSegment.paragraphId,
+                paragraphOrder: firstSegment.paragraphOrder,
+                appliedParagraphStyle: firstSegment.appliedParagraphStyle,
+                translated: mergedText,
+                dataAfter
+            });
+        }
+        
+        // Combine merged updates with standalone updates
+        const allUpdates = [...mergedUpdates, ...standaloneUpdates];
+        
         // Sort updates by paragraphOrder (descending) to process from end to start
         // This avoids index shifting issues when replacing paragraphs
-        const sortedUpdates = [...updates].sort((a, b) => {
+        const sortedUpdates = allUpdates.sort((a, b) => {
             // If both have paragraphOrder, sort by that (descending)
             if (typeof a.paragraphOrder === 'number' && typeof b.paragraphOrder === 'number') {
                 return b.paragraphOrder - a.paragraphOrder;
@@ -1240,15 +1312,17 @@ ${footnoteString.split('\n').map(line => `                    ${line}`).join('\n
 
     // Process verse-based updates SECOND (after paragraph replacement)
     // This ensures paragraph structure is stable before verse replacement
-    // COMMENTED OUT: Only exporting notes, not verse content
+    // COMMENTED OUT: Verse-based export is disabled - only exporting notes, not verse content
     /*
     if (hasVerseBasedCells && Object.keys(verseUpdates).length > 0) {
-        console.log('[Export] Processing verse-based updates...');
+        console.log(`[Export] Processing ${Object.keys(verseUpdates).length} verse-based updates...`);
 
         // Get all story files
         const storyFiles = Object.keys(zip.files).filter(name =>
             name.startsWith('Stories/Story_') && name.endsWith('.xml')
         );
+
+        console.log(`[Export] Found ${storyFiles.length} story files to process`);
 
         for (const storyPath of storyFiles) {
             const file = zip.file(storyPath);
@@ -1267,10 +1341,13 @@ ${footnoteString.split('\n').map(line => `                    ${line}`).join('\n
                 continue;
             }
 
+            console.log(`[Export] Processing story ${storyPath} for book ${currentBook}`);
+
             // Look for chapter numbers in cv%3adc markers (Biblica format)
             const chapterMatches = [...xmlContent.matchAll(/<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*cv%3adc[^"]*"[^>]*>\s*<Content>(\d+)<\/Content>/gi)];
 
             if (chapterMatches.length > 0) {
+                console.log(`[Export] Found ${chapterMatches.length} chapter markers in ${storyPath}`);
                 // Process each chapter section separately
                 let modifiedXml = xmlContent;
                 let cumulativeOffset = 0;
@@ -1292,6 +1369,7 @@ ${footnoteString.split('\n').map(line => `                    ${line}`).join('\n
                         const after = modifiedXml.substring(endIndex);
 
                         // Replace verses in this chapter section
+                        console.log(`[Export] Processing chapter ${chapterNumber} of ${currentBook} (${chapterSection.length} chars)`);
                         const updatedSection = replaceVerseContent(chapterSection, currentBook, chapterNumber);
 
                         // Calculate offset change for next iteration
@@ -1313,6 +1391,8 @@ ${footnoteString.split('\n').map(line => `                    ${line}`).join('\n
             if (xmlContent !== originalXml) {
                 console.log(`[Export] Updated ${storyPath} with verse replacements`);
                 zip.file(storyPath, xmlContent);
+            } else {
+                console.log(`[Export] No changes made to ${storyPath}`);
             }
         }
     }
