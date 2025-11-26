@@ -555,9 +555,19 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     // Get the most recent edit
                     const latestEdit = props.editHistory[props.editHistory.length - 1];
                     // Check if it's an LLM generation or edit (not user edit)
+                    // Only mark as needing approval if it's a preview edit (not already saved)
                     if (latestEdit.type === EditType.LLM_GENERATION || latestEdit.type === EditType.LLM_EDIT) {
-                        isLLMContentNeedingApprovalRef.current = true;
-                        debug("Editor initialized with LLM content needing approval", { latestEdit });
+                        // Only mark as needing approval if this is a preview edit (preview: true)
+                        // Saved edits (addContentToValue: true) don't have preview flag, so they don't need approval
+                        const isPreviewEdit = (latestEdit as any).preview === true;
+                        if (isPreviewEdit) {
+                            isLLMContentNeedingApprovalRef.current = true;
+                            debug("Editor initialized with LLM content needing approval", { latestEdit });
+                        } else {
+                            // LLM content was already saved, so it doesn't need approval
+                            isLLMContentNeedingApprovalRef.current = false;
+                            debug("Editor initialized with saved LLM content (no approval needed)", { latestEdit });
+                        }
                     }
                 }
             };
