@@ -795,7 +795,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
         const handleCellContentClick = () => {
             hideTooltip();
-            if (cell.metadata?.isEditable) {
+            if (cell.metadata?.isEditable ?? true) {
                 handleCellClick(cellIds[0]);
             }
         };
@@ -1212,7 +1212,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         className={`flex-1 min-w-0 min-h-[1rem] ${
                             lineNumbersEnabled ? "pr-[0.25rem]" : "px-[0.25rem]"
                         }`}
-                        title={cell.metadata?.isEditable ? "Click to edit" : "Cell is locked"}
+                        title={
+                            cell.metadata?.isEditable ?? true ? "Click to edit" : "Cell is locked"
+                        }
                     >
                         {renderContent()}
 
@@ -1269,7 +1271,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         className="p-1 h-[18px]"
                         onClick={handleToggleCellLock}
                     >
-                        {cell.metadata?.isEditable ? (
+                        {cell.metadata?.isEditable ?? true ? (
                             <i
                                 className="codicon codicon-unlock invisible group-hover:visible"
                                 style={{ fontSize: "1.2em" }}
