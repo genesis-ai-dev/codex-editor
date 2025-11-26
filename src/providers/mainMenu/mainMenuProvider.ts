@@ -836,6 +836,13 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     }
 
                     if (this.frontierApi) {
+                        // Check authentication status first
+                        const authStatus = this.frontierApi.getAuthStatus();
+                        if (!authStatus?.isAuthenticated) {
+                            console.log("User not authenticated, skipping aggregated progress fetch");
+                            break;
+                        }
+
                         const progressData = await vscode.commands.executeCommand(
                             "frontier.getAggregatedProgress"
                         );

@@ -845,6 +845,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
                 break;
             }
+            case "auth.backToLogin": {
+                debugLog("Handling back to login");
+                this.stateMachine.send({ type: StartupFlowEvents.BACK_TO_LOGIN });
+                break;
+            }
             case "auth.requestPasswordReset": {
                 debugLog("Requesting password reset");
 
@@ -1342,6 +1347,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
             }
 
+            // Check authentication status first
+            const authStatus = this.frontierApi.getAuthStatus();
+            if (!authStatus?.isAuthenticated) {
+                debugLog("User not authenticated, skipping fetchAndSendProgressData");
+                return;
+            }
+
             // Try to get aggregated progress data
             try {
                 const progressData = await vscode.commands.executeCommand(
@@ -1648,6 +1660,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         }
                     }
 
+                    // Check authentication status first
+                    const authStatus = this.frontierApi.getAuthStatus();
+                    if (!authStatus?.isAuthenticated) {
+                        debugLog("User not authenticated, skipping aggregated progress fetch");
+                        return;
+                    }
+
                     const progressData = await vscode.commands.executeCommand(
                         "frontier.getAggregatedProgress"
                     );
@@ -1780,6 +1799,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             case "auth.login":
             case "auth.signup":
             case "auth.logout":
+            case "auth.backToLogin":
             case "auth.requestPasswordReset":
                 debugLog("Handling authentication message", message.command);
                 await this.handleAuthenticationMessage(this.webviewPanel!, message);
@@ -1787,6 +1807,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             case "startup.dismiss":
                 debugLog("Dismissing startup flow");
                 this.webviewPanel?.dispose();
+                break;
+            case "skipAuth":
+                debugLog("Skipping authentication");
+                this.stateMachine.send({ type: StartupFlowEvents.SKIP_AUTH });
                 break;
             case "extension.installFrontier":
                 debugLog("Opening extensions view");
@@ -3258,6 +3282,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
      */
     private async fetchProgressData(): Promise<any> {
         try {
+            if (!this.frontierApi) {
+                this.frontierApi = getAuthApi();
+            }
+
+            if (this.frontierApi) {
+                const authStatus = this.frontierApi.getAuthStatus();
+                if (!authStatus?.isAuthenticated) {
+                    debugLog("User not authenticated, skipping fetchProgressData");
+                    return undefined;
+                }
+            }
+
             const progressData = await vscode.commands.executeCommand(
                 "frontier.getAggregatedProgress"
             );

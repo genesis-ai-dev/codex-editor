@@ -365,19 +365,6 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
 
     return (
         <div className="flex flex-col gap-3 h-[calc(100vh-130px)] w-full">
-            {!isOnline && (
-                <Card className="flex flex-col items-start justify-center bg-red-500/10 border-red-500/20">
-                    <CardHeader className="hidden"></CardHeader>
-                    <CardContent className="flex items-center justify-start gap-1 pt-6">
-                        <i className="codicon codicon-sync-ignored text-sm text-red-500" />
-                        <span>
-                            Currently offline. You can only work with previously opened
-                            projects.
-                        </span>
-                    </CardContent>
-                </Card>
-            )}
-
             <ProjectsHeader
                 searchQuery={searchQuery}
                 setSearchQuery={setSearchQuery}
