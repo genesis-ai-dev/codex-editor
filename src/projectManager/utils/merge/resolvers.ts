@@ -697,8 +697,8 @@ function applyProjectEditToMetadata(metadata: any, edit: ProjectEditHistory): vo
  * Groups edits by editMap path, sorts by timestamp (latest wins), applies most recent edit per path
  */
 function resolveProjectMetadataConflictsUsingEditHistory(
-    ourMetadata: any,
-    theirMetadata: any
+    ourMetadata: CustomNotebookMetadata,
+    theirMetadata: CustomNotebookMetadata
 ): any {
     // Combine all edits from both metadata objects (ProjectEditHistory type)
     const allEdits: ProjectEditHistory[] = [
