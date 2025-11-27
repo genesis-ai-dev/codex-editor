@@ -3884,11 +3884,11 @@ suite("CodexCellEditorProvider Test Suite", () => {
                     cellId,
                     selectedIndex: 1,
                     testId: "test-123",
-                    testName: "Search Algorithm Test",
+                    testName: "Example Count Test",
                     selectedVariant: "Test variant B",
                     selectionTimeMs: 1500,
                     totalVariants: 2,
-                    names: ["fts5-bm25", "sbs"]
+                    names: ["15 examples", "30 examples"]
                 }
             };
 
@@ -3980,19 +3980,19 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
             const { recordVariantSelection } = await import("../../utils/abTestingUtils");
 
-            // Call recordVariantSelection - it will send to cloud analytics
+            // Don't pass testName to avoid sending test data to production analytics
+            // This tests that the function handles missing testName gracefully
             await recordVariantSelection(
                 testResult.testId,
                 testResult.cellId,
                 testResult.selectedIndex,
                 testResult.selectionTimeMs,
                 testResult.names,
-                testResult.testName
+                undefined // Skip testName to prevent analytics call
             );
 
             // Verify it completed without error
-            // Note: Network call to analytics is mocked/optional and tested separately
-            assert.ok(true, "Variant selection recorded successfully");
+            assert.ok(true, "Variant selection recorded successfully without sending to analytics");
         });
 
         test("merge buttons show up in source when toggle source editing mode is turned on", async function () {
