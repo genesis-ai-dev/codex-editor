@@ -538,6 +538,7 @@ export type EditorPostMessages =
     | { command: "setCurrentIdToGlobalState"; content: { currentLineId: string; }; }
     | { command: "webviewFocused"; content: { uri: string; }; }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
+    | { command: "updateCellIsLocked"; content: { cellId: string; isLocked: boolean; }; }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata; }
     | { command: "updateCellDisplayMode"; mode: "inline" | "one-line-per-cell"; }
     | { command: "pickVideoFile"; }
@@ -794,6 +795,7 @@ type EditMapValueType<T extends readonly string[]> =
     : T extends readonly ["metadata", "data", "merged"] ? boolean
     : T extends readonly ["metadata", "selectedAudioId"] ? string
     : T extends readonly ["metadata", "selectionTimestamp"] ? number
+    : T extends readonly ["metadata", "isLocked"] ? boolean
     // File-level metadata fields
     : T extends readonly ["metadata", "videoUrl"] ? string
     : T extends readonly ["metadata", "textDirection"] ? "ltr" | "rtl"
@@ -870,6 +872,7 @@ type BaseCustomCellMetaData = {
     id: string;
     type: CodexCellTypes;
     edits: EditHistory[];
+    isLocked?: boolean;
 };
 
 export type BaseCustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {
@@ -957,6 +960,8 @@ interface QuillCellContent {
     attachments?: { [attachmentId: string]: { type: string; isDeleted?: boolean; isMissing?: boolean; url?: string; validatedBy?: ValidationEntry[]; }; };
     metadata?: {
         selectedAudioId?: string;
+        selectionTimestamp?: number;
+        isLocked?: boolean;
         [key: string]: any;
     };
 }

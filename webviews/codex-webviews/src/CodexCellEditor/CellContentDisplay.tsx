@@ -31,6 +31,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "../components/ui/dialog";
+import { MessageCircle } from "lucide-react";
 
 const SHOW_VALIDATION_BUTTON = true;
 interface CellContentDisplayProps {
@@ -767,7 +768,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             return cellDisplayMode !== CELL_DISPLAY_MODES.INLINE;
         };
 
-        const handleAuthModalSignIn = () => {
+        const handleAuthModalLogIn = () => {
             vscode.postMessage({
                 command: "openLoginFlow",
             });
@@ -778,6 +779,35 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         const handleAuthModalClose = () => {
             setShowAuthModal(false);
             setShowSparkleButton(false);
+        };
+
+        const handleToggleCellLock = () => {
+            const cellId = cellIds[0];
+            const newIsLocked = !(cell.metadata?.isLocked ?? false);
+            vscode.postMessage({
+                command: "updateCellIsLocked",
+                content: {
+                    cellId,
+                    isLocked: newIsLocked,
+                },
+            } as EditorPostMessages);
+        };
+
+        const handleCellContentClick = () => {
+            hideTooltip();
+            if (!(cell.metadata?.isLocked ?? false)) {
+                handleCellClick(cellIds[0]);
+            }
+        };
+
+        const handleOpenComments = (cellId: string) => {
+            // Send message to open comments tab and navigate to this cell
+            vscode.postMessage({
+                command: "openCommentsForCell",
+                content: {
+                    cellId: cellId,
+                },
+            });
         };
 
         // Function to render the content with footnote markers and proper spacing
@@ -820,10 +850,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         dangerouslySetInnerHTML={{
                             __html: processedHtml,
                         }}
-                        onClick={() => {
-                            hideTooltip();
-                            handleCellClick(cellIds[0]);
-                        }}
+                        onClick={handleCellContentClick}
                     />
                 );
             }
@@ -831,10 +858,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             // Render content with timestamp display when timestamps are present
             return (
                 <div
-                    onClick={() => {
-                        hideTooltip();
-                        handleCellClick(cellIds[0]);
-                    }}
+                    onClick={handleCellContentClick}
                     style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}
                 >
                     <div
@@ -881,7 +905,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         return (
             <div
                 ref={cellRef}
-                className={`cell-content-display my-4 ${getAnimationClassName()}`}
+                className={`cell-content-display my-4 group ${getAnimationClassName()}`}
                 style={{
                     backgroundColor: getBackgroundColor(),
                     direction: textDirection,
@@ -977,13 +1001,13 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                 <DialogContent>
                                                     <DialogHeader className="sm:text-center">
                                                         <DialogTitle>
-                                                            Sign in to use AI translating
+                                                            Log in to translate using AI
                                                         </DialogTitle>
                                                         <DialogDescription></DialogDescription>
                                                     </DialogHeader>
                                                     <DialogFooter className="flex-col sm:justify-center sm:flex-col">
-                                                        <Button onClick={handleAuthModalSignIn}>
-                                                            Sign In
+                                                        <Button onClick={handleAuthModalLogIn}>
+                                                            Log In
                                                         </Button>
                                                         <Button
                                                             variant="secondary"
@@ -1171,13 +1195,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
                 {/* Right side: wrappable label + content */}
                 <div
-                    className={`flex flex-wrap items-baseline gap-[0.25rem] flex-1 min-w-0 ${
+                    className={`relative flex flex-wrap items-baseline gap-[0.25rem] flex-1 min-w-0 ${
                         lineNumbersEnabled ? "flex-col" : "flex-row"
                     }`}
-                    onClick={() => {
-                        hideTooltip();
-                        handleCellClick(cellIds[0]);
-                    }}
+                    onClick={handleCellContentClick}
                 >
                     {/* Cell label - shown after line number when present */}
                     {label && (
@@ -1191,6 +1212,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         className={`flex-1 min-w-0 min-h-[1rem] ${
                             lineNumbersEnabled ? "pr-[0.25rem]" : "px-[0.25rem]"
                         }`}
+                        title={
+                            !(cell.metadata?.isLocked ?? false) ? "Click to edit" : "Cell is locked"
+                        }
                     >
                         {renderContent()}
 
@@ -1221,11 +1245,40 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 </div>
 
                 {/* Comments Badge positioned at far right of row */}
-                <div style={{ flexShrink: 0, marginLeft: "0.5rem" }}>
-                    <CommentsBadge
-                        cellId={cellIds[0]}
-                        unresolvedCount={initialUnresolvedCommentsCount}
-                    />
+                <div
+                    className="flex flex-col items-center self-center gap-[2px] w-[2rem]"
+                    style={{ flexShrink: 0, marginLeft: "0.5rem" }}
+                >
+                    {initialUnresolvedCommentsCount > 0 ? (
+                        <CommentsBadge
+                            cellId={cellIds[0]}
+                            unresolvedCount={initialUnresolvedCommentsCount}
+                        />
+                    ) : (
+                        <Button
+                            title="Open comments"
+                            variant="ghost"
+                            className="invisible group-hover:visible hover:bg-secondary/80 p-1 rounded-md group-hover:transition-colors h-auto"
+                            onClick={() => handleOpenComments(cellIds[0])}
+                        >
+                            <MessageCircle className="w-4 h-4" />
+                        </Button>
+                    )}
+                    <Button
+                        title="Toggle cell lock"
+                        variant="ghost"
+                        className="p-1 h-[18px]"
+                        onClick={handleToggleCellLock}
+                    >
+                        {!(cell.metadata?.isLocked ?? false) ? (
+                            <i
+                                className="codicon codicon-unlock invisible group-hover:visible"
+                                style={{ fontSize: "1.2em" }}
+                            />
+                        ) : (
+                            <i className="codicon codicon-lock" style={{ fontSize: "1.2em" }} />
+                        )}
+                    </Button>
                 </div>
             </div>
         );
