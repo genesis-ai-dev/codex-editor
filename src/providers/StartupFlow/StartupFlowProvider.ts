@@ -197,6 +197,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         safeSetOptions(webviewPanel.webview, {
             enableScripts: true,
             localResourceRoots: [
+                vscode.Uri.joinPath(this.context.extensionUri, "src", "assets"),
                 vscode.Uri.joinPath(this.context.extensionUri, "media"),
                 vscode.Uri.joinPath(this.context.extensionUri, "webviews", "codex-webviews", "dist"),
                 vscode.Uri.file(path.join(this.context.extensionUri.fsPath, 'node_modules', '@vscode/codicons', 'dist')),
