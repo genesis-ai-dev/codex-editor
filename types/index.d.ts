@@ -846,6 +846,15 @@ export type FileEditHistory<TEditMap extends readonly string[] = readonly string
     author: string;
 };
 
+// Project-level metadata edit type (for metadata.json)
+export type ProjectEditHistory<TEditMap extends readonly string[] = readonly string[]> = {
+    editMap: TEditMap;
+    value: EditMapValueType<TEditMap>;
+    timestamp: number;
+    type: import("./enums").EditType;
+    author: string;
+};
+
 
 
 type CodexData = Timestamps & {
@@ -1001,6 +1010,7 @@ interface ProjectOverview extends Project {
 /* This is the project metadata that is saved in the metadata.json file */
 type ProjectMetadata = {
     format: string;
+    edits?: ProjectEditHistory[];
     meta: {
         version: string;
         category: string;
@@ -1022,6 +1032,7 @@ type ProjectMetadata = {
         };
         /** List of users that should be forced to restore/heal their project when opening */
         initiateRemoteHealingFor?: RemoteHealingEntry[];
+        abbreviation?: string;
     };
     idAuthorities: {
         [key: string]: {
@@ -1223,6 +1234,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "refreshState"; }
     | { command: "initializeProject"; }
     | { command: "renameProject"; }
+    | { command: "changeProjectName"; projectName: string; }
     | { command: "changeSourceLanguage"; language: LanguageMetadata; }
     | { command: "changeTargetLanguage"; language: LanguageMetadata; }
     | { command: "editAbbreviation"; }

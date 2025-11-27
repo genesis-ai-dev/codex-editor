@@ -12,6 +12,7 @@ import { CodexCellTypes, EditType } from "../../../types/enums";
 import { CodexNotebookAsJSONData, QuillCellContent, Timestamps, FileEditHistory, TranslationPair, MinimalCellResult } from "../../../types";
 import { EditMapUtils } from "../../utils/editMapUtils";
 import { CodexContentSerializer } from "../../serializer";
+import { MetadataManager } from "../../utils/metadataManager";
 import { swallowDuplicateCommandRegistrations, createTempCodexFile, deleteIfExists, createMockExtensionContext, primeProviderWorkspaceStateForHtml, sleep } from "../testUtils";
 
 suite("CodexCellEditorProvider Test Suite", () => {
@@ -3539,6 +3540,11 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 return "Mocked response";
             });
 
+            // Stub MetadataManager.getChatSystemMessage to return custom system message
+            const customSystemMessage = "You are a helpful Bible translation assistant.";
+            const metadataManagerMod = await import("../../utils/metadataManager");
+            const getChatSystemMessageStub = sinon.stub(metadataManagerMod.MetadataManager, "getChatSystemMessage").resolves(customSystemMessage);
+
             // Stub status bar and notebook reader
             const extModule = await import("../../extension");
             const statusStub = sinon.stub(extModule as any, "getAutoCompleteStatusBarItem").returns({
@@ -3580,10 +3586,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
             // Set target language in project config
             await safeConfigUpdate("codex-project-manager", "targetLanguage", { tag: targetLanguage });
-
-            // Set custom system message
-            const customSystemMessage = "You are a helpful Bible translation assistant.";
-            await safeConfigUpdate("codex-editor-extension", "chatSystemMessage", customSystemMessage);
             await safeConfigUpdate("codex-editor-extension", "allowHtmlPredictions", false);
 
             try {
@@ -3630,6 +3632,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             } finally {
                 (vscode.commands as any).executeCommand = originalExecuteCommand;
                 callLLMStub.restore();
+                getChatSystemMessageStub.restore();
                 statusStub.restore();
                 getCellIndexStub.restore();
                 getCellIdsStub.restore();
@@ -4132,11 +4135,11 @@ suite("CodexCellEditorProvider Test Suite", () => {
                     cellId,
                     selectedIndex: 1,
                     testId: "test-123",
-                    testName: "Search Algorithm Test",
+                    testName: "Example Count Test",
                     selectedVariant: "Test variant B",
                     selectionTimeMs: 1500,
                     totalVariants: 2,
-                    names: ["fts5-bm25", "sbs"]
+                    names: ["15 examples", "30 examples"]
                 }
             };
 
@@ -4228,19 +4231,19 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
             const { recordVariantSelection } = await import("../../utils/abTestingUtils");
 
-            // Call recordVariantSelection - it will send to cloud analytics
+            // Don't pass testName to avoid sending test data to production analytics
+            // This tests that the function handles missing testName gracefully
             await recordVariantSelection(
                 testResult.testId,
                 testResult.cellId,
                 testResult.selectedIndex,
                 testResult.selectionTimeMs,
                 testResult.names,
-                testResult.testName
+                undefined // Skip testName to prevent analytics call
             );
 
             // Verify it completed without error
-            // Note: Network call to analytics is mocked/optional and tested separately
-            assert.ok(true, "Variant selection recorded successfully");
+            assert.ok(true, "Variant selection recorded successfully without sending to analytics");
         });
 
         test("merge buttons show up in source when toggle source editing mode is turned on", async function () {

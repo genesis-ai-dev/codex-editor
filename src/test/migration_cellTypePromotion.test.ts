@@ -41,6 +41,11 @@ async function createTempNotebookWithDataType(typeInData: string | undefined, ty
 describe("migration_promoteCellTypeToTopLevel", () => {
     it("promotes metadata.data.type to top-level when missing and deletes data.type", async () => {
         const uri = await createTempNotebookWithDataType("text");
+        
+        // Clear migration flag to allow re-running
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        await config.update("cellTypePromotionMigrationCompleted", false, vscode.ConfigurationTarget.Workspace);
+        
         await migration_promoteCellTypeToTopLevel();
 
         const fileBytes = await vscode.workspace.fs.readFile(uri);
@@ -54,6 +59,11 @@ describe("migration_promoteCellTypeToTopLevel", () => {
 
     it("does not override top-level type if already present", async () => {
         const uri = await createTempNotebookWithDataType("text", "paratext");
+        
+        // Clear migration flag to allow re-running
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        await config.update("cellTypePromotionMigrationCompleted", false, vscode.ConfigurationTarget.Workspace);
+        
         await migration_promoteCellTypeToTopLevel();
 
         const fileBytes = await vscode.workspace.fs.readFile(uri);
