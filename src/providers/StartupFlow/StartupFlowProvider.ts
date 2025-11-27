@@ -396,8 +396,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 },
                             },
                             {
-                                target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
-                            },
+                            target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
+                        },
                         ],
                         [StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA]:
                             StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,

@@ -787,6 +787,7 @@ const CellList: React.FC<CellListProps> = ({
                             currentUsername={currentUsername || undefined}
                             vscode={vscode}
                             isSourceText={isSourceText}
+                            isAuthenticated={isAuthenticated}
                         />
                     </span>
                 );
