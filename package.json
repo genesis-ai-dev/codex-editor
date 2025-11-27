@@ -470,6 +470,11 @@
                         "default": false,
                         "description": "Internal flag indicating the importerType migration has completed."
                     },
+                    "codex-project-manager.chatSystemMessageToMetadataMigrationCompleted": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Internal flag indicating the importerType migration has completed."
+                    },
                     "codex-project-manager.projectName": {
                         "type": "string",
                         "default": "",
@@ -731,7 +736,7 @@
                     },
                     "codex-editor-extension.numberOfFewShotExamples": {
                         "type": "number",
-                        "default": 30,
+                        "default": 15,
                         "description": "The number of sample translation pairs to show the Copilot."
                     },
                     "codex-editor-extension.fewShotExampleFormat": {
@@ -895,16 +900,14 @@
                     "codex-editor-extension.searchAlgorithm": {
                         "title": "Search Algorithm",
                         "type": "string",
-                        "default": "fts5-bm25",
+                        "default": "sbs",
                         "enum": [
-                            "fts5-bm25",
-                            "custom",
-                            "sbs"
+                            "sbs",
+                            "custom"
                         ],
                         "enumDescriptions": [
-                            "SQLite FTS5 full-text search with BM25 scoring (current default)",
-                            "Custom search algorithm (when available)",
-                            "Smart Branched Search (coverage-boosted branching over FTS candidates)"
+                            "Smart Branched Search - coverage-boosted branching for finding relevant translation pairs (default, recommended)",
+                            "Custom search algorithm (when available)"
                         ],
                         "description": "Choose which search algorithm to use for finding similar translation pairs for AI few-shot examples."
                     }
