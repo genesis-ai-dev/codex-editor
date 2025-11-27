@@ -273,48 +273,16 @@ export async function openSystemMessageEditor() {
                             cancellable: false,
                         },
                         async (progress) => {
-                            progress.report({ message: "Loading configuration..." });
-
-                            const allowHtmlPredictions = config.get("allowHtmlPredictions") as boolean ?? false;
-
-                            const llmConfig: CompletionConfig = {
-                                apiKey: config.get("openAIKey") || "",
-                                model: config.get("model") || "gpt-4o",
-                                endpoint: config.get("endpoint") || "https://api.openai.com/v1",
-                                temperature: 0.3,
-                                customModel: "",
-                                contextSize: "2000",
-                                additionalResourceDirectory: "",
-                                contextOmission: false,
-                                sourceBookWhitelist: "",
-                                mainChatLanguage: "en",
-                                chatSystemMessage: "",
-                                numberOfFewShotExamples: 0,
-                                debugMode: false,
-                                useOnlyValidatedExamples: false,
-                                abTestingEnabled: false,
-                                allowHtmlPredictions: allowHtmlPredictions,
-                                fewShotExampleFormat: "source-and-target",
-                            };
-
-                            progress.report({ message: "Preparing prompt..." });
-
-                            const htmlInstruction = allowHtmlPredictions
-                                ? "You may include inline HTML tags when appropriate (e.g., <span>, <i>, <b>) consistent with examples."
-                                : "Return plain text only (no XML/HTML).";
-
-                            const prompt = `Generate a concise, one-paragraph set of linguistic instructions critical for a linguistically informed translator to keep in mind at all times when translating from ${sourceLanguage.refName} to ${targetLanguage.refName}. Keep it to a single plaintext paragraph. Note key lexicosemantic, information structuring, register-relevant and other key distinctions necessary for grammatical, natural text in ${targetLanguage.refName} if the starting place is ${sourceLanguage.refName}. ${htmlInstruction} Preserve original line breaks from <currentTask><source> by returning text with the same number of lines separated by newline characters. Do not include XML in your answer.`;
-
                             progress.report({ message: "Generating instructions with AI..." });
-                            const response = await callLLM(
-                                [
-                                    {
-                                        role: "user",
-                                        content: prompt,
-                                    },
-                                ],
-                                llmConfig
+
+                            const response = await generateChatSystemMessage(
+                                sourceLanguage,
+                                targetLanguage
                             );
+
+                            if (!response) {
+                                throw new Error("Failed to generate instructions");
+                            }
 
                             progress.report({ message: "Updating configuration..." });
 
@@ -340,6 +308,65 @@ export async function openSystemMessageEditor() {
                 break;
         }
     });
+}
+
+/**
+ * Generate chat system message using LLM based on source and target languages
+ * @param sourceLanguage - Source language with refName property
+ * @param targetLanguage - Target language with refName property
+ * @param workspaceFolder - Optional workspace folder URI
+ * @returns Generated system message string, or null if generation fails
+ */
+export async function generateChatSystemMessage(
+    sourceLanguage: { refName: string; },
+    targetLanguage: { refName: string; },
+    workspaceFolder?: vscode.Uri
+): Promise<string | null> {
+    try {
+        const config = vscode.workspace.getConfiguration("codex-editor-extension");
+        const allowHtmlPredictions = config.get("allowHtmlPredictions") as boolean ?? false;
+
+        const llmConfig: CompletionConfig = {
+            apiKey: config.get("openAIKey") || "",
+            model: config.get("model") || "gpt-4o",
+            endpoint: config.get("endpoint") || "https://api.openai.com/v1",
+            temperature: 0.3,
+            customModel: "",
+            contextSize: "2000",
+            additionalResourceDirectory: "",
+            contextOmission: false,
+            sourceBookWhitelist: "",
+            mainChatLanguage: "en",
+            chatSystemMessage: "",
+            numberOfFewShotExamples: 0,
+            debugMode: false,
+            useOnlyValidatedExamples: false,
+            abTestingEnabled: false,
+            allowHtmlPredictions: allowHtmlPredictions,
+            fewShotExampleFormat: "source-and-target",
+        };
+
+        const htmlInstruction = allowHtmlPredictions
+            ? "You may include inline HTML tags when appropriate (e.g., <span>, <i>, <b>) consistent with examples."
+            : "Return plain text only (no XML/HTML).";
+
+        const prompt = `Generate a concise, one-paragraph set of linguistic instructions critical for a linguistically informed translator to keep in mind at all times when translating from ${sourceLanguage.refName} to ${targetLanguage.refName}. Keep it to a single plaintext paragraph. Note key lexicosemantic, information structuring, register-relevant and other key distinctions necessary for grammatical, natural text in ${targetLanguage.refName} if the starting place is ${sourceLanguage.refName}. ${htmlInstruction} Preserve original line breaks from <currentTask><source> by returning text with the same number of lines separated by newline characters. Do not include XML in your answer.`;
+
+        const response = await callLLM(
+            [
+                {
+                    role: "user",
+                    content: prompt,
+                },
+            ],
+            llmConfig
+        );
+
+        return response;
+    } catch (error) {
+        debug("[generateChatSystemMessage] Error generating message:", error);
+        return null;
+    }
 }
 
 async function getProjectSourceLanguage(): Promise<ProjectLanguage | null> {

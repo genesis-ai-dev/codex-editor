@@ -378,16 +378,78 @@ export class MetadataManager {
     static async getChatSystemMessage(workspaceFolderUri?: vscode.Uri): Promise<string> {
         const workspaceFolder = workspaceFolderUri || vscode.workspace.workspaceFolders?.[0]?.uri;
         if (!workspaceFolder) {
+            // Can't generate without a workspace folder to save to
             return "This is a chat between a helpful Bible translation assistant and a Bible translator...";
         }
 
         const result = await this.safeReadMetadata<ProjectMetadata>(workspaceFolder);
-        if (!result.success || !result.metadata) {
-            return "This is a chat between a helpful Bible translation assistant and a Bible translator...";
+
+        // If metadata.json exists and has chatSystemMessage, return it
+        if (result.success && result.metadata) {
+            const chatSystemMessage = (result.metadata as any).chatSystemMessage as string | undefined;
+            if (chatSystemMessage) {
+                return chatSystemMessage;
+            }
         }
 
-        const chatSystemMessage = (result.metadata as any).chatSystemMessage as string | undefined;
-        return chatSystemMessage || "This is a chat between a helpful Bible translation assistant and a Bible translator...";
+        // Try to generate chatSystemMessage if it doesn't exist
+        // First try to get languages from metadata.json if it exists
+        let sourceLanguage: { refName: string; } | undefined;
+        let targetLanguage: { refName: string; } | undefined;
+
+        if (result.success && result.metadata) {
+            const metadata = result.metadata as any;
+            sourceLanguage = metadata.languages?.find(
+                (l: any) => l.projectStatus === "source"
+            );
+            targetLanguage = metadata.languages?.find(
+                (l: any) => l.projectStatus === "target"
+            );
+        }
+
+        // If languages not found in metadata.json, try workspace configuration
+        if (!sourceLanguage || !targetLanguage) {
+            try {
+                const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
+                const configSourceLanguage = projectConfig.get("sourceLanguage") as { refName: string; } | undefined;
+                const configTargetLanguage = projectConfig.get("targetLanguage") as { refName: string; } | undefined;
+
+                if (configSourceLanguage?.refName) {
+                    sourceLanguage = configSourceLanguage;
+                }
+                if (configTargetLanguage?.refName) {
+                    targetLanguage = configTargetLanguage;
+                }
+            } catch (error) {
+                console.debug("[MetadataManager] Error reading languages from workspace config:", error);
+            }
+        }
+
+        // Generate chatSystemMessage if we have both languages
+        if (sourceLanguage?.refName && targetLanguage?.refName) {
+            try {
+                const { generateChatSystemMessage } = await import("../copilotSettings/copilotSettings");
+                const generatedValue = await generateChatSystemMessage(
+                    sourceLanguage,
+                    targetLanguage,
+                    workspaceFolder
+                );
+
+                if (generatedValue) {
+                    // Save the generated value to metadata.json (will create it if it doesn't exist)
+                    const saveResult = await this.setChatSystemMessage(generatedValue, workspaceFolder);
+                    if (saveResult.success) {
+                        return generatedValue;
+                    }
+                }
+            } catch (error) {
+                // Don't fail if generation fails - just log and continue to default
+                console.debug("[MetadataManager] Error attempting to generate chatSystemMessage:", error);
+            }
+        }
+
+        // Fallback to default message
+        return "This is a chat between a helpful Bible translation assistant and a Bible translator...";
     }
 
     /**

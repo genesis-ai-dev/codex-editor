@@ -871,7 +871,7 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
             await migration_chatSystemMessageSetting();
             debug("✅ [PRE-SYNC] Completed chatSystemMessage namespace migration");
             // Migrate chatSystemMessage from settings.json to metadata.json
-            await migration_chatSystemMessageToMetadata();
+            await migration_chatSystemMessageToMetadata(context);
             debug("✅ [PRE-SYNC] Completed chatSystemMessage to metadata.json migration");
 
             const { ensureGitDisabledInSettings } = await import("./projectManager/utils/projectUtils");

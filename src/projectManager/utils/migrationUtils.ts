@@ -8,6 +8,13 @@ import type { ValidationEntry } from "../../../types";
 
 // FIXME: move notebook format migration here
 
+const DEBUG_MODE = false;
+function debug(...args: any[]): void {
+    if (DEBUG_MODE) {
+        console.log("[Extension]", ...args);
+    }
+}
+
 /**
  * Migration: Move timestamps (startTime/endTime) and related subtitle fields
  * from metadata top-level to metadata.data to match current schema.
@@ -34,11 +41,11 @@ export const migration_moveTimestampsToMetadataData = async (context?: vscode.Ex
         }
 
         if (hasMigrationRun) {
-            console.log("Timestamps data migration already completed, skipping");
+            debug("Timestamps data migration already completed, skipping");
             return;
         }
 
-        console.log("Running timestamps data migration...");
+        debug("Running timestamps data migration...");
 
         const workspaceFolder = workspaceFolders[0];
 
@@ -234,7 +241,7 @@ export const migration_changeDraftFolderToFilesFolder = async () => {
     }
 };
 
-export const migration_chatSystemMessageToMetadata = async () => {
+export const migration_chatSystemMessageToMetadata = async (context?: vscode.ExtensionContext) => {
     try {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
         if (!workspaceFolder) {
@@ -242,14 +249,40 @@ export const migration_chatSystemMessageToMetadata = async () => {
             return;
         }
 
-        // Check if already migrated by checking metadata.json
-        const { MetadataManager } = await import("../../utils/metadataManager");
-        const currentValue = await MetadataManager.getChatSystemMessage(workspaceFolder);
-        const defaultValue = "This is a chat between a helpful Bible translation assistant and a Bible translator...";
+        // Check if migration has already been run
+        const migrationKey = "chatSystemMessageToMetadataMigrationCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        let hasMigrationRun = false;
 
-        // If metadata.json already has a non-default value, migration already happened
-        if (currentValue !== defaultValue) {
-            console.log('[Migration] chatSystemMessage already in metadata.json, skipping migration');
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch (e) {
+            // Setting might not be registered yet; fall back to workspaceState
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
+
+        if (hasMigrationRun) {
+            debug('[Migration] chatSystemMessageToMetadata migration already completed, skipping');
+            return;
+        }
+
+        // Check if already migrated by checking metadata.json directly (without triggering generation)
+        const { MetadataManager } = await import("../../utils/metadataManager");
+        const metadataResult = await MetadataManager.safeReadMetadata(workspaceFolder);
+        const existingChatSystemMessage = metadataResult.success && metadataResult.metadata
+            ? (metadataResult.metadata as any).chatSystemMessage as string | undefined
+            : undefined;
+
+        // If metadata.json already has a chatSystemMessage, don't overwrite it
+        if (existingChatSystemMessage && existingChatSystemMessage.trim() !== "") {
+            debug('[Migration] chatSystemMessage already exists in metadata.json, marking migration as completed');
+            // Mark migration as completed since value already exists
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                // If configuration key is not registered, fall back to workspaceState
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
@@ -272,12 +305,81 @@ export const migration_chatSystemMessageToMetadata = async () => {
         // Prefer new namespace, fallback to old
         const valueToMigrate: string | undefined = newValue || oldValue;
 
-        if (!valueToMigrate || valueToMigrate === defaultValue) {
-            console.log('[Migration] No chatSystemMessage found in settings.json to migrate');
+        if (!valueToMigrate || valueToMigrate.trim() === "") {
+            debug('[Migration] No chatSystemMessage found in settings.json to migrate');
+
+            // Try to generate defaultValue using source and target languages from metadata.json
+            try {
+                const metadataUri = vscode.Uri.joinPath(workspaceFolder, "metadata.json");
+                const metadataContent = await vscode.workspace.fs.readFile(metadataUri);
+                const metadata = JSON.parse(metadataContent.toString());
+
+                const sourceLanguage = metadata.languages?.find(
+                    (l: any) => l.projectStatus === "source"
+                );
+                const targetLanguage = metadata.languages?.find(
+                    (l: any) => l.projectStatus === "target"
+                );
+
+                if (sourceLanguage?.refName && targetLanguage?.refName) {
+                    debug('[Migration] Source and target languages found, generating chatSystemMessage...');
+
+                    const { generateChatSystemMessage } = await import("../../copilotSettings/copilotSettings");
+                    const generatedValue = await generateChatSystemMessage(
+                        sourceLanguage,
+                        targetLanguage,
+                        workspaceFolder
+                    );
+
+                    if (generatedValue) {
+                        const result = await MetadataManager.setChatSystemMessage(generatedValue, workspaceFolder);
+                        if (result.success) {
+                            console.log('[Migration] Successfully generated and saved chatSystemMessage to metadata.json');
+                        } else {
+                            console.warn('[Migration] Generated chatSystemMessage but failed to save:', result.error);
+                        }
+                    } else {
+                        debug('[Migration] Failed to generate chatSystemMessage (likely no API key configured)');
+                    }
+                } else {
+                    debug('[Migration] Source or target language not found in metadata.json, skipping generation');
+                }
+            } catch (error) {
+                // Don't fail migration if generation fails - just log and continue
+                debug('[Migration] Error attempting to generate chatSystemMessage:', error);
+            }
+
+            // Mark migration as completed even if generation failed (to prevent retrying on every reload)
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                // If configuration key is not registered, fall back to workspaceState
+                await context?.workspaceState.update(migrationKey, true);
+            }
+
             return;
         }
 
-        console.log('[Migration] Migrating chatSystemMessage from settings.json to metadata.json...');
+        // Re-check that metadata.json doesn't already have a chatSystemMessage before overwriting
+        // (in case it was generated between the first check and now)
+        const recheckResult = await MetadataManager.safeReadMetadata(workspaceFolder);
+        const recheckChatSystemMessage = recheckResult.success && recheckResult.metadata
+            ? (recheckResult.metadata as any).chatSystemMessage as string | undefined
+            : undefined;
+
+        if (recheckChatSystemMessage && recheckChatSystemMessage.trim() !== "") {
+            console.log('[Migration] chatSystemMessage already exists in metadata.json, skipping migration from settings.json');
+            // Mark migration as completed since value already exists
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                // If configuration key is not registered, fall back to workspaceState
+                await context?.workspaceState.update(migrationKey, true);
+            }
+            return;
+        }
+
+        debug('[Migration] Migrating chatSystemMessage from settings.json to metadata.json...');
 
         // Write to metadata.json
         const result = await MetadataManager.setChatSystemMessage(valueToMigrate as string, workspaceFolder);
@@ -317,6 +419,14 @@ export const migration_chatSystemMessageToMetadata = async () => {
         }
 
         console.log('[Migration] chatSystemMessage migration completed successfully');
+
+        // Mark migration as completed
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch (e) {
+            // If configuration key is not registered, fall back to workspaceState
+            await context?.workspaceState.update(migrationKey, true);
+        }
     } catch (error) {
         console.error('[Migration] Error during chatSystemMessage to metadata.json migration:', error);
     }
