@@ -1304,10 +1304,15 @@ const CodexCellEditor: React.FC = () => {
     // Calculate progress for each chapter based on translation and validation status
     const calculateChapterProgress = useCallback(
         (chapterNum: number): ProgressPercentages => {
-            // Filter cells for the specific chapter (excluding paratext and merged cells)
+            // Filter cells for the specific chapter (excluding paratext, merged, and style cells)
             const cellsForChapter = translationUnits.filter((cell) => {
                 const cellId = cell?.cellMarkers?.[0];
-                if (!cellId || cellId.startsWith("paratext-") || cell.merged) {
+                if (
+                    !cellId ||
+                    cellId.startsWith("paratext-") ||
+                    cell.merged ||
+                    cell.cellType === CodexCellTypes.STYLE
+                ) {
                     return false;
                 }
                 const sectionCellIdParts = cellId.split(" ")?.[1]?.split(":");

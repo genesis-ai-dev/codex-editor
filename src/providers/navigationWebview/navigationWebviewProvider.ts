@@ -13,6 +13,7 @@ import { addMetadataEdit } from "../../utils/editMapUtils";
 import { getAuthApi } from "../../extension";
 import { CustomNotebookMetadata } from "../../../types";
 import { getCorrespondingSourceUri, findCodexFilesByBookAbbr } from "../../utils/codexNotebookUtils";
+import { CodexCellTypes } from "../../../types/enums";
 
 interface CodexMetadata {
     id: string;
@@ -435,7 +436,10 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const fileNameAbbr = path.basename(uri.fsPath, ".codex");
 
             // Calculate progress based on cells with values
-            const unmergedCells = notebookData.cells.filter((cell) => !cell.metadata.data?.merged);
+            // Exclude merged cells, paratext cells, and style cells from progress calculations
+            const unmergedCells = notebookData.cells.filter((cell) =>
+                !cell.metadata.data?.merged && cell.metadata.type !== CodexCellTypes.PARATEXT && cell.metadata.type !== CodexCellTypes.STYLE
+            );
             const totalCells = unmergedCells.length;
             const cellsWithValues = unmergedCells.filter(
                 (cell) =>
