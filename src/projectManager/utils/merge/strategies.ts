@@ -17,11 +17,6 @@ export const filePatternsToResolve: Record<ConflictResolutionStrategy, string[]>
         ".project/dictionary.sqlite",
     ],
 
-    // Project metadata merge - merge metadata.json using edit history (latest timestamp wins)
-    [ConflictResolutionStrategy.PROJECT_METADATA_MERGE]: [
-        "metadata.json",
-    ],
-
     // Mergeable Comment arrays on commentThread array - combine recursively and deduplicate
     [ConflictResolutionStrategy.ARRAY]: [".project/comments.json"],
 

@@ -26,7 +26,7 @@ suite("Merge Strategies Test Suite", () => {
         // Test SPECIAL strategy for metadata.json (3-way merge with custom healing list logic)
         const metadataFile = "metadata.json";
         const strategy1 = determineStrategy(metadataFile);
-        assert.ok(strategy1 === ConflictResolutionStrategy.SPECIAL || strategy1 === ConflictResolutionStrategy.PROJECT_METADATA_MERGE);
+        assert.strictEqual(strategy1, ConflictResolutionStrategy.SPECIAL);
 
         // Comments currently default to OVERRIDE in determineStrategy
         const commentsFile = ".project/comments.json";

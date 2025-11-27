@@ -9,7 +9,6 @@ export enum ConflictResolutionStrategy {
     CODEX_CUSTOM_MERGE = "codex", // Special merge process for cell arrays
     JSONL = "jsonl", // Combine and deduplicate JSONL files
     JSON_MERGE_3WAY = "json-merge-3way", // 3-way merge for JSON settings with chatSystemMessage tie-breaker
-    PROJECT_METADATA_MERGE = "project-metadata-merge", // Merge metadata.json using edit history (latest timestamp wins)
 }
 
 export interface SmartEdit {

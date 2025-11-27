@@ -333,26 +333,6 @@ export async function resolveConflictFile(
                 break;
             }
 
-            // PROJECT_METADATA_MERGE = "project-metadata-merge", // Merge metadata.json using edit history
-            case ConflictResolutionStrategy.PROJECT_METADATA_MERGE: {
-                debugLog("Resolving project metadata merge for:", conflict.filepath);
-                try {
-                    const ourMetadata = JSON.parse(conflict.ours || '{}');
-                    const theirMetadata = JSON.parse(conflict.theirs || '{}');
-                    const resolvedMetadata = resolveProjectMetadataConflictsUsingEditHistory(
-                        ourMetadata,
-                        theirMetadata
-                    );
-                    resolvedContent = JSON.stringify(resolvedMetadata, null, 4);
-                    debugLog("Successfully merged metadata.json using edit history");
-                } catch (error) {
-                    console.error("[Project Metadata Merge] Error merging metadata.json:", error);
-                    // Fallback to our version if merge fails
-                    resolvedContent = conflict.ours;
-                }
-                break;
-            }
-
             default:
                 resolvedContent = conflict.ours; // Default to our version
         }
@@ -653,101 +633,6 @@ function resolveMetadataConflictsUsingEditHistoryForFile(
 
         debugLog(`Applied most recent edit for ${pathKey}: ${mostRecentEdit.value}`);
     }
-
-    return resolvedMetadata;
-}
-
-/**
- * Helper function to apply a project metadata edit to ProjectMetadata based on its editMap path
- * Uses parent paths - editMap points to parent, value is entire parent object
- */
-function applyProjectEditToMetadata(metadata: any, edit: ProjectEditHistory): void { // TODO: update any type so we know what fields are valid. This will take a bit of work because we are using the keys to extract the values
-    if (!edit.editMap || !Array.isArray(edit.editMap)) {
-        return;
-    }
-
-    const path = edit.editMap;
-    const value = edit.value;
-
-    try {
-        if (path.length === 1) {
-            // Top-level field (e.g., ["projectName"], ["languages"])
-            const field = path[0];
-            metadata[field] = value;
-        } else if (path.length === 2 && path[0] === "meta") {
-            // Meta field edit (e.g., ["meta", "validationCount"], ["meta", "generator"])
-            if (!metadata.meta) {
-                metadata.meta = {};
-            }
-            if (path[1] === "generator") {
-                // Set entire generator object
-                metadata.meta.generator = value;
-            } else {
-                // Set specific meta field
-                metadata.meta[path[1]] = value;
-            }
-        }
-    } catch (error) {
-        debugLog(`Error applying project edit to metadata: ${error}`);
-    }
-}
-
-/**
- * Resolves conflicts in metadata.json using edit history
- * Groups edits by editMap path, sorts by timestamp (latest wins), applies most recent edit per path
- */
-function resolveProjectMetadataConflictsUsingEditHistory(
-    ourMetadata: CustomNotebookMetadata,
-    theirMetadata: CustomNotebookMetadata
-): CustomNotebookMetadata {
-    // Combine all edits from both metadata objects (ProjectEditHistory type)
-    const allEdits: ProjectEditHistory[] = [
-        ...(ourMetadata.edits || []),
-        ...(theirMetadata.edits || [])
-    ].sort((a, b) => a.timestamp - b.timestamp);
-
-    // Group edits by their editMap path
-    const editsByPath = new Map<string, ProjectEditHistory[]>();
-    for (const edit of allEdits) {
-        if (edit.editMap && Array.isArray(edit.editMap)) {
-            const pathKey = edit.editMap.join('.');
-            if (!editsByPath.has(pathKey)) {
-                editsByPath.set(pathKey, []);
-            }
-            editsByPath.get(pathKey)!.push(edit);
-        }
-    }
-
-    // Start with our metadata as the base
-    const resolvedMetadata = JSON.parse(JSON.stringify(ourMetadata));
-
-    // For each metadata path, apply the most recent edit
-    for (const [pathKey, edits] of editsByPath.entries()) {
-        if (edits.length === 0) continue;
-
-        // Find the most recent edit for this path (latest timestamp wins)
-        const sorted = edits.sort((a, b) => {
-            const timeDiff = b.timestamp - a.timestamp;
-            if (timeDiff !== 0) return timeDiff;
-            // Same timestamp: prefer USER_EDIT over INITIAL_IMPORT
-            const aIsUser = a.type === EditType.USER_EDIT;
-            const bIsUser = b.type === EditType.USER_EDIT;
-            const aIsInitial = a.type === EditType.INITIAL_IMPORT;
-            const bIsInitial = b.type === EditType.INITIAL_IMPORT;
-            if (aIsUser !== bIsUser) return bIsUser ? 1 : -1; // b is USER_EDIT comes first
-            if (aIsInitial !== bIsInitial) return aIsInitial ? 1 : -1; // push INITIAL_IMPORT later
-            return 0;
-        });
-        const mostRecentEdit = sorted[0];
-
-        // Apply the edit to the resolved metadata
-        applyProjectEditToMetadata(resolvedMetadata, mostRecentEdit);
-
-        debugLog(`Applied most recent edit for ${pathKey}: ${JSON.stringify(mostRecentEdit.value)}`);
-    }
-
-    // Combine edits arrays and deduplicate
-    resolvedMetadata.edits = deduplicateFileMetadataEdits(allEdits);
 
     return resolvedMetadata;
 }
@@ -1624,6 +1509,95 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
         const ours = JSON.parse(conflict.ours || "{}");
         const theirs = JSON.parse(conflict.theirs || "{}");
 
+        // First, handle edit history merge if both versions have edits arrays
+        let resolvedMetadata: any;
+        if (ours.edits && Array.isArray(ours.edits) && theirs.edits && Array.isArray(theirs.edits)) {
+            // Use edit history approach
+            // Combine all edits from both metadata objects (ProjectEditHistory type)
+            const allEdits: ProjectEditHistory[] = [
+                ...(ours.edits || []),
+                ...(theirs.edits || [])
+            ].sort((a, b) => a.timestamp - b.timestamp);
+
+            // Group edits by their editMap path
+            const editsByPath = new Map<string, ProjectEditHistory[]>();
+            for (const edit of allEdits) {
+                if (edit.editMap && Array.isArray(edit.editMap)) {
+                    const pathKey = edit.editMap.join('.');
+                    if (!editsByPath.has(pathKey)) {
+                        editsByPath.set(pathKey, []);
+                    }
+                    editsByPath.get(pathKey)!.push(edit);
+                }
+            }
+
+            // Start with our metadata as the base
+            resolvedMetadata = JSON.parse(JSON.stringify(ours));
+
+            // Helper function to apply a project metadata edit
+            const applyProjectEditToMetadata = (metadata: any, edit: ProjectEditHistory): void => {
+                if (!edit.editMap || !Array.isArray(edit.editMap)) {
+                    return;
+                }
+
+                const path = edit.editMap;
+                const value = edit.value;
+
+                try {
+                    if (path.length === 1) {
+                        // Top-level field (e.g., ["projectName"], ["languages"])
+                        const field = path[0];
+                        metadata[field] = value;
+                    } else if (path.length === 2 && path[0] === "meta") {
+                        // Meta field edit (e.g., ["meta", "validationCount"], ["meta", "generator"])
+                        if (!metadata.meta) {
+                            metadata.meta = {};
+                        }
+                        if (path[1] === "generator") {
+                            // Set entire generator object
+                            metadata.meta.generator = value;
+                        } else {
+                            // Set specific meta field
+                            metadata.meta[path[1]] = value;
+                        }
+                    }
+                } catch (error) {
+                    debugLog(`Error applying project edit to metadata: ${error}`);
+                }
+            };
+
+            // For each metadata path, apply the most recent edit
+            for (const [pathKey, edits] of editsByPath.entries()) {
+                if (edits.length === 0) continue;
+
+                // Find the most recent edit for this path (latest timestamp wins)
+                const sorted = edits.sort((a, b) => {
+                    const timeDiff = b.timestamp - a.timestamp;
+                    if (timeDiff !== 0) return timeDiff;
+                    // Same timestamp: prefer USER_EDIT over INITIAL_IMPORT
+                    const aIsUser = a.type === EditType.USER_EDIT;
+                    const bIsUser = b.type === EditType.USER_EDIT;
+                    const aIsInitial = a.type === EditType.INITIAL_IMPORT;
+                    const bIsInitial = b.type === EditType.INITIAL_IMPORT;
+                    if (aIsUser !== bIsUser) return bIsUser ? 1 : -1; // b is USER_EDIT comes first
+                    if (aIsInitial !== bIsInitial) return aIsInitial ? 1 : -1; // push INITIAL_IMPORT later
+                    return 0;
+                });
+                const mostRecentEdit = sorted[0];
+
+                // Apply the edit to the resolved metadata
+                applyProjectEditToMetadata(resolvedMetadata, mostRecentEdit);
+
+                debugLog(`Applied most recent edit for ${pathKey}: ${JSON.stringify(mostRecentEdit.value)}`);
+            }
+
+            // Combine edits arrays and deduplicate
+            resolvedMetadata.edits = deduplicateFileMetadataEdits(allEdits);
+        } else {
+            // Fallback to starting with ours if no edit history
+            resolvedMetadata = JSON.parse(JSON.stringify(ours));
+        }
+
         // 1. Resolve initiateRemoteHealingFor (Complex Merge Logic)
         // Helper to extract healing list
         const getList = (obj: any) => (obj?.meta?.initiateRemoteHealingFor || []) as any[];
@@ -1751,10 +1725,14 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             ]);
 
             for (const key of keys) {
-                // Intercept specific path for initiateRemoteHealingFor
+                // Skip initiateRemoteHealingFor - already handled above
                 if (path.length === 1 && path[0] === 'meta' && key === 'initiateRemoteHealingFor') {
-                    result[key] = mergedHealingList;
-                    continue;
+                    continue; // Skip, already merged above
+                }
+
+                // Skip edits array - already handled by edit history merge
+                if (key === 'edits' && path.length === 0) {
+                    continue; // Skip, already merged above
                 }
 
                 const bVal = baseObj?.[key];
@@ -1782,7 +1760,26 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             return result;
         };
 
-        const finalResult = mergeObjects(base, ours, theirs);
+        // Apply the merged healing list to resolved metadata
+        if (!resolvedMetadata.meta) {
+            resolvedMetadata.meta = {};
+        }
+        resolvedMetadata.meta.initiateRemoteHealingFor = mergedHealingList;
+
+        // Merge other fields (excluding edits and initiateRemoteHealingFor which are already handled)
+        const otherFieldsMerged = mergeObjects(base, ours, theirs);
+
+        // Combine: use edit history result as base, then overlay other merged fields
+        // But preserve edits and initiateRemoteHealingFor from our specialized merges
+        const finalResult = {
+            ...otherFieldsMerged,
+            edits: resolvedMetadata.edits, // From edit history merge
+            meta: {
+                ...otherFieldsMerged.meta,
+                initiateRemoteHealingFor: mergedHealingList // From specialized merge
+            }
+        };
+
         return JSON.stringify(finalResult, null, 4);
 
     } catch (error) {
