@@ -661,7 +661,7 @@ function resolveMetadataConflictsUsingEditHistoryForFile(
  * Helper function to apply a project metadata edit to ProjectMetadata based on its editMap path
  * Uses parent paths - editMap points to parent, value is entire parent object
  */
-function applyProjectEditToMetadata(metadata: any, edit: ProjectEditHistory): void {
+function applyProjectEditToMetadata(metadata: any, edit: ProjectEditHistory): void { // TODO: update any type so we know what fields are valid. This will take a bit of work because we are using the keys to extract the values
     if (!edit.editMap || !Array.isArray(edit.editMap)) {
         return;
     }
@@ -699,7 +699,7 @@ function applyProjectEditToMetadata(metadata: any, edit: ProjectEditHistory): vo
 function resolveProjectMetadataConflictsUsingEditHistory(
     ourMetadata: CustomNotebookMetadata,
     theirMetadata: CustomNotebookMetadata
-): any {
+): CustomNotebookMetadata {
     // Combine all edits from both metadata objects (ProjectEditHistory type)
     const allEdits: ProjectEditHistory[] = [
         ...(ourMetadata.edits || []),
