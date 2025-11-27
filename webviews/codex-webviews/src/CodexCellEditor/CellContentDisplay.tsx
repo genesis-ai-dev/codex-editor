@@ -1251,7 +1251,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 >
                     {initialUnresolvedCommentsCount > 0 ? (
                         <CommentsBadge
-                            className="invisible group-hover:visible"
                             cellId={cellIds[0]}
                             unresolvedCount={initialUnresolvedCommentsCount}
                         />
