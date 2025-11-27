@@ -651,6 +651,11 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         })
     );
 
+    const updateMetadataFileCommand = vscode.commands.registerCommand(
+        "codex-project-manager.updateMetadataFile",
+        updateMetadataFile
+    );
+
     // Register event listener for configuration changes
     const onDidChangeConfigurationListener = vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration("codex-project-manager")) {
@@ -696,6 +701,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         openBookNameEditorCommand,
         importLocalUsfmSourceBibleCommand,
         updateGitignoreCommand,
+        updateMetadataFileCommand,
         changeUserEmailCommand,
         onDidChangeConfigurationListener,
         onDidChangeExtensionsListener,
