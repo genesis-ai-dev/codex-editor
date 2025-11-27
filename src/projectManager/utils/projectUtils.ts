@@ -621,7 +621,8 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
                 }
             }
         } catch (error) {
-            console.error("Error reading source text Bibles:", error);
+            // Directory might not exist for new projects, which is fine
+            // console.error("Error reading source text Bibles:", error);
         }
 
         try {
@@ -632,7 +633,8 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
                 }
             }
         } catch (error) {
-            console.error("Error reading target text Bibles:", error);
+            // Directory might not exist for new projects, which is fine
+            // console.error("Error reading target text Bibles:", error);
         }
 
         const currentWorkspaceFolderName = workspaceFolder.name;
