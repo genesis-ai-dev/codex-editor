@@ -30,7 +30,7 @@ const extensionConfig = {
         "fts5-sql-bundle": "commonjs fts5-sql-bundle",
         vm: "commonjs vm",
         encoding: "commonjs encoding",
-        tar: "commonjs tar",
+        // tar: "commonjs tar", // Removed - let webpack bundle tar and its dependencies
     },
     resolve: {
         // support reading TypeScript and JavaScript files, 📖 -> https://github.com/TypeStrong/ts-loader

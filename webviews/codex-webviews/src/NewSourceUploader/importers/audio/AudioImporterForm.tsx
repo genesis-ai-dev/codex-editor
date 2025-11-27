@@ -143,7 +143,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
-            
+
             if (message.command === "audioFileSelected") {
                 const data = message as AudioFileSelectedMessage;
                 if (data.error) {
@@ -174,7 +174,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                     }
                     setIsLoading(false);
                     setError(null);
-                    
+
                     if (!documentName || documentName === "AudioDocument") {
                         const nameWithoutExt = data.fileName.replace(/\.[^/.]+$/, "");
                         setDocumentName(nameWithoutExt);
@@ -307,7 +307,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
         setIsLoading(true);
         setError(null);
         setAudioFile(null);
-        vscode.postMessage({ 
+        vscode.postMessage({
             command: "selectAudioFile",
             thresholdDb,
             minDuration,

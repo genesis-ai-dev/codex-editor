@@ -62,7 +62,7 @@ export interface AudioSegment {
  */
 async function getAudioDuration(filePath: string): Promise<number> {
     const ffprobeBinaryPath = await getFFprobePath(extensionContext);
-    
+
     return new Promise((resolve, reject) => {
         const spawn = getSpawn();
         if (!spawn) {
@@ -105,7 +105,7 @@ async function generateWaveformPeaks(
     sampleRate: number = 8000
 ): Promise<number[]> {
     const ffmpegBinaryPath = await getFFmpegPath(extensionContext);
-    
+
     return new Promise((resolve, reject) => {
         const spawn = getSpawn();
         if (!spawn) {
@@ -172,7 +172,7 @@ export async function detectSilence(
     minDuration: number = 0.5
 ): Promise<AudioSegment[]> {
     const ffmpegBinaryPath = await getFFmpegPath(extensionContext);
-    
+
     return new Promise((resolve, reject) => {
         const spawn = getSpawn();
         if (!spawn) {

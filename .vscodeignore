@@ -19,6 +19,8 @@
 !node_modules/@vscode/codicons/dist/**
 !node_modules/vscode-languageserver-textdocument
 !node_modules/vscode-uri
+# tar is now bundled by webpack, no need to include node_modules
+!node_modules/fts5-sql-bundle/**
 
 !CHANGELOG.md
 !LICENSE
