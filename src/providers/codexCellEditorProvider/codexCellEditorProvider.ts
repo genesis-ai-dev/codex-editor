@@ -575,7 +575,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             const validationCount = config.get("validationCount", 1);
             const validationCountAudio = config.get("validationCountAudio", 1);
             const authApi = await this.getAuthApi();
-            const userInfo = await authApi?.getUserInfo();
+            
+            let userInfo;
+            try {
+                if (authApi?.getAuthStatus()?.isAuthenticated) {
+                    userInfo = await authApi?.getUserInfo();
+                }
+            } catch (error) {
+                console.warn("Failed to fetch user info:", error);
+            }
+            
             const username = userInfo?.username || "anonymous";
 
             // Check authentication status

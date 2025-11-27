@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
+import { useNetworkState } from "@uidotdev/usehooks";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Alert, AlertDescription } from "../components/ui/alert";
@@ -84,6 +85,9 @@ function MainMenu() {
         isAuthenticated: false,
         progressData: null,
     });
+
+    const network = useNetworkState();
+    const isOnline = network?.online ?? true;
 
     const [isTextDisplaySettingsOpen, setIsTextDisplaySettingsOpen] = useState(false);
     // Speech-to-text settings moved to Copilot Settings panel
@@ -217,6 +221,10 @@ function MainMenu() {
         } catch (error) {
             console.error("Could not execute project action:", command, error);
         }
+    };
+
+    const handleLogin = () => {
+        handleProjectAction("openLoginFlow");
     };
 
     const handleToggleAutoSync = (enabled: boolean) => {
@@ -686,6 +694,7 @@ function MainMenu() {
                                     onToggleAutoSync={handleToggleAutoSync}
                                     onChangeSyncDelay={handleChangeSyncDelay}
                                     onTriggerSync={handleTriggerSync}
+                                    onLogin={handleLogin}
                                 />
                             )}
 
@@ -733,10 +742,18 @@ function MainMenu() {
                                                 </p>
                                             </div>
                                             <Button
-                                                onClick={() =>
-                                                    handleProjectAction("publishProject")
+                                                onClick={() => {
+                                                    if (!state.isAuthenticated) {
+                                                        handleProjectAction("openLoginFlow");
+                                                    } else {
+                                                        handleProjectAction("publishProject");
                                                 }
-                                                disabled={projectState.isPublishingInProgress}
+                                                }}
+                                                disabled={
+                                                    projectState.isPublishingInProgress ||
+                                                    !isOnline ||
+                                                    !state.isFrontierExtensionEnabled
+                                                }
                                                 className="button-primary w-full h-12 font-bold text-base shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
                                             >
                                                 <i
@@ -749,8 +766,17 @@ function MainMenu() {
                                                 {projectState.isPublishingInProgress
                                                     ? projectState.publishingStage ||
                                                       "Publishing..."
+                                                    : !isOnline
+                                                    ? "Offline"
+                                                    : !state.isFrontierExtensionEnabled
+                                                    ? "Extension Required"
+                                                    : !state.isAuthenticated
+                                                    ? "Log in to Publish"
                                                     : "Publish to Cloud"}
-                                                {!projectState.isPublishingInProgress && (
+                                                {!projectState.isPublishingInProgress &&
+                                                    isOnline &&
+                                                    state.isFrontierExtensionEnabled &&
+                                                    state.isAuthenticated && (
                                                     <i className="codicon codicon-arrow-right ml-3 h-4 w-4" />
                                                 )}
                                             </Button>

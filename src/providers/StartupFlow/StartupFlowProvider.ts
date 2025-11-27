@@ -164,6 +164,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     };
     private metadataWatcher?: vscode.FileSystemWatcher;
     private _preflightPromise?: Promise<PreflightState>;
+    private _forceLogin: boolean = false;
+
+    public setForceLogin(force: boolean) {
+        this._forceLogin = force;
+    }
 
     constructor(private readonly context: vscode.ExtensionContext) {
         // Initialize components in parallel without waiting
@@ -178,6 +183,61 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 },
             })
         );
+    }
+
+    public resolveCustomTextEditor(
+        document: vscode.TextDocument,
+        webviewPanel: vscode.WebviewPanel,
+        _token: vscode.CancellationToken
+    ): void | Thenable<void> {
+        this.webviewPanel = webviewPanel;
+        this.disposables.push(webviewPanel);
+
+        // Set options before content
+        safeSetOptions(webviewPanel.webview, {
+            enableScripts: true,
+            localResourceRoots: [
+                vscode.Uri.joinPath(this.context.extensionUri, "media"),
+                vscode.Uri.joinPath(this.context.extensionUri, "webviews", "codex-webviews", "dist"),
+                vscode.Uri.file(path.join(this.context.extensionUri.fsPath, 'node_modules', '@vscode/codicons', 'dist')),
+            ],
+        });
+
+        // Set initial HTML
+        safeSetHtml(webviewPanel.webview, getWebviewHtml(webviewPanel.webview, this.context, {
+            title: "Startup Flow",
+            scriptPath: ["StartupFlow", "index.js"],
+        }), "StartupFlow");
+
+        // Set up message handling
+        webviewPanel.webview.onDidReceiveMessage((message) => {
+            this.handleMessage(message);
+        });
+
+        // Track visibility state
+        const visibilityDisposable = webviewPanel.onDidChangeViewState((e) => {
+            const isVisible = e.webviewPanel.visible;
+            StartupFlowGlobalState.instance.setOpen(isVisible);
+
+            // When becoming visible again, refresh the list and progress data
+            if (isVisible) {
+                this.sendList(webviewPanel);
+                this.fetchAndSendProgressData(webviewPanel);
+            }
+        });
+        this.disposables.push(visibilityDisposable);
+
+        // Dispose listener
+        webviewPanel.onDidDispose(() => {
+            StartupFlowGlobalState.instance.setOpen(false);
+            this.webviewPanel = undefined;
+
+            // Reset force login flag when panel is closed
+            this._forceLogin = false;
+        });
+
+        // Set global state to open
+        StartupFlowGlobalState.instance.setOpen(true);
     }
 
     /**
@@ -202,8 +262,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     /**
      * Get cached preflight state or run check if not available
      */
-    private async getCachedPreflightState(): Promise<PreflightState> {
-        if (this._preflightPromise) {
+    private async getCachedPreflightState(forceRefresh: boolean = false): Promise<PreflightState> {
+        if (this._preflightPromise && !forceRefresh) {
             return this._preflightPromise;
         }
         this._preflightPromise = this.runPreflightCheck();
@@ -294,6 +354,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         [StartupFlowEvents.AUTH_LOGGED_IN]: [
                             {
                                 target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
+                                guard: ({ context }) => this._forceLogin,
+                            },
+                            {
+                                target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
                                 guard: ({ context }) =>
                                     !context.authState?.workspaceState?.isWorkspaceOpen || false,
                             },
@@ -314,9 +378,30 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     ),
                             },
                         ],
-                        [StartupFlowEvents.SKIP_AUTH]: {
-                            target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
-                        },
+                        [StartupFlowEvents.SKIP_AUTH]: [
+                            {
+                                target: StartupFlowStates.ALREADY_WORKING,
+                                guard: ({ context }) => {
+                                    // Double check the actual workspace state from VS Code API, 
+                                    // as the context might be stale if preflight hasn't re-run
+                                    const hasOpenWorkspace = !!(vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0);
+                                    // Also check the context state for consistency
+                                    const contextSaysOpen = context.authState?.workspaceState?.isWorkspaceOpen ?? false;
+
+                                    debugLog("SKIP_AUTH guard check:", { hasOpenWorkspace, contextSaysOpen });
+
+                                    // Trust the VS Code API truth over potentially stale context
+                                    return hasOpenWorkspace;
+                                },
+                            },
+                            {
+                                target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
+                            },
+                        ],
+                        [StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA]:
+                            StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
+                        [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]:
+                            StartupFlowStates.ALREADY_WORKING,
                     },
                 },
                 [StartupFlowStates.OPEN_OR_CREATE_PROJECT]: {
@@ -1336,7 +1421,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     }
 
     // Add method to fetch project progress data
-    private async fetchAndSendProgressData() {
+    private async fetchAndSendProgressData(webviewPanel?: vscode.WebviewPanel) {
         try {
             // Check if frontier authentication is available
             if (!this.frontierApi) {
@@ -1372,81 +1457,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         } catch (error) {
             console.error("Error fetching progress data:", error);
         }
-    }
-
-    public async resolveCustomTextEditor(
-        document: vscode.TextDocument,
-        webviewPanel: vscode.WebviewPanel,
-        _token: vscode.CancellationToken
-    ): Promise<void> {
-        // Setup metadata watcher
-        this.setupMetadataWatcher(webviewPanel);
-
-        // Dispose of previous webview panel if it exists
-        this.webviewPanel?.dispose();
-        this.webviewPanel = webviewPanel;
-
-        // Notify that startup flow is now open
-        StartupFlowGlobalState.instance.setOpen(true);
-
-        // Add the webview panel to disposables
-        this.disposables.push(
-            webviewPanel.onDidDispose(() => {
-                debugLog("Webview panel disposed");
-                this.webviewPanel = undefined;
-                // Notify that startup flow is now closed
-                StartupFlowGlobalState.instance.setOpen(false);
-            })
-        );
-
-        // Set up webview options first
-        webviewPanel.webview.options = {
-            enableScripts: true,
-            localResourceRoots: [
-                vscode.Uri.joinPath(this.context.extensionUri, "dist"),
-                vscode.Uri.joinPath(this.context.extensionUri, "src", "assets"),
-                vscode.Uri.joinPath(
-                    this.context.extensionUri,
-                    "node_modules",
-                    "@vscode",
-                    "codicons",
-                    "dist"
-                ),
-                vscode.Uri.joinPath(
-                    this.context.extensionUri,
-                    "webviews",
-                    "codex-webviews",
-                    "dist"
-                ),
-            ],
-        };
-
-        // Then generate the HTML with the updated webview
-        webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
-
-        // Send initial state immediately after webview is ready
-        webviewPanel.webview.onDidReceiveMessage(async (message) => {
-            try {
-                await this.handleMessage(message);
-            } catch (error) {
-                console.error("Error handling message:", error);
-                safePostMessageToPanel(webviewPanel, {
-                    command: "error",
-                    message: `Failed to handle action: ${(error as Error).message}`,
-                });
-            }
-        });
-
-        // Signal webview is ready faster by deferring expensive operations
-        safePostMessageToPanel(webviewPanel, { command: "webview.ready" });
-    }
-
-    private getHtmlForWebview(webview: vscode.Webview): string {
-        return getWebviewHtml(webview, this.context, {
-            title: "Startup Flow",
-            scriptPath: ["StartupFlow", "index.js"],
-            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}' 'strict-dynamic' https://www.youtube.com; frame-src https://www.youtube.com; worker-src ${webview.cspSource} blob:; connect-src https://languagetool.org/api/; img-src ${webview.cspSource} https: data:; font-src ${webview.cspSource}; media-src ${webview.cspSource} https: blob:;`
-        });
     }
 
     // Helper function to detect binary files
@@ -1705,6 +1715,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         } as MessagesFromStartupFlowProvider);
                         // Optionally wait for confirm message from webview
                     } else {
+                        await this.context.globalState.update("pendingProjectCreate", true);
+                        await this.context.globalState.update("pendingProjectCreateName", sanitized);
                         await createWorkspaceWithProjectName(sanitized);
                     }
                 } catch (error) {
@@ -1715,6 +1727,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             case "project.createEmpty.confirm": {
                 const { proceed, projectName } = message as any;
                 if (proceed && projectName) {
+                    await this.context.globalState.update("pendingProjectCreate", true);
+                    await this.context.globalState.update("pendingProjectCreateName", projectName);
                     await createWorkspaceWithProjectName(projectName);
                 }
                 break;
@@ -1764,12 +1778,21 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
 
                 // Use cached preflight state instead of creating new PreflightCheck
-                const preflightState = await this.getCachedPreflightState();
+                // Force refresh if we are forcing login, to ensure auth state is up to date
+                const shouldRefresh = this._forceLogin;
+                const preflightState = await this.getCachedPreflightState(shouldRefresh);
                 debugLog("Sending cached preflight state:", preflightState);
                 this.stateMachine.send({
                     type: StartupFlowEvents.UPDATE_AUTH_STATE,
                     data: preflightState.authState,
                 });
+
+                // If forcing login, stay in LOGIN_REGISTER (initial state) and don't auto-redirect
+                if (this._forceLogin) {
+                    debugLog("Forcing login flow - skipping auto-redirects");
+                    this._forceLogin = false; // Reset flag
+                    return;
+                }
 
                 // Check workspace status
                 if (!preflightState.workspaceState.isOpen) {

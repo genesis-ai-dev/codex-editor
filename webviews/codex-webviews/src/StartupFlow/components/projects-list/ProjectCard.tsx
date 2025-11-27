@@ -219,7 +219,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                     <Button
                         variant="outline"
                         size="sm"
-                        className={cn("h-6 text-xs px-2", isStrategyHighlighted && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm")}
+                        className={cn("h-5 text-[10px] px-2", isStrategyHighlighted && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm")}
                         disabled={disableControls}
                         title="Media Files Download Strategy"
                     >
@@ -288,7 +288,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         size="sm"
                         onClick={() => onOpenProject(project)}
                         className={cn(
-                            "h-6 text-xs px-2",
+                            "h-5 text-[10px] px-2",
                             (isChangingStrategy || isOpening || isHealing) && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
                         )}
                         disabled={disableControls}
@@ -323,7 +323,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         size="sm"
                         onClick={() => onCloneProject({ ...project, mediaStrategy })}
                         className={cn(
-                            "h-6 text-xs px-2",
+                            "h-5 text-[10px] px-2",
                             (isChangingStrategy || isCloning) && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
                         )}
                         disabled={disableControls}
@@ -361,7 +361,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
             <div
                 key={`${project.name}-${project.gitOriginUrl || "no-url"}`}
                 className={cn(
-                    "flex items-center justify-between py-2 px-3 transition-colors duration-200 border-b last:border-b-0",
+                    "flex items-center justify-between py-1.5 px-3 transition-colors duration-200 border-b last:border-b-0",
                     !isApplyingForThisProject && "hover:bg-muted/30",
                     isNewlyAdded && "bg-blue-50/50",
                     isStatusChanged && "bg-green-50/50"
@@ -371,7 +371,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                     <div className="relative flex-shrink-0">
                         <i
                             className={cn(
-                                "codicon text-sm",
+                                "codicon text-xs",
                                 status.icon,
                                 status.className,
                                 "transition-all duration-300"
@@ -380,18 +380,18 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         />
                     </div>
                     <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <span className="font-normal truncate transition-colors duration-200 text-sm">
+                        <span className="font-normal truncate transition-colors duration-200 text-xs">
                             {cleanName || project.name}
                         </span>
                         {isUnpublished && (
-                            <Badge variant="outline" className="text-xs px-1 py-0">
+                            <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">
                                 Unpublished
                             </Badge>
                         )}
                         {isNewlyAdded && (
                             <Badge
                                 variant="default"
-                                className="text-xs bg-blue-500 animate-pulse px-1 py-0"
+                                className="text-[10px] bg-blue-500 animate-pulse px-1 py-0 h-4"
                             >
                                 New
                             </Badge>
@@ -399,7 +399,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         {isStatusChanged && (
                             <Badge
                                 variant="default"
-                                className="text-xs bg-green-500 animate-pulse px-1 py-0"
+                                className="text-[10px] bg-green-500 animate-pulse px-1 py-0 h-4"
                             >
                                 Updated
                             </Badge>
@@ -409,10 +409,10 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                 <div className="flex items-center gap-2">
                     {project.completionPercentage !== undefined ? (
                         <div className="flex items-center gap-1">
-                            <span className="text-xs font-medium text-muted-foreground">
+                            <span className="text-[10px] font-medium text-muted-foreground">
                                 {project.completionPercentage.toFixed(0)}%
                             </span>
-                            <div className="w-12 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                            <div className="w-10 h-1 bg-gray-200 rounded-full overflow-hidden">
                                 <div
                                     className="h-full bg-green-500 transition-all duration-500 ease-out"
                                     style={{
@@ -423,8 +423,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         </div>
                     ) : !isProgressDataLoaded ? (
                         <div className="flex items-center gap-1">
-                            <Skeleton className="h-3 w-5" />
-                            <Skeleton className="h-1.5 w-12" />
+                            <Skeleton className="h-3 w-4" />
+                            <Skeleton className="h-1 w-10" />
                         </div>
                     ) : null}
                     {renderProjectActions(project)}
@@ -438,12 +438,12 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                     [project.name]: !prev[project.name],
                                 }))
                             }
-                            className="h-6 w-6 p-0 transition-transform duration-200"
+                            className="h-5 w-5 p-0 transition-transform duration-200"
                             disabled={disableControls}
                         >
                             <i
                                 className={cn(
-                                    "codicon codicon-chevron-down transition-transform duration-200 text-xs",
+                                    "codicon codicon-chevron-down transition-transform duration-200 text-[10px]",
                                     isExpanded && "rotate-180"
                                 )}
                             />

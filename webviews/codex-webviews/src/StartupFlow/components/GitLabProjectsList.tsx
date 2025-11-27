@@ -364,7 +364,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     const filteredUngroupedProjects = filterProjects(ungroupedProjects || []);
 
     return (
-        <div className="flex flex-col gap-3 h-[calc(100vh-130px)] w-full">
+        <div className="flex flex-col gap-3 w-full flex-1 overflow-hidden min-h-0">
             <ProjectsHeader
                 searchQuery={searchQuery}
                 setSearchQuery={setSearchQuery}
@@ -376,7 +376,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             />
 
             {isLoading ? (
-                <div className="p-3 space-y-3">
+                <div className="p-3 space-y-3 flex-1 overflow-y-auto">
                     {Array.from({ length: 5 }).map((_, i) => (
                         <ProjectCardSkeleton key={i} />
                     ))}

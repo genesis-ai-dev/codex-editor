@@ -777,32 +777,51 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                 </div>
             )}
             <div className="flex justify-between w-full gap-2 items-center">
-                <VSCodeButton
+                        <VSCodeButton
                     appearance="secondary"
-                    onClick={onSkip}
-                    disabled={isLoading}
+                            onClick={onSkip}
+                            disabled={isLoading}
                 >
                     Skip Login
                     <i className="codicon codicon-arrow-right" style={{ marginLeft: "4px" }}></i>
                 </VSCodeButton>
-                <VSCodeButton
-                    className="hover:bg-transparent"
-                    onClick={() => setIsRegistering(!isRegistering)}
-                    appearance="icon"
-                    disabled={isLoading || isMissingExtension || isOffline}
-                >
-                    <span
-                        style={{
-                            textDecoration: "underline",
-                            width: "auto",
-                            height: "auto",
-                        }}
-                    >
-                        {isRegistering ? "Back to Login" : "Create Account"}
-                    </span>
-                </VSCodeButton>
-            </div>
-            <h2>{isRegistering ? "Register" : "Login"}</h2>
+                {isForgettingPassword ? (
+                    <VSCodeButton
+                        className="hover:bg-transparent"
+                        onClick={handleBackToLogin}
+                        appearance="icon"
+                        disabled={isLoading || isMissingExtension}
+                        >
+                            <span
+                                style={{
+                                    textDecoration: "underline",
+                                    width: "auto",
+                                    height: "auto",
+                                }}
+                            >
+                            Back to Login
+                            </span>
+                        </VSCodeButton>
+                ) : (
+                        <VSCodeButton
+                            className="hover:bg-transparent"
+                            onClick={() => setIsRegistering(!isRegistering)}
+                            appearance="icon"
+                        disabled={isLoading || isMissingExtension || isOffline}
+                        >
+                            <span
+                                style={{
+                                    textDecoration: "underline",
+                                    width: "auto",
+                                    height: "auto",
+                                }}
+                            >
+                                {isRegistering ? "Back to Login" : "Create Account"}
+                            </span>
+                        </VSCodeButton>
+                )}
+                    </div>
+            {!isForgettingPassword && <h2>{isRegistering ? "Register" : "Login"}</h2>}
             {isOffline && (
                 <div
                     style={{
@@ -1096,16 +1115,6 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                 </>
             ) : (
                 <>
-                    <div className="flex justify-end w-full">
-                        <VSCodeButton
-                            className="hover:bg-transparent"
-                            onClick={handleBackToLogin}
-                            appearance="icon"
-                            disabled={isLoading || isMissingExtension}
-                        >
-                            <span className="underline w-auto h-auto">Back to Login</span>
-                        </VSCodeButton>
-                    </div>
                     {!resetEmailComplete ? (
                         <>
                             <h2>Reset Password</h2>
