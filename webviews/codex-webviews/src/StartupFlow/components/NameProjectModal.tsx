@@ -43,6 +43,14 @@ export const NameProjectModal: React.FC<NameProjectModalProps> = ({
     useEffect(() => {
         if (!open || !name.trim()) {
             setNameExistsError("");
+            setIsCheckingName(false);
+            return;
+        }
+
+        // Don't check if name is invalid (too long)
+        if (name.length > 256) {
+            setNameExistsError("");
+            setIsCheckingName(false);
             return;
         }
 
@@ -50,6 +58,9 @@ export const NameProjectModal: React.FC<NameProjectModalProps> = ({
         if (checkTimeoutRef.current) {
             clearTimeout(checkTimeoutRef.current);
         }
+
+        // Clear any existing error when name changes (error is for previous name)
+        setNameExistsError("");
 
         // Debounce the check by 500ms
         setIsCheckingName(true);
@@ -90,17 +101,15 @@ export const NameProjectModal: React.FC<NameProjectModalProps> = ({
     const validationError = useMemo(() => {
         // Only show empty error if user has interacted with the field
         if (hasInteracted && !name.trim()) return "Project name cannot be empty";
-        if (name.length > 100) return "Project name is too long (max 100 characters)";
+        if (name.length > 256) return "Project name is too long (max 256 characters)";
         if (nameExistsError) return nameExistsError;
         return "";
     }, [name, nameExistsError, hasInteracted]);
 
     const handleSubmit = () => {
-        // Mark as interacted when user tries to submit
         setHasInteracted(true);
 
-        // Don't submit if there's a validation error or if we're still checking
-        if (validationError || isCheckingName) {
+        if (!name.trim() || validationError || isCheckingName) {
             return;
         }
         onSubmit(name.trim());
@@ -139,7 +148,7 @@ export const NameProjectModal: React.FC<NameProjectModalProps> = ({
                         Cancel
                     </Button>
                     <Button
-                        disabled={Boolean(validationError) || isCheckingName}
+                        disabled={!name.trim() || Boolean(validationError) || isCheckingName}
                         onClick={handleSubmit}
                     >
                         Create
