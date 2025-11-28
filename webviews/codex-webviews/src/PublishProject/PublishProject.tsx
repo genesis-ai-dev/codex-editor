@@ -27,6 +27,7 @@ export default function PublishProject() {
     const [selectedGroupId, setSelectedGroupId] = useState<number | undefined>(undefined);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | undefined>(undefined);
+    const [projectId, setProjectId] = useState<string | undefined>(undefined);
 
     const isValidName = useMemo(() => /^[\w.-]+$/.test(name) && name.length > 0, [name]);
     const canCreate = isValidName && !busy;
@@ -37,6 +38,7 @@ export default function PublishProject() {
             if (m?.type === "init") {
                 if (m.defaults?.name) setName(m.defaults.name);
                 if (m.defaults?.visibility) setVisibility(m.defaults.visibility as Visibility);
+                if (m.defaults?.projectId) setProjectId(m.defaults.projectId);
             } else if (m?.type === "busy") {
                 setBusy(!!m.value);
             } else if (m?.type === "error") {
@@ -65,10 +67,17 @@ export default function PublishProject() {
     const onCreate = () => {
         if (!canCreate) return;
         setError(undefined);
+
+        // Append projectId to name if available
+        let finalName = name;
+        if (projectId) {
+            finalName = `${name}-${projectId}`;
+        }
+
         vscode.postMessage({
             command: "createProject",
             payload: {
-                name,
+                name: finalName,
                 description: description || undefined,
                 visibility,
                 projectType: "group",
