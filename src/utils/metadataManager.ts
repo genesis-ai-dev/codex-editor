@@ -218,29 +218,36 @@ export class MetadataManager {
         timeoutMs: number
     ): Promise<boolean> {
         const startTime = Date.now();
+        const uniqueId = `${Math.random().toString(36).substring(2, 9)}`;
         const lockData: MetadataLock = {
             extensionId: this.EXTENSION_ID,
             timestamp: startTime,
             pid: process.pid
         };
 
+        // Use a unique temp file for atomic locking
+        const tempLockPath = lockPath.with({ path: lockPath.path + `.${uniqueId}.tmp` });
+
         while (Date.now() - startTime < timeoutMs) {
             try {
-                // Try to create lock file exclusively by checking if it already exists
+                // Try to create lock file exclusively using atomic rename strategy
+                // 1. Write to unique temp file
+                const lockContent = JSON.stringify(lockData);
+                const encoded = new TextEncoder().encode(lockContent);
+                await vscode.workspace.fs.writeFile(tempLockPath, encoded);
+
+                // 2. Try to rename temp to lock (fails if lock exists)
                 try {
-                    await vscode.workspace.fs.stat(lockPath);
-                    // If we get here, file exists, so we can't acquire the lock
-                    throw new Error('Lock file already exists');
-                } catch (statError) {
-                    // File doesn't exist, we can create it
-                    if ((statError as any).code === 'FileNotFound') {
-                        const lockContent = JSON.stringify(lockData);
-                        const encoded = new TextEncoder().encode(lockContent);
-                        await vscode.workspace.fs.writeFile(lockPath, encoded);
-                        return true;
-                    } else {
-                        throw statError;
+                    await vscode.workspace.fs.rename(tempLockPath, lockPath, { overwrite: false });
+                    return true;
+                } catch (renameError: any) {
+                    // Rename failed (likely lock exists), clean up temp file
+                    await this.cleanupFile(tempLockPath);
+                    
+                    if (renameError.code !== 'EntryExists' && renameError.code !== 'FileExists') {
+                        console.warn(`[MetadataManager] Atomic rename failed: ${renameError.message}`);
                     }
+                    throw new Error('Lock file already exists');
                 }
 
             } catch (error) {

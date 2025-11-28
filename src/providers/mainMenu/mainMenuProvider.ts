@@ -365,6 +365,15 @@ export class MainMenuProvider extends BaseWebviewProvider {
     private async initializeFrontierApi() {
         try {
             this.frontierApi = getAuthApi();
+            
+            // Listen for auth status changes to update the UI automatically
+            if (this.frontierApi) {
+                this.disposables.push(
+                    this.frontierApi.onAuthStatusChanged(() => {
+                        this.sendSyncSettings();
+                    })
+                );
+            }
         } catch (error) {
             console.error("Error initializing Frontier API:", error);
         }
@@ -470,6 +479,51 @@ export class MainMenuProvider extends BaseWebviewProvider {
         safePostMessageToView(this._view, { command: "actionCompleted" }, "MainMenu");
     }
 
+    private async sendSyncSettings() {
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
+        let syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
+
+        // Ensure minimum sync delay is 5 minutes
+        if (syncDelayMinutes < 5) {
+            syncDelayMinutes = 5;
+            // Update the configuration to persist the corrected value
+            await config.update(
+                "syncDelayMinutes",
+                syncDelayMinutes,
+                vscode.ConfigurationTarget.Workspace
+            );
+        }
+
+        // Check if Frontier Authentication extension is enabled
+        const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
+        const isFrontierExtensionEnabled = frontierExtension !== undefined && frontierExtension.isActive === true;
+
+        // Check authentication status
+        let isAuthenticated = false;
+        try {
+            const frontierApi = getAuthApi();
+            if (frontierApi) {
+                const authStatus = frontierApi.getAuthStatus();
+                isAuthenticated = authStatus?.isAuthenticated ?? false;
+            }
+        } catch (error) {
+            console.debug("Could not get authentication status:", error);
+        }
+
+        if (this._view) {
+            safePostMessageToView(this._view, {
+                command: "syncSettingsUpdate",
+                data: {
+                    autoSyncEnabled,
+                    syncDelayMinutes,
+                    isFrontierExtensionEnabled,
+                    isAuthenticated,
+                },
+            } as ProjectManagerMessageToWebview, "MainMenu");
+        }
+    }
+
     protected async handleMessage(message: any): Promise<void> {
         // Handle main menu messages
         switch (message.command) {
@@ -553,6 +607,11 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "openExportView":
             case "openLicenseSettings":
                 await this.executeCommandAndNotify(message.command);
+                break;
+            case "openLoginFlow":
+                await vscode.commands.executeCommand("codex-project-manager.openStartupFlow", {
+                    forceLogin: true,
+                });
                 break;
             case "selectCategory":
                 // For backward compatibility, redirect to setValidationCount
@@ -749,48 +808,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 break;
             }
             case "getSyncSettings": {
-                const config = vscode.workspace.getConfiguration("codex-project-manager");
-                const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
-                let syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
-
-                // Ensure minimum sync delay is 5 minutes
-                if (syncDelayMinutes < 5) {
-                    syncDelayMinutes = 5;
-                    // Update the configuration to persist the corrected value
-                    await config.update(
-                        "syncDelayMinutes",
-                        syncDelayMinutes,
-                        vscode.ConfigurationTarget.Workspace
-                    );
-                }
-
-                // Check if Frontier Authentication extension is enabled
-                const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
-                const isFrontierExtensionEnabled = frontierExtension !== undefined && frontierExtension.isActive === true;
-
-                // Check authentication status
-                let isAuthenticated = false;
-                try {
-                    const frontierApi = getAuthApi();
-                    if (frontierApi) {
-                        const authStatus = frontierApi.getAuthStatus();
-                        isAuthenticated = authStatus?.isAuthenticated ?? false;
-                    }
-                } catch (error) {
-                    console.debug("Could not get authentication status:", error);
-                }
-
-                if (this._view) {
-                    safePostMessageToView(this._view, {
-                        command: "syncSettingsUpdate",
-                        data: {
-                            autoSyncEnabled,
-                            syncDelayMinutes,
-                            isFrontierExtensionEnabled,
-                            isAuthenticated,
-                        },
-                    } as ProjectManagerMessageToWebview, "MainMenu");
-                }
+                await this.sendSyncSettings();
                 break;
             }
             case "updateSyncSettings": {
@@ -841,6 +859,13 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     }
 
                     if (this.frontierApi) {
+                        // Check authentication status first
+                        const authStatus = this.frontierApi.getAuthStatus();
+                        if (!authStatus?.isAuthenticated) {
+                            console.log("User not authenticated, skipping aggregated progress fetch");
+                            break;
+                        }
+
                         const progressData = await vscode.commands.executeCommand(
                             "frontier.getAggregatedProgress"
                         );
