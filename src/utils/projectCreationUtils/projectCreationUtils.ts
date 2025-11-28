@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as semver from "semver";
-import { initializeProjectMetadataAndGit, syncMetadataToConfiguration, isValidCodexProject } from "../../projectManager/utils/projectUtils";
+import { initializeProjectMetadataAndGit, syncMetadataToConfiguration, isValidCodexProject, generateProjectId } from "../../projectManager/utils/projectUtils";
 import { getCodexProjectsDirectory } from "../projectLocationUtils";
 
 /**
@@ -65,7 +65,9 @@ export async function createNewWorkspaceAndProject() {
         }
     }
 
-    await createProjectInNewFolder(projectName);
+    // Generate projectId for this legacy flow
+    const projectId = generateProjectId();
+    await createProjectInNewFolder(projectName, projectId);
 }
 
 /**
@@ -73,7 +75,10 @@ export async function createNewWorkspaceAndProject() {
  * TODO: let's ONLY use the .codex-projects directory as the parent folder
  */
 const SHOULD_PROMPT_USER_FOR_PARENT_FOLDER = false;
-async function createProjectInNewFolder(projectName: string) {
+async function createProjectInNewFolder(projectName: string, projectId: string) {
+    if (!projectId || projectId.trim() === "") {
+        throw new Error("projectId is required and cannot be empty for createProjectInNewFolder");
+    }
     // Get the .codex-projects directory as the default parent folder
     const codexProjectsDir = await getCodexProjectsDirectory();
     let parentFolderUri: vscode.Uri[] | undefined;
@@ -113,7 +118,7 @@ async function createProjectInNewFolder(projectName: string) {
         // Wait for workspace to open
         await new Promise((resolve) => setTimeout(resolve, 1000));
 
-        await createNewProject();
+        await createNewProject(projectId);
     } catch (error) {
         console.error("Error creating new project folder:", error);
         await vscode.window.showErrorMessage(
@@ -159,7 +164,9 @@ async function createProjectInExistingFolder() {
 
         await vscode.commands.executeCommand("vscode.openFolder", folderUri[0]);
         await new Promise((resolve) => setTimeout(resolve, 1000));
-        await createNewProject();
+        // Generate projectId for this flow (creating in existing folder)
+        const projectId = generateProjectId();
+        await createNewProject(projectId);
     } catch (error) {
         console.error("Error creating new project:", error);
         await vscode.window.showErrorMessage("Failed to create new project. Please try again.", {
@@ -170,11 +177,22 @@ async function createProjectInExistingFolder() {
 
 /**
  * Creates a new project in the current workspace
+ * @param projectId - Required projectId for new projects. Must be provided to ensure consistency with folder name.
+ *                    For backward compatibility with existing initialization flows, will generate if not provided.
  */
-export async function createNewProject() {
+export async function createNewProject(projectId?: string) {
     try {
-        console.log("Creating new project");
-        await initializeProjectMetadataAndGit({});
+        // For new projects created via ConfirmModal, projectId MUST be provided.
+        // For backward compatibility with other initialization flows, generate if not provided.
+        let finalProjectId: string;
+        if (!projectId || projectId.trim() === "") {
+            console.warn("createNewProject called without projectId - generating for backward compatibility");
+            finalProjectId = generateProjectId();
+        } else {
+            finalProjectId = projectId;
+        }
+        // Always pass projectId to ensure it's used (never regenerated)
+        await initializeProjectMetadataAndGit({ projectId: finalProjectId });
         await vscode.commands.executeCommand("codex-project-manager.initializeNewProject");
     } catch (error) {
         console.error("Error creating new project:", error);
@@ -318,7 +336,32 @@ export async function checkProjectNameExists(projectName: string): Promise<{
 
 /**
  * Creates a new workspace and project using the provided name.
+ * @param projectName - Already sanitized project name
+ * @param projectId - REQUIRED Project ID to append to folder name and pass to initialization
  */
-export async function createWorkspaceWithProjectName(projectName: string) {
-    await createProjectInNewFolder(projectName);
+export async function createWorkspaceWithProjectName(projectName: string, projectId: string) {
+    if (!projectId || projectId.trim() === "") {
+        throw new Error("projectId is required and cannot be empty for createWorkspaceWithProjectName");
+    }
+    // Append projectId to sanitized project name for unique folder name
+    const folderName = `${projectName}-${projectId}`;
+    await createProjectInNewFolder(folderName, projectId);
+}
+
+/**
+ * Extracts projectId from folder name if it follows the format "projectName-projectId"
+ * @param folderName - The folder name to extract projectId from
+ * @returns The projectId if found, undefined otherwise
+ */
+export function extractProjectIdFromFolderName(folderName: string): string | undefined {
+    const lastHyphenIndex = folderName.lastIndexOf('-');
+    if (lastHyphenIndex !== -1) {
+        const potentialProjectId = folderName.substring(lastHyphenIndex + 1);
+        // Validate it looks like a projectId (alphanumeric, reasonable length)
+        // ProjectId from generateProjectId is 26 chars (13 + 13)
+        if (potentialProjectId.length >= 20 && /^[a-z0-9]+$/i.test(potentialProjectId)) {
+            return potentialProjectId;
+        }
+    }
+    return undefined;
 }

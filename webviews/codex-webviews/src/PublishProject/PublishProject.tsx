@@ -36,9 +36,23 @@ export default function PublishProject() {
         const handleMessage = (event: MessageEvent) => {
             const m = event.data;
             if (m?.type === "init") {
-                if (m.defaults?.name) setName(m.defaults.name);
+                if (m.defaults?.projectId) {
+                    setProjectId(m.defaults.projectId);
+                    // Strip projectId from name if it's included
+                    if (m.defaults?.name) {
+                        const nameWithId = m.defaults.name;
+                        const nameWithoutId = nameWithId.endsWith(`-${m.defaults.projectId}`)
+                            ? nameWithId.slice(
+                                  0,
+                                  nameWithId.length - `-${m.defaults.projectId}`.length
+                              )
+                            : nameWithId;
+                        setName(nameWithoutId);
+                    }
+                } else if (m.defaults?.name) {
+                    setName(m.defaults.name);
+                }
                 if (m.defaults?.visibility) setVisibility(m.defaults.visibility as Visibility);
-                if (m.defaults?.projectId) setProjectId(m.defaults.projectId);
             } else if (m?.type === "busy") {
                 setBusy(!!m.value);
             } else if (m?.type === "error") {

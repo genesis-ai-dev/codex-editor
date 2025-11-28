@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
     Dialog,
     DialogContent,
@@ -26,90 +26,26 @@ export const NameProjectModal: React.FC<NameProjectModalProps> = ({
     vscode,
 }) => {
     const [name, setName] = useState<string>(defaultValue);
-    const [nameExistsError, setNameExistsError] = useState<string>("");
-    const [isCheckingName, setIsCheckingName] = useState<boolean>(false);
     const [hasInteracted, setHasInteracted] = useState<boolean>(false);
-    const checkTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     useEffect(() => {
         if (open) {
             setName(defaultValue);
-            setNameExistsError("");
             setHasInteracted(false);
         }
     }, [open, defaultValue]);
-
-    // Check if project name exists when name changes (with debounce)
-    useEffect(() => {
-        if (!open || !name.trim()) {
-            setNameExistsError("");
-            setIsCheckingName(false);
-            return;
-        }
-
-        // Don't check if name is invalid (too long)
-        if (name.length > 256) {
-            setNameExistsError("");
-            setIsCheckingName(false);
-            return;
-        }
-
-        // Clear previous timeout
-        if (checkTimeoutRef.current) {
-            clearTimeout(checkTimeoutRef.current);
-        }
-
-        // Clear any existing error when name changes (error is for previous name)
-        setNameExistsError("");
-
-        // Debounce the check by 500ms
-        setIsCheckingName(true);
-        checkTimeoutRef.current = setTimeout(() => {
-            vscode.postMessage({
-                command: "project.checkNameExists",
-                projectName: name.trim(),
-            } as MessagesToStartupFlowProvider);
-        }, 500);
-
-        return () => {
-            if (checkTimeoutRef.current) {
-                clearTimeout(checkTimeoutRef.current);
-            }
-        };
-    }, [name, open, vscode]);
-
-    // Listen for name existence check response
-    useEffect(() => {
-        const messageHandler = (event: MessageEvent<MessagesFromStartupFlowProvider>) => {
-            const message = event.data;
-            if (message?.command === "project.nameExistsCheck") {
-                setIsCheckingName(false);
-                if (message.exists) {
-                    setNameExistsError(
-                        message.errorMessage || "A project with this name already exists."
-                    );
-                } else {
-                    setNameExistsError("");
-                }
-            }
-        };
-
-        window.addEventListener("message", messageHandler);
-        return () => window.removeEventListener("message", messageHandler);
-    }, []);
 
     const validationError = useMemo(() => {
         // Only show empty error if user has interacted with the field
         if (hasInteracted && !name.trim()) return "Project name cannot be empty";
         if (name.length > 256) return "Project name is too long (max 256 characters)";
-        if (nameExistsError) return nameExistsError;
         return "";
-    }, [name, nameExistsError, hasInteracted]);
+    }, [name, hasInteracted]);
 
     const handleSubmit = () => {
         setHasInteracted(true);
 
-        if (!name.trim() || validationError || isCheckingName) {
+        if (!name.trim() || validationError) {
             return;
         }
         onSubmit(name.trim());
@@ -136,9 +72,7 @@ export const NameProjectModal: React.FC<NameProjectModalProps> = ({
                         placeholder="my-translation-project"
                         autoFocus
                     />
-                    {isCheckingName && name.trim() ? (
-                        <span className="text-sm text-gray-500">Checking availability...</span>
-                    ) : validationError ? (
+                    {validationError ? (
                         <span className="text-sm text-red-500">{validationError}</span>
                     ) : null}
                 </div>
@@ -148,7 +82,7 @@ export const NameProjectModal: React.FC<NameProjectModalProps> = ({
                         Cancel
                     </Button>
                     <Button
-                        disabled={!name.trim() || Boolean(validationError) || isCheckingName}
+                        disabled={!name.trim() || Boolean(validationError)}
                         onClick={handleSubmit}
                     >
                         Create
