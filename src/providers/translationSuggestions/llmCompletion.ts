@@ -256,29 +256,17 @@ export async function llmCompletion(
             }
 
             if (triggerAB) {
-                const candidates = [
-                    "Search Algorithm Test",
-                    "Source vs Target Inclusion",
-                    "Few-Shot Example Count Test",
-                    "Low-Resource Search Algorithm Test",
-                    "SBS Efficiency Test",
-                    // "llmGeneration" // intentionally disabled for now
-                ] as const;
-                const available = candidates.filter((name) => !!abTestingRegistry.get(name as any));
-                
-                if (completionConfig.debugMode) {
-                    console.debug(`[llmCompletion] A/B test candidates: ${available.length} available out of ${candidates.length} total`);
-                }
-                
-                const pick = available.length > 0 ? available[Math.floor(Math.random() * available.length)] : null;
+                // Only "Example Count Test" is currently active
+                const testName = "Example Count Test";
+                const test = abTestingRegistry.get(testName);
 
-                if (!pick && completionConfig.debugMode) {
-                    console.debug(`[llmCompletion] No A/B test available (${available.length} tests registered)`);
+                if (!test && completionConfig.debugMode) {
+                    console.debug(`[llmCompletion] No A/B test registered as "${testName}"`);
                 }
 
-                if (pick) {
+                if (test) {
                     if (completionConfig.debugMode) {
-                        console.debug(`[llmCompletion] Running A/B test: ${pick}`);
+                        console.debug(`[llmCompletion] Running A/B test: ${testName}`);
                     }
                     try {
                         const ctx = buildABTestContext(
@@ -295,20 +283,16 @@ export async function llmCompletion(
                             token
                         );
 
-                        const result = await abTestingRegistry.maybeRun<typeof ctx, string>(pick, ctx);
+                        const result = await abTestingRegistry.maybeRun<typeof ctx, string>(testName, ctx);
 
                         if (completionConfig.debugMode) {
                             console.debug(`[llmCompletion] A/B test result: ${result ? `got ${result.variants?.length || 0} variants` : "null (test probability check failed)"}`);
                         }
 
-                        const testIdPrefixes: Record<string, string> = {
-                            "Example Count Test": "countAB",
-                        };
-
                         const testResult = handleABTestResult(
                             result,
                             currentCellId,
-                            testIdPrefixes[pick] || "ab",
+                            "countAB",
                             completionConfig,
                             returnHTML
                         );
@@ -317,10 +301,7 @@ export async function llmCompletion(
                             return testResult;
                         }
                     } catch (e) {
-                        const testNames: Record<string, string> = {
-                            "Example Count Test": "exampleCount",
-                        };
-                        console.warn(`[llmCompletion] Registry A/B (${testNames[pick] || "unknown"}) failed; falling back`, e);
+                        console.warn(`[llmCompletion] Registry A/B (${testName}) failed; falling back`, e);
                     }
                 }
             }
