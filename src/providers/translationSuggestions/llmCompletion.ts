@@ -302,11 +302,7 @@ export async function llmCompletion(
                         }
 
                         const testIdPrefixes: Record<string, string> = {
-                            "Search Algorithm Test": "searchAB",
-                            "Source vs Target Inclusion": "fmtAB",
-                            "Few-Shot Example Count Test": "countAB",
-                            "Low-Resource Search Algorithm Test": "lowResAB",
-                            "SBS Efficiency Test": "sbsEffAB",
+                            "Example Count Test": "countAB",
                         };
 
                         const testResult = handleABTestResult(
@@ -322,11 +318,7 @@ export async function llmCompletion(
                         }
                     } catch (e) {
                         const testNames: Record<string, string> = {
-                            "Search Algorithm Test": "searchAlgorithm",
-                            "Source vs Target Inclusion": "fewShotFormat",
-                            "Few-Shot Example Count Test": "exampleCount",
-                            "Low-Resource Search Algorithm Test": "lowResourceSearch",
-                            "SBS Efficiency Test": "sbsEfficiency",
+                            "Example Count Test": "exampleCount",
                         };
                         console.warn(`[llmCompletion] Registry A/B (${testNames[pick] || "unknown"}) failed; falling back`, e);
                     }

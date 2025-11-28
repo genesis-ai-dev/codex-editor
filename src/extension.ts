@@ -13,6 +13,7 @@ import {
     temporaryMigrationScript_checkMatthewNotebook,
     migration_changeDraftFolderToFilesFolder,
     migration_chatSystemMessageSetting,
+    migration_chatSystemMessageToMetadata,
     migration_lineNumbersSettings,
     migration_editHistoryFormat,
 } from "./projectManager/utils/migrationUtils";
@@ -868,7 +869,10 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
         if (hasCodexProject) {
             // Run chatSystemMessage migration FIRST to ensure correct key is synced
             await migration_chatSystemMessageSetting();
-            debug("✅ [PRE-SYNC] Completed chatSystemMessage migration");
+            debug("✅ [PRE-SYNC] Completed chatSystemMessage namespace migration");
+            // Migrate chatSystemMessage from settings.json to metadata.json
+            await migration_chatSystemMessageToMetadata(context);
+            debug("✅ [PRE-SYNC] Completed chatSystemMessage to metadata.json migration");
 
             const { ensureGitDisabledInSettings } = await import("./projectManager/utils/projectUtils");
             await ensureGitDisabledInSettings();
