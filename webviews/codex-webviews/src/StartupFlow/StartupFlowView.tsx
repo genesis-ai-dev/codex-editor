@@ -452,6 +452,7 @@ export const StartupFlowView: React.FC = () => {
                     setPendingSanitizedName(null);
                 }}
                 onSubmit={submitProjectName}
+                vscode={vscode}
             />
 
             <ConfirmModal

@@ -67,10 +67,22 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     const [isZippingMini, setIsZippingMini] = useState<boolean>(false);
     const [isCleaning, setIsCleaning] = useState<boolean>(false);
     const userInitiatedStrategyChangeRef = React.useRef<boolean>(false);
-    const [isApplyingStrategyDuringOtherOp, setIsApplyingStrategyDuringOtherOp] = useState<boolean>(false);
-    const isProjectLocal = ["downloadedAndSynced", "localOnlyNotSynced"].includes(project.syncStatus);
+    const [isApplyingStrategyDuringOtherOp, setIsApplyingStrategyDuringOtherOp] =
+        useState<boolean>(false);
+    const isProjectLocal = ["downloadedAndSynced", "localOnlyNotSynced"].includes(
+        project.syncStatus
+    );
     const isChangingStrategy = isProjectLocal && pendingStrategy !== null;
-    const disableControls = isAnyOperationApplying || isChangingStrategy || isHealing || isCloning || isOpening || isZipping || isZippingMini || isCleaning || isApplyingStrategyDuringOtherOp;
+    const disableControls =
+        isAnyOperationApplying ||
+        isChangingStrategy ||
+        isHealing ||
+        isCloning ||
+        isOpening ||
+        isZipping ||
+        isZippingMini ||
+        isCleaning ||
+        isApplyingStrategyDuringOtherOp;
 
     // Sync local state with project.mediaStrategy when it changes from backend
     // This ensures the UI always reflects the persisted value from localProjectSettings.json
@@ -80,7 +92,12 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         // Always sync from props when they change, but skip if we're actively changing
         // (pendingStrategy is set during user-initiated changes, or userInitiatedStrategyChangeRef tracks in-flight changes)
         // For cloud-only projects, don't sync from props - user selection is stored locally
-        if (!pendingStrategy && !userInitiatedStrategyChangeRef.current && incoming !== mediaStrategy && isProjectLocal) {
+        if (
+            !pendingStrategy &&
+            !userInitiatedStrategyChangeRef.current &&
+            incoming !== mediaStrategy &&
+            isProjectLocal
+        ) {
             setMediaStrategy(incoming);
         }
     }, [project.mediaStrategy, pendingStrategy, mediaStrategy, isProjectLocal]);
@@ -103,7 +120,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         if (isLocal) {
             // Store the current strategy before changing (so we can revert on cancel)
             setPreviousStrategy(mediaStrategy);
-            
+
             // Update label immediately, but only enter applying state when provider signals start
             setMediaStrategy(strategy);
             // Mark that this was a user-initiated change (for highlighting purposes)
@@ -165,8 +182,12 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
             if (msg?.command === "project.cloningInProgress") {
                 // For cloud projects, match by gitOriginUrl since they don't have a local path yet
                 // For local projects, match by path
-                const matchesByUrl = msg.gitOriginUrl && project.gitOriginUrl && msg.gitOriginUrl === project.gitOriginUrl;
-                const matchesByPath = msg.projectPath && project.path && msg.projectPath === project.path;
+                const matchesByUrl =
+                    msg.gitOriginUrl &&
+                    project.gitOriginUrl &&
+                    msg.gitOriginUrl === project.gitOriginUrl;
+                const matchesByPath =
+                    msg.projectPath && project.path && msg.projectPath === project.path;
                 if (matchesByUrl || matchesByPath) {
                     setIsCloning(msg.cloning);
                     // Clear strategy applying state when cloning completes
@@ -212,14 +233,18 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     const renderMediaStrategyDropdown = () => {
         // Highlight dropdown when strategy is being changed/applied (either explicitly or during open/clone)
         const isStrategyHighlighted = isChangingStrategy || isApplyingStrategyDuringOtherOp;
-        
+
         return (
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <Button
                         variant="outline"
                         size="sm"
-                        className={cn("h-6 text-xs px-2", isStrategyHighlighted && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm")}
+                        className={cn(
+                            "h-6 text-xs px-2",
+                            isStrategyHighlighted &&
+                                "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
+                        )}
                         disabled={disableControls}
                         title="Media Files Download Strategy"
                     >
@@ -236,42 +261,42 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         )}
                     </Button>
                 </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem
-                    onClick={() => handleMediaStrategyChange("auto-download")}
-                    className={cn(
-                        "text-xs cursor-pointer",
-                        mediaStrategy === "auto-download" && "bg-accent"
-                    )}
-                    disabled={disableControls}
-                >
-                    <i className="codicon codicon-cloud-download mr-2" />
-                    Auto Download Media
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                    onClick={() => handleMediaStrategyChange("stream-and-save")}
-                    className={cn(
-                        "text-xs cursor-pointer",
-                        mediaStrategy === "stream-and-save" && "bg-accent"
-                    )}
-                    disabled={disableControls}
-                >
-                    <i className="codicon codicon-cloud-upload mr-2" />
-                    Stream & Save
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                    onClick={() => handleMediaStrategyChange("stream-only")}
-                    className={cn(
-                        "text-xs cursor-pointer",
-                        mediaStrategy === "stream-only" && "bg-accent"
-                    )}
-                    disabled={disableControls}
-                >
-                    <i className="codicon codicon-play-circle mr-2" />
-                    Stream Only
-                </DropdownMenuItem>
-            </DropdownMenuContent>
-        </DropdownMenu>
+                <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem
+                        onClick={() => handleMediaStrategyChange("auto-download")}
+                        className={cn(
+                            "text-xs cursor-pointer",
+                            mediaStrategy === "auto-download" && "bg-accent"
+                        )}
+                        disabled={disableControls}
+                    >
+                        <i className="codicon codicon-cloud-download mr-2" />
+                        Auto Download Media
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                        onClick={() => handleMediaStrategyChange("stream-and-save")}
+                        className={cn(
+                            "text-xs cursor-pointer",
+                            mediaStrategy === "stream-and-save" && "bg-accent"
+                        )}
+                        disabled={disableControls}
+                    >
+                        <i className="codicon codicon-cloud-upload mr-2" />
+                        Stream & Save
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                        onClick={() => handleMediaStrategyChange("stream-only")}
+                        className={cn(
+                            "text-xs cursor-pointer",
+                            mediaStrategy === "stream-only" && "bg-accent"
+                        )}
+                        disabled={disableControls}
+                    >
+                        <i className="codicon codicon-play-circle mr-2" />
+                        Stream Only
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
         );
     };
 
@@ -289,7 +314,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         onClick={() => onOpenProject(project)}
                         className={cn(
                             "h-6 text-xs px-2",
-                            (isChangingStrategy || isOpening || isHealing) && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
+                            (isChangingStrategy || isOpening || isHealing) &&
+                                "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
                         )}
                         disabled={disableControls}
                     >
@@ -324,7 +350,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         onClick={() => onCloneProject({ ...project, mediaStrategy })}
                         className={cn(
                             "h-6 text-xs px-2",
-                            (isChangingStrategy || isCloning) && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
+                            (isChangingStrategy || isCloning) &&
+                                "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
                         )}
                         disabled={disableControls}
                     >
@@ -349,7 +376,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
 
     const renderProjectCard = () => {
         if (!project) return null;
-        const { cleanName, displayUrl, uniqueId } = parseProjectUrl(project.gitOriginUrl);
+        const { cleanName, displayUrl } = parseProjectUrl(project.gitOriginUrl);
         const isUnpublished = !project.gitOriginUrl;
         const status = getStatusIcon(project.syncStatus);
         const isExpanded = expandedProjects[project.name];
@@ -381,7 +408,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                     </div>
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                         <span className="font-normal truncate transition-colors duration-200 text-sm">
-                            {cleanName || project.name}
+                            {project.name || cleanName}
                         </span>
                         {isUnpublished && (
                             <Badge variant="outline" className="text-xs px-1 py-0">
@@ -456,7 +483,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
 
     const renderProjectDetails = () => {
         if (!project) return null;
-        const { displayUrl, uniqueId } = parseProjectUrl(project.gitOriginUrl);
+        const { cleanName,displayUrl, uniqueId } = parseProjectUrl(project.gitOriginUrl);
         const isExpanded = expandedProjects[project.name];
         const isLocal = ["downloadedAndSynced", "localOnlyNotSynced"].includes(project.syncStatus);
 
@@ -501,7 +528,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                     )}
                     {isLocal && (
                         <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs">{project.name}</span>
+                            <span className="text-xs">{cleanName}</span>
                             <div className="flex gap-2">
                                 {(project.syncStatus === "downloadedAndSynced" ||
                                     project.syncStatus === "error") &&
@@ -517,7 +544,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                             }}
                                             className={cn(
                                                 "h-6 text-xs text-purple-600 hover:text-purple-700",
-                                                isCleaning && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
+                                                isCleaning &&
+                                                    "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
                                             )}
                                             disabled={disableControls}
                                             title="Delete downloaded media files to save space"
@@ -548,7 +576,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                     }}
                                     className={cn(
                                         "h-6 text-xs text-yellow-600 hover:text-yellow-700",
-                                        isHealing && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
+                                        isHealing &&
+                                            "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
                                     )}
                                     disabled={disableControls || !isOnline}
                                     title="Heal project by backing up, re-cloning, and merging local changes"
@@ -578,7 +607,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                     }}
                                     className={cn(
                                         "h-6 text-xs",
-                                        isZipping && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
+                                        isZipping &&
+                                            "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
                                     )}
                                     disabled={disableControls}
                                 >
@@ -606,7 +636,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                     }}
                                     className={cn(
                                         "h-6 text-xs",
-                                        isZippingMini && "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
+                                        isZippingMini &&
+                                            "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
                                     )}
                                     disabled={disableControls}
                                 >

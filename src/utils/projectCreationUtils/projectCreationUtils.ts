@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as semver from "semver";
-import { initializeProjectMetadataAndGit, syncMetadataToConfiguration } from "../../projectManager/utils/projectUtils";
+import { initializeProjectMetadataAndGit, syncMetadataToConfiguration, isValidCodexProject } from "../../projectManager/utils/projectUtils";
 import { getCodexProjectsDirectory } from "../projectLocationUtils";
 
 /**
@@ -105,6 +105,7 @@ async function createProjectInNewFolder(projectName: string) {
     }
 
     const newFolderUri = vscode.Uri.joinPath(parentFolderUri[0], projectName);
+
     try {
         await vscode.workspace.fs.createDirectory(newFolderUri);
         await vscode.commands.executeCommand("vscode.openFolder", newFolderUri);
@@ -265,6 +266,54 @@ export function sanitizeProjectName(name: string): string {
             .replace(/^-|-$/g, "") || // Remove leading/trailing hyphens OR
         "new-project" // Fallback if name becomes empty after sanitization
     );
+}
+
+/**
+ * Checks if a project name already exists
+ * @param projectName - The sanitized project name to check
+ * @returns Object with exists flag, isCodexProject flag, and optional error message
+ */
+export async function checkProjectNameExists(projectName: string): Promise<{
+    exists: boolean;
+    isCodexProject: boolean;
+    errorMessage?: string;
+}> {
+    try {
+        const codexProjectsDir = await getCodexProjectsDirectory();
+        const newFolderUri = vscode.Uri.joinPath(codexProjectsDir, projectName);
+
+        // Check if directory exists
+        try {
+            await vscode.workspace.fs.stat(newFolderUri);
+            // Directory exists - check if it's a valid Codex project
+            const projectValidation = await isValidCodexProject(newFolderUri.fsPath);
+            if (projectValidation.isValid) {
+                return {
+                    exists: true,
+                    isCodexProject: true,
+                    errorMessage: `A project with the name "${projectName}" already exists. Please choose a different name.`,
+                };
+            }
+            // Directory exists but is not a Codex project
+            return {
+                exists: true,
+                isCodexProject: false,
+                errorMessage: `A folder named "${projectName}" already exists. Please choose a different name.`,
+            };
+        } catch {
+            // Directory doesn't exist
+            return {
+                exists: false,
+                isCodexProject: false,
+            };
+        }
+    } catch (error) {
+        console.error("Error checking project name:", error);
+        return {
+            exists: false,
+            isCodexProject: false,
+        };
+    }
 }
 
 /**
