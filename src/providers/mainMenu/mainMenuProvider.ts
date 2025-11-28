@@ -5,6 +5,8 @@ import { openSystemMessageEditor } from "../../copilotSettings/copilotSettings";
 import { openProjectExportView } from "../../projectManager/projectExportView";
 import { BaseWebviewProvider } from "../../globalProvider";
 import { safePostMessageToView } from "../../utils/webviewUtils";
+import { MetadataManager } from "../../utils/metadataManager";
+import { EditMapUtils, addProjectMetadataEdit } from "../../utils/editMapUtils";
 import {
     ProjectManagerMessageFromWebview,
     ProjectManagerMessageToWebview,
@@ -587,6 +589,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 break;
             case "createNewWorkspaceAndProject":
                 await createNewWorkspaceAndProject();
+                break;
+            case "changeProjectName":
+                await this.handleChangeProjectName(message.projectName);
                 break;
             case "openProjectSettings":
             case "renameProject":
@@ -1723,6 +1728,92 @@ export class MainMenuProvider extends BaseWebviewProvider {
 
         } catch (error) {
             console.error("Error refreshing webviews after text direction update:", error);
+        }
+    }
+
+    private async handleChangeProjectName(newProjectName: string): Promise<void> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage("No workspace folder found.");
+            return;
+        }
+
+        try {
+            // Get current user name for edit tracking
+            let author = "unknown";
+            try {
+                const authApi = await getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                if (userInfo?.username) {
+                    author = userInfo.username;
+                } else {
+                    // Try git username
+                    const gitUsername = vscode.workspace.getConfiguration("git").get<string>("username");
+                    if (gitUsername) {
+                        author = gitUsername;
+                    } else {
+                        // Try VS Code authentication session
+                        try {
+                            const session = await vscode.authentication.getSession('github', ['user:email'], { createIfNone: false });
+                            if (session && session.account) {
+                                author = session.account.label;
+                            }
+                        } catch (e) {
+                            // Auth provider might not be available
+                        }
+                    }
+                }
+            } catch (error) {
+                // Silent fallback to "unknown"
+            }
+
+            // Update workspace configuration
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            await config.update(
+                "projectName",
+                newProjectName,
+                vscode.ConfigurationTarget.Workspace
+            );
+
+            // Update metadata.json using MetadataManager
+            const result = await MetadataManager.safeUpdateMetadata(
+                workspaceFolder,
+                (project: any) => {
+                    const originalProjectName = project.projectName;
+                    project.projectName = newProjectName;
+
+                    // Track edit if projectName changed
+                    if (originalProjectName !== newProjectName) {
+                        // Ensure edits array exists
+                        if (!project.edits) {
+                            project.edits = [];
+                        }
+                        addProjectMetadataEdit(project, EditMapUtils.projectName(), newProjectName, author);
+                    }
+
+                    return project;
+                },
+                { author }
+            );
+
+            if (!result.success) {
+                console.error("Failed to update metadata:", result.error);
+                vscode.window.showErrorMessage(
+                    `Failed to update project name in metadata.json: ${result.error}`
+                );
+                return;
+            }
+
+            // Refresh state to reflect the change
+            await this.store.refreshState();
+            await this.updateProjectOverview();
+
+            vscode.window.showInformationMessage(`Project name updated to "${newProjectName}".`);
+        } catch (error) {
+            console.error("Error updating project name:", error);
+            vscode.window.showErrorMessage(
+                `Failed to update project name: ${(error as Error).message}`
+            );
         }
     }
 

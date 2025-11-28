@@ -221,82 +221,188 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                         addDebugLog(`Created verse cell: ${cellId} (original: ${originalVerseRef})${translatedContent ? ' - with translated content' : ''}`);
                     }
                 } else {
-                    // Fallback: Create one cell per paragraph (for non-verse content like notes)
+                    // Split paragraph at <Br/> tags (represented as \n in content) into multiple cells
                     const content = paragraph.paragraphStyleRange.content;
+                    const ranges = paragraph.characterStyleRanges || [];
                     
-                    // Preserve newlines for structure, convert to <br /> for HTML
-                    const contentWithBreaks = content
+                    // Build combined content from ranges to detect all \n characters
+                    // The parser converts <Br/> tags to \n in the content
+                    let combinedContent = content;
+                    if (ranges.length > 0) {
+                        // Rebuild content from ranges to ensure we capture all \n characters
+                        combinedContent = ranges.map((r: any) => r.content || '').join('');
+                    }
+                    
+                    // Check if paragraph is empty or only contains <Br/> tags (represented as \n)
+                    // Remove all whitespace and newlines to check if there's any actual content
+                    const contentWithoutBreaks = combinedContent
+                        .replace(/[\r\n]+/g, '')  // Remove all line breaks
+                        .replace(/\s+/g, ' ')     // Collapse whitespace
+                        .trim();                   // Trim
+                    
+                    // Skip paragraphs that are empty or only contain <Br/> tags
+                    if (!contentWithoutBreaks || contentWithoutBreaks.length === 0) {
+                        addDebugLog(`Skipping empty paragraph ${i} (only contains <Br/> tags)`);
+                        continue;
+                    }
+                    
+                    // Preserve newlines for structure
+                    const contentWithBreaks = combinedContent
                         .replace(/\r\n/g, '\n')  // Normalize line endings
                         .replace(/\r/g, '\n');   // Normalize line endings
                     
-                    // Create cleanText for empty check (without excessive whitespace)
-                    const cleanText = contentWithBreaks
-                        .replace(/[\r\n]+/g, ' ')
-                        .replace(/\s+/g, ' ')
-                        .trim();
+                    // Check if we have any line breaks to split on
+                    const hasLineBreaks = contentWithBreaks.includes('\n');
                     
-                    if (!cleanText) {
-                        continue;
-                    }
-
-                    // Use simple sequential numbering for all cells
-                    globalCellIndex++;
-                    const cellId = `biblica 1:${globalCellIndex}`;
-                    const ranges = paragraph.characterStyleRanges || [];
+                    // Split content at line breaks (\n represents <Br/> tags)
+                    // Keep empty segments to preserve structure
+                    const segments = contentWithBreaks.split('\n');
                     
-                    // Use characterStyleRanges if available, otherwise use content with preserved breaks
-                    let inlineHTML: string;
+                    // Split character style ranges at line breaks too
+                    let rangeSegments: Array<{ ranges: any[], content: string }> = [];
+                    
                     if (ranges.length > 0) {
-                        inlineHTML = buildInlineHTMLFromRanges(ranges);
-                    } else {
-                        // Fallback: escape HTML and convert newlines to <br /> tags
-                        inlineHTML = contentWithBreaks
-                            .split('\n')
-                            .map((line: string) => escapeHtml(line))
-                            .join('<br />');
-                    }
-                    
-                    const htmlContent = `<p class="biblica-paragraph" data-paragraph-style="${paragraphStyle}" data-story-id="${story.id}">${inlineHTML}</p>`;
-                    const cellMetadata = {
-                        id: cellId,
-                        type: CodexCellTypes.TEXT,
-                        edits: [],
-                        cellLabel: globalCellIndex.toString(), // Use sequential number as label
-                        storyId: story.id,
-                        paragraphId: paragraph.id,
-                        appliedParagraphStyle: paragraphStyle,
-                        data: {
-                            originalContent: cleanText,
-                            sourceFile: studyBibleFile?.name || 'unknown',
-                            // Minimal structure needed for export
-                            idmlStructure: {
-                                storyId: story.id,
-                                paragraphId: paragraph.id,
-                                paragraphStyleRange: {
-                                    appliedParagraphStyle: paragraphStyle,
-                                    // Only keep dataAfter if present (used for paragraph-based export)
-                                    dataAfter: paragraph.paragraphStyleRange.dataAfter
+                        // Group ranges by line breaks - split at each \n
+                        let currentSegment: { ranges: any[], content: string } = { ranges: [], content: '' };
+                        
+                        for (const range of ranges) {
+                            const rangeContent = range.content || '';
+                            
+                            // Check if this range contains line breaks
+                            if (rangeContent.includes('\n')) {
+                                const rangeParts = rangeContent.split('\n');
+                                
+                                for (let j = 0; j < rangeParts.length; j++) {
+                                    const part = rangeParts[j];
+                                    
+                                    // Add this part to current segment
+                                    if (part) {
+                                        currentSegment.ranges.push({
+                                            ...range,
+                                            content: part
+                                        });
+                                        currentSegment.content += part;
+                                    }
+                                    
+                                    // If this is not the last part, finalize current segment and start new one
+                                    if (j < rangeParts.length - 1) {
+                                        // Finalize current segment (even if empty, to preserve structure)
+                                        rangeSegments.push({ ...currentSegment });
+                                        currentSegment = { ranges: [], content: '' };
+                                    }
                                 }
-                            },
-                            // Minimal relationships needed for export
-                            relationships: {
-                                parentStory: story.id,
-                                storyOrder: stories.indexOf(story),
-                                paragraphOrder: i,
-                            },
-                            // Minimal context - only what's needed for identification
-                            documentContext: {
-                                originalHash: htmlRepresentation.originalHash,
-                                importerType: 'biblica-experimental',
-                                fileName: studyBibleFile?.name || 'unknown',
+                            } else {
+                                // No line breaks in this range, add to current segment
+                                currentSegment.ranges.push(range);
+                                currentSegment.content += rangeContent;
                             }
                         }
-                    };
-                    const cell = createProcessedCell(cellId, htmlContent, cellMetadata as any);
-                    const images = await extractImagesFromHtml(htmlContent);
-                    cell.images = images;
-                    cells.push(cell);
-                    addDebugLog(`Created paragraph cell: ${cellId}`);
+                        
+                        // Add the final segment
+                        if (currentSegment.content || currentSegment.ranges.length > 0) {
+                            rangeSegments.push(currentSegment);
+                        }
+                        
+                        // If no segments were created (no line breaks), use original ranges
+                        if (rangeSegments.length === 0) {
+                            rangeSegments = [{ ranges, content: contentWithBreaks }];
+                        }
+                    } else {
+                        // No ranges, split plain content - create one segment per split
+                        rangeSegments = segments.map((seg: string) => ({ ranges: [], content: seg }));
+                    }
+                    
+                    // Use rangeSegments as finalSegments (they're already properly split)
+                    // If we have more content segments than range segments, align them
+                    const finalSegments: Array<{ ranges: any[], content: string }> = 
+                        rangeSegments.length > 0 ? rangeSegments : 
+                        segments.map((seg: string) => ({ ranges: [], content: seg }));
+                    
+                    // Debug: Log if we're splitting
+                    if (finalSegments.length > 1) {
+                        addDebugLog(`Splitting paragraph ${i} (${paragraphStyle}) into ${finalSegments.length} segments at <Br/> tags (had ${segments.length} content segments, ${rangeSegments.length} range segments)`);
+                    } else if (hasLineBreaks && finalSegments.length === 1) {
+                        addDebugLog(`Warning: Paragraph ${i} has line breaks but wasn't split (content: "${contentWithBreaks.substring(0, 100)}...")`);
+                    }
+                    
+                    // Create one cell per segment
+                    for (let segmentIndex = 0; segmentIndex < finalSegments.length; segmentIndex++) {
+                        const segment = finalSegments[segmentIndex];
+                        
+                        // Create cleanText for empty check (without excessive whitespace)
+                        const cleanText = segment.content
+                            .replace(/[\r\n]+/g, ' ')
+                            .replace(/\s+/g, ' ')
+                            .trim();
+                        
+                        // Skip completely empty segments (but keep segments with only whitespace if they're meaningful)
+                        // Only skip if it's not the first segment and has no content
+                        if (!cleanText && segmentIndex > 0 && segment.ranges.length === 0) {
+                            addDebugLog(`Skipping empty segment ${segmentIndex} of paragraph ${i}`);
+                            continue;
+                        }
+                        
+                        // Use simple sequential numbering for all cells
+                        globalCellIndex++;
+                        const cellId = `biblica 1:${globalCellIndex}`;
+                        
+                        // Build HTML for this segment
+                        let inlineHTML: string;
+                        if (segment.ranges.length > 0) {
+                            inlineHTML = buildInlineHTMLFromRanges(segment.ranges);
+                        } else {
+                            // Fallback: escape HTML (no <br /> needed since we split at breaks)
+                            inlineHTML = escapeHtml(segment.content);
+                        }
+                        
+                        // Only add <br /> if this is not the last segment (to preserve structure)
+                        const isLastSegment = segmentIndex === finalSegments.length - 1;
+                        const htmlContent = `<p class="biblica-paragraph" data-paragraph-style="${paragraphStyle}" data-story-id="${story.id}" data-segment-index="${segmentIndex}" data-is-last-segment="${isLastSegment}">${inlineHTML}</p>`;
+                        
+                        const cellMetadata = {
+                            id: cellId,
+                            type: CodexCellTypes.TEXT,
+                            edits: [],
+                            cellLabel: globalCellIndex.toString(), // Use sequential number as label
+                            storyId: story.id,
+                            paragraphId: paragraph.id,
+                            appliedParagraphStyle: paragraphStyle,
+                            data: {
+                                originalContent: cleanText || segment.content,
+                                sourceFile: studyBibleFile?.name || 'unknown',
+                                // Minimal structure needed for export
+                                idmlStructure: {
+                                    storyId: story.id,
+                                    paragraphId: paragraph.id,
+                                    paragraphStyleRange: {
+                                        appliedParagraphStyle: paragraphStyle,
+                                        // Only keep dataAfter if present and this is the last segment
+                                        dataAfter: (isLastSegment ? paragraph.paragraphStyleRange.dataAfter : undefined)
+                                    }
+                                },
+                                // Minimal relationships needed for export
+                                relationships: {
+                                    parentStory: story.id,
+                                    storyOrder: stories.indexOf(story),
+                                    paragraphOrder: i,
+                                    segmentIndex: segmentIndex, // Track which segment this is within the paragraph
+                                    totalSegments: finalSegments.length, // Track total segments for this paragraph
+                                },
+                                // Minimal context - only what's needed for identification
+                                documentContext: {
+                                    originalHash: htmlRepresentation.originalHash,
+                                    importerType: 'biblica-experimental',
+                                    fileName: studyBibleFile?.name || 'unknown',
+                                }
+                            }
+                        };
+                        
+                        const cell = createProcessedCell(cellId, htmlContent, cellMetadata as any);
+                        const images = await extractImagesFromHtml(htmlContent);
+                        cell.images = images;
+                        cells.push(cell);
+                        addDebugLog(`Created paragraph segment cell: ${cellId} (segment ${segmentIndex + 1}/${finalSegments.length})`);
+                    }
                 }
             }
         }
