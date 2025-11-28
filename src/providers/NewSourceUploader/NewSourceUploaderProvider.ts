@@ -305,14 +305,16 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         });
                     }
                 } else if (message.command === "selectAudioFile") {
-                    await handleSelectAudioFile(message, webviewPanel);
+                    await handleSelectAudioFile(message as SelectAudioFileMessage, webviewPanel);
                 } else if (message.command === "reprocessAudioFile") {
-                    await handleReprocessAudioFile(message, webviewPanel);
+                    await handleReprocessAudioFile(message as ReprocessAudioFileMessage, webviewPanel);
+                } else if (message.command === "requestAudioSegment") {
+                    await handleRequestAudioSegment(message as RequestAudioSegmentMessage, webviewPanel);
                 } else if (message.command === "updateAudioSegments") {
-                    await handleUpdateAudioSegments(message, webviewPanel);
+                    await handleUpdateAudioSegments(message as UpdateAudioSegmentsMessage, webviewPanel);
                 } else if (message.command === "finalizeAudioImport") {
                     await handleFinalizeAudioImport(
-                        message,
+                        message as FinalizeAudioImportMessage,
                         token,
                         webviewPanel,
                         (msg, tok, pan) => this.handleWriteNotebooks(msg as WriteNotebooksMessage, tok, pan)
