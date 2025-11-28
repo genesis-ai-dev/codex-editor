@@ -19,6 +19,14 @@ type MetadataCellDisplayModeEditMap = ["metadata", "cellDisplayMode"];
 type MetadataAudioOnlyEditMap = ["metadata", "audioOnly"];
 type MetadataCorpusMarkerEditMap = ["metadata", "corpusMarker"];
 
+// Project-level metadata editMaps (for metadata.json)
+type ProjectNameEditMap = ["projectName"];
+type MetaGeneratorEditMap = ["meta", "generator"];
+type MetaEditMap = ["meta"];
+type MetaFieldEditMap = ["meta", string];
+type LanguagesEditMap = ["languages"];
+type SpellcheckIsEnabledEditMap = ["spellcheckIsEnabled"];
+
 import { EditType } from "../../types/enums";
 
 // Utility functions for working with editMaps
@@ -111,6 +119,31 @@ export const EditMapUtils = {
         return ["metadata", field];
     },
 
+    // Project-level metadata field helpers
+    projectName(): ProjectNameEditMap {
+        return ["projectName"];
+    },
+
+    metaGenerator(): MetaGeneratorEditMap {
+        return ["meta", "generator"];
+    },
+
+    meta(): MetaEditMap {
+        return ["meta"];
+    },
+
+    metaField(field: string): readonly ["meta", string] {
+        return ["meta", field];
+    },
+
+    languages(): LanguagesEditMap {
+        return ["languages"];
+    },
+
+    spellcheckIsEnabled(): SpellcheckIsEnabledEditMap {
+        return ["spellcheckIsEnabled"];
+    },
+
     // Compare editMaps
     equals(editMap1: readonly string[], editMap2: readonly string[]): boolean {
         return JSON.stringify(editMap1) === JSON.stringify(editMap2);
@@ -126,9 +159,17 @@ export const EditMapUtils = {
         return editMap.length >= 2 && editMap[0] === "metadata";
     },
 
-    // Get the metadata field name
+    // Check if editMap represents a meta edit
+    isMeta(editMap: readonly string[]): boolean {
+        return editMap.length >= 2 && editMap[0] === "meta";
+    },
+
+    // Get the metadata field name (works for both ["metadata", field] and ["meta", field] formats)
     getMetadataField(editMap: readonly string[]): string | null {
-        return this.isMetadata(editMap) ? editMap[1] : null;
+        if (this.isMetadata(editMap) || this.isMeta(editMap)) {
+            return editMap[1];
+        }
+        return null;
     }
 };
 
@@ -173,7 +214,11 @@ export function deduplicateFileMetadataEdits(
     edits.forEach((edit) => {
         if (edit.editMap && Array.isArray(edit.editMap)) {
             const editMapKey = edit.editMap.join('.');
-            const key = `${edit.timestamp}:${editMapKey}:${edit.value}`;
+            // Properly serialize object values to avoid [object Object] issue
+            const valueKey = typeof edit.value === 'object' && edit.value !== null
+                ? JSON.stringify(edit.value)
+                : String(edit.value);
+            const key = `${edit.timestamp}:${editMapKey}:${valueKey}`;
 
             // Keep the first occurrence of a duplicate (file-level edits don't have validatedBy)
             if (!editMap.has(key)) {
@@ -250,6 +295,38 @@ export function addMetadataEdit(
     };
 
     // Add the new edit and deduplicate
+    metadata.edits.push(newEdit);
+    metadata.edits = deduplicateFileMetadataEdits(metadata.edits);
+}
+
+/**
+ * Helper function to add an edit entry to project metadata edits when updating metadata.json fields
+ * For meta field edits (editMap is ["meta", "fieldName"]), value is the direct field value.
+ * For other edits, value is the entire object/value being tracked.
+ */
+export function addProjectMetadataEdit(
+    metadata: { edits?: any[]; },
+    editMap: readonly string[],
+    value: any,
+    author: string
+): void {
+    // Initialize edits array if it doesn't exist
+    if (!metadata.edits) {
+        metadata.edits = [];
+    }
+
+    const currentTimestamp = Date.now();
+
+    // Create the new edit entry
+    const newEdit = {
+        editMap,
+        value,
+        timestamp: currentTimestamp,
+        type: EditType.USER_EDIT,
+        author,
+    };
+
+    // Add the new edit and deduplicate (can reuse the same deduplication function)
     metadata.edits.push(newEdit);
     metadata.edits = deduplicateFileMetadataEdits(metadata.edits);
 }
