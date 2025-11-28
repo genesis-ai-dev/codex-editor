@@ -166,6 +166,7 @@ export class SplashScreenProvider {
         return getWebviewHtml(webview, { extensionUri: this._extensionUri } as vscode.ExtensionContext, {
             title: "Codex Editor Loading",
             scriptPath: ["SplashScreen", "index.js"],
+            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}' 'strict-dynamic' https://static.cloudflareinsights.com; worker-src ${webview.cspSource} blob:; connect-src https://*.vscode-cdn.net https://*.frontierrnd.com; img-src ${webview.cspSource} https: data:; font-src ${webview.cspSource}; media-src ${webview.cspSource} https: blob:;`,
             initialData: { timings: this._timings, syncDetails: this._syncDetails },
             inlineStyles: `
                 body { margin: 0; padding: 0; height: 100vh; width: 100vw; overflow: hidden; background-color: var(--vscode-editor-background); color: var(--vscode-foreground); font-family: var(--vscode-font-family); }

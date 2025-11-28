@@ -29,10 +29,11 @@ export function getWebviewHtml(
     const nonce = getNonce();
     const defaultCsp = `default-src 'none'; ` +
         `style-src ${webview.cspSource} 'unsafe-inline'; ` +
-        `script-src 'nonce-\${nonce}' 'strict-dynamic'; ` +
+        `script-src 'nonce-\${nonce}' 'strict-dynamic' https://static.cloudflareinsights.com; ` +
         `img-src ${webview.cspSource} https: data:; ` +
         `font-src ${webview.cspSource}; ` +
         `worker-src ${webview.cspSource} blob:; ` +
+        `connect-src https://*.vscode-cdn.net https://*.frontierrnd.com; ` +
         `media-src ${webview.cspSource} https: blob:;`;
     const csp = (options.csp || defaultCsp).replace(/\$\{nonce\}/g, nonce);
 
