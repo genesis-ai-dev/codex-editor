@@ -252,6 +252,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "auth.logout"; }
     | { command: "auth.status"; }
     | { command: "auth.checkAuthStatus"; }
+    | { command: "auth.backToLogin"; }
     | { command: "auth.requestPasswordReset"; resetEmail: string; }
     | { command: "project.clone"; repoUrl: string; mediaStrategy?: MediaFilesStrategy; }
     | { command: "project.new"; }
@@ -276,6 +277,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "getAggregatedProgress"; }
     | { command: "showProgressDashboard"; }
     | { command: "startup.dismiss"; }
+    | { command: "skipAuth"; }
     | { command: "webview.ready"; }
     | { command: "extension.installFrontier"; }
     | { command: "navigateToMainMenu"; }

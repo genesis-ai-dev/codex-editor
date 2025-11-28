@@ -6,8 +6,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Alert, AlertDescription } from "./ui/alert";
 
-declare const vscode: any;
-
 interface SyncSettingsProps {
     autoSyncEnabled: boolean;
     syncDelayMinutes: number;
@@ -18,6 +16,7 @@ interface SyncSettingsProps {
     onToggleAutoSync: (enabled: boolean) => void;
     onChangeSyncDelay: (minutes: number) => void;
     onTriggerSync: () => void;
+    onLogin: () => void;
 }
 
 export const SyncSettings: React.FC<SyncSettingsProps> = ({
@@ -30,6 +29,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
     onToggleAutoSync,
     onChangeSyncDelay,
     onTriggerSync,
+    onLogin,
 }) => {
     const network = useNetworkState();
     const isOnline = network?.online ?? true; // Default to true if network state is unavailable
@@ -93,15 +93,20 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                         Sync Settings
                     </CardTitle>
                     <Button
-                        onClick={onTriggerSync}
+                        onClick={() => {
+                            if (!isAuthenticated) {
+                                onLogin();
+                            } else {
+                                onTriggerSync();
+                            }
+                        }}
                         disabled={
                             isSyncInProgress ||
                             !isOnline ||
-                            !isFrontierExtensionEnabled ||
-                            !isAuthenticated
+                            !isFrontierExtensionEnabled
                         }
                         size="default"
-                        className="button-primary font-semibold px-3 py-2 text-sm xl:px-4 xl:text-base shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200 min-w-[100px] max-w-[140px] xl:max-w-none disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                        className="button-primary font-semibold px-3 py-2 text-sm xl:px-4 xl:text-base shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200 min-w-[100px] max-w-[160px] xl:max-w-none disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                     >
                         <i
                             className={`codicon ${
@@ -116,10 +121,18 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                                 ? "Offline"
                                 : isSyncInProgress
                                 ? syncStage || "Syncing..."
+                                : !isAuthenticated
+                                ? "Log in to sync"
                                 : "Sync Now"}
                         </span>
                         <span className="sm:hidden">
-                            {!isOnline ? "Offline" : isSyncInProgress ? "Syncing" : "Sync"}
+                            {!isOnline
+                                ? "Offline"
+                                : isSyncInProgress
+                                ? "Syncing"
+                                : !isAuthenticated
+                                ? "Log in to sync"
+                                : "Sync"}
                         </span>
                     </Button>
                 </div>
@@ -138,7 +151,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                     </Alert>
                 )}
                 {isFrontierExtensionEnabled && !isAuthenticated && (
-                    <Alert variant="destructive">
+                    <Alert variant="destructive" className="hidden">
                         <AlertDescription>
                             <div className="flex">
                                 <i className="codicon codicon-warning h-4 w-4" />

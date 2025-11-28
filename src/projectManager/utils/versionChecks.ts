@@ -8,7 +8,7 @@ interface VSCodeVersionStatus {
 }
 
 // Required version of Frontier Authentication extension for all syncing operations (based on codex minimum requirements)
-export const REQUIRED_FRONTIER_VERSION = "0.4.18"; // Prevent concurrent metadata.json changes by Frontier Authentication
+export const REQUIRED_FRONTIER_VERSION = "0.4.19"; // Prevent concurrent metadata.json changes by Frontier Authentication
 
 // Required VS Code version for Codex Editor
 export const REQUIRED_VSCODE_VERSION = "1.99.0";

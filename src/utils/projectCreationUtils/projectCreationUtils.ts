@@ -170,10 +170,10 @@ async function createProjectInExistingFolder() {
 /**
  * Creates a new project in the current workspace
  */
-export async function createNewProject() {
+export async function createNewProject(details: any = {}) {
     try {
         console.log("Creating new project");
-        await initializeProjectMetadataAndGit({});
+        await initializeProjectMetadataAndGit(details);
         await vscode.commands.executeCommand("codex-project-manager.initializeNewProject");
     } catch (error) {
         console.error("Error creating new project:", error);
