@@ -15,6 +15,7 @@ import {
     createNewWorkspaceAndProject,
     createWorkspaceWithProjectName,
     sanitizeProjectName,
+    checkProjectNameExists,
 } from "../../utils/projectCreationUtils/projectCreationUtils";
 import { getAuthApi } from "../../extension";
 import { createMachine, assign, createActor } from "xstate";
@@ -1694,9 +1695,30 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 break;
             }
             case "project.createEmpty.confirm": {
-                const { proceed, projectName } = message as any;
+                const { proceed, projectName } = message;
                 if (proceed && projectName) {
                     await createWorkspaceWithProjectName(projectName);
+                }
+                break;
+            }
+            case "project.checkNameExists": {
+                try {
+                    const { projectName } = message;
+                    const sanitized = sanitizeProjectName(projectName);
+                    const checkResult = await checkProjectNameExists(sanitized);
+                    this.safeSendMessage({
+                        command: "project.nameExistsCheck",
+                        exists: checkResult.exists,
+                        isCodexProject: checkResult.isCodexProject,
+                        errorMessage: checkResult.errorMessage,
+                    } as MessagesFromStartupFlowProvider);
+                } catch (error) {
+                    console.error("Error checking project name:", error);
+                    this.safeSendMessage({
+                        command: "project.nameExistsCheck",
+                        exists: false,
+                        isCodexProject: false,
+                    } as MessagesFromStartupFlowProvider);
                 }
                 break;
             }
