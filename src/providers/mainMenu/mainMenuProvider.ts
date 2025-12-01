@@ -12,7 +12,7 @@ import {
     ProjectManagerMessageToWebview,
     ProjectManagerState,
 } from "../../../types";
-import { createNewWorkspaceAndProject, openProject, createNewProject } from "../../utils/projectCreationUtils/projectCreationUtils";
+import { createNewWorkspaceAndProject, openProject, createNewProject, extractProjectIdFromFolderName } from "../../utils/projectCreationUtils/projectCreationUtils";
 import git from "isomorphic-git";
 // Note: avoid top-level http(s) imports to keep test bundling simple
 import * as fs from "fs";
@@ -577,30 +577,43 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 console.log("initializeProject");
                 this.store.setState({ isInitializing: true });
                 try {
-                    await createNewProject();
+                    const workspaceFolders = vscode.workspace.workspaceFolders;
+                    if (!workspaceFolders || !workspaceFolders[0]) {
+                        throw new Error("No workspace folder found");
+                    }
 
-                    // Wait for metadata to be initialized
-                    const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri;
-                    if (workspacePath) {
-                        const metadataPath = vscode.Uri.joinPath(workspacePath, "metadata.json");
+                    const workspacePath = workspaceFolders[0].uri;
+                    const metadataPath = vscode.Uri.joinPath(workspacePath, "metadata.json");
 
-                        // Wait for the metadata file to exist
-                        let attempts = 0;
-                        while (attempts < 10) {
-                            try {
-                                await vscode.workspace.fs.stat(metadataPath);
-                                // If we get here, the file exists
-                                break;
-                            } catch {
-                                await new Promise((resolve) => setTimeout(resolve, 100));
-                                attempts++;
-                            }
+                    // Check if metadata.json already exists
+                    let metadataExists = false;
+                    try {
+                        await vscode.workspace.fs.stat(metadataPath);
+                        metadataExists = true;
+                    } catch {
+                        // metadata.json doesn't exist, we'll create it
+                        metadataExists = false;
+                    }
+
+                    if (!metadataExists) {
+                        // Extract projectId from folder name if it exists
+                        let projectId: string | undefined;
+                        projectId = extractProjectIdFromFolderName(workspaceFolders[0].name);
+                        if (projectId) {
+                            console.log("Extracted projectId from folder name:", projectId);
                         }
 
-                        // Now that metadata exists, refresh state
-                        await this.store.refreshState();
-                        await this.updateProjectOverview();
+                        // Create metadata.json (this will also initialize git)
+                        await createNewProject(projectId);
+                    } else {
+                        // Metadata already exists, just run the initialization command
+                        // This matches StartupFlow behavior - it doesn't recreate metadata if it exists
+                        await vscode.commands.executeCommand("codex-project-manager.initializeNewProject");
                     }
+
+                    // Refresh state after initialization
+                    await this.store.refreshState();
+                    await this.updateProjectOverview();
                 } catch (error) {
                     console.error("Error during project initialization:", error);
                     this.store.setState({ isInitializing: false });

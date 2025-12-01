@@ -548,6 +548,17 @@ export async function updateMetadataFile() {
         return;
     }
 
+    // Check if metadata.json exists before trying to update it
+    // This prevents automatic creation when Main Menu opens
+    const metadataPath = vscode.Uri.joinPath(workspaceFolder, "metadata.json");
+    try {
+        await vscode.workspace.fs.stat(metadataPath);
+    } catch {
+        // metadata.json doesn't exist - don't create it automatically
+        debug("updateMetadataFile called but metadata.json doesn't exist. Skipping update to prevent automatic creation.");
+        return;
+    }
+
     const projectSettings = vscode.workspace.getConfiguration("codex-project-manager");
 
     // Get current user name for edit tracking

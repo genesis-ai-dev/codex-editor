@@ -697,9 +697,22 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
     );
 
     // Register event listener for configuration changes
-    const onDidChangeConfigurationListener = vscode.workspace.onDidChangeConfiguration((event) => {
+    const onDidChangeConfigurationListener = vscode.workspace.onDidChangeConfiguration(async (event) => {
         if (event.affectsConfiguration("codex-project-manager")) {
-            updateMetadataFile();
+            // Only update metadata if it already exists
+            // This prevents automatic creation when Main Menu opens
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+            if (workspaceFolder) {
+                const metadataPath = vscode.Uri.joinPath(workspaceFolder, "metadata.json");
+                try {
+                    await vscode.workspace.fs.stat(metadataPath);
+                    // metadata.json exists, safe to update
+                    updateMetadataFile();
+                } catch {
+                    // metadata.json doesn't exist - don't create it automatically
+                    console.log("[ProjectManager] Configuration changed but metadata.json doesn't exist. Skipping update to prevent automatic creation.");
+                }
+            }
         }
     });
 

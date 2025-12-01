@@ -1037,12 +1037,21 @@ function MainMenu() {
                                     </div>
                                 </div>
                                 <Button
-                                    onClick={() => handleProjectAction("initializeProject")}
+                                    onClick={async () => {
+                                        if (!projectState.isInitializing) {
+                                            handleProjectAction("initializeProject");
+                                        }
+                                    }}
+                                    disabled={projectState.isInitializing}
                                     className="button-primary h-12 px-8 font-bold text-base shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
                                 >
                                     <i className="codicon codicon-add mr-3 h-5 w-5" />
-                                    Initialize Project
-                                    <i className="codicon codicon-arrow-right ml-3 h-4 w-4" />
+                                    {projectState.isInitializing
+                                        ? "Initializing Project..."
+                                        : "Initialize Project"}
+                                    {!projectState.isInitializing && (
+                                        <i className="codicon codicon-arrow-right ml-3 h-4 w-4" />
+                                    )}
                                 </Button>
                             </CardContent>
                         </Card>
