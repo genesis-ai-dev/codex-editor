@@ -329,6 +329,21 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             message: error instanceof Error ? error.message : "Failed to open navigation"
                         });
                     }
+                } else if (message.command === "selectAudioFile") {
+                    await handleSelectAudioFile(message as SelectAudioFileMessage, webviewPanel);
+                } else if (message.command === "reprocessAudioFile") {
+                    await handleReprocessAudioFile(message as ReprocessAudioFileMessage, webviewPanel);
+                } else if (message.command === "requestAudioSegment") {
+                    await handleRequestAudioSegment(message as RequestAudioSegmentMessage, webviewPanel);
+                } else if (message.command === "updateAudioSegments") {
+                    await handleUpdateAudioSegments(message as UpdateAudioSegmentsMessage, webviewPanel);
+                } else if (message.command === "finalizeAudioImport") {
+                    await handleFinalizeAudioImport(
+                        message as FinalizeAudioImportMessage,
+                        token,
+                        webviewPanel,
+                        (msg, tok, pan) => this.handleWriteNotebooks(msg as WriteNotebooksMessage, tok, pan)
+                    );
                 }
             } catch (error) {
                 console.error("Error handling message:", error);

@@ -1061,7 +1061,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     openLoginFlow: async () => {
-        await vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
+        await vscode.commands.executeCommand("codex-project-manager.openStartupFlow", {
+            forceLogin: true,
+        });
     },
 
     togglePinPrompt: async ({ event }) => {
