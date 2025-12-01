@@ -180,7 +180,7 @@ async function createProjectInExistingFolder() {
  * @param projectId - Required projectId for new projects. Must be provided to ensure consistency with folder name.
  *                    For backward compatibility with existing initialization flows, will generate if not provided.
  */
-export async function createNewProject(projectId?: string) {
+export async function createNewProject(projectId?: string, details: any = {}) {
     try {
         // For new projects created via ConfirmModal, projectId MUST be provided.
         // For backward compatibility with other initialization flows, generate if not provided.
@@ -192,7 +192,7 @@ export async function createNewProject(projectId?: string) {
             finalProjectId = projectId;
         }
         // Always pass projectId to ensure it's used (never regenerated)
-        await initializeProjectMetadataAndGit({ projectId: finalProjectId });
+        await initializeProjectMetadataAndGit({ details,projectId: finalProjectId });
         await vscode.commands.executeCommand("codex-project-manager.initializeNewProject");
     } catch (error) {
         console.error("Error creating new project:", error);

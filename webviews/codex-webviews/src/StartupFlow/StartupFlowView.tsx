@@ -293,7 +293,7 @@ export const StartupFlowView: React.FC = () => {
     };
 
     const handleSkipAuth = () => {
-        // send({ type: StartupFlowEvents.SKIP_AUTH });
+        vscode.postMessage({ command: "skipAuth" } as MessagesToStartupFlowProvider);
     };
 
     const [showNameModal, setShowNameModal] = useState(false);
@@ -401,6 +401,7 @@ export const StartupFlowView: React.FC = () => {
                     onCloneRepo={handleCloneRepo}
                     onOpenProject={handleOpenProject}
                     vscode={vscode as unknown as WebviewApi<any>}
+                    isAuthenticated={authState?.isAuthenticated || false}
                     // state={state}
                     // send={send}
                 />
