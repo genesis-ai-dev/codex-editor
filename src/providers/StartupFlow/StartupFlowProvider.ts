@@ -1743,6 +1743,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     await this.context.globalState.update("pendingProjectCreateName", projectName);
                     // Use provided projectId or generate one if not provided (shouldn't happen in normal flow)
                     const finalProjectId = projectId || generateProjectId();
+                    await this.context.globalState.update("pendingProjectCreateId", finalProjectId);
                     await createWorkspaceWithProjectName(projectName, finalProjectId);
                 }
                 break;
@@ -1782,7 +1783,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     }
                 }
 
-                await createNewProject({projectId});
+                await createNewProject({ projectId });
 
                 // Wait for metadata.json to be created
                 if (workspaceFolders) {

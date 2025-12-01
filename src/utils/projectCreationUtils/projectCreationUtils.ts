@@ -177,7 +177,7 @@ async function createProjectInExistingFolder() {
 
 /**
  * Creates a new project in the current workspace
- * @param projectId - Required projectId for new projects. Must be provided to ensure consistency with folder name.
+ * @param details - Required projectId for new projects. Must be provided to ensure consistency with folder name.
  *                    For backward compatibility with existing initialization flows, will generate if not provided.
  */
 export async function createNewProject(details: ProjectDetails = {}) {
