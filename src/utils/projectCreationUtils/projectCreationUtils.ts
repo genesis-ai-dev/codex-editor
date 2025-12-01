@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as semver from "semver";
-import { initializeProjectMetadataAndGit, syncMetadataToConfiguration, isValidCodexProject, generateProjectId } from "../../projectManager/utils/projectUtils";
+import { initializeProjectMetadataAndGit, syncMetadataToConfiguration, isValidCodexProject, generateProjectId, ProjectDetails } from "../../projectManager/utils/projectUtils";
 import { getCodexProjectsDirectory } from "../projectLocationUtils";
 
 /**
@@ -118,7 +118,7 @@ async function createProjectInNewFolder(projectName: string, projectId: string) 
         // Wait for workspace to open
         await new Promise((resolve) => setTimeout(resolve, 1000));
 
-        await createNewProject(projectId);
+        await createNewProject({ projectId });
     } catch (error) {
         console.error("Error creating new project folder:", error);
         await vscode.window.showErrorMessage(
@@ -166,7 +166,7 @@ async function createProjectInExistingFolder() {
         await new Promise((resolve) => setTimeout(resolve, 1000));
         // Generate projectId for this flow (creating in existing folder)
         const projectId = generateProjectId();
-        await createNewProject(projectId);
+        await createNewProject({ projectId });
     } catch (error) {
         console.error("Error creating new project:", error);
         await vscode.window.showErrorMessage("Failed to create new project. Please try again.", {
@@ -180,19 +180,19 @@ async function createProjectInExistingFolder() {
  * @param projectId - Required projectId for new projects. Must be provided to ensure consistency with folder name.
  *                    For backward compatibility with existing initialization flows, will generate if not provided.
  */
-export async function createNewProject(projectId?: string, details: any = {}) {
+export async function createNewProject(details: ProjectDetails = {}) {
     try {
         // For new projects created via ConfirmModal, projectId MUST be provided.
         // For backward compatibility with other initialization flows, generate if not provided.
         let finalProjectId: string;
-        if (!projectId || projectId.trim() === "") {
+        if (!details.projectId || details.projectId.trim() === "") {
             console.warn("createNewProject called without projectId - generating for backward compatibility");
             finalProjectId = generateProjectId();
         } else {
-            finalProjectId = projectId;
+            finalProjectId = details.projectId;
         }
         // Always pass projectId to ensure it's used (never regenerated)
-        await initializeProjectMetadataAndGit({ details,projectId: finalProjectId });
+        await initializeProjectMetadataAndGit({ ...details, projectId: finalProjectId });
         await vscode.commands.executeCommand("codex-project-manager.initializeNewProject");
     } catch (error) {
         console.error("Error creating new project:", error);

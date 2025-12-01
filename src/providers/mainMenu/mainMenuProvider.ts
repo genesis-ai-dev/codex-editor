@@ -662,7 +662,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                         }
 
                         // Create metadata.json (this will also initialize git)
-                        await createNewProject(projectId);
+                        await createNewProject({projectId});
                     } else {
                         // Metadata already exists, just run the initialization command
                         // This matches StartupFlow behavior - it doesn't recreate metadata if it exists

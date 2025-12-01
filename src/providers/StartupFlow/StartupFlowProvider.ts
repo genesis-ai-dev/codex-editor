@@ -1782,7 +1782,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     }
                 }
 
-                await createNewProject(projectId);
+                await createNewProject({projectId});
 
                 // Wait for metadata.json to be created
                 if (workspaceFolders) {
