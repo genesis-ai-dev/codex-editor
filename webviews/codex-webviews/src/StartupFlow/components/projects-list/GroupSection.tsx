@@ -112,7 +112,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
     };
 
     return (
-        <div key={group.name} className={cn("mb-2", depth > 0 && "ml-6")}>
+        <div key={group.name} className={cn("mb-1", depth > 0 && "ml-6")}>
             <Card
                 className={cn(
                     "overflow-hidden border-l-4 shadow-sm",
@@ -123,7 +123,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                 <CardHeader
                     className={cn(
                         "cursor-pointer hover:bg-muted/30 transition-colors",
-                        depth === 0 ? "py-2 px-3" : "py-1.5 px-3"
+                        depth === 0 ? "py-1.5 px-3" : "py-1 px-3"
                     )}
                     onClick={() =>
                         setExpandedGroups((prev) => ({

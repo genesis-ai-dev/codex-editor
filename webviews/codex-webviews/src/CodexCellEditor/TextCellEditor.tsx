@@ -137,6 +137,7 @@ interface CellEditorProps {
     currentUsername?: string | null;
     vscode?: any;
     isSourceText?: boolean;
+    isAuthenticated?: boolean;
 }
 
 // Simple ISO-639-1 to ISO-639-3 mapping for common languages; default to 'eng'
@@ -251,11 +252,28 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
     const [editorContent, setEditorContent] = useState(cellContent);
     const [isTextDirty, setIsTextDirty] = useState(false);
+    const [showOfflineModal, setShowOfflineModal] = useState(false);
+    const [showAuthModal, setShowAuthModal] = useState(false);
 
     // Sync editor content when cell content changes (e.g., from translation)
     useEffect(() => {
         setEditorContent(cellContent);
     }, [cellContent]);
+    const handleAuthModalSignIn = () => {
+        window.vscodeApi.postMessage({
+            command: "openLoginFlow",
+        });
+        setShowAuthModal(false);
+    };
+
+    const handleAuthModalClose = () => {
+        setShowAuthModal(false);
+    };
+
+    const handleOfflineModalClose = () => {
+        setShowOfflineModal(false);
+    };
+
     const [sourceText, setSourceText] = useState<string | null>(null);
     const [backtranslation, setBacktranslation] = useState<SavedBacktranslation | null>(null);
     const [isEditingBacktranslation, setIsEditingBacktranslation] = useState(false);
@@ -1304,6 +1322,18 @@ const CellEditor: React.FC<CellEditorProps> = ({
     });
 
     const handleTranscribeAudio = async () => {
+        // Check connectivity first
+        if (!navigator.onLine) {
+            setShowOfflineModal(true);
+            return;
+        }
+
+        // Check authentication
+        if (!isAuthenticated) {
+            setShowAuthModal(true);
+            return;
+        }
+
         if (!audioBlob) {
             setTranscriptionStatus("No audio to transcribe");
             return;
@@ -2796,6 +2826,35 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     onClose={() => setShowAudioHistory(false)}
                 />
             )}
+
+            <Dialog open={showAuthModal} onOpenChange={handleAuthModalClose}>
+                <DialogContent>
+                    <DialogHeader className="sm:text-center">
+                        <DialogTitle>Sign in to use AI transcription</DialogTitle>
+                    </DialogHeader>
+                    <DialogFooter className="flex-col sm:justify-center sm:flex-col">
+                        <Button onClick={handleAuthModalSignIn}>Sign In</Button>
+                        <Button variant="secondary" onClick={handleAuthModalClose}>
+                            Cancel
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={showOfflineModal} onOpenChange={handleOfflineModalClose}>
+                <DialogContent>
+                    <DialogHeader className="sm:text-center">
+                        <DialogTitle>
+                            Connect to the internet to use AI transcription
+                        </DialogTitle>
+                    </DialogHeader>
+                    <DialogFooter className="flex-col sm:justify-center sm:flex-col">
+                        <Button variant="secondary" onClick={handleOfflineModalClose}>
+                            Close
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </Card>
     );
 };

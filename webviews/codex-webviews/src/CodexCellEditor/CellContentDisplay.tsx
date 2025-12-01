@@ -446,6 +446,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         const [fadingOut, setFadingOut] = useState(false);
         const [showSparkleButton, setShowSparkleButton] = useState(false);
         const [showAuthModal, setShowAuthModal] = useState(false);
+        const [showOfflineModal, setShowOfflineModal] = useState(false);
         const { showTooltip, hideTooltip } = useTooltip();
 
         const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -570,6 +571,12 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         // Handler for sparkle button click
         const handleSparkleButtonClick = (e: React.MouseEvent) => {
             e.stopPropagation(); // Prevent the cell click handler from firing
+
+            // Check if user is offline
+            if (!navigator.onLine) {
+                setShowOfflineModal(true);
+                return;
+            }
 
             // Check if user is authenticated
             if (!isAuthenticated) {
@@ -810,6 +817,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             });
         };
 
+        const handleOfflineModalClose = () => {
+            setShowOfflineModal(false);
+            setShowSparkleButton(false);
+        };
+
         // Function to render the content with footnote markers and proper spacing
         const renderContent = () => {
             // Handle empty cell case
@@ -1014,6 +1026,27 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                             onClick={handleAuthModalClose}
                                                         >
                                                             Cancel
+                                                        </Button>
+                                                    </DialogFooter>
+                                                </DialogContent>
+                                            </Dialog>
+                                            <Dialog
+                                                open={showOfflineModal}
+                                                onOpenChange={handleOfflineModalClose}
+                                            >
+                                                <DialogContent>
+                                                    <DialogHeader className="sm:text-center">
+                                                        <DialogTitle>
+                                                            Connect to the internet to use AI translation
+                                                        </DialogTitle>
+                                                        <DialogDescription></DialogDescription>
+                                                    </DialogHeader>
+                                                    <DialogFooter className="flex-col sm:justify-center sm:flex-col">
+                                                        <Button
+                                                            variant="secondary"
+                                                            onClick={handleOfflineModalClose}
+                                                        >
+                                                            Close
                                                         </Button>
                                                     </DialogFooter>
                                                 </DialogContent>
