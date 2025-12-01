@@ -597,8 +597,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
 
                     if (!metadataExists) {
                         // Extract projectId from folder name if it exists
-                        let projectId: string | undefined;
-                        projectId = extractProjectIdFromFolderName(workspaceFolders[0].name);
+                        const projectId = extractProjectIdFromFolderName(workspaceFolders[0].name);
                         if (projectId) {
                             console.log("Extracted projectId from folder name:", projectId);
                         }
