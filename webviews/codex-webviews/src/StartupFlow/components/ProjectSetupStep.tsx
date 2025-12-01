@@ -15,6 +15,7 @@ export interface ProjectSetupStepProps {
     gitlabInfo?: GitLabInfo;
     vscode: WebviewApi<any>;
     onOpenProject: (project: ProjectWithSyncStatus) => void;
+    isAuthenticated: boolean;
     // state: StateFrom<typeof startupFlowMachine>;
     // send: (event: EventFrom<typeof startupFlowMachine>) => void;
 }
@@ -25,6 +26,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     onOpenProject,
     gitlabInfo,
     vscode,
+    isAuthenticated,
     // state,
     // send,
 }) => {
@@ -34,7 +36,21 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     const [progressData, setProgressData] = useState<any>(null);
     const [isLoadingProgress, setIsLoadingProgress] = useState(false);
     const [isAnyApplying, setIsAnyApplying] = useState(false);
-    // const [state, send, service] = useMachine(startupFlowMachine);
+    const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
+    useEffect(() => {
+        const handleOnlineStatusChange = () => {
+            setIsOffline(!navigator.onLine);
+        };
+
+        window.addEventListener("online", handleOnlineStatusChange);
+        window.addEventListener("offline", handleOnlineStatusChange);
+
+        return () => {
+            window.removeEventListener("online", handleOnlineStatusChange);
+            window.removeEventListener("offline", handleOnlineStatusChange);
+        };
+    }, []);
 
     const fetchProjectList = () => {
         vscode.postMessage({
@@ -148,17 +164,57 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
 
     return (
         <div className="project-setup-step">
-            {/* {state.context.authState.isAuthExtensionInstalled && (
+            {(isOffline || !isAuthenticated) && (
+                <div
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        marginBottom: "1rem",
+                        padding: "8px 12px",
+                        backgroundColor: "var(--vscode-inputValidation-warningBackground)",
+                        border: "1px solid var(--vscode-inputValidation-warningBorder)",
+                        borderRadius: "4px",
+                        width: "100%",
+                        boxSizing: "border-box",
+                    }}
+                >
+                    <i className="codicon codicon-warning"></i>
+                    <span>
+                        {isOffline && !isAuthenticated ? (
+                            <div className="flex flex-col">
+                                <span>You are offline and logged out. Only local projects are available.</span>
+                                <span>Translating using AI requires an account and an internet connection.</span>
+                            </div>
+                        ) : isOffline ? (
+                            <div className="flex flex-col">
+                                <span>You appear to be offline.</span>
+                                <span>Some features may be unavailable.</span>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col">
+                                <span>You are currently logged out. Only local projects will be available.</span>
+                                <span>Translating using AI will not work.</span>
+                            </div>
+                        )}
+                    </span>
+                </div>
+            )}
+            {!isAuthenticated && (
                 <div>
                     <VSCodeButton
-                        appearance="icon"
-                        onClick={() => send({ type: StartupFlowEvents.BACK_TO_LOGIN })}
-                        title="Back to login"
+                        appearance="secondary"
+                        onClick={() =>
+                            vscode.postMessage({
+                                command: "auth.backToLogin",
+                            } as MessagesToStartupFlowProvider)
+                        }
                     >
-                        <i className="codicon codicon-arrow-left"></i>
+                        <i className="codicon codicon-arrow-left" style={{ marginRight: "4px" }}></i>
+                        Back to Login
                     </VSCodeButton>
                 </div>
-            )} */}
+            )}
             <div
                 style={{
                     display: "flex",

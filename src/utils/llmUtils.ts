@@ -3,6 +3,7 @@ import { ChatMessage } from "../../types";
 import { ChatCompletionMessageParam } from "openai/resources";
 import { getAuthApi } from "../extension";
 import * as vscode from "vscode";
+import { MetadataManager } from "./metadataManager";
 
 /**
  * Calls the Language Model (LLM) with the given messages and configuration.
@@ -366,8 +367,7 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
             sourceBookWhitelist: (config.get("sourceBookWhitelist") as string) || "",
             temperature: (config.get("temperature") as number) || 0.8,
             mainChatLanguage: (config.get("main_chat_language") as string) || "English",
-            chatSystemMessage: (config.get("chatSystemMessage") as string) ||
-                "This is a chat between a helpful Bible translation assistant and a Bible translator...",
+            chatSystemMessage: await MetadataManager.getChatSystemMessage(),
             numberOfFewShotExamples: (config.get("numberOfFewShotExamples") as number) || 30,
             debugMode: config.get("debugMode") === true || config.get("debugMode") === "true",
             useOnlyValidatedExamples: useOnlyValidatedExamples as boolean,

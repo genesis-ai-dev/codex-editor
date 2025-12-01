@@ -13,6 +13,7 @@ import {
     temporaryMigrationScript_checkMatthewNotebook,
     migration_changeDraftFolderToFilesFolder,
     migration_chatSystemMessageSetting,
+    migration_chatSystemMessageToMetadata,
     migration_lineNumbersSettings,
     migration_editHistoryFormat,
 } from "./projectManager/utils/migrationUtils";
@@ -463,6 +464,26 @@ export async function activate(context: vscode.ExtensionContext) {
                 return;
             }
 
+            // Check for pending project creation after reload
+            const pendingCreate = context.globalState.get("pendingProjectCreate");
+            if (pendingCreate) {
+                const pendingName = context.globalState.get<string>("pendingProjectCreateName");
+                console.log("[Extension] Resuming project creation for:", pendingName);
+
+                // Clear flags
+                await context.globalState.update("pendingProjectCreate", undefined);
+                await context.globalState.update("pendingProjectCreateName", undefined);
+
+                try {
+                    // We are in the new folder. Initialize it.
+                    const { createNewProject } = await import("./utils/projectCreationUtils/projectCreationUtils");
+                    await createNewProject({ projectName: pendingName });
+                } catch (error) {
+                    console.error("Failed to resume project creation:", error);
+                    vscode.window.showErrorMessage("Failed to create project after reload.");
+                }
+            }
+
             const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
 
             let metadataExists = false;
@@ -868,7 +889,10 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
         if (hasCodexProject) {
             // Run chatSystemMessage migration FIRST to ensure correct key is synced
             await migration_chatSystemMessageSetting();
-            debug("✅ [PRE-SYNC] Completed chatSystemMessage migration");
+            debug("✅ [PRE-SYNC] Completed chatSystemMessage namespace migration");
+            // Migrate chatSystemMessage from settings.json to metadata.json
+            await migration_chatSystemMessageToMetadata(context);
+            debug("✅ [PRE-SYNC] Completed chatSystemMessage to metadata.json migration");
 
             const { ensureGitDisabledInSettings } = await import("./projectManager/utils/projectUtils");
             await ensureGitDisabledInSettings();

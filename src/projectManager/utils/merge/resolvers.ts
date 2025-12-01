@@ -8,7 +8,7 @@ import { NotebookCommentThread, NotebookComment, CustomNotebookCellData, CustomN
 import { CommentsMigrator } from "../../../utils/commentsMigrationUtils";
 import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
-import { EditHistory, ValidationEntry, FileEditHistory } from "../../../../types/index.d";
+import { EditHistory, ValidationEntry, FileEditHistory, ProjectEditHistory } from "../../../../types/index.d";
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../../utils/editMapUtils";
 import { normalizeAttachmentUrl } from "@/utils/pathUtils";
 
@@ -736,6 +736,113 @@ function migrateEditHistoryInContent(content: string): string {
 }
 
 /**
+ * Represents the position context of a cell in its original array.
+ * Used to preserve relative positioning when merging cells from different versions.
+ */
+interface CellPositionContext {
+    /** The ID of the cell that came before this cell (null if first cell) */
+    previousCellId: string | null;
+    /** The ID of the cell that came after this cell (null if last cell) */
+    nextCellId: string | null;
+}
+
+/**
+ * Builds a map of cell position context for each cell in the array.
+ * This tracks what cell came before and after each cell, enabling
+ * position-preserving merges.
+ *
+ * @param cells Array of cells to build position context for
+ * @returns Map from cell ID to its position context
+ */
+function buildCellPositionContextMap(cells: CustomNotebookCellData[]): Map<string, CellPositionContext> {
+    const positionMap = new Map<string, CellPositionContext>();
+
+    for (let i = 0; i < cells.length; i++) {
+        const cell = cells[i];
+        const cellId = cell.metadata?.id;
+        if (!cellId) continue;
+
+        const previousCellId = i > 0 ? (cells[i - 1].metadata?.id || null) : null;
+        const nextCellId = i < cells.length - 1 ? (cells[i + 1].metadata?.id || null) : null;
+
+        positionMap.set(cellId, { previousCellId, nextCellId });
+    }
+
+    return positionMap;
+}
+
+/**
+ * Finds the best insertion index for a cell based on its position context.
+ * Tries to find the previous or next neighbor in the result array and insert
+ * relative to that position. If direct neighbors aren't found, traverses
+ * indirect neighbors through the position context map.
+ *
+ * @param cellId The ID of the cell to insert
+ * @param positionContext The cell's position context from its original array
+ * @param resultCells The current result array
+ * @param resultCellIndexMap Map from cell ID to index in resultCells for quick lookup
+ * @param positionContextMap Full position context map for traversing indirect neighbors
+ * @returns The index at which to insert the cell
+ */
+function findInsertionIndex(
+    cellId: string,
+    positionContext: CellPositionContext,
+    resultCells: CustomNotebookCellData[],
+    resultCellIndexMap: Map<string, number>,
+    positionContextMap: Map<string, CellPositionContext>
+): number {
+    // First, try to find the previous cell and insert after it
+    if (positionContext.previousCellId) {
+        const prevIndex = resultCellIndexMap.get(positionContext.previousCellId);
+        if (prevIndex !== undefined) {
+            debugLog(`Cell ${cellId}: found previous neighbor ${positionContext.previousCellId} at index ${prevIndex}, inserting after`);
+            return prevIndex + 1;
+        }
+    }
+
+    // If previous cell not found, try to find the next cell and insert before it
+    if (positionContext.nextCellId) {
+        const nextIndex = resultCellIndexMap.get(positionContext.nextCellId);
+        if (nextIndex !== undefined) {
+            debugLog(`Cell ${cellId}: found next neighbor ${positionContext.nextCellId} at index ${nextIndex}, inserting before`);
+            return nextIndex;
+        }
+
+        // If next neighbor not found, try to find an indirect neighbor
+        // Check if the next neighbor has a next neighbor that IS in the result
+        const nextNeighborContext = positionContextMap.get(positionContext.nextCellId);
+        if (nextNeighborContext?.nextCellId) {
+            const indirectNextIndex = resultCellIndexMap.get(nextNeighborContext.nextCellId);
+            if (indirectNextIndex !== undefined) {
+                debugLog(`Cell ${cellId}: found indirect next neighbor ${nextNeighborContext.nextCellId} (via ${positionContext.nextCellId}) at index ${indirectNextIndex}, inserting before`);
+                return indirectNextIndex;
+            }
+        }
+    }
+
+    // If neither neighbor found, append at the end
+    debugLog(`Cell ${cellId}: no neighbors found in result, appending at end`);
+    return resultCells.length;
+}
+
+/**
+ * Rebuilds the index map after an insertion
+ *
+ * @param resultCells The result array
+ * @returns Updated map from cell ID to index
+ */
+function rebuildIndexMap(resultCells: CustomNotebookCellData[]): Map<string, number> {
+    const indexMap = new Map<string, number>();
+    for (let i = 0; i < resultCells.length; i++) {
+        const cellId = resultCells[i].metadata?.id;
+        if (cellId) {
+            indexMap.set(cellId, i);
+        }
+    }
+    return indexMap;
+}
+
+/**
  * Custom merge resolution for Codex files
  * Merges cells from two versions of a notebook, preserving edit history and metadata
  *
@@ -744,6 +851,12 @@ function migrateEditHistoryInContent(content: string): string {
  * - This function converts any string entries to proper ValidationEntry objects
  * - It ensures all validatedBy arrays only contain valid ValidationEntry objects in the output
  * - String entries with the same username as an object entry are removed to avoid duplicates
+ *
+ * Position preservation for paratextual cells:
+ * - Tracks the previous and next cell IDs for each cell in both versions
+ * - When inserting cells unique to "their" version, places them in the correct relative position
+ * - Uses neighbor-based positioning: if the previous neighbor exists, insert after it;
+ *   if the next neighbor exists, insert before it; otherwise append at end
  *
  * @param ourContent Our version of the notebook JSON content
  * @param theirContent Their version of the notebook JSON content
@@ -823,8 +936,13 @@ export async function resolveCodexCustomMerge(
     // Determine merge author (env override for tests, else best-effort lookup)
     const mergeAuthor = process.env.CODEX_MERGE_USER || await getCurrentUserName();
 
+    // Build position context maps for both cell arrays
+    // This tracks what cells came before/after each cell for position-preserving merges
+    const theirPositionContextMap = buildCellPositionContextMap(theirCells);
+    debugLog(`Built position context map for ${theirPositionContextMap.size} cells from their version`);
+
     // Map to track cells by ID for quick lookup
-    const theirCellsMap = new Map<string, CustomNotebookCellData>(); // FIXME: this causes unknown cells to show up at the end of the notebook because we are making a mpa not array
+    const theirCellsMap = new Map<string, CustomNotebookCellData>();
     theirCells.forEach((cell) => {
         if (cell.metadata?.id) {
             theirCellsMap.set(cell.metadata.id, cell);
@@ -918,11 +1036,41 @@ export async function resolveCodexCustomMerge(
         }
     });
 
-    // Add any new cells from their version
-    theirCellsMap.forEach((cell, id) => {
-        debugLog(`Adding their unique cell ${id} to results`);
-        resultCells.push(cell);
-    });
+    // Add any new cells from their version, preserving their relative positions
+    // These are cells that only exist in "their" version (e.g., paratextual cells they added)
+    if (theirCellsMap.size > 0) {
+        debugLog(`Processing ${theirCellsMap.size} unique cells from their version with position preservation`);
+
+        // Convert remaining cells to an array and sort by their original position in theirCells
+        // This ensures we process them in their original order
+        const theirUniqueCellIds = Array.from(theirCellsMap.keys());
+        const theirCellsOriginalOrder = theirCells
+            .filter(cell => cell.metadata?.id && theirUniqueCellIds.includes(cell.metadata.id))
+            .map(cell => cell.metadata!.id!);
+
+        // Process cells in their original order to maintain relative positioning
+        for (const cellId of theirCellsOriginalOrder) {
+            const cell = theirCellsMap.get(cellId);
+            if (!cell) continue;
+
+            const positionContext = theirPositionContextMap.get(cellId);
+            if (!positionContext) {
+                // No position context, append at end
+                debugLog(`Adding their unique cell ${cellId} at end (no position context)`);
+                resultCells.push(cell);
+                continue;
+            }
+
+            // Build current index map for lookup
+            const resultCellIndexMap = rebuildIndexMap(resultCells);
+
+            // Find the best insertion index based on position context
+            const insertionIndex = findInsertionIndex(cellId, positionContext, resultCells, resultCellIndexMap, theirPositionContextMap);
+
+            debugLog(`Inserting their unique cell ${cellId} at index ${insertionIndex}`);
+            resultCells.splice(insertionIndex, 0, cell);
+        }
+    }
 
     debugLog(`Merge complete. Final cell count: ${resultCells.length}`);
 
@@ -1509,6 +1657,95 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
         const ours = JSON.parse(conflict.ours || "{}");
         const theirs = JSON.parse(conflict.theirs || "{}");
 
+        // First, handle edit history merge if both versions have edits arrays
+        let resolvedMetadata: any;
+        if (ours.edits && Array.isArray(ours.edits) && theirs.edits && Array.isArray(theirs.edits)) {
+            // Use edit history approach
+            // Combine all edits from both metadata objects (ProjectEditHistory type)
+            const allEdits: ProjectEditHistory[] = [
+                ...(ours.edits || []),
+                ...(theirs.edits || [])
+            ].sort((a, b) => a.timestamp - b.timestamp);
+
+            // Group edits by their editMap path
+            const editsByPath = new Map<string, ProjectEditHistory[]>();
+            for (const edit of allEdits) {
+                if (edit.editMap && Array.isArray(edit.editMap)) {
+                    const pathKey = edit.editMap.join('.');
+                    if (!editsByPath.has(pathKey)) {
+                        editsByPath.set(pathKey, []);
+                    }
+                    editsByPath.get(pathKey)!.push(edit);
+                }
+            }
+
+            // Start with our metadata as the base
+            resolvedMetadata = JSON.parse(JSON.stringify(ours));
+
+            // Helper function to apply a project metadata edit
+            const applyProjectEditToMetadata = (metadata: any, edit: ProjectEditHistory): void => {
+                if (!edit.editMap || !Array.isArray(edit.editMap)) {
+                    return;
+                }
+
+                const path = edit.editMap;
+                const value = edit.value;
+
+                try {
+                    if (path.length === 1) {
+                        // Top-level field (e.g., ["projectName"], ["languages"])
+                        const field = path[0];
+                        metadata[field] = value;
+                    } else if (path.length === 2 && path[0] === "meta") {
+                        // Meta field edit (e.g., ["meta", "validationCount"], ["meta", "generator"])
+                        if (!metadata.meta) {
+                            metadata.meta = {};
+                        }
+                        if (path[1] === "generator") {
+                            // Set entire generator object
+                            metadata.meta.generator = value;
+                        } else {
+                            // Set specific meta field
+                            metadata.meta[path[1]] = value;
+                        }
+                    }
+                } catch (error) {
+                    debugLog(`Error applying project edit to metadata: ${error}`);
+                }
+            };
+
+            // For each metadata path, apply the most recent edit
+            for (const [pathKey, edits] of editsByPath.entries()) {
+                if (edits.length === 0) continue;
+
+                // Find the most recent edit for this path (latest timestamp wins)
+                const sorted = edits.sort((a, b) => {
+                    const timeDiff = b.timestamp - a.timestamp;
+                    if (timeDiff !== 0) return timeDiff;
+                    // Same timestamp: prefer USER_EDIT over INITIAL_IMPORT
+                    const aIsUser = a.type === EditType.USER_EDIT;
+                    const bIsUser = b.type === EditType.USER_EDIT;
+                    const aIsInitial = a.type === EditType.INITIAL_IMPORT;
+                    const bIsInitial = b.type === EditType.INITIAL_IMPORT;
+                    if (aIsUser !== bIsUser) return bIsUser ? 1 : -1; // b is USER_EDIT comes first
+                    if (aIsInitial !== bIsInitial) return aIsInitial ? 1 : -1; // push INITIAL_IMPORT later
+                    return 0;
+                });
+                const mostRecentEdit = sorted[0];
+
+                // Apply the edit to the resolved metadata
+                applyProjectEditToMetadata(resolvedMetadata, mostRecentEdit);
+
+                debugLog(`Applied most recent edit for ${pathKey}: ${JSON.stringify(mostRecentEdit.value)}`);
+            }
+
+            // Combine edits arrays and deduplicate
+            resolvedMetadata.edits = deduplicateFileMetadataEdits(allEdits);
+        } else {
+            // Fallback to starting with ours if no edit history
+            resolvedMetadata = JSON.parse(JSON.stringify(ours));
+        }
+
         // 1. Resolve initiateRemoteHealingFor (Complex Merge Logic)
         // Helper to extract healing list
         const getList = (obj: any) => (obj?.meta?.initiateRemoteHealingFor || []) as any[];
@@ -1636,10 +1873,14 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             ]);
 
             for (const key of keys) {
-                // Intercept specific path for initiateRemoteHealingFor
+                // Skip initiateRemoteHealingFor - already handled above
                 if (path.length === 1 && path[0] === 'meta' && key === 'initiateRemoteHealingFor') {
-                    result[key] = mergedHealingList;
-                    continue;
+                    continue; // Skip, already merged above
+                }
+
+                // Skip edits array - already handled by edit history merge
+                if (key === 'edits' && path.length === 0) {
+                    continue; // Skip, already merged above
                 }
 
                 const bVal = baseObj?.[key];
@@ -1667,7 +1908,26 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             return result;
         };
 
-        const finalResult = mergeObjects(base, ours, theirs);
+        // Apply the merged healing list to resolved metadata
+        if (!resolvedMetadata.meta) {
+            resolvedMetadata.meta = {};
+        }
+        resolvedMetadata.meta.initiateRemoteHealingFor = mergedHealingList;
+
+        // Merge other fields (excluding edits and initiateRemoteHealingFor which are already handled)
+        const otherFieldsMerged = mergeObjects(base, ours, theirs);
+
+        // Combine: use edit history result as base, then overlay other merged fields
+        // But preserve edits and initiateRemoteHealingFor from our specialized merges
+        const finalResult = {
+            ...otherFieldsMerged,
+            edits: resolvedMetadata.edits, // From edit history merge
+            meta: {
+                ...otherFieldsMerged.meta,
+                initiateRemoteHealingFor: mergedHealingList // From specialized merge
+            }
+        };
+
         return JSON.stringify(finalResult, null, 4);
 
     } catch (error) {
@@ -1678,7 +1938,6 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
 
 /**
  * Resolves conflicts in .vscode/settings.json using intelligent 3-way merge
- * with chatSystemMessage as a tie-breaker signal
  */
 async function resolveSettingsJsonConflict(conflict: ConflictFile): Promise<string> {
     // Parse JSON with error handling
@@ -1721,15 +1980,6 @@ async function resolveSettingsJsonConflict(conflict: ConflictFile): Promise<stri
     // Helper function to clean up settings before returning
     const cleanupSettings = (settings: Record<string, any>) => {
         settings["git.enabled"] = false;
-
-        // Remove legacy key if new key exists
-        const newKey = "codex-editor-extension.chatSystemMessage";
-        const legacyKey = "translators-copilot.chatSystemMessage";
-        if (settings[newKey] !== undefined && settings[legacyKey] !== undefined) {
-            debugLog('[Settings Merge] Removing deprecated translators-copilot.chatSystemMessage');
-            delete settings[legacyKey];
-        }
-
         return settings;
     };
 
@@ -1754,46 +2004,7 @@ async function resolveSettingsJsonConflict(conflict: ConflictFile): Promise<stri
     // STAGE 2: BOTH CHANGED FILE - Complex per-key merge
     debugLog('[Settings Merge] Both sides changed file, performing key-level merge');
 
-    // Check chatSystemMessage as tie-breaker signal (use new key, fallback to legacy)
-    const newChatSystemMessageKey = "codex-editor-extension.chatSystemMessage";
-    const legacyChatSystemMessageKey = "translators-copilot.chatSystemMessage";
-
-    // Determine which key to use (prefer new, fallback to legacy)
-    const chatSystemMessageKey = (base[newChatSystemMessageKey] !== undefined ||
-        ours[newChatSystemMessageKey] !== undefined ||
-        theirs[newChatSystemMessageKey] !== undefined)
-        ? newChatSystemMessageKey
-        : legacyChatSystemMessageKey;
-
-    const baseChatMsg = base[chatSystemMessageKey];
-    const ourChatMsg = ours[chatSystemMessageKey];
-    const theirChatMsg = theirs[chatSystemMessageKey];
-
-    // Compare each to BASE (common ancestor)
-    const ourChatMsgChanged = JSON.stringify(ourChatMsg) !== JSON.stringify(baseChatMsg);
-    const theirChatMsgChanged = JSON.stringify(theirChatMsg) !== JSON.stringify(baseChatMsg);
-
-    // Determine conflict resolution bias based on who changed chatSystemMessage from base
-    let conflictBias: 'ours' | 'theirs';
-    if (ourChatMsgChanged && !theirChatMsgChanged) {
-        // Only we changed chatSystemMessage from base
-        conflictBias = 'ours';
-        debugLog('[Settings Merge] Using LOCAL bias (we changed chatSystemMessage from base)');
-    } else if (!ourChatMsgChanged && theirChatMsgChanged) {
-        // Only they changed chatSystemMessage from base
-        conflictBias = 'theirs';
-        debugLog('[Settings Merge] Using REMOTE bias (they changed chatSystemMessage from base)');
-    } else if (ourChatMsgChanged && theirChatMsgChanged) {
-        // Both changed chatSystemMessage from base - we're syncing last, we win
-        conflictBias = 'ours';
-        debugLog('[Settings Merge] Using LOCAL bias (both changed chatSystemMessage, last write wins)');
-    } else {
-        // Neither changed chatSystemMessage from base - default to remote
-        conflictBias = 'theirs';
-        debugLog('[Settings Merge] Using REMOTE bias (neither changed chatSystemMessage from base)');
-    }
-
-    // Merge all keys using 3-way merge logic + bias
+    // Merge all keys using 3-way merge logic
     const result: Record<string, any> = {};
     const conflicts: Array<{ key: string, resolution: string; }> = [];
 
@@ -1852,74 +2063,34 @@ async function resolveSettingsJsonConflict(conflict: ConflictFile): Promise<stri
             result[key] = theirValue;
         }
         else {
-            // BOTH CHANGED from base - Apply chatSystemMessage bias
-            let chosenValue: any;
-            let resolution: string;
-
-            if (conflictBias === 'ours') {
-                chosenValue = ourValue;
-                resolution = 'local (based on chatSystemMessage analysis)';
-            } else {
-                chosenValue = theirValue;
-                resolution = 'remote (based on chatSystemMessage analysis)';
-            }
-
-            result[key] = chosenValue;
-            conflicts.push({ key, resolution });
-
-            // Special warning for chatSystemMessage itself
-            if (key === chatSystemMessageKey) {
-                console.warn(
-                    `[Settings Merge] CRITICAL: chatSystemMessage conflict resolved - using ${resolution}`
-                );
-            }
+            // BOTH CHANGED from base - default to theirs (remote)
+            result[key] = theirValue;
+            conflicts.push({ key, resolution: 'remote (both changed, defaulting to remote)' });
         }
     }
 
     // Report conflicts to user
     if (conflicts.length > 0) {
-        const criticalConflict = conflicts.some(c => c.key === chatSystemMessageKey);
-
         console.warn(
             `[Settings Merge] Resolved ${conflicts.length} conflict(s):`,
             conflicts
         );
 
-        if (criticalConflict) {
-            // High-priority warning for chatSystemMessage
-            const conflictKey = conflicts.find(c => c.key === chatSystemMessageKey)?.key || chatSystemMessageKey;
-            vscode.window.showWarningMessage(
-                `⚠️ IMPORTANT: Translation prompt (${conflictKey}) was changed by both you and remote. ` +
-                `Using ${conflicts.find(c => c.key === chatSystemMessageKey)?.resolution} version. ` +
-                `Please verify your prompt is correct.`,
-                'Show Settings',
-                'Dismiss'
-            ).then(choice => {
-                if (choice === 'Show Settings') {
-                    vscode.commands.executeCommand('workbench.action.openWorkspaceSettingsFile');
-                }
-            });
-        } else {
-            // Standard conflict notification
-            const conflictKeys = conflicts.map(c => c.key).join(', ');
-            vscode.window.showInformationMessage(
-                `Settings merge: ${conflicts.length} conflict(s) resolved (${conflictKeys}). ` +
-                `Check settings if needed.`,
-                'Show Settings'
-            ).then(choice => {
-                if (choice === 'Show Settings') {
-                    vscode.commands.executeCommand('workbench.action.openWorkspaceSettingsFile');
-                }
-            });
-        }
+        // Standard conflict notification
+        const conflictKeys = conflicts.map(c => c.key).join(', ');
+        vscode.window.showInformationMessage(
+            `Settings merge: ${conflicts.length} conflict(s) resolved (${conflictKeys}). ` +
+            `Check settings if needed.`,
+            'Show Settings'
+        ).then(choice => {
+            if (choice === 'Show Settings') {
+                vscode.commands.executeCommand('workbench.action.openWorkspaceSettingsFile');
+            }
+        });
     }
 
-    // CLEANUP: Always ensure git.enabled is false and remove legacy key if new key exists
+    // CLEANUP: Always ensure git.enabled is false
     result["git.enabled"] = false;
-    if (result[newChatSystemMessageKey] !== undefined && result[legacyChatSystemMessageKey] !== undefined) {
-        debugLog('[Settings Merge] Removing deprecated translators-copilot.chatSystemMessage from merged result');
-        delete result[legacyChatSystemMessageKey];
-    }
 
     return JSON.stringify(result, null, 4);
 }
