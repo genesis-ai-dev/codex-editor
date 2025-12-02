@@ -190,14 +190,16 @@ function extractChapterFromCellId(cellId: string): string | null {
 
 /**
  * Creates a milestone cell with the given chapter number
+ * @param chapterNumber - The chapter number for the milestone
+ * @param uuid - Optional UUID to use. If not provided, a new UUID will be generated.
  */
-function createMilestoneCell(chapterNumber: string): ProcessedCell {
-    const uuid = uuidv4();
+function createMilestoneCell(chapterNumber: string, uuid?: string): ProcessedCell {
+    const cellUuid = uuid || uuidv4();
     const cellLabel = `Chapter ${chapterNumber}`;
 
-    return createProcessedCell(uuid, cellLabel, {
+    return createProcessedCell(cellUuid, cellLabel, {
         type: CodexCellTypes.MILESTONE,
-        id: uuid,
+        id: cellUuid,
         edits: [],
         cellLabel: cellLabel,
         milestone: chapterNumber,
@@ -240,9 +242,16 @@ export function addMilestoneCellsToNotebookPair(notebookPair: NotebookPair): Not
     const newSourceCells: ProcessedCell[] = [];
     const newCodexCells: ProcessedCell[] = [];
 
-    // Insert first milestone cell at the beginning
-    newSourceCells.push(createMilestoneCell(firstChapterNumber));
-    newCodexCells.push(createMilestoneCell(firstChapterNumber));
+    // Map to store UUIDs for each chapter to ensure consistency across source and codex
+    const chapterUuids = new Map<string, string>();
+
+    // Generate UUID for first chapter and store it
+    const firstChapterUuid = uuidv4();
+    chapterUuids.set(firstChapterNumber, firstChapterUuid);
+
+    // Insert first milestone cell at the beginning (using same UUID for both)
+    newSourceCells.push(createMilestoneCell(firstChapterNumber, firstChapterUuid));
+    newCodexCells.push(createMilestoneCell(firstChapterNumber, firstChapterUuid));
     seenChapters.add(firstChapterNumber);
 
     // Process all cells and insert milestone cells before new chapters
@@ -252,9 +261,13 @@ export function addMilestoneCellsToNotebookPair(notebookPair: NotebookPair): Not
 
         const chapter = extractChapterFromCellId(sourceCell.id);
         if (chapter && !seenChapters.has(chapter)) {
-            // Insert a milestone cell before this new chapter
-            newSourceCells.push(createMilestoneCell(chapter));
-            newCodexCells.push(createMilestoneCell(chapter));
+            // Generate UUID for this chapter and store it
+            const chapterUuid = uuidv4();
+            chapterUuids.set(chapter, chapterUuid);
+
+            // Insert a milestone cell before this new chapter (using same UUID for both)
+            newSourceCells.push(createMilestoneCell(chapter, chapterUuid));
+            newCodexCells.push(createMilestoneCell(chapter, chapterUuid));
             seenChapters.add(chapter);
         }
 

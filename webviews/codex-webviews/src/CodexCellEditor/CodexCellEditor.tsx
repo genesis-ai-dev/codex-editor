@@ -1160,17 +1160,21 @@ const CodexCellEditor: React.FC = () => {
         return sectionSet.size;
     };
 
-    // Helper function to get global line number for a cell (skips paratext and child cells)
+    // Helper function to get global line number for a cell (skips paratext, milestone, and child cells)
     const getGlobalLineNumber = (cell: QuillCellContent, allUnits: QuillCellContent[]): number => {
         const cellIndex = allUnits.findIndex((unit) => unit.cellMarkers[0] === cell.cellMarkers[0]);
 
         if (cellIndex === -1) return 0;
 
-        // Count non-paratext, non-child cells up to and including this one
+        // Count non-paratext, non-milestone, non-child cells up to and including this one
         let lineNumber = 0;
         for (let i = 0; i <= cellIndex; i++) {
             const cellIdParts = allUnits[i].cellMarkers[0].split(":");
-            if (allUnits[i].cellType !== CodexCellTypes.PARATEXT && cellIdParts.length < 3) {
+            if (
+                allUnits[i].cellType !== CodexCellTypes.PARATEXT &&
+                allUnits[i].cellType !== CodexCellTypes.MILESTONE &&
+                cellIdParts.length < 3
+            ) {
                 lineNumber++;
             }
         }
