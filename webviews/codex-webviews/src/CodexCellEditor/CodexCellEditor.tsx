@@ -785,6 +785,10 @@ const CodexCellEditor: React.FC = () => {
             if (shouldAutoNavigate) {
                 // Get all cells for the target chapter
                 const allCellsForTargetChapter = translationUnits.filter((verse) => {
+                    // Include milestone cells for their chapter
+                    if (verse.cellType === CodexCellTypes.MILESTONE) {
+                        return verse.milestone === newChapterNumber.toString();
+                    }
                     const verseChapter = verse?.cellMarkers?.[0]?.split(" ")?.[1]?.split(":")[0];
                     return verseChapter === newChapterNumber.toString();
                 });
@@ -1188,6 +1192,9 @@ const CodexCellEditor: React.FC = () => {
     const getSubsectionsForChapter = (chapterNum: number) => {
         // Filter cells for the specific chapter
         const cellsForChapter = translationUnits.filter((verse) => {
+            if (verse.cellType === CodexCellTypes.MILESTONE) {
+                return verse.milestone === chapterNum.toString();
+            }
             const cellId = verse?.cellMarkers?.[0];
             const sectionCellIdParts = cellId?.split(" ")?.[1]?.split(":");
             const sectionCellNumber = sectionCellIdParts?.[0];
@@ -1198,9 +1205,9 @@ const CodexCellEditor: React.FC = () => {
             return [];
         }
 
-        // Filter out only source/target content cells (non-paratext) for pagination counting
+        // Filter out only source/target content cells (non-paratext, non-milestone) for pagination counting
         const contentCells = cellsForChapter.filter((cell) => {
-            return cell.cellType !== "paratext";
+            return cell.cellType !== "paratext" && cell.cellType !== CodexCellTypes.MILESTONE;
         });
 
         // If content cells fit in one page, no subsections needed
@@ -1304,9 +1311,13 @@ const CodexCellEditor: React.FC = () => {
     // Calculate progress for each chapter based on translation and validation status
     const calculateChapterProgress = useCallback(
         (chapterNum: number): ProgressPercentages => {
-            // Filter cells for the specific chapter (excluding paratext and merged cells)
+            // Filter cells for the specific chapter (excluding paratext, milestone, and merged cells)
             const cellsForChapter = translationUnits.filter((cell) => {
                 const cellId = cell?.cellMarkers?.[0];
+                // Exclude milestone cells from progress calculation
+                if (cell.cellType === CodexCellTypes.MILESTONE) {
+                    return false;
+                }
                 if (!cellId || cellId.startsWith("paratext-") || cell.merged) {
                     return false;
                 }
@@ -1384,6 +1395,12 @@ const CodexCellEditor: React.FC = () => {
             // For now, include all paratext cells when viewing any chapter
             // This ensures leading paratext (like the Tigrinya intro) is visible
             return true;
+        }
+
+        // Handle milestone cells - they have UUID IDs and should be included
+        // when their milestone property matches the current chapter
+        if (verse.cellType === CodexCellTypes.MILESTONE) {
+            return verse.milestone === chapterNumber.toString();
         }
 
         // For regular cells, check if they belong to the current chapter

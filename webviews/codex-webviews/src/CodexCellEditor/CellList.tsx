@@ -168,7 +168,8 @@ const CellList: React.FC<CellListProps> = ({
                 // Only count footnotes if the cell is in the same chapter
                 if (
                     cellChapterId === currentChapterId &&
-                    cell.cellType !== CodexCellTypes.PARATEXT
+                    cell.cellType !== CodexCellTypes.PARATEXT &&
+                    cell.cellType !== CodexCellTypes.MILESTONE
                 ) {
                     // Extract footnotes from this cell's content
                     const tempDiv = document.createElement("div");
@@ -422,13 +423,14 @@ const CellList: React.FC<CellListProps> = ({
 
             // if (isNaN(currentVerseNumber)) return 1; // Invalid verse number
 
-            // Count non-paratext, non-child cells within the same chapter up to and including this one
+            // Count non-paratext, non-milestone, non-child cells within the same chapter up to and including this one
             // Child cells have more than 2 segments in their ID (e.g., "1TH 1:6:1740475700855-sbcr37orm")
             let visibleCellCount = 0;
             for (let i = 0; i <= cellIndex; i++) {
                 const cellIdParts = allCells[i].cellMarkers[0].split(":");
                 if (
                     allCells[i].cellType !== CodexCellTypes.PARATEXT &&
+                    allCells[i].cellType !== CodexCellTypes.MILESTONE &&
                     cellIdParts.length === 2 && // Skip child cells (which have > 2 parts)
                     !allCells[i]
                         .merged /* && FIXME: THIS BROKE LINE NUMBERS WHEN UPLOADING SUBTITLES. NEED TO FIX.
@@ -455,6 +457,11 @@ const CellList: React.FC<CellListProps> = ({
 
             // Don't use index as fallback for paratext cells
             if (cell.cellType === CodexCellTypes.PARATEXT) {
+                return "";
+            }
+
+            // Don't show line number for milestone cells
+            if (cell.cellType === CodexCellTypes.MILESTONE) {
                 return "";
             }
 
@@ -647,8 +654,16 @@ const CellList: React.FC<CellListProps> = ({
                             <CellContentDisplay
                                 cell={cell}
                                 lineNumber={generatedCellLabel}
-                                label={cell.cellLabel}
-                                lineNumbersEnabled={lineNumbersEnabled}
+                                label={
+                                    cell.cellType === CodexCellTypes.MILESTONE
+                                        ? undefined
+                                        : cell.cellLabel
+                                }
+                                lineNumbersEnabled={
+                                    cell.cellType === CodexCellTypes.MILESTONE
+                                        ? false
+                                        : lineNumbersEnabled
+                                }
                                 key={`cell-${cellMarkers[0]}`}
                                 vscode={vscode}
                                 textDirection={textDirection}
@@ -828,8 +843,16 @@ const CellList: React.FC<CellListProps> = ({
                             <CellContentDisplay
                                 cell={workingTranslationUnits[i]}
                                 lineNumber={generatedCellLabel}
-                                label={cellLabel}
-                                lineNumbersEnabled={lineNumbersEnabled}
+                                label={
+                                    workingTranslationUnits[i].cellType === CodexCellTypes.MILESTONE
+                                        ? undefined
+                                        : cellLabel
+                                }
+                                lineNumbersEnabled={
+                                    workingTranslationUnits[i].cellType === CodexCellTypes.MILESTONE
+                                        ? false
+                                        : lineNumbersEnabled
+                                }
                                 key={`cell-${cellMarkers[0]}:empty`}
                                 vscode={vscode}
                                 textDirection={textDirection}

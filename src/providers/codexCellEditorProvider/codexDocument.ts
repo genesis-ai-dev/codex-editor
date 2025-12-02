@@ -703,6 +703,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
             editHistory: cell.metadata.edits || [],
             timestamps: cell.metadata.data,
             cellLabel: cell.metadata.cellLabel,
+            milestone: cell.metadata.milestone,
+            data: cell.metadata.data,
             attachments: cell.metadata.attachments || {},
         };
     }

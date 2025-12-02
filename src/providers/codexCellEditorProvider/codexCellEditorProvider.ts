@@ -2005,8 +2005,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Prefer nested data for timestamps, but fall back to legacy top-level fields if needed
             timestamps: cell.metadata?.data,
             cellLabel: cell.metadata?.cellLabel,
+            milestone: cell.metadata?.milestone,
             merged: cell.metadata?.data?.merged,
             deleted: cell.metadata?.data?.deleted,
+            data: cell.metadata?.data,
             attachments: cell.metadata?.attachments,
             metadata: {
                 selectedAudioId: cell.metadata?.selectedAudioId,
@@ -2061,7 +2063,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 editHistory: cell.editHistory,
                 timestamps: cell.timestamps,
                 cellLabel: cell.cellLabel,
+                milestone: cell.milestone,
                 merged: cell.merged,
+                data: cell.data,
                 attachments: cell.attachments,
                 metadata: cell.metadata,
             });

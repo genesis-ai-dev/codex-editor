@@ -1,9 +1,10 @@
 import * as vscode from "vscode";
 import * as path from "path";
+import { randomUUID } from "crypto";
 import { CodexContentSerializer } from "@/serializer";
 import { vrefData } from "@/utils/verseRefUtils/verseData";
 import { EditMapUtils } from "@/utils/editMapUtils";
-import { EditType } from "../../../types/enums";
+import { EditType, CodexCellTypes } from "../../../types/enums";
 import type { ValidationEntry } from "../../../types";
 
 // FIXME: move notebook format migration here
@@ -1582,5 +1583,228 @@ export const migration_addImporterTypeToMetadata = async (context?: vscode.Exten
 
     } catch (error) {
         console.error("Error running importerType migration:", error);
+    }
+};
+
+/**
+ * Extracts the chapter/section number from a cellId.
+ * Handles formats like:
+ * - "GEN 1:1" -> "1"
+ * - "Book Name 2:5" -> "2"
+ * - "filename 1:1" -> "1"
+ * Returns null if the pattern doesn't match.
+ */
+function extractChapterFromCellId(cellId: string): string | null {
+    if (!cellId) return null;
+
+    // Pattern: anything followed by space, then number, colon, number
+    // e.g., "GEN 1:1", "Book Name 2:5", "filename 1:1"
+    const match = cellId.match(/\s+(\d+):(\d+)(?::|$)/);
+    if (match) {
+        return match[1]; // Return the chapter number (first number)
+    }
+    return null;
+}
+
+/**
+ * Creates a milestone cell with the given chapter number.
+ */
+function createMilestoneCell(chapterNumber: string): any {
+    const uuid = randomUUID();
+    const cellLabel = `Chapter ${chapterNumber}`;
+
+    return {
+        kind: 2, // vscode.NotebookCellKind.Code
+        languageId: "html",
+        value: cellLabel,
+        metadata: {
+            id: uuid,
+            type: CodexCellTypes.MILESTONE,
+            edits: [],
+            cellLabel: cellLabel,
+            milestone: chapterNumber
+        }
+    };
+}
+
+/**
+ * Migrates milestone cells for a single notebook file.
+ * Inserts milestone cells at the start of the file and before each new chapter.
+ */
+async function migrateMilestoneCellsForFile(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = notebookData.cells || [];
+        if (cells.length === 0) return false;
+
+        // Check if file already has milestone cells (idempotent check)
+        const hasMilestoneCells = cells.some(
+            (cell) => cell.metadata?.type === CodexCellTypes.MILESTONE
+        );
+        if (hasMilestoneCells) {
+            return false; // Already migrated
+        }
+
+        const newCells: any[] = [];
+        const seenChapters = new Set<string>();
+        let firstChapterNumber: string | null = null;
+
+        // First pass: find the first chapter number from any cell
+        for (const cell of cells) {
+            const cellId = cell.metadata?.id;
+            if (cellId) {
+                const chapter = extractChapterFromCellId(cellId);
+                if (chapter) {
+                    firstChapterNumber = chapter;
+                    break;
+                }
+            }
+        }
+
+        // If no chapter numbers found, skip this file
+        if (!firstChapterNumber) {
+            return false;
+        }
+
+        // Insert first milestone cell at the beginning
+        newCells.push(createMilestoneCell(firstChapterNumber));
+        seenChapters.add(firstChapterNumber);
+
+        // Process all cells and insert milestone cells before new chapters
+        for (const cell of cells) {
+            const cellId = cell.metadata?.id;
+            if (cellId) {
+                const chapter = extractChapterFromCellId(cellId);
+                if (chapter && !seenChapters.has(chapter)) {
+                    // Insert a milestone cell before this new chapter
+                    newCells.push(createMilestoneCell(chapter));
+                    seenChapters.add(chapter);
+                }
+            }
+            newCells.push(cell);
+        }
+
+        // Update notebook data with new cells
+        notebookData.cells = newCells;
+
+        // Serialize and save
+        const updatedContent = await serializer.serializeNotebook(
+            notebookData,
+            new vscode.CancellationTokenSource().token
+        );
+        await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+
+        return true;
+    } catch (error) {
+        console.error(`Error migrating milestone cells for ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
+
+/**
+ * Migration: Add milestone cells to mark chapters/sections in notebooks.
+ * Milestone cells are inserted:
+ * 1. At the very beginning of each file (for the first chapter)
+ * 2. Before the first occurrence of each new chapter number
+ * 
+ * This migration is idempotent - it checks for existing milestone cells.
+ */
+export const migration_addMilestoneCells = async (context?: vscode.ExtensionContext) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        // Check if migration has already been run
+        const migrationKey = "milestoneCellsMigrationCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        let hasMigrationRun = false;
+
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch (e) {
+            // Setting might not be registered yet; fall back to workspaceState
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
+
+        if (hasMigrationRun) {
+            console.log("Milestone cells migration already completed, skipping");
+            return;
+        }
+
+        console.log("Running milestone cells migration...");
+
+        const workspaceFolder = workspaceFolders[0];
+
+        // Find all codex and source files
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+
+        const allFiles = [...codexFiles, ...sourceFiles];
+
+        if (allFiles.length === 0) {
+            console.log("No codex or source files found, skipping milestone cells migration");
+            return;
+        }
+
+        let processedFiles = 0;
+        let migratedFiles = 0;
+
+        // Process files with progress
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Adding milestone cells",
+                cancellable: false
+            },
+            async (progress) => {
+                for (let i = 0; i < allFiles.length; i++) {
+                    const file = allFiles[i];
+                    progress.report({
+                        message: `Processing ${path.basename(file.fsPath)}`,
+                        increment: (100 / allFiles.length)
+                    });
+
+                    try {
+                        const wasMigrated = await migrateMilestoneCellsForFile(file);
+                        processedFiles++;
+                        if (wasMigrated) {
+                            migratedFiles++;
+                        }
+                    } catch (error) {
+                        console.error(`Error processing ${file.fsPath}:`, error);
+                    }
+                }
+            }
+        );
+
+        // Mark migration as completed
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch (e) {
+            // If configuration key is not registered, fall back to workspaceState
+            await context?.workspaceState.update(migrationKey, true);
+        }
+
+        console.log(`Milestone cells migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        if (migratedFiles > 0) {
+            vscode.window.showInformationMessage(
+                `Milestone cells migration complete: ${migratedFiles} files updated`
+            );
+        }
+
+    } catch (error) {
+        console.error("Error running milestone cells migration:", error);
     }
 };

@@ -794,6 +794,7 @@ type EditMapValueType<T extends readonly string[]> =
     : T extends readonly ["metadata", "data", "chapter"] ? string
     : T extends readonly ["metadata", "data", "verse"] ? string
     : T extends readonly ["metadata", "data", "merged"] ? boolean
+    : T extends readonly ["metadata", "milestone"] ? string
     : T extends readonly ["metadata", "selectedAudioId"] ? string
     : T extends readonly ["metadata", "selectionTimestamp"] ? number
     // File-level metadata fields
@@ -892,6 +893,7 @@ type CustomCellMetaData = BaseCustomCellMetaData & {
         };
     };
     cellLabel?: string;
+    milestone?: string; // For milestone cells: stores the chapter/section number
     selectedAudioId?: string; // Points to attachment key for explicit audio selection
     selectionTimestamp?: number; // Timestamp when selectedAudioId was last set
 };
@@ -953,6 +955,7 @@ interface QuillCellContent {
     editHistory: Array<EditHistory>;
     timestamps?: Timestamps;
     cellLabel?: string;
+    milestone?: string; // For milestone cells: stores the chapter/section number
     merged?: boolean;
     deleted?: boolean;
     data?: { [key: string]: any; footnotes?: Footnote[]; };
