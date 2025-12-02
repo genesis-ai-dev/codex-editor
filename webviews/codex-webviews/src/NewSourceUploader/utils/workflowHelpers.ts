@@ -6,6 +6,7 @@ import {
 } from '../types/common';
 import type { CustomNotebookCellData } from 'types';
 import { CodexCellTypes } from 'types/enums';
+import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Creates a progress update object
@@ -191,7 +192,7 @@ function extractChapterFromCellId(cellId: string): string | null {
  * Creates a milestone cell with the given chapter number
  */
 function createMilestoneCell(chapterNumber: string): ProcessedCell {
-    const uuid = `milestone-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const uuid = uuidv4();
     const cellLabel = `Chapter ${chapterNumber}`;
 
     return createProcessedCell(uuid, cellLabel, {
