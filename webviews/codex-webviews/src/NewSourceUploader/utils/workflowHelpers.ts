@@ -5,6 +5,7 @@ import {
     NotebookPair
 } from '../types/common';
 import type { CustomNotebookCellData } from 'types';
+import { CodexCellTypes } from 'types/enums';
 
 /**
  * Creates a progress update object
@@ -170,4 +171,104 @@ const getTypeComplexity = (fileType: string): number => {
         default:
             return 2; // Default complexity
     }
-}; 
+};
+
+/**
+ * Extracts chapter number from a cell ID
+ * Pattern: anything followed by space, then number, colon, number
+ * e.g., "GEN 1:1", "Book Name 2:5", "filename 1:1"
+ */
+function extractChapterFromCellId(cellId: string): string | null {
+    if (!cellId) return null;
+    const match = cellId.match(/\s+(\d+):(\d+)(?::|$)/);
+    if (match) {
+        return match[1]; // Return the chapter number (first number)
+    }
+    return null;
+}
+
+/**
+ * Creates a milestone cell with the given chapter number
+ */
+function createMilestoneCell(chapterNumber: string): ProcessedCell {
+    const uuid = `milestone-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const cellLabel = `Chapter ${chapterNumber}`;
+
+    return createProcessedCell(uuid, cellLabel, {
+        type: CodexCellTypes.MILESTONE,
+        id: uuid,
+        edits: [],
+        cellLabel: cellLabel,
+        milestone: chapterNumber,
+    });
+}
+
+/**
+ * Adds milestone cells to a notebook pair.
+ * Milestone cells are inserted:
+ * 1. At the very beginning of each notebook (for the first chapter)
+ * 2. Before the first occurrence of each new chapter number
+ */
+export function addMilestoneCellsToNotebookPair(notebookPair: NotebookPair): NotebookPair {
+    const sourceCells = notebookPair.source.cells || [];
+    const codexCells = notebookPair.codex.cells || [];
+
+    if (sourceCells.length === 0) {
+        return notebookPair;
+    }
+
+    // Extract chapter numbers from cell IDs
+    const seenChapters = new Set<string>();
+    let firstChapterNumber: string | null = null;
+
+    // First pass: find the first chapter number from any cell
+    for (const cell of sourceCells) {
+        const chapter = extractChapterFromCellId(cell.id);
+        if (chapter) {
+            firstChapterNumber = chapter;
+            break;
+        }
+    }
+
+    // If no chapter numbers found, return unchanged
+    if (!firstChapterNumber) {
+        return notebookPair;
+    }
+
+    // Build new cell arrays with milestone cells
+    const newSourceCells: ProcessedCell[] = [];
+    const newCodexCells: ProcessedCell[] = [];
+
+    // Insert first milestone cell at the beginning
+    newSourceCells.push(createMilestoneCell(firstChapterNumber));
+    newCodexCells.push(createMilestoneCell(firstChapterNumber));
+    seenChapters.add(firstChapterNumber);
+
+    // Process all cells and insert milestone cells before new chapters
+    for (let i = 0; i < sourceCells.length; i++) {
+        const sourceCell = sourceCells[i];
+        const codexCell = codexCells[i] || sourceCell; // Fallback to source cell if codex cell missing
+
+        const chapter = extractChapterFromCellId(sourceCell.id);
+        if (chapter && !seenChapters.has(chapter)) {
+            // Insert a milestone cell before this new chapter
+            newSourceCells.push(createMilestoneCell(chapter));
+            newCodexCells.push(createMilestoneCell(chapter));
+            seenChapters.add(chapter);
+        }
+
+        newSourceCells.push(sourceCell);
+        newCodexCells.push(codexCell);
+    }
+
+    return {
+        source: {
+            ...notebookPair.source,
+            cells: newSourceCells,
+        },
+        codex: {
+            ...notebookPair.codex,
+            cells: newCodexCells,
+        },
+    };
+} 
