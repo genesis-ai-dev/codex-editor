@@ -8,12 +8,14 @@ import {
     DialogTitle,
 } from "../../components/ui/dialog";
 import { Button, Input } from "../../components/ui";
+import { MessagesToStartupFlowProvider, MessagesFromStartupFlowProvider } from "types";
 
 interface NameProjectModalProps {
     open: boolean;
     defaultValue?: string;
     onCancel: () => void;
     onSubmit: (name: string) => void;
+    vscode: any;
 }
 
 export const NameProjectModal: React.FC<NameProjectModalProps> = ({
@@ -21,20 +23,33 @@ export const NameProjectModal: React.FC<NameProjectModalProps> = ({
     defaultValue = "",
     onCancel,
     onSubmit,
+    vscode,
 }) => {
     const [name, setName] = useState<string>(defaultValue);
+    const [hasInteracted, setHasInteracted] = useState<boolean>(false);
 
     useEffect(() => {
         if (open) {
             setName(defaultValue);
+            setHasInteracted(false);
         }
     }, [open, defaultValue]);
 
     const validationError = useMemo(() => {
-        if (!name.trim()) return "Project name cannot be empty";
-        if (name.length > 100) return "Project name is too long (max 100 characters)";
+        // Only show empty error if user has interacted with the field
+        if (hasInteracted && !name.trim()) return "Project name cannot be empty";
+        if (name.length > 256) return "Project name is too long (max 256 characters)";
         return "";
-    }, [name]);
+    }, [name, hasInteracted]);
+
+    const handleSubmit = () => {
+        setHasInteracted(true);
+
+        if (!name.trim() || validationError) {
+            return;
+        }
+        onSubmit(name.trim());
+    };
 
     return (
         <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onCancel()}>
@@ -49,7 +64,11 @@ export const NameProjectModal: React.FC<NameProjectModalProps> = ({
                         type="text"
                         value={name}
                         className="placeholder:text-gray-400"
-                        onChange={(e) => setName(e.target.value)}
+                        onChange={(e) => {
+                            setHasInteracted(true);
+                            setName(e.target.value);
+                        }}
+                        onBlur={() => setHasInteracted(true)}
                         placeholder="my-translation-project"
                         autoFocus
                     />
@@ -63,8 +82,8 @@ export const NameProjectModal: React.FC<NameProjectModalProps> = ({
                         Cancel
                     </Button>
                     <Button
-                        disabled={Boolean(validationError)}
-                        onClick={() => onSubmit(name.trim())}
+                        disabled={!name.trim() || Boolean(validationError)}
+                        onClick={handleSubmit}
                     >
                         Create
                     </Button>
