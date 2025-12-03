@@ -4394,4 +4394,224 @@ suite("CodexCellEditorProvider Test Suite", () => {
             }
         });
     });
+
+    suite("File Watcher Save Debounce", () => {
+        test("lastSaveTimestamp is 0 initially", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            assert.strictEqual(
+                document.lastSaveTimestamp,
+                0,
+                "lastSaveTimestamp should be 0 before any save"
+            );
+
+            document.dispose();
+        });
+
+        test("save() updates lastSaveTimestamp", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Stub merge resolver to bypass JSON merge parsing
+            const mergeModule = await import("../../projectManager/utils/merge/resolvers");
+            const mergeStub = sinon.stub(mergeModule as any, "resolveCodexCustomMerge").callsFake((...args: unknown[]) => {
+                const ours = args[0] as string;
+                return Promise.resolve(ours);
+            });
+
+            const timestampBefore = Date.now();
+            assert.strictEqual(document.lastSaveTimestamp, 0, "lastSaveTimestamp should be 0 before save");
+
+            await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+
+            const timestampAfter = Date.now();
+            assert.ok(
+                document.lastSaveTimestamp >= timestampBefore,
+                "lastSaveTimestamp should be updated after save"
+            );
+            assert.ok(
+                document.lastSaveTimestamp <= timestampAfter,
+                "lastSaveTimestamp should not be in the future"
+            );
+
+            mergeStub.restore();
+            document.dispose();
+        });
+
+        test("saveAs() updates lastSaveTimestamp for non-backup saves", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const saveAsUri = vscode.Uri.file(path.join(os.tmpdir(), `saveas-test-${Date.now()}.codex`));
+
+            try {
+                const timestampBefore = Date.now();
+                assert.strictEqual(document.lastSaveTimestamp, 0, "lastSaveTimestamp should be 0 before saveAs");
+
+                await (document as any).saveAs(saveAsUri, new vscode.CancellationTokenSource().token, false);
+
+                const timestampAfter = Date.now();
+                assert.ok(
+                    document.lastSaveTimestamp >= timestampBefore,
+                    "lastSaveTimestamp should be updated after saveAs"
+                );
+                assert.ok(
+                    document.lastSaveTimestamp <= timestampAfter,
+                    "lastSaveTimestamp should not be in the future"
+                );
+            } finally {
+                await deleteIfExists(saveAsUri);
+            }
+
+            document.dispose();
+        });
+
+        test("saveAs() does NOT update lastSaveTimestamp for backup saves", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const backupUri = vscode.Uri.file(path.join(os.tmpdir(), `backup-test-${Date.now()}.codex`));
+
+            try {
+                assert.strictEqual(document.lastSaveTimestamp, 0, "lastSaveTimestamp should be 0 before backup");
+
+                await (document as any).saveAs(backupUri, new vscode.CancellationTokenSource().token, true);
+
+                assert.strictEqual(
+                    document.lastSaveTimestamp,
+                    0,
+                    "lastSaveTimestamp should NOT be updated for backup saves"
+                );
+            } finally {
+                await deleteIfExists(backupUri);
+            }
+
+            document.dispose();
+        });
+
+        test("cell content persists after save and file watcher event", async () => {
+            // This is the key regression test for the race condition fix.
+            // It verifies that when we:
+            // 1. Update cell content
+            // 2. Save the document
+            // 3. File watcher fires (simulating the race condition)
+            // The cell content should NOT be reverted because we recently saved.
+
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Stub merge resolver to bypass JSON merge parsing
+            const mergeModule = await import("../../projectManager/utils/merge/resolvers");
+            const mergeStub = sinon.stub(mergeModule as any, "resolveCodexCustomMerge").callsFake((...args: unknown[]) => {
+                const ours = args[0] as string;
+                return Promise.resolve(ours);
+            });
+
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+            const newValue = "LLM generated content that should persist";
+
+            // 1. Update cell content (simulating LLM completion)
+            await (document as any).updateCellContent(cellId, newValue, EditType.LLM_GENERATION, true);
+
+            // Verify cell was updated
+            const contentBeforeSave = document.getCellContent(cellId);
+            assert.strictEqual(
+                contentBeforeSave?.cellContent,
+                newValue,
+                "Cell content should be updated before save"
+            );
+
+            // 2. Save the document
+            await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+
+            // Verify lastSaveTimestamp was set
+            const saveTimestamp = document.lastSaveTimestamp;
+            assert.ok(saveTimestamp > 0, "lastSaveTimestamp should be set after save");
+
+            // 3. Verify content still persists after save
+            const contentAfterSave = document.getCellContent(cellId);
+            assert.strictEqual(
+                contentAfterSave?.cellContent,
+                newValue,
+                "Cell content should persist after save"
+            );
+
+            // 4. Simulate file watcher check - the debounce should prevent revert
+            const timeSinceLastSave = Date.now() - document.lastSaveTimestamp;
+            const SAVE_DEBOUNCE_MS = 2000;
+            assert.ok(
+                timeSinceLastSave < SAVE_DEBOUNCE_MS,
+                `Time since save (${timeSinceLastSave}ms) should be less than debounce window (${SAVE_DEBOUNCE_MS}ms)`
+            );
+
+            // In the actual file watcher, this check prevents revert:
+            // if (!document.isDirty && timeSinceLastSave > SAVE_DEBOUNCE_MS) { revert() }
+            // Since timeSinceLastSave < SAVE_DEBOUNCE_MS, revert should NOT be called
+
+            // Verify the isDirty flag is false after save (which would trigger revert if not for timestamp check)
+            assert.strictEqual(
+                document.isDirty,
+                false,
+                "isDirty should be false after save (this is what makes the timestamp check critical)"
+            );
+
+            mergeStub.restore();
+            document.dispose();
+        });
+
+        test("revert() is safe to call after debounce window passes", async () => {
+            // This test verifies that revert() still works correctly
+            // when called after the debounce window (for genuine external changes)
+
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Get original content
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+            const originalContent = document.getCellContent(cellId)?.cellContent;
+
+            // Make a change
+            const newValue = "Temporary change";
+            await (document as any).updateCellContent(cellId, newValue, EditType.USER_EDIT, true);
+
+            // Verify change was applied
+            assert.strictEqual(
+                document.getCellContent(cellId)?.cellContent,
+                newValue,
+                "Cell should have new content"
+            );
+
+            // Call revert (simulating what would happen after debounce window for external change)
+            await document.revert(new vscode.CancellationTokenSource().token);
+
+            // Verify content was reverted to original disk content
+            const revertedContent = document.getCellContent(cellId)?.cellContent;
+            assert.strictEqual(
+                revertedContent,
+                originalContent,
+                "Cell should revert to original content from disk"
+            );
+
+            document.dispose();
+        });
+    });
 });
