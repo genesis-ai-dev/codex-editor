@@ -142,6 +142,7 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
                 currentUsername="test-user"
                 requiredValidations={1}
                 requiredAudioValidations={1}
+                userAccessLevel={40}
             />
         );
 
@@ -180,6 +181,7 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
                 currentUsername="test-user"
                 requiredValidations={1}
                 requiredAudioValidations={1}
+                userAccessLevel={40}
             />
         );
 
@@ -220,6 +222,7 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
                 currentUsername="test-user"
                 requiredValidations={1}
                 requiredAudioValidations={1}
+                userAccessLevel={40}
             />
         );
 
@@ -265,6 +268,7 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
                 currentUsername="test-user"
                 requiredValidations={1}
                 requiredAudioValidations={1}
+                userAccessLevel={40}
             />
         );
 
@@ -396,6 +400,7 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
                 currentUsername="test-user"
                 requiredValidations={1}
                 requiredAudioValidations={1}
+                userAccessLevel={40}
             />
         );
 
@@ -427,6 +432,7 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
                 currentUsername="test-user"
                 requiredValidations={1}
                 requiredAudioValidations={1}
+                userAccessLevel={40}
             />
         );
 
@@ -459,6 +465,7 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
                 currentUsername="test-user"
                 requiredValidations={1}
                 requiredAudioValidations={1}
+                userAccessLevel={40}
             />
         );
 
@@ -491,6 +498,7 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
                 currentUsername="test-user"
                 requiredValidations={1}
                 requiredAudioValidations={1}
+                userAccessLevel={40}
             />
         );
 
@@ -525,6 +533,7 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
                 currentUsername="test-user"
                 requiredValidations={1}
                 requiredAudioValidations={1}
+                userAccessLevel={40}
             />
         );
 
@@ -540,5 +549,167 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
 
         // fireEvent.click(cellContentWrapper!);
         // expect(handleCellClick).toHaveBeenCalledWith("cell-1");
+    });
+
+    describe("userAccessLevel restrictions", () => {
+        it("should not render lock button when userAccessLevel is undefined", () => {
+            const mockCell = createMockCell("cell-1", "<p>Test content</p>", false);
+            const handleCellClick = vi.fn();
+
+            const { container } = render(
+                <CellContentDisplay
+                    cell={mockCell}
+                    vscode={mockVscode as any}
+                    textDirection="ltr"
+                    isSourceText={false}
+                    hasDuplicateId={false}
+                    alertColorCode={undefined}
+                    highlightedCellId={null}
+                    scrollSyncEnabled={true}
+                    lineNumber="1"
+                    label="Test Label"
+                    lineNumbersEnabled={true}
+                    isInTranslationProcess={false}
+                    translationState={null as any}
+                    allTranslationsComplete={false}
+                    handleCellClick={handleCellClick}
+                    cellDisplayMode={CELL_DISPLAY_MODES.ONE_LINE_PER_CELL}
+                    audioAttachments={{}}
+                    currentUsername="test-user"
+                    requiredValidations={1}
+                    requiredAudioValidations={1}
+                    userAccessLevel={undefined}
+                />
+            );
+
+            // Verify lock button is not present
+            const lockButton = container.querySelector('button[title="Toggle cell lock"]');
+            expect(lockButton).toBeNull();
+
+            // Verify lock/unlock icons are not present
+            const lockIcon = container.querySelector(".codicon-lock");
+            const unlockIcon = container.querySelector(".codicon-unlock");
+            expect(lockIcon).toBeNull();
+            expect(unlockIcon).toBeNull();
+        });
+
+        it("should not render lock button when userAccessLevel is less than 40", () => {
+            const mockCell = createMockCell("cell-1", "<p>Test content</p>", false);
+            const handleCellClick = vi.fn();
+
+            const { container } = render(
+                <CellContentDisplay
+                    cell={mockCell}
+                    vscode={mockVscode as any}
+                    textDirection="ltr"
+                    isSourceText={false}
+                    hasDuplicateId={false}
+                    alertColorCode={undefined}
+                    highlightedCellId={null}
+                    scrollSyncEnabled={true}
+                    lineNumber="1"
+                    label="Test Label"
+                    lineNumbersEnabled={true}
+                    isInTranslationProcess={false}
+                    translationState={null as any}
+                    allTranslationsComplete={false}
+                    handleCellClick={handleCellClick}
+                    cellDisplayMode={CELL_DISPLAY_MODES.ONE_LINE_PER_CELL}
+                    audioAttachments={{}}
+                    currentUsername="test-user"
+                    requiredValidations={1}
+                    requiredAudioValidations={1}
+                    userAccessLevel={39}
+                />
+            );
+
+            // Verify lock button is not present
+            const lockButton = container.querySelector('button[title="Toggle cell lock"]');
+            expect(lockButton).toBeNull();
+
+            // Verify lock/unlock icons are not present
+            const lockIcon = container.querySelector(".codicon-lock");
+            const unlockIcon = container.querySelector(".codicon-unlock");
+            expect(lockIcon).toBeNull();
+            expect(unlockIcon).toBeNull();
+        });
+
+        it("should render lock button when userAccessLevel is exactly 40", () => {
+            const mockCell = createMockCell("cell-1", "<p>Test content</p>", false);
+            const handleCellClick = vi.fn();
+
+            const { container } = render(
+                <CellContentDisplay
+                    cell={mockCell}
+                    vscode={mockVscode as any}
+                    textDirection="ltr"
+                    isSourceText={false}
+                    hasDuplicateId={false}
+                    alertColorCode={undefined}
+                    highlightedCellId={null}
+                    scrollSyncEnabled={true}
+                    lineNumber="1"
+                    label="Test Label"
+                    lineNumbersEnabled={true}
+                    isInTranslationProcess={false}
+                    translationState={null as any}
+                    allTranslationsComplete={false}
+                    handleCellClick={handleCellClick}
+                    cellDisplayMode={CELL_DISPLAY_MODES.ONE_LINE_PER_CELL}
+                    audioAttachments={{}}
+                    currentUsername="test-user"
+                    requiredValidations={1}
+                    requiredAudioValidations={1}
+                    userAccessLevel={40}
+                />
+            );
+
+            // Verify lock button is present
+            const lockButton = container.querySelector('button[title="Toggle cell lock"]');
+            expect(lockButton).toBeTruthy();
+
+            // Verify unlock icon is present (cell is not locked)
+            const unlockIcon = container.querySelector(".codicon-unlock");
+            expect(unlockIcon).toBeTruthy();
+        });
+
+        it("should render lock button when userAccessLevel is greater than 40", () => {
+            const mockCell = createMockCell("cell-1", "<p>Test content</p>", true);
+            const handleCellClick = vi.fn();
+
+            const { container } = render(
+                <CellContentDisplay
+                    cell={mockCell}
+                    vscode={mockVscode as any}
+                    textDirection="ltr"
+                    isSourceText={false}
+                    hasDuplicateId={false}
+                    alertColorCode={undefined}
+                    highlightedCellId={null}
+                    scrollSyncEnabled={true}
+                    lineNumber="1"
+                    label="Test Label"
+                    lineNumbersEnabled={true}
+                    isInTranslationProcess={false}
+                    translationState={null as any}
+                    allTranslationsComplete={false}
+                    handleCellClick={handleCellClick}
+                    cellDisplayMode={CELL_DISPLAY_MODES.ONE_LINE_PER_CELL}
+                    audioAttachments={{}}
+                    currentUsername="test-user"
+                    requiredValidations={1}
+                    requiredAudioValidations={1}
+                    userAccessLevel={50}
+                />
+            );
+
+            // Verify lock button is present
+            const lockButton = container.querySelector('button[title="Toggle cell lock"]');
+            expect(lockButton).toBeTruthy();
+
+            // Verify lock icon is present (cell is locked)
+            const lockIcon = container.querySelector(".codicon-lock");
+            expect(lockIcon).toBeTruthy();
+        });
     });
 });
