@@ -7,6 +7,7 @@ import {
 import {
     createProgress,
     validateFileExtension,
+    addMilestoneCellsToNotebookPair,
 } from '../../utils/workflowHelpers';
 import {
     processUsfmContent,
@@ -444,7 +445,7 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
                 throw new Error(`Book "${book.bookName || book.fileName}" is missing a valid USFM book code`);
             }
 
-            return createNotebookPair(notebookName, book.cells, 'paratext', {
+            const notebookPair = createNotebookPair(notebookName, book.cells, 'paratext', {
                 projectMetadata,
                 bookCode: book.bookCode,
                 bookName: book.bookName, // Keep localized name in metadata for display
@@ -460,6 +461,9 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
                 languageCode: projectMetadata.languageIsoCode || projectMetadata.languageCode,
                 projectAbbreviation: projectMetadata.abbreviation,
             });
+
+            // Add milestone cells to the notebook pair
+            return addMilestoneCellsToNotebookPair(notebookPair);
         });
 
         onProgress?.(createProgress('Complete', 'Paratext project processing complete', 100));

@@ -242,10 +242,47 @@ function createMilestoneCell(cell: ProcessedCell, milestoneIndex: number, uuid?:
 }
 
 /**
+ * Determines if an importer type is Bible-type based on importerType metadata
+ */
+function isBibleTypeImporter(importerType: string | undefined): boolean {
+    if (!importerType) {
+        return false;
+    }
+
+    const bibleTypeImporters = [
+        'usfm',
+        'paratext',
+        'ebibleCorpus',
+        'ebible',
+        'ebible-download',
+        'maculaBible',
+        'macula',
+        'biblica',
+        'obs',
+        'pdf', // PDF can contain Bible content
+        'indesign', // InDesign can contain Bible content
+    ];
+
+    const normalizedType = importerType.toLowerCase().trim();
+    return bibleTypeImporters.includes(normalizedType);
+}
+
+/**
+ * Creates a simple milestone cell with value "1" for non-Bible importers
+ */
+function createSimpleMilestoneCell(uuid?: string): ProcessedCell {
+    const cellUuid = uuid || uuidv4();
+    return createProcessedCell(cellUuid, "1", {
+        type: CodexCellTypes.MILESTONE,
+        id: cellUuid,
+        edits: [],
+    });
+}
+
+/**
  * Adds milestone cells to a notebook pair.
- * Milestone cells are inserted:
- * 1. At the very beginning of each notebook (for the first chapter)
- * 2. Before the first occurrence of each new chapter number
+ * For Bible-type importers: Milestone cells are inserted at the beginning and before each new chapter (using chapter numbers).
+ * For non-Bible importers: A single milestone cell with value "1" is inserted at the beginning.
  */
 export function addMilestoneCellsToNotebookPair(notebookPair: NotebookPair): NotebookPair {
     const sourceCells = notebookPair.source.cells || [];
@@ -255,6 +292,36 @@ export function addMilestoneCellsToNotebookPair(notebookPair: NotebookPair): Not
         return notebookPair;
     }
 
+    // Check if this is a Bible-type importer
+    const importerType = notebookPair.source.metadata?.importerType;
+    const isBibleType = isBibleTypeImporter(importerType);
+
+    // Check if milestone cells already exist (idempotent check)
+    const hasMilestoneCells = sourceCells.some(
+        (cell) => cell.metadata?.type === CodexCellTypes.MILESTONE
+    );
+    if (hasMilestoneCells) {
+        return notebookPair; // Already has milestone cells
+    }
+
+    // For non-Bible importers, create a single milestone cell with value "1"
+    if (!isBibleType) {
+        const milestoneUuid = uuidv4();
+        const milestoneCell = createSimpleMilestoneCell(milestoneUuid);
+
+        return {
+            source: {
+                ...notebookPair.source,
+                cells: [milestoneCell, ...sourceCells],
+            },
+            codex: {
+                ...notebookPair.codex,
+                cells: [milestoneCell, ...codexCells],
+            },
+        };
+    }
+
+    // For Bible-type importers, use existing chapter-based logic
     // Build new cell arrays with milestone cells
     const newSourceCells: ProcessedCell[] = [];
     const newCodexCells: ProcessedCell[] = [];

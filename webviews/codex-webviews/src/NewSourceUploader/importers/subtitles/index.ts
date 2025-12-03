@@ -10,6 +10,7 @@ import {
     createProgress,
     createProcessedCell,
     validateFileExtension,
+    addMilestoneCellsToNotebookPair,
 } from '../../utils/workflowHelpers';
 import { WebVTTParser } from 'webvtt-parser';
 import { englishSubtitlesRaw, tigrinyaSubtitlesRaw, sourceOfTruthMapping } from './testData';
@@ -247,11 +248,14 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
             codex: codexNotebook,
         };
 
+        // Add milestone cells to the notebook pair
+        const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
+
         onProgress?.(createProgress('Complete', 'Subtitle processing complete', 100));
 
         return {
             success: true,
-            notebookPair,
+            notebookPair: notebookPairWithMilestones,
             metadata: {
                 segmentCount: sourceNotebook.cells.length,
                 format,

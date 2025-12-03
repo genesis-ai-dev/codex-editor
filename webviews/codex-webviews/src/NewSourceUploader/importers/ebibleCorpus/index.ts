@@ -9,6 +9,7 @@ import {
     createStandardCellId,
     createProcessedCell,
     validateFileExtension,
+    addMilestoneCellsToNotebookPair,
 } from '../../utils/workflowHelpers';
 
 const SUPPORTED_EXTENSIONS = ['tsv', 'csv', 'txt'];
@@ -123,11 +124,14 @@ const parseFile = async (
             codex: codexNotebook,
         };
 
+        // Add milestone cells to the notebook pair
+        const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
+
         onProgress?.(createProgress('Complete', 'eBible corpus processing complete', 100));
 
         return {
             success: true,
-            notebookPair,
+            notebookPair: notebookPairWithMilestones,
             metadata: {
                 format,
                 verseCount: verses.length,

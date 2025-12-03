@@ -10,6 +10,7 @@ import {
     createProcessedCell,
     validateFileExtension,
     splitContentIntoSegments,
+    addMilestoneCellsToNotebookPair,
 } from '../../utils/workflowHelpers';
 import { extractImagesFromHtml } from '../../utils/imageProcessor';
 // Extraction is delegated to the extension host to avoid webview worker/CSP issues
@@ -212,14 +213,19 @@ export const parseFile = async (
             }
         };
 
+        const notebookPair = {
+            source: sourceNotebook,
+            codex: codexNotebook,
+        };
+
+        // Add milestone cells to the notebook pair
+        const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
+
         onProgress?.(createProgress('Complete', 'PDF import completed successfully!', 100));
 
         return {
             success: true,
-            notebookPair: {
-                source: sourceNotebook,
-                codex: codexNotebook,
-            },
+            notebookPair: notebookPairWithMilestones,
             metadata: {
                 totalCells: cells.length,
                 fileType: 'pdf',
