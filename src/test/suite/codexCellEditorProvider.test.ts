@@ -4289,7 +4289,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             // 2. Save the document
             await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
 
-            // Verify lastSaveTimestamp was set immediately after save
+            // Verify lastSaveTimestamp was set
             const saveTimestamp = document.lastSaveTimestamp;
             assert.ok(saveTimestamp > 0, "lastSaveTimestamp should be set after save");
 
@@ -4301,22 +4301,17 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 "Cell content should persist after save"
             );
 
-            // 4. Verify the debounce logic would prevent revert
-            // The file watcher checks: if (!document.isDirty && timeSinceLastSave > SAVE_DEBOUNCE_MS) { revert() }
-            // Since we just saved, timeSinceLastSave should be very small (< 2000ms), so revert would be skipped
-            // We verify this by checking that:
-            // - lastSaveTimestamp was set (done above)
-            // - isDirty is false (checked below)
-            // - The timestamp is recent (within reason - allow up to 5000ms for slow CI)
+            // 4. Simulate file watcher check - the debounce should prevent revert
             const timeSinceLastSave = Date.now() - document.lastSaveTimestamp;
-            const MAX_REASONABLE_TIME_MS = 5000; // Allow generous buffer for slow CI
+            const SAVE_DEBOUNCE_MS = 2000;
             assert.ok(
-                timeSinceLastSave < MAX_REASONABLE_TIME_MS,
-                `Time since save (${timeSinceLastSave}ms) should be reasonable. If this fails, the save may not have completed properly.`
+                timeSinceLastSave < SAVE_DEBOUNCE_MS,
+                `Time since save (${timeSinceLastSave}ms) should be less than debounce window (${SAVE_DEBOUNCE_MS}ms)`
             );
 
-            // The actual debounce window is 2000ms, so if timeSinceLastSave < 2000ms, 
-            // the file watcher would skip revert. We just verify it's reasonable.
+            // In the actual file watcher, this check prevents revert:
+            // if (!document.isDirty && timeSinceLastSave > SAVE_DEBOUNCE_MS) { revert() }
+            // Since timeSinceLastSave < SAVE_DEBOUNCE_MS, revert should NOT be called
 
             // Verify the isDirty flag is false after save (which would trigger revert if not for timestamp check)
             assert.strictEqual(
