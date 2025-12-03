@@ -51,7 +51,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     private _isDirty: boolean = false;
     private _cachedUserInfo: { username: string; email?: string; } | null = null;
     private _author: string = "anonymous";
-    
+
     // Track when we last saved to prevent file watcher from reverting our own saves
     private _lastSaveTimestamp: number = 0;
 
