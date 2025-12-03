@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { createHash } from "crypto";
 import { SQLiteIndexManager } from "./indexes/sqliteIndex";
 import { FileData, readSourceAndTargetFiles } from "./indexes/fileReaders";
+import { CodexCellTypes } from "../../../../types/enums";
 const DEBUG_MODE = false;
 const debug = (message: string, ...args: any[]) => {
     DEBUG_MODE && debug(`[FileSyncManager] ${message}`, ...args);
@@ -257,12 +258,13 @@ export class FileSyncManager {
                 for (const cell of fileData.cells) {
                     const cellId = cell.metadata?.id || `${fileData.id}_${fileData.cells.indexOf(cell)}`;
                     const isParatext = cell.metadata?.type === "paratext";
+                    const isMilestone = cell.metadata?.type === CodexCellTypes.MILESTONE;
                     const hasContent = cell.value && cell.value.trim() !== "";
 
                     // Calculate line number for database storage
                     let lineNumberForDB: number | null = null;
 
-                    if (!isParatext) {
+                    if (!isParatext && !isMilestone) {
                         if (fileType === 'source') {
                             // Source cells: always store line numbers (they should always have content)
                             lineNumberForDB = logicalLinePosition;
@@ -275,11 +277,11 @@ export class FileSyncManager {
                             // If no content, lineNumberForDB stays null but logical position still increments
                         }
 
-                        // Always increment logical position for non-paratext cells
+                        // Always increment logical position for non-paratext, non-milestone cells
                         // This ensures stable line numbering even as cells get translated
                         logicalLinePosition++;
                     }
-                    // Paratext cells: no line numbers, no position increment
+                    // Paratext and milestone cells: no line numbers, no position increment
 
                     this.sqliteIndex.upsertCellSync(
                         cellId,
