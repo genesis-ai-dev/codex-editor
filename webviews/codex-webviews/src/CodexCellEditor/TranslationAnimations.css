@@ -67,3 +67,20 @@
     .cell-content {
     animation: pulseValidationBackground 1.2s ease-in-out infinite;
 }
+
+/* Glow animation for lock button */
+@keyframes lockButtonGlow {
+    0% {
+        box-shadow: 0 0 0 0 rgba(26, 133, 255, 0);
+    }
+    50% {
+        box-shadow: 0 0 12px 4px rgba(26, 133, 255, 0.6);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(26, 133, 255, 0);
+    }
+}
+
+.lock-button-glowing {
+    animation: lockButtonGlow 0.5s ease-in-out;
+}

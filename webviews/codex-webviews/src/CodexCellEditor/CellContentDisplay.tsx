@@ -449,6 +449,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         const [showSparkleButton, setShowSparkleButton] = useState(false);
         const [showAuthModal, setShowAuthModal] = useState(false);
         const [showOfflineModal, setShowOfflineModal] = useState(false);
+        const [isLockButtonGlowing, setIsLockButtonGlowing] = useState(false);
         const { showTooltip, hideTooltip } = useTooltip();
 
         const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -800,6 +801,12 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     isLocked: newIsLocked,
                 },
             } as EditorPostMessages);
+
+            // Trigger glow animation
+            setIsLockButtonGlowing(true);
+            setTimeout(() => {
+                setIsLockButtonGlowing(false);
+            }, 500);
         };
 
         const handleCellContentClick = () => {
@@ -1304,12 +1311,18 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         <Button
                             title="Toggle cell lock"
                             variant="ghost"
-                            className="p-1 h-[18px]"
+                            className={`p-1 h-[18px] ${
+                                isLockButtonGlowing ? "lock-button-glowing" : ""
+                            }`}
                             onClick={handleToggleCellLock}
                         >
                             {!(cell.metadata?.isLocked ?? false) ? (
                                 <i
-                                    className="codicon codicon-unlock invisible group-hover:visible"
+                                    className={`codicon codicon-unlock ${
+                                        isLockButtonGlowing
+                                            ? "visible"
+                                            : "invisible group-hover:visible"
+                                    }`}
                                     style={{ fontSize: "1.2em" }}
                                 />
                             ) : (
