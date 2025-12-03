@@ -187,9 +187,9 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
 
             // Create ProcessedCell using the structure expected by the editor
             // Timestamps and related fields should live under metadata.data
+            // Subtitle cells are milestone cells because they represent time-based markers
             const cell = createProcessedCell(cueId, cue.text, {
-
-                type: "text" as CodexCellTypes,
+                type: CodexCellTypes.MILESTONE,
                 data: {
                     startTime: cue.startTime,
                     endTime: cue.endTime,
@@ -227,7 +227,7 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
                 },
                 edits: [...(sourceCell.metadata?.edits || [])],
                 id: sourceCell.id,
-                type: "text" as CodexCellTypes,
+                type: CodexCellTypes.MILESTONE,
             })
         );
 
@@ -248,7 +248,8 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
             codex: codexNotebook,
         };
 
-        // Add milestone cells to the notebook pair
+        // Note: Subtitle cells are already milestone cells, so we don't need to add additional milestone cells
+        // The addMilestoneCellsToNotebookPair function will detect existing milestone cells and return early
         const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
 
         onProgress?.(createProgress('Complete', 'Subtitle processing complete', 100));

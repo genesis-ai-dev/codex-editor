@@ -965,7 +965,7 @@ export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
         // Sync metadata values to configuration
         // Wrap in try/catch to prevent sync failures from blocking initialization
         try {
-        await syncMetadataToConfiguration();
+            await syncMetadataToConfiguration();
         } catch (e) {
             debug("Failed to sync metadata to configuration:", e);
         }
