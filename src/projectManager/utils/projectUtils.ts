@@ -50,6 +50,7 @@ export interface ProjectDetails {
     abbreviation?: string;
     sourceLanguage?: LanguageMetadata;
     targetLanguage?: LanguageMetadata;
+    projectId?: string;
 }
 
 interface CustomQuickPickItem extends vscode.QuickPickItem {
@@ -268,6 +269,15 @@ export const generateProjectId = () => {
 
 export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
     // Initialize a new project with the given details and return the project object
+    // Use provided projectId if available, otherwise generate one (for backward compatibility)
+    // IMPORTANT: If projectId is provided, it MUST be used (never regenerated) to match folder name
+    let projectId: string;
+    if (!details.projectId || details.projectId.trim() === "") {
+        console.warn("initializeProjectMetadataAndGit called without projectId - generating for backward compatibility");
+        projectId = generateProjectId();
+    } else {
+        projectId = details.projectId;
+    }
     const newProject: Partial<ProjectWithId> = {
         // Fixme: remove Partial when codex-types library is updated
         format: "scripture burrito",
@@ -275,7 +285,7 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
             details.projectName ||
             vscode.workspace.getConfiguration("codex-project-manager").get<string>("projectName") ||
             "", // previously "Codex Project"
-        projectId: generateProjectId(),
+        projectId: projectId,
         meta: {
             version: "0.0.0",
             category:
@@ -544,6 +554,17 @@ export async function updateMetadataFile() {
 
     if (!workspaceFolder) {
         console.error("No workspace folder found.");
+        return;
+    }
+
+    // Check if metadata.json exists before trying to update it
+    // This prevents automatic creation when Main Menu opens
+    const metadataPath = vscode.Uri.joinPath(workspaceFolder, "metadata.json");
+    try {
+        await vscode.workspace.fs.stat(metadataPath);
+    } catch {
+        // metadata.json doesn't exist - don't create it automatically
+        debug("updateMetadataFile called but metadata.json doesn't exist. Skipping update to prevent automatic creation.");
         return;
     }
 

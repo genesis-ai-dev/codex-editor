@@ -41,11 +41,27 @@ export class PublishProjectView {
                 switch (message.command) {
                     case "init": {
                         const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name || "";
+                        let projectId: string | undefined;
+
+                        // Try to read projectId from metadata.json
+                        try {
+                            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                            if (workspaceFolder) {
+                                const metadataPath = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
+                                const metadataContent = await vscode.workspace.fs.readFile(metadataPath);
+                                const metadata = JSON.parse(Buffer.from(metadataContent).toString());
+                                projectId = metadata.projectId || metadata.id;
+                            }
+                        } catch (error) {
+                            console.debug("[PublishProject] Could not read projectId from metadata.json:", error);
+                        }
+
                         safePostMessageToPanel(this._panel, {
                             type: "init",
                             defaults: {
                                 name: workspaceName,
                                 visibility: "private",
+                                projectId,
                             },
                         }, "PublishProject");
                         break;

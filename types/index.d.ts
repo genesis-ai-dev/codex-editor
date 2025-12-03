@@ -267,7 +267,8 @@ export type MessagesToStartupFlowProvider =
     | { command: "project.delete"; projectPath: string; syncStatus?: ProjectSyncStatus; }
     | { command: "project.createEmpty"; }
     | { command: "project.createEmptyWithName"; projectName: string; }
-    | { command: "project.createEmpty.confirm"; proceed: boolean; projectName?: string; }
+    | { command: "project.createEmpty.confirm"; proceed: boolean; projectName?: string; projectId?: string; }
+    | { command: "project.checkNameExists"; projectName: string; }
     | { command: "project.initialize"; waitForStateUpdate?: boolean; }
     | { command: "metadata.check"; }
     | { command: "project.showManager"; }
@@ -368,7 +369,8 @@ export type MessagesFromStartupFlowProvider =
     | { command: "project.progressReportSubmitted"; success: boolean; error?: string; }
     | { command: "progressData"; data: any; }
     | { command: "aggregatedProgressData"; data: any; }
-    | { command: "project.nameWillBeSanitized"; original: string; sanitized: string; }
+    | { command: "project.nameWillBeSanitized"; original: string; sanitized: string; projectId?: string; }
+    | { command: "project.nameExistsCheck"; exists: boolean; isCodexProject: boolean; errorMessage?: string; }
     | { command: "project.healingInProgress"; projectPath: string; healing: boolean; }
     | { command: "project.cloningInProgress"; projectPath: string; gitOriginUrl?: string; cloning: boolean; }
     | { command: "project.openingInProgress"; projectPath: string; opening: boolean; }
