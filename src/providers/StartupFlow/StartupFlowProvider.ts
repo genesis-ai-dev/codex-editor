@@ -15,7 +15,10 @@ import {
     createNewWorkspaceAndProject,
     createWorkspaceWithProjectName,
     sanitizeProjectName,
+    checkProjectNameExists,
+    extractProjectIdFromFolderName,
 } from "../../utils/projectCreationUtils/projectCreationUtils";
+import { generateProjectId } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { createMachine, assign, createActor } from "xstate";
 import { getCodexProjectsDirectory } from "../../utils/projectLocationUtils";
@@ -1712,16 +1715,21 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     const inputName = (message as any).projectName as string;
                     const sanitized = sanitizeProjectName(inputName);
                     if (sanitized !== inputName) {
+                        // Generate projectId when sanitization is needed (will be confirmed in modal)
+                        const projectId = generateProjectId();
                         this.safeSendMessage({
                             command: "project.nameWillBeSanitized",
                             original: inputName,
                             sanitized,
+                            projectId,
                         } as MessagesFromStartupFlowProvider);
                         // Optionally wait for confirm message from webview
                     } else {
+                        // Generate projectId immediately if no sanitization needed
+                        const projectId = generateProjectId();
                         await this.context.globalState.update("pendingProjectCreate", true);
                         await this.context.globalState.update("pendingProjectCreateName", sanitized);
-                        await createWorkspaceWithProjectName(sanitized);
+                        await createWorkspaceWithProjectName(sanitized, projectId);
                     }
                 } catch (error) {
                     console.error("Error creating project with name:", error);
@@ -1729,20 +1737,55 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 break;
             }
             case "project.createEmpty.confirm": {
-                const { proceed, projectName } = message as any;
+                const { proceed, projectName, projectId } = message;
                 if (proceed && projectName) {
                     await this.context.globalState.update("pendingProjectCreate", true);
                     await this.context.globalState.update("pendingProjectCreateName", projectName);
-                    await createWorkspaceWithProjectName(projectName);
+                    // Use provided projectId or generate one if not provided (shouldn't happen in normal flow)
+                    const finalProjectId = projectId || generateProjectId();
+                    await this.context.globalState.update("pendingProjectCreateId", finalProjectId);
+                    await createWorkspaceWithProjectName(projectName, finalProjectId);
+                }
+                break;
+            }
+            case "project.checkNameExists": {
+                try {
+                    const { projectName } = message;
+                    const sanitized = sanitizeProjectName(projectName);
+                    const checkResult = await checkProjectNameExists(sanitized);
+                    this.safeSendMessage({
+                        command: "project.nameExistsCheck",
+                        exists: checkResult.exists,
+                        isCodexProject: checkResult.isCodexProject,
+                        errorMessage: checkResult.errorMessage,
+                    } as MessagesFromStartupFlowProvider);
+                } catch (error) {
+                    console.error("Error checking project name:", error);
+                    this.safeSendMessage({
+                        command: "project.nameExistsCheck",
+                        exists: false,
+                        isCodexProject: false,
+                    } as MessagesFromStartupFlowProvider);
                 }
                 break;
             }
             case "project.initialize": {
                 debugLog("Initializing project");
-                await createNewProject();
+
+                // Extract projectId from folder name if it exists
+                const workspaceFolders = vscode.workspace.workspaceFolders;
+                let projectId: string | undefined;
+
+                if (workspaceFolders && workspaceFolders[0]) {
+                    projectId = extractProjectIdFromFolderName(workspaceFolders[0].name);
+                    if (projectId) {
+                        debugLog("Extracted projectId from folder name:", projectId);
+                    }
+                }
+
+                await createNewProject({ projectId });
 
                 // Wait for metadata.json to be created
-                const workspaceFolders = vscode.workspace.workspaceFolders;
                 if (workspaceFolders) {
                     try {
                         const metadataUri = vscode.Uri.joinPath(
