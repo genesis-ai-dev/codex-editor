@@ -811,8 +811,13 @@ const CodexCellEditor: React.FC = () => {
                     return verseChapter === newChapterNumber.toString();
                 });
 
-                // Find the index of the highlighted cell within the chapter
-                const cellIndexInChapter = allCellsForTargetChapter.findIndex(
+                // Filter out milestone cells for pagination calculations (they're excluded from the view)
+                const cellsForTargetChapterWithoutMilestones = allCellsForTargetChapter.filter(
+                    (verse) => verse.cellType !== CodexCellTypes.MILESTONE
+                );
+
+                // Find the index of the highlighted cell within the chapter (excluding milestones)
+                const cellIndexInChapter = cellsForTargetChapterWithoutMilestones.findIndex(
                     (verse) => verse.cellMarkers[0] === cellId
                 );
 
@@ -830,7 +835,7 @@ const CodexCellEditor: React.FC = () => {
                     // Same chapter, but check if we need to change subsection
                     // Check if chapter has multiple pages (subsections)
                     if (
-                        allCellsForTargetChapter.length > cellsPerPage &&
+                        cellsForTargetChapterWithoutMilestones.length > cellsPerPage &&
                         targetSubsectionIndex !== currentSubsectionIndex
                     ) {
                         setCurrentSubsectionIndex(targetSubsectionIndex);
