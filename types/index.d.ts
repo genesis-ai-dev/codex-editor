@@ -895,7 +895,6 @@ type CustomCellMetaData = BaseCustomCellMetaData & {
         };
     };
     cellLabel?: string;
-    milestone?: string; // For milestone cells: stores the chapter/section number
     selectedAudioId?: string; // Points to attachment key for explicit audio selection
     selectionTimestamp?: number; // Timestamp when selectedAudioId was last set
 };
@@ -957,7 +956,6 @@ interface QuillCellContent {
     editHistory: Array<EditHistory>;
     timestamps?: Timestamps;
     cellLabel?: string;
-    milestone?: string; // For milestone cells: stores the chapter/section number
     merged?: boolean;
     deleted?: boolean;
     data?: { [key: string]: any; footnotes?: Footnote[]; };

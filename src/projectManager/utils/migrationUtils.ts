@@ -1620,9 +1620,7 @@ function createMilestoneCell(chapterNumber: string): any {
         metadata: {
             id: uuid,
             type: CodexCellTypes.MILESTONE,
-            edits: [],
-            cellLabel: cellLabel,
-            milestone: chapterNumber
+            edits: []
         }
     };
 }

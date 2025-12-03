@@ -201,8 +201,6 @@ function createMilestoneCell(chapterNumber: string, uuid?: string): ProcessedCel
         type: CodexCellTypes.MILESTONE,
         id: cellUuid,
         edits: [],
-        cellLabel: cellLabel,
-        milestone: chapterNumber,
     });
 }
 

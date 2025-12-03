@@ -91,6 +91,21 @@ const isCellContentEmpty = (cellContent: string | undefined): boolean => {
     return onlyWhitespaceRegex.test(textContent);
 };
 
+// Helper function to extract chapter number from milestone cell value
+// Milestone cells have values like "Chapter 1", "Chapter 2", etc.
+const extractChapterFromMilestoneValue = (cellContent: string | undefined): string | null => {
+    if (!cellContent) return null;
+
+    // Create a temporary div to parse HTML and extract text content
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = cellContent;
+    const textContent = tempDiv.textContent || tempDiv.innerText || "";
+
+    // Match "Chapter" followed by whitespace and a number
+    const match = textContent.match(/Chapter\s+(\d+)/i);
+    return match ? match[1] : null;
+};
+
 const CodexCellEditor: React.FC = () => {
     const [translationUnits, setTranslationUnits] = useState<QuillCellContent[]>([]);
     const [alertColorCodes, setAlertColorCodes] = useState<{
@@ -787,7 +802,10 @@ const CodexCellEditor: React.FC = () => {
                 const allCellsForTargetChapter = translationUnits.filter((verse) => {
                     // Include milestone cells for their chapter
                     if (verse.cellType === CodexCellTypes.MILESTONE) {
-                        return verse.milestone === newChapterNumber.toString();
+                        const milestoneChapter = extractChapterFromMilestoneValue(
+                            verse.cellContent
+                        );
+                        return milestoneChapter === newChapterNumber.toString();
                     }
                     const verseChapter = verse?.cellMarkers?.[0]?.split(" ")?.[1]?.split(":")[0];
                     return verseChapter === newChapterNumber.toString();
@@ -1197,7 +1215,8 @@ const CodexCellEditor: React.FC = () => {
         // Filter cells for the specific chapter
         const cellsForChapter = translationUnits.filter((verse) => {
             if (verse.cellType === CodexCellTypes.MILESTONE) {
-                return verse.milestone === chapterNum.toString();
+                const milestoneChapter = extractChapterFromMilestoneValue(verse.cellContent);
+                return milestoneChapter === chapterNum.toString();
             }
             const cellId = verse?.cellMarkers?.[0];
             const sectionCellIdParts = cellId?.split(" ")?.[1]?.split(":");
@@ -1402,9 +1421,10 @@ const CodexCellEditor: React.FC = () => {
         }
 
         // Handle milestone cells - they have UUID IDs and should be included
-        // when their milestone property matches the current chapter
+        // when their chapter number (extracted from cell content) matches the current chapter
         if (verse.cellType === CodexCellTypes.MILESTONE) {
-            return verse.milestone === chapterNumber.toString();
+            const milestoneChapter = extractChapterFromMilestoneValue(verse.cellContent);
+            return milestoneChapter === chapterNumber.toString();
         }
 
         // For regular cells, check if they belong to the current chapter
