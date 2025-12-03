@@ -92,7 +92,7 @@ const isCellContentEmpty = (cellContent: string | undefined): boolean => {
 };
 
 // Helper function to extract chapter number from milestone cell value
-// Milestone cells have values like "Chapter 1", "Chapter 2", etc.
+// Milestone cells have values like "1", "2", etc. (just the chapter number)
 const extractChapterFromMilestoneValue = (cellContent: string | undefined): string | null => {
     if (!cellContent) return null;
 
@@ -101,8 +101,8 @@ const extractChapterFromMilestoneValue = (cellContent: string | undefined): stri
     tempDiv.innerHTML = cellContent;
     const textContent = tempDiv.textContent || tempDiv.innerText || "";
 
-    // Match "Chapter" followed by whitespace and a number
-    const match = textContent.match(/Chapter\s+(\d+)/i);
+    // Match a number pattern (one or more digits)
+    const match = textContent.match(/(\d+)/);
     return match ? match[1] : null;
 };
 

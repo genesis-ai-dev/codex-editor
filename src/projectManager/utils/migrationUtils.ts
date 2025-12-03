@@ -1607,16 +1607,53 @@ function extractChapterFromCellId(cellId: string): string | null {
 }
 
 /**
- * Creates a milestone cell with the given chapter number.
+ * Extracts chapter number from a cell using priority order:
+ * 1. metadata.chapterNumber (Biblica)
+ * 2. metadata.chapter (USFM)
+ * 3. metadata.data?.chapter (legacy)
+ * 4. extractChapterFromCellId (from cellId)
+ * 5. milestoneIndex (final fallback, 1-indexed)
  */
-function createMilestoneCell(chapterNumber: string): any {
+function extractChapterFromCell(cell: any, milestoneIndex: number): string {
+    // Priority 1: metadata.chapterNumber (Biblica)
+    if (cell?.metadata?.chapterNumber !== undefined && cell.metadata.chapterNumber !== null) {
+        return String(cell.metadata.chapterNumber);
+    }
+
+    // Priority 2: metadata.chapter (USFM)
+    if (cell?.metadata?.chapter !== undefined && cell.metadata.chapter !== null) {
+        return String(cell.metadata.chapter);
+    }
+
+    // Priority 3: metadata.data?.chapter (legacy)
+    if (cell?.metadata?.data?.chapter !== undefined && cell.metadata.data.chapter !== null) {
+        return String(cell.metadata.data.chapter);
+    }
+
+    // Priority 4: Extract from cellId
+    const cellId = cell?.metadata?.id || cell?.id;
+    if (cellId) {
+        const chapterFromId = extractChapterFromCellId(cellId);
+        if (chapterFromId) {
+            return chapterFromId;
+        }
+    }
+
+    // Priority 5: Use milestone index (1-indexed)
+    return milestoneIndex.toString();
+}
+
+/**
+ * Creates a milestone cell with chapter number derived from the cell below it.
+ */
+function createMilestoneCell(cell: any, milestoneIndex: number): any {
     const uuid = randomUUID();
-    const cellLabel = `Chapter ${chapterNumber}`;
+    const chapterNumber = extractChapterFromCell(cell, milestoneIndex);
 
     return {
         kind: 2, // vscode.NotebookCellKind.Code
         languageId: "html",
-        value: cellLabel,
+        value: chapterNumber,
         metadata: {
             id: uuid,
             type: CodexCellTypes.MILESTONE,
@@ -1651,28 +1688,36 @@ async function migrateMilestoneCellsForFile(fileUri: vscode.Uri): Promise<boolea
 
         const newCells: any[] = [];
         const seenChapters = new Set<string>();
-        let firstChapterNumber: string | null = null;
+        let firstCell: any | null = null;
 
-        // First pass: find the first chapter number from any cell
+        // First pass: find the first cell (for first milestone)
         for (const cell of cells) {
-            const cellId = cell.metadata?.id;
-            if (cellId) {
-                const chapter = extractChapterFromCellId(cellId);
-                if (chapter) {
-                    firstChapterNumber = chapter;
-                    break;
-                }
+            if (cell.metadata?.id) {
+                firstCell = cell;
+                break;
             }
         }
 
-        // If no chapter numbers found, skip this file
-        if (!firstChapterNumber) {
+        // If no cells found, skip this file
+        if (!firstCell) {
             return false;
         }
 
+        // Track milestone index (1-indexed)
+        let milestoneIndex = 1;
+
         // Insert first milestone cell at the beginning
-        newCells.push(createMilestoneCell(firstChapterNumber));
-        seenChapters.add(firstChapterNumber);
+        newCells.push(createMilestoneCell(firstCell, milestoneIndex));
+        milestoneIndex++;
+
+        // Track the chapter of the first cell to avoid duplicate milestone
+        const firstCellId = firstCell.metadata?.id;
+        if (firstCellId) {
+            const chapter = extractChapterFromCellId(firstCellId);
+            if (chapter) {
+                seenChapters.add(chapter);
+            }
+        }
 
         // Process all cells and insert milestone cells before new chapters
         for (const cell of cells) {
@@ -1681,7 +1726,8 @@ async function migrateMilestoneCellsForFile(fileUri: vscode.Uri): Promise<boolea
                 const chapter = extractChapterFromCellId(cellId);
                 if (chapter && !seenChapters.has(chapter)) {
                     // Insert a milestone cell before this new chapter
-                    newCells.push(createMilestoneCell(chapter));
+                    newCells.push(createMilestoneCell(cell, milestoneIndex));
+                    milestoneIndex++;
                     seenChapters.add(chapter);
                 }
             }

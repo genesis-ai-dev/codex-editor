@@ -189,15 +189,52 @@ function extractChapterFromCellId(cellId: string): string | null {
 }
 
 /**
- * Creates a milestone cell with the given chapter number
- * @param chapterNumber - The chapter number for the milestone
+ * Extracts chapter number from a cell using priority order:
+ * 1. metadata.chapterNumber (Biblica)
+ * 2. metadata.chapter (USFM)
+ * 3. metadata.data?.chapter (legacy)
+ * 4. extractChapterFromCellId (from cellId)
+ * 5. milestoneIndex (final fallback, 1-indexed)
+ */
+function extractChapterFromCell(cell: ProcessedCell, milestoneIndex: number): string {
+    // Priority 1: metadata.chapterNumber (Biblica)
+    if (cell?.metadata?.chapterNumber !== undefined && cell.metadata.chapterNumber !== null) {
+        return String(cell.metadata.chapterNumber);
+    }
+
+    // Priority 2: metadata.chapter (USFM)
+    if (cell?.metadata?.chapter !== undefined && cell.metadata.chapter !== null) {
+        return String(cell.metadata.chapter);
+    }
+
+    // Priority 3: metadata.data?.chapter (legacy)
+    if (cell?.metadata?.data?.chapter !== undefined && cell.metadata.data.chapter !== null) {
+        return String(cell.metadata.data.chapter);
+    }
+
+    // Priority 4: Extract from cellId
+    if (cell?.id) {
+        const chapterFromId = extractChapterFromCellId(cell.id);
+        if (chapterFromId) {
+            return chapterFromId;
+        }
+    }
+
+    // Priority 5: Use milestone index (1-indexed)
+    return milestoneIndex.toString();
+}
+
+/**
+ * Creates a milestone cell with chapter number derived from the cell below it.
+ * @param cell - The cell below the milestone (first cell of the chapter)
+ * @param milestoneIndex - The index of this milestone (1-indexed)
  * @param uuid - Optional UUID to use. If not provided, a new UUID will be generated.
  */
-function createMilestoneCell(chapterNumber: string, uuid?: string): ProcessedCell {
+function createMilestoneCell(cell: ProcessedCell, milestoneIndex: number, uuid?: string): ProcessedCell {
     const cellUuid = uuid || uuidv4();
-    const cellLabel = `Chapter ${chapterNumber}`;
+    const chapterNumber = extractChapterFromCell(cell, milestoneIndex);
 
-    return createProcessedCell(cellUuid, cellLabel, {
+    return createProcessedCell(cellUuid, chapterNumber, {
         type: CodexCellTypes.MILESTONE,
         id: cellUuid,
         edits: [],
@@ -218,24 +255,6 @@ export function addMilestoneCellsToNotebookPair(notebookPair: NotebookPair): Not
         return notebookPair;
     }
 
-    // Extract chapter numbers from cell IDs
-    const seenChapters = new Set<string>();
-    let firstChapterNumber: string | null = null;
-
-    // First pass: find the first chapter number from any cell
-    for (const cell of sourceCells) {
-        const chapter = extractChapterFromCellId(cell.id);
-        if (chapter) {
-            firstChapterNumber = chapter;
-            break;
-        }
-    }
-
-    // If no chapter numbers found, return unchanged
-    if (!firstChapterNumber) {
-        return notebookPair;
-    }
-
     // Build new cell arrays with milestone cells
     const newSourceCells: ProcessedCell[] = [];
     const newCodexCells: ProcessedCell[] = [];
@@ -243,14 +262,30 @@ export function addMilestoneCellsToNotebookPair(notebookPair: NotebookPair): Not
     // Map to store UUIDs for each chapter to ensure consistency across source and codex
     const chapterUuids = new Map<string, string>();
 
-    // Generate UUID for first chapter and store it
-    const firstChapterUuid = uuidv4();
-    chapterUuids.set(firstChapterNumber, firstChapterUuid);
+    // Track milestone index (1-indexed)
+    let milestoneIndex = 1;
+
+    // Track seen chapters to avoid duplicates
+    const seenChapters = new Set<string>();
+
+    // Find first cell for first milestone
+    const firstCell = sourceCells[0];
+    if (!firstCell) {
+        return notebookPair;
+    }
+
+    // Generate UUID for first milestone and store it
+    const firstMilestoneUuid = uuidv4();
+    const firstChapter = extractChapterFromCellId(firstCell.id);
+    if (firstChapter) {
+        chapterUuids.set(firstChapter, firstMilestoneUuid);
+        seenChapters.add(firstChapter);
+    }
 
     // Insert first milestone cell at the beginning (using same UUID for both)
-    newSourceCells.push(createMilestoneCell(firstChapterNumber, firstChapterUuid));
-    newCodexCells.push(createMilestoneCell(firstChapterNumber, firstChapterUuid));
-    seenChapters.add(firstChapterNumber);
+    newSourceCells.push(createMilestoneCell(firstCell, milestoneIndex, firstMilestoneUuid));
+    newCodexCells.push(createMilestoneCell(codexCells[0] || firstCell, milestoneIndex, firstMilestoneUuid));
+    milestoneIndex++;
 
     // Process all cells and insert milestone cells before new chapters
     for (let i = 0; i < sourceCells.length; i++) {
@@ -264,8 +299,9 @@ export function addMilestoneCellsToNotebookPair(notebookPair: NotebookPair): Not
             chapterUuids.set(chapter, chapterUuid);
 
             // Insert a milestone cell before this new chapter (using same UUID for both)
-            newSourceCells.push(createMilestoneCell(chapter, chapterUuid));
-            newCodexCells.push(createMilestoneCell(chapter, chapterUuid));
+            newSourceCells.push(createMilestoneCell(sourceCell, milestoneIndex, chapterUuid));
+            newCodexCells.push(createMilestoneCell(codexCell, milestoneIndex, chapterUuid));
+            milestoneIndex++;
             seenChapters.add(chapter);
         }
 
