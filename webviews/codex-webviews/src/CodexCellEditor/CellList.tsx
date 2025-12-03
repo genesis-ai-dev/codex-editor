@@ -121,14 +121,21 @@ const CellList: React.FC<CellListProps> = ({
 
     // Filter out merged cells if we're in correction editor mode for source text
     const filteredTranslationUnits = useMemo(() => {
+        let filtered = translationUnits;
+        
+        // Filter out merged cells if we're in correction editor mode for source text
         if (isSourceText && isCorrectionEditorMode) {
-            return translationUnits.filter((unit) => {
+            filtered = filtered.filter((unit) => {
                 // Check if cell has merged metadata in the data property
                 const cellData = unit.data as any;
                 return !cellData?.merged;
             });
         }
-        return translationUnits;
+        
+        // Filter out milestone cells from the view (they remain in JSON)
+        filtered = filtered.filter((unit) => unit.cellType !== CodexCellTypes.MILESTONE);
+        
+        return filtered;
     }, [translationUnits, isSourceText, isCorrectionEditorMode]);
     // Use filtered units for all operations
     const workingTranslationUnits = filteredTranslationUnits;

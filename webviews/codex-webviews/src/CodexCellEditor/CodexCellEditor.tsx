@@ -1420,11 +1420,9 @@ const CodexCellEditor: React.FC = () => {
             return true;
         }
 
-        // Handle milestone cells - they have UUID IDs and should be included
-        // when their chapter number (extracted from cell content) matches the current chapter
+        // Exclude milestone cells from the view (they remain in JSON)
         if (verse.cellType === CodexCellTypes.MILESTONE) {
-            const milestoneChapter = extractChapterFromMilestoneValue(verse.cellContent);
-            return milestoneChapter === chapterNumber.toString();
+            return false;
         }
 
         // For regular cells, check if they belong to the current chapter
