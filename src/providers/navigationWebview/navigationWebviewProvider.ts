@@ -437,8 +437,8 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
             // Calculate progress based on cells with values
             const unmergedCells = notebookData.cells.filter(
-                (cell) => 
-                    !cell.metadata.data?.merged && 
+                (cell) =>
+                    !cell.metadata.data?.merged &&
                     cell.metadata?.type !== CodexCellTypes.MILESTONE
             );
             const totalCells = unmergedCells.length;

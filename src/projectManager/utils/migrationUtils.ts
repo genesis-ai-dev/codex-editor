@@ -1755,6 +1755,13 @@ export const migration_addMilestoneCells = async (context?: vscode.ExtensionCont
 
         if (allFiles.length === 0) {
             console.log("No codex or source files found, skipping milestone cells migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                // If configuration key is not registered, fall back to workspaceState
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
