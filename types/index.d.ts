@@ -1643,6 +1643,7 @@ type EditorReceiveMessages =
         validationCount?: number;
         validationCountAudio?: number;
         isAuthenticated?: boolean;
+        userAccessLevel?: number;
     }
     | {
         type: "preferredEditorTab";

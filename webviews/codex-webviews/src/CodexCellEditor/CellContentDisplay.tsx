@@ -70,6 +70,7 @@ interface CellContentDisplayProps {
     requiredValidations?: number;
     requiredAudioValidations?: number;
     isAuthenticated?: boolean;
+    userAccessLevel?: number;
     isAudioOnly?: boolean;
     showInlineBacktranslations?: boolean;
     backtranslation?: any;
@@ -437,6 +438,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         requiredValidations,
         requiredAudioValidations,
         isAuthenticated = false,
+        userAccessLevel,
         isAudioOnly = false,
         showInlineBacktranslations = false,
         backtranslation,
@@ -1037,7 +1039,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                 <DialogContent>
                                                     <DialogHeader className="sm:text-center">
                                                         <DialogTitle>
-                                                            Connect to the internet to use AI translation
+                                                            Connect to the internet to use AI
+                                                            translation
                                                         </DialogTitle>
                                                         <DialogDescription></DialogDescription>
                                                     </DialogHeader>
@@ -1297,21 +1300,23 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                             <MessageCircle className="w-4 h-4" />
                         </Button>
                     )}
-                    <Button
-                        title="Toggle cell lock"
-                        variant="ghost"
-                        className="p-1 h-[18px]"
-                        onClick={handleToggleCellLock}
-                    >
-                        {!(cell.metadata?.isLocked ?? false) ? (
-                            <i
-                                className="codicon codicon-unlock invisible group-hover:visible"
-                                style={{ fontSize: "1.2em" }}
-                            />
-                        ) : (
-                            <i className="codicon codicon-lock" style={{ fontSize: "1.2em" }} />
-                        )}
-                    </Button>
+                    {userAccessLevel !== undefined && userAccessLevel >= 40 && (
+                        <Button
+                            title="Toggle cell lock"
+                            variant="ghost"
+                            className="p-1 h-[18px]"
+                            onClick={handleToggleCellLock}
+                        >
+                            {!(cell.metadata?.isLocked ?? false) ? (
+                                <i
+                                    className="codicon codicon-unlock invisible group-hover:visible"
+                                    style={{ fontSize: "1.2em" }}
+                                />
+                            ) : (
+                                <i className="codicon codicon-lock" style={{ fontSize: "1.2em" }} />
+                            )}
+                        </Button>
+                    )}
                 </div>
             </div>
         );

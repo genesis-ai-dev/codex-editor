@@ -604,6 +604,39 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 console.debug("Could not get authentication status:", error);
             }
 
+            // Fetch user role/access level if authenticated
+            let userAccessLevel: number | undefined = undefined;
+            try {
+                if (isAuthenticated && userInfo?.username) {
+                    const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                    if (ws) {
+                        const { extractProjectIdFromUrl, fetchProjectMembers } = await import("../../utils/remoteHealingManager");
+                        const git = await import("isomorphic-git");
+                        const fs = await import("fs");
+                        const remotes = await git.listRemotes({ fs, dir: ws.uri.fsPath });
+                        const origin = remotes.find((r) => r.remote === "origin");
+                        
+                        if (origin?.url) {
+                            const projectId = extractProjectIdFromUrl(origin.url);
+                            if (projectId) {
+                                const memberList = await fetchProjectMembers(projectId);
+                                if (memberList) {
+                                    const currentUserMember = memberList.find(
+                                        m => m.username === userInfo.username || m.email === userInfo.email
+                                    );
+                                    if (currentUserMember) {
+                                        userAccessLevel = currentUserMember.accessLevel;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                // Silently fail - user role is optional
+                debug("Could not fetch user role:", error);
+            }
+
             this.postMessageToWebview(webviewPanel, {
                 type: "providerSendsInitialContent",
                 content: processedData,
@@ -613,6 +646,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 validationCount: validationCount,
                 validationCountAudio: validationCountAudio,
                 isAuthenticated: isAuthenticated,
+                userAccessLevel: userAccessLevel,
             });
 
             // Also send updated metadata plus the autoDownloadAudioOnOpen flag for the project
