@@ -51,6 +51,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
     private _isDirty: boolean = false;
     private _cachedUserInfo: { username: string; email?: string; } | null = null;
     private _author: string = "anonymous";
+    
+    // Track when we last saved to prevent file watcher from reverting our own saves
+    private _lastSaveTimestamp: number = 0;
 
     // Cache for immediate indexing optimization
     private _cachedFileId: number | null = null;
@@ -197,6 +200,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
     public get isDirty(): boolean {
         return this._isDirty;
+    }
+
+    public get lastSaveTimestamp(): number {
+        return this._lastSaveTimestamp;
     }
 
     // New private method to initialize user info
@@ -625,6 +632,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
             await vscode.workspace.fs.writeFile(this.uri, new TextEncoder().encode(mergedContent));
         }
 
+        // Record save timestamp to prevent file watcher from reverting our own save
+        this._lastSaveTimestamp = Date.now();
 
         // IMMEDIATE AI LEARNING - Update all cells with content to ensure validation changes are persisted
         await this.syncAllCellsToDatabase();
@@ -659,6 +668,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // IMMEDIATE AI LEARNING for non-backup saves
         if (!backup) {
+            // Record save timestamp to prevent file watcher from reverting our own save
+            this._lastSaveTimestamp = Date.now();
             await this.syncAllCellsToDatabase();
             this._isDirty = false; // Reset dirty flag
         }
