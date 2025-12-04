@@ -349,7 +349,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
     protected getHtmlForWebview(webviewView: vscode.WebviewView): string {
         return getWebviewHtml(webviewView.webview, this._context, {
             scriptPath: this.getScriptPath(),
-            csp: `default-src 'none'; img-src ${webviewView.webview.cspSource} https: data:; style-src ${webviewView.webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; font-src ${webviewView.webview.cspSource};`,
+            csp: `default-src 'none'; img-src ${webviewView.webview.cspSource} https: data:; style-src ${webviewView.webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}' https://static.cloudflareinsights.com; connect-src https://*.vscode-cdn.net https://*.frontierrnd.com; font-src ${webviewView.webview.cspSource};`,
             inlineStyles: `
                 .progress-container { margin: 6px 0; }
                 .progress-label { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px; color: var(--vscode-foreground); opacity: 0.8; }
