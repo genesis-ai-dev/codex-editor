@@ -464,6 +464,28 @@ export async function activate(context: vscode.ExtensionContext) {
                 return;
             }
 
+            // Check for pending project creation after reload
+            const pendingCreate = context.globalState.get("pendingProjectCreate");
+            if (pendingCreate) {
+                const pendingName = context.globalState.get<string>("pendingProjectCreateName");
+                const pendingProjectId = context.globalState.get<string>("pendingProjectCreateId");
+                console.debug("[Extension] Resuming project creation for:", pendingName, "with projectId:", pendingProjectId);
+
+                // Clear flags
+                await context.globalState.update("pendingProjectCreate", undefined);
+                await context.globalState.update("pendingProjectCreateName", undefined);
+                await context.globalState.update("pendingProjectCreateId", undefined);
+
+                try {
+                    // We are in the new folder. Initialize it.
+                    const { createNewProject } = await import("./utils/projectCreationUtils/projectCreationUtils");
+                    await createNewProject({ projectName: pendingName, projectId: pendingProjectId });
+                } catch (error) {
+                    console.error("Failed to resume project creation:", error);
+                    vscode.window.showErrorMessage("Failed to create project after reload.");
+                }
+            }
+
             const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
 
             let metadataExists = false;

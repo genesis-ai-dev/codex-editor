@@ -262,32 +262,32 @@ export const registerPreflightCommand = (context: vscode.ExtensionContext) => {
                     debugLog(
                         "Auth extension installed but not authenticated - opening startup flow"
                     );
-                    vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
+                    vscode.commands.executeCommand("codex-project-manager.openStartupFlow", { forceLogin: false });
                     return;
                 }
             }
 
             if (!state.workspaceState.isOpen) {
                 debugLog("No workspace open - opening startup flow");
-                vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
+                vscode.commands.executeCommand("codex-project-manager.openStartupFlow", { forceLogin: false });
                 return;
             }
 
             if (!state.workspaceState.hasMetadata) {
                 debugLog("No metadata found - opening startup flow");
-                vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
+                vscode.commands.executeCommand("codex-project-manager.openStartupFlow", { forceLogin: false });
                 return;
             }
 
             if (!state.workspaceState.isProjectSetup) {
                 debugLog("Project not properly setup - opening startup flow");
-                vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
+                vscode.commands.executeCommand("codex-project-manager.openStartupFlow", { forceLogin: false });
                 return;
             }
 
             if (!state.gitState.isGitRepo) {
                 debugLog("Not a git repository - opening startup flow");
-                vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
+                vscode.commands.executeCommand("codex-project-manager.openStartupFlow", { forceLogin: false });
                 return;
             }
 

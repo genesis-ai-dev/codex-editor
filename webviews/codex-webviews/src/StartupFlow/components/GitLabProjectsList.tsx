@@ -364,20 +364,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     const filteredUngroupedProjects = filterProjects(ungroupedProjects || []);
 
     return (
-        <div className="flex flex-col gap-3 h-[calc(100vh-130px)] w-full">
-            {!isOnline && (
-                <Card className="flex flex-col items-start justify-center bg-red-500/10 border-red-500/20">
-                    <CardHeader className="hidden"></CardHeader>
-                    <CardContent className="flex items-center justify-start gap-1 pt-6">
-                        <i className="codicon codicon-sync-ignored text-sm text-red-500" />
-                        <span>
-                            Currently offline. You can only work with previously opened
-                            projects.
-                        </span>
-                    </CardContent>
-                </Card>
-            )}
-
+        <div className="flex flex-col gap-3 w-full flex-1 overflow-hidden min-h-0">
             <ProjectsHeader
                 searchQuery={searchQuery}
                 setSearchQuery={setSearchQuery}
@@ -389,7 +376,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             />
 
             {isLoading ? (
-                <div className="p-3 space-y-3">
+                <div className="p-3 space-y-3 flex-1 overflow-y-auto">
                     {Array.from({ length: 5 }).map((_, i) => (
                         <ProjectCardSkeleton key={i} />
                     ))}

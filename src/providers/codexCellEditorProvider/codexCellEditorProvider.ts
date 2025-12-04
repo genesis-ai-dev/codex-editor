@@ -501,13 +501,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
 
         // Watch for file changes (only if watcher was created)
+        // Use debounce to avoid reverting after our own saves
+        const SAVE_DEBOUNCE_MS = 2000;
         if (watcher) {
             watcher.onDidChange((uri) => {
                 debug("File change detected:", uri.toString());
                 if (uri.toString() === document.uri.toString()) {
-                    if (!document.isDirty) {
-                        debug("Document not dirty, reverting");
-                        document.revert(); // Reload the document if it isn't dirty
+                    const timeSinceLastSave = Date.now() - document.lastSaveTimestamp;
+                    if (!document.isDirty && timeSinceLastSave > SAVE_DEBOUNCE_MS) {
+                        // External change detected - safe to revert
+                        debug("Document not dirty and not recently saved, reverting");
+                        document.revert();
+                    } else {
+                        debug(`Skipping revert: isDirty=${document.isDirty}, timeSinceLastSave=${timeSinceLastSave}ms`);
                     }
                 }
             });
@@ -575,7 +581,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             const validationCount = config.get("validationCount", 1);
             const validationCountAudio = config.get("validationCountAudio", 1);
             const authApi = await this.getAuthApi();
-            const userInfo = await authApi?.getUserInfo();
+
+            let userInfo;
+            try {
+                if (authApi?.getAuthStatus()?.isAuthenticated) {
+                    userInfo = await authApi?.getUserInfo();
+                }
+            } catch (error) {
+                console.warn("Failed to fetch user info:", error);
+            }
+
             const username = userInfo?.username || "anonymous";
 
             // Check authentication status

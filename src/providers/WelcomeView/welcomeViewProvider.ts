@@ -808,7 +808,9 @@ export class WelcomeViewProvider {
             );
 
             // Open the startup flow using the proper command
-            await vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
+            await vscode.commands.executeCommand("codex-project-manager.openStartupFlow", {
+                forceLogin: true,
+            });
 
             // Hide loading indicator after startup flow is opened
             // The startup flow state change will handle showing "Login page opened"

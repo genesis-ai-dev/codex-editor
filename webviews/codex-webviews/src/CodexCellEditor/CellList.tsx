@@ -422,13 +422,14 @@ const CellList: React.FC<CellListProps> = ({
 
             // if (isNaN(currentVerseNumber)) return 1; // Invalid verse number
 
-            // Count non-paratext cells within the same chapter up to and including this one
+            // Count non-paratext, non-child cells within the same chapter up to and including this one
+            // Child cells have more than 2 segments in their ID (e.g., "1TH 1:6:1740475700855-sbcr37orm")
             let visibleCellCount = 0;
             for (let i = 0; i <= cellIndex; i++) {
                 const cellIdParts = allCells[i].cellMarkers[0].split(":");
                 if (
                     allCells[i].cellType !== CodexCellTypes.PARATEXT &&
-                    cellIdParts.length >= 2 &&
+                    cellIdParts.length === 2 && // Skip child cells (which have > 2 parts)
                     !allCells[i]
                         .merged /* && FIXME: THIS BROKE LINE NUMBERS WHEN UPLOADING SUBTITLES. NEED TO FIX.
                     cellIdParts[0] === currentChapterId // Only count cells from the same chapter */
@@ -787,6 +788,7 @@ const CellList: React.FC<CellListProps> = ({
                             currentUsername={currentUsername || undefined}
                             vscode={vscode}
                             isSourceText={isSourceText}
+                            isAuthenticated={isAuthenticated}
                         />
                     </span>
                 );

@@ -27,6 +27,7 @@ export default function PublishProject() {
     const [selectedGroupId, setSelectedGroupId] = useState<number | undefined>(undefined);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | undefined>(undefined);
+    const [projectId, setProjectId] = useState<string | undefined>(undefined);
 
     const isValidName = useMemo(() => /^[\w.-]+$/.test(name) && name.length > 0, [name]);
     const canCreate = isValidName && !busy;
@@ -35,7 +36,22 @@ export default function PublishProject() {
         const handleMessage = (event: MessageEvent) => {
             const m = event.data;
             if (m?.type === "init") {
-                if (m.defaults?.name) setName(m.defaults.name);
+                if (m.defaults?.projectId) {
+                    setProjectId(m.defaults.projectId);
+                    // Strip projectId from name if it's included
+                    if (m.defaults?.name) {
+                        const nameWithId = m.defaults.name;
+                        const nameWithoutId = nameWithId.endsWith(`-${m.defaults.projectId}`)
+                            ? nameWithId.slice(
+                                  0,
+                                  nameWithId.length - `-${m.defaults.projectId}`.length
+                              )
+                            : nameWithId;
+                        setName(nameWithoutId);
+                    }
+                } else if (m.defaults?.name) {
+                    setName(m.defaults.name);
+                }
                 if (m.defaults?.visibility) setVisibility(m.defaults.visibility as Visibility);
             } else if (m?.type === "busy") {
                 setBusy(!!m.value);
@@ -65,10 +81,17 @@ export default function PublishProject() {
     const onCreate = () => {
         if (!canCreate) return;
         setError(undefined);
+
+        // Append projectId to name if available
+        let finalName = name;
+        if (projectId) {
+            finalName = `${name}-${projectId}`;
+        }
+
         vscode.postMessage({
             command: "createProject",
             payload: {
-                name,
+                name: finalName,
                 description: description || undefined,
                 visibility,
                 projectType: "group",
