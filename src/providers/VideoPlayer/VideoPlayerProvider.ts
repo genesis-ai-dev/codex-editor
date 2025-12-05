@@ -50,7 +50,7 @@ export class VideoPlayerProvider
         return getWebviewHtml(webview, this.context, {
             title: "Codex Video Player",
             scriptPath: ["VideoPlayer", "index.js"],
-            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; worker-src ${webview.cspSource}; img-src ${webview.cspSource} https:; font-src ${webview.cspSource};`
+            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}' https://static.cloudflareinsights.com; connect-src https://*.vscode-cdn.net https://*.frontierrnd.com; worker-src ${webview.cspSource}; img-src ${webview.cspSource} https:; font-src ${webview.cspSource};`
         });
     }
 }
