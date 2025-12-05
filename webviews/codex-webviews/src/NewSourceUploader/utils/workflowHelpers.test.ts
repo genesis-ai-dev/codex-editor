@@ -195,7 +195,7 @@ describe('addMilestoneCellsToNotebookPair', () => {
             expect(result.source.cells[6].id).toBe(result.codex.cells[6].id);
         });
 
-        it('should handle cells without chapter numbers in ID', () => {
+        it('should handle cells without chapter numbers in ID but with metadata.chapterNumber', () => {
             const cell1 = createMockCell('cell-1', 'Content', { chapterNumber: 1 });
             const cell2 = createMockCell('cell-2', 'Content', { chapterNumber: 2 });
             const notebookPair = createMockNotebookPair(
@@ -206,16 +206,18 @@ describe('addMilestoneCellsToNotebookPair', () => {
 
             const result = addMilestoneCellsToNotebookPair(notebookPair);
 
-            // When cell IDs don't have chapter numbers, only one milestone is added at the beginning
-            // The milestone value uses metadata.chapterNumber, but no new milestone is added for cell2
-            // because chapter detection only checks cell IDs, not metadata
-            expect(result.source.cells).toHaveLength(3);
-            expect(result.source.cells[0].content).toBe('1'); // Uses metadata.chapterNumber from first cell
+            // Should add milestones for each chapter detected from metadata.chapterNumber
+            // Expected: milestone(1), cell1, milestone(2), cell2
+            expect(result.source.cells).toHaveLength(4);
+            expect(result.source.cells[0].metadata?.type).toBe(CodexCellTypes.MILESTONE);
+            expect(result.source.cells[0].content).toBe('1'); // Chapter 1
             expect(result.source.cells[1]).toEqual(cell1);
-            expect(result.source.cells[2]).toEqual(cell2);
+            expect(result.source.cells[2].metadata?.type).toBe(CodexCellTypes.MILESTONE);
+            expect(result.source.cells[2].content).toBe('2'); // Chapter 2
+            expect(result.source.cells[3]).toEqual(cell2);
         });
 
-        it('should use metadata.chapter if available', () => {
+        it('should use metadata.chapter if available and add milestones for each chapter', () => {
             const cell1 = createMockCell('cell-1', 'Content', { chapter: 5 });
             const cell2 = createMockCell('cell-2', 'Content', { chapter: 6 });
             const notebookPair = createMockNotebookPair(
@@ -226,16 +228,18 @@ describe('addMilestoneCellsToNotebookPair', () => {
 
             const result = addMilestoneCellsToNotebookPair(notebookPair);
 
-            // When cell IDs don't have chapter numbers, only one milestone is added at the beginning
-            // The milestone value uses metadata.chapter, but no new milestone is added for cell2
-            // because chapter detection only checks cell IDs, not metadata
-            expect(result.source.cells).toHaveLength(3);
-            expect(result.source.cells[0].content).toBe('5'); // Uses metadata.chapter from first cell
+            // Should add milestones for each chapter detected from metadata.chapter
+            // Expected: milestone(5), cell1, milestone(6), cell2
+            expect(result.source.cells).toHaveLength(4);
+            expect(result.source.cells[0].metadata?.type).toBe(CodexCellTypes.MILESTONE);
+            expect(result.source.cells[0].content).toBe('5'); // Chapter 5
             expect(result.source.cells[1]).toEqual(cell1);
-            expect(result.source.cells[2]).toEqual(cell2);
+            expect(result.source.cells[2].metadata?.type).toBe(CodexCellTypes.MILESTONE);
+            expect(result.source.cells[2].content).toBe('6'); // Chapter 6
+            expect(result.source.cells[3]).toEqual(cell2);
         });
 
-        it('should use metadata.data.chapter as fallback', () => {
+        it('should use metadata.data.chapter as fallback and add milestones for each chapter', () => {
             const cell1 = createMockCell('cell-1', 'Content', {
                 data: { chapter: 10 },
             });
@@ -250,13 +254,15 @@ describe('addMilestoneCellsToNotebookPair', () => {
 
             const result = addMilestoneCellsToNotebookPair(notebookPair);
 
-            // When cell IDs don't have chapter numbers, only one milestone is added at the beginning
-            // The milestone value uses metadata.data.chapter, but no new milestone is added for cell2
-            // because chapter detection only checks cell IDs, not metadata
-            expect(result.source.cells).toHaveLength(3);
-            expect(result.source.cells[0].content).toBe('10'); // Uses metadata.data.chapter from first cell
+            // Should add milestones for each chapter detected from metadata.data.chapter
+            // Expected: milestone(10), cell1, milestone(11), cell2
+            expect(result.source.cells).toHaveLength(4);
+            expect(result.source.cells[0].metadata?.type).toBe(CodexCellTypes.MILESTONE);
+            expect(result.source.cells[0].content).toBe('10'); // Chapter 10
             expect(result.source.cells[1]).toEqual(cell1);
-            expect(result.source.cells[2]).toEqual(cell2);
+            expect(result.source.cells[2].metadata?.type).toBe(CodexCellTypes.MILESTONE);
+            expect(result.source.cells[2].content).toBe('11'); // Chapter 11
+            expect(result.source.cells[3]).toEqual(cell2);
         });
 
         it('should use milestoneIndex as final fallback when no chapter info available', () => {

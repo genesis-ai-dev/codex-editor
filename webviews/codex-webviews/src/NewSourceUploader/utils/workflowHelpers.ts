@@ -189,6 +189,36 @@ function extractChapterFromCellId(cellId: string): string | null {
 }
 
 /**
+ * Extracts chapter number from a cell for DETECTION purposes.
+ * This is used to determine when chapters change (for inserting milestone cells).
+ * Checks metadata first, then falls back to cell ID extraction.
+ * Returns null if chapter cannot be determined.
+ */
+function extractChapterForDetection(cell: ProcessedCell): string | null {
+    // Priority 1: metadata.chapterNumber (Biblica)
+    if (cell?.metadata?.chapterNumber !== undefined && cell.metadata.chapterNumber !== null) {
+        return String(cell.metadata.chapterNumber);
+    }
+
+    // Priority 2: metadata.chapter (USFM, eBible)
+    if (cell?.metadata?.chapter !== undefined && cell.metadata.chapter !== null) {
+        return String(cell.metadata.chapter);
+    }
+
+    // Priority 3: metadata.data?.chapter (legacy)
+    if (cell?.metadata?.data?.chapter !== undefined && cell.metadata.data.chapter !== null) {
+        return String(cell.metadata.data.chapter);
+    }
+
+    // Priority 4: Extract from cellId
+    if (cell?.id) {
+        return extractChapterFromCellId(cell.id);
+    }
+
+    return null;
+}
+
+/**
  * Extracts chapter number from a cell using priority order:
  * 1. metadata.chapterNumber (Biblica)
  * 2. metadata.chapter (USFM)
@@ -249,13 +279,14 @@ function isBibleTypeImporter(importerType: string | undefined): boolean {
         return false;
     }
 
+    // All entries must be lowercase since we normalize the input
     const bibleTypeImporters = [
         'usfm',
         'paratext',
-        'ebibleCorpus',
+        'ebiblecorpus',
         'ebible',
         'ebible-download',
-        'maculaBible',
+        'maculabible',
         'macula',
         'biblica',
         'obs',
@@ -343,7 +374,7 @@ export function addMilestoneCellsToNotebookPair(notebookPair: NotebookPair): Not
 
     // Generate UUID for first milestone and store it
     const firstMilestoneUuid = uuidv4();
-    const firstChapter = extractChapterFromCellId(firstCell.id);
+    const firstChapter = extractChapterForDetection(firstCell);
     if (firstChapter) {
         chapterUuids.set(firstChapter, firstMilestoneUuid);
         seenChapters.add(firstChapter);
@@ -359,7 +390,7 @@ export function addMilestoneCellsToNotebookPair(notebookPair: NotebookPair): Not
         const sourceCell = sourceCells[i];
         const codexCell = codexCells[i] || sourceCell; // Fallback to source cell if codex cell missing
 
-        const chapter = extractChapterFromCellId(sourceCell.id);
+        const chapter = extractChapterForDetection(sourceCell);
         if (chapter && !seenChapters.has(chapter)) {
             // Generate UUID for this chapter and store it
             const chapterUuid = uuidv4();
