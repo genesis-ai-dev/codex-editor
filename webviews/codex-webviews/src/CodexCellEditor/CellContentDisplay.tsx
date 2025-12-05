@@ -1307,14 +1307,25 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                             <MessageCircle className="w-4 h-4" />
                         </Button>
                     )}
-                    {userAccessLevel !== undefined && userAccessLevel >= 40 && (
+                    {/* Show lock icon to all users when cell is locked, but only allow toggling for access level >= 40 */}
+                    {(cell.metadata?.isLocked ?? false) ||
+                    (userAccessLevel !== undefined && userAccessLevel >= 40) ? (
                         <Button
-                            title="Toggle cell lock"
+                            title={
+                                userAccessLevel !== undefined && userAccessLevel >= 40
+                                    ? "Toggle cell lock"
+                                    : "Cell is locked"
+                            }
                             variant="ghost"
                             className={`p-1 h-[18px] ${
                                 isLockButtonGlowing ? "lock-button-glowing" : ""
                             }`}
-                            onClick={handleToggleCellLock}
+                            onClick={
+                                userAccessLevel !== undefined && userAccessLevel >= 40
+                                    ? handleToggleCellLock
+                                    : undefined
+                            }
+                            disabled={userAccessLevel === undefined || userAccessLevel < 40}
                         >
                             {!(cell.metadata?.isLocked ?? false) ? (
                                 <i
@@ -1329,7 +1340,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 <i className="codicon codicon-lock" style={{ fontSize: "1.2em" }} />
                             )}
                         </Button>
-                    )}
+                    ) : null}
                 </div>
             </div>
         );
