@@ -3,6 +3,7 @@ import { ImporterComponentProps } from "../../types/plugin";
 import { NotebookPair, ImportProgress, ProcessedCell } from "../../types/common";
 import { Button } from "../../../components/ui/button";
 import { parseJsonIntelligently, mightBeJson } from "./jsonParser";
+import { addMilestoneCellsToNotebookPair } from "../../utils/workflowHelpers";
 import {
     Card,
     CardContent,
@@ -508,6 +509,9 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                 },
             };
 
+            // Add milestone cells to the notebook pair
+            const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
+
             onProgress({
                 stage: "Complete",
                 message: "Text splitting complete!",
@@ -518,7 +522,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
 
             // Auto-complete after brief delay
             setTimeout(() => {
-                onComplete(notebookPair);
+                onComplete(notebookPairWithMilestones);
             }, 1000);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");

@@ -9,7 +9,7 @@ import { Alert, AlertDescription } from "../../../components/ui/alert";
 import { Upload, Music, Play, Pause, ArrowLeft, Check, AlertTriangle, Settings, Trash2, Plus } from "lucide-react";
 import { Slider } from "../../../components/ui/slider";
 import { NotebookPair, ProcessedCell } from "../../types/common";
-import { createProcessedCell } from "../../utils/workflowHelpers";
+import { createProcessedCell, addMilestoneCellsToNotebookPair } from "../../utils/workflowHelpers";
 import { CodexCellTypes } from "types/enums";
 
 const vscode: { postMessage: (message: any) => void } = (window as any).vscodeApi;
@@ -677,7 +677,9 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                 },
             };
 
-            notebookPairs.push(notebookPair);
+            // Add milestone cells to the notebook pair
+            const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
+            notebookPairs.push(notebookPairWithMilestones);
             allSegmentMappings.push({ sessionId: file.sessionId, mappings: segmentMappings });
         });
 

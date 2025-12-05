@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { IDMLParser } from './idmlParser';
 import { HTMLMapper } from './htmlMapper';
-import { createProcessedCell, sanitizeFileName, createStandardCellId } from '../../utils/workflowHelpers';
+import { createProcessedCell, sanitizeFileName, createStandardCellId, addMilestoneCellsToNotebookPair } from '../../utils/workflowHelpers';
 import { extractImagesFromHtml } from '../../utils/imageProcessor';
 
 /**
@@ -265,8 +265,11 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
                     addDebugLog(`Source cells count: ${result.source.cells.length}`);
                     addDebugLog(`Codex cells count: ${result.codex.cells.length}`);
                     
+                    // Add milestone cells to the notebook pair
+                    const resultWithMilestones = addMilestoneCellsToNotebookPair(result);
+                    
                     // Store the result and show complete button instead of immediately calling onComplete
-                    setImportResult(result);
+                    setImportResult(resultWithMilestones);
                     setShowCompleteButton(true);
                     addDebugLog('Import result stored. Click "Complete Import" to finish.');
                 } catch (onCompleteError) {

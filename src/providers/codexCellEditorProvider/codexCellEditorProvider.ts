@@ -2013,6 +2013,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             cellLabel: cell.metadata?.cellLabel,
             merged: cell.metadata?.data?.merged,
             deleted: cell.metadata?.data?.deleted,
+            data: cell.metadata?.data,
             attachments: cell.metadata?.attachments,
             metadata: {
                 selectedAudioId: cell.metadata?.selectedAudioId,
@@ -2068,6 +2069,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 timestamps: cell.timestamps,
                 cellLabel: cell.cellLabel,
                 merged: cell.merged,
+                data: cell.data,
                 attachments: cell.attachments,
                 metadata: cell.metadata,
             });

@@ -16,6 +16,7 @@ import {
     createStandardCellId,
     createProcessedCell,
     validateFileExtension,
+    addMilestoneCellsToNotebookPair,
     // } from '../../utils/workflowHelpers';
 } from '../../../utils/workflowHelpers';
 import { DocxParser } from './docxParser';
@@ -155,6 +156,9 @@ export const parseFile = async (
             codex: codexNotebook,
         };
 
+        // Add milestone cells to the notebook pair
+        const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
+
         // Log structure preservation info
         console.log(`[DOCX Round-Trip Importer] Created notebook pair for "${baseName}"`);
         console.log(`[DOCX Round-Trip Importer] - ${cells.length} cells processed`);
@@ -169,7 +173,7 @@ export const parseFile = async (
 
         return {
             success: true,
-            notebookPair,
+            notebookPair: notebookPairWithMilestones,
             metadata: {
                 wordCount: countWordsInDocument(docxDoc),
                 segmentCount: cells.length,

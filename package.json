@@ -470,6 +470,11 @@
                         "default": false,
                         "description": "Internal flag indicating the importerType migration has completed."
                     },
+                    "codex-project-manager.milestoneCellsMigrationCompleted": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Internal flag indicating the milestone cells migration has completed."
+                    },
                     "codex-project-manager.chatSystemMessageToMetadataMigrationCompleted": {
                         "type": "boolean",
                         "default": false,

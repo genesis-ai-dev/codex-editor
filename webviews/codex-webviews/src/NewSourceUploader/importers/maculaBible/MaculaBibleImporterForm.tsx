@@ -31,6 +31,7 @@ import {
 
 import { notebookToImportedContent } from "../common/translationHelper";
 import { getCorpusMarkerForBook } from "../../utils/corpusUtils";
+import { addMilestoneCellsToNotebookPair } from "../../utils/workflowHelpers";
 
 export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props) => {
     const {
@@ -120,10 +121,15 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                         })),
                     };
 
-                    notebookPairs.push({
+                    const notebookPair = {
                         source: sourceNotebook,
                         codex: codexNotebook,
-                    });
+                    };
+                    
+                    // Add milestone cells to the notebook pair
+                    const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
+                    
+                    notebookPairs.push(notebookPairWithMilestones);
 
                     bookCount++;
                     setProgress({

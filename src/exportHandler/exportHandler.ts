@@ -1788,6 +1788,7 @@ async function exportCodexContentAsUsfm(
                                 const metadata = cell.metadata as any;
                                 return (cell.kind === 2 || cell.kind === 1) && //haven't tested this additional cell.kind === 1 but in theory it should make life easier if we have any more files that want to use markdown and not code.
                                     cell.metadata?.type &&
+                                    cell.metadata?.type !== CodexCellTypes.MILESTONE &&
                                     cell.value.trim().length > 0 &&
                                     !metadata?.merged; // Exclude merged cells
                             }

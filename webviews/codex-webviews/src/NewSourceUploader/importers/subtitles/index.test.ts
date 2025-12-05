@@ -32,7 +32,7 @@ describe('subtitlesImporter.parseFile', () => {
         expect(result.success).toBe(true);
         const pair = result.notebookPair!;
         const first = pair.source.cells[0];
-        expect(first.metadata?.type).toBe('text');
+        expect(first.metadata?.type).toBe('milestone');
         expect(first.metadata?.data?.startTime).toBeTypeOf('number');
         expect(first.metadata?.data?.endTime).toBeTypeOf('number');
         expect(first.metadata?.data?.format).toBe('VTT');

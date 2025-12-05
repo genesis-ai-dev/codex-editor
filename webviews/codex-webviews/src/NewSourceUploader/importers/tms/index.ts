@@ -8,6 +8,7 @@ import {
     createProgress,
     createProcessedCell,
     validateFileExtension,
+    addMilestoneCellsToNotebookPair,
 } from '../../utils/workflowHelpers';
 import { XMLParser } from 'fast-xml-parser';
 import { CodexCellTypes } from 'types/enums';
@@ -333,16 +334,21 @@ export const parseFile = async (
             },
         };
 
+        const notebookPair = {
+            source: sourceNotebook,
+            codex: codexNotebook,
+        };
+
+        // Add milestone cells to the notebook pair
+        const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
+
         onProgress?.(createProgress('Complete', 'Import complete!', 100));
 
         console.log(`TMS import complete: ${sourceNotebook.cells.length} cells created`);
 
         return {
             success: true,
-            notebookPair: {
-                source: sourceNotebook,
-                codex: codexNotebook,
-            },
+            notebookPair: notebookPairWithMilestones,
             metadata: {
                 translationUnitCount: translationUnits.length,
                 hasTargets: !extractTarget,

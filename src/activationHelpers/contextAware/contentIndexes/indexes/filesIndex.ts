@@ -3,6 +3,7 @@ import * as path from "path";
 import { FileData, readSourceAndTargetFiles } from "./fileReaders";
 import { getWorkSpaceUri } from "../../../../utils";
 import { tokenizeText } from "../../../../utils/nlpUtils";
+import { CodexCellTypes } from "../../../../../types/enums";
 
 // HTML tag regex for stripping HTML
 const HTML_TAG_REGEX = /<\/?[^>]+(>|$)/g;
@@ -105,8 +106,8 @@ export async function initializeFilesIndex(): Promise<Map<string, FileInfo>> {
                     const wordCount = countWords(cell.value);
                     sourceWordCount += wordCount;
 
-                    // Check if this is a paratext cell
-                    const isParatext = cell.metadata?.type === "paratext";
+                    // Check if this is a paratext or milestone cell
+                    const isParatext = cell.metadata?.type === "paratext" || cell.metadata?.type === CodexCellTypes.MILESTONE;
 
                     // Track content words separately
                     if (!isParatext) {
@@ -128,8 +129,8 @@ export async function initializeFilesIndex(): Promise<Map<string, FileInfo>> {
                     const wordCount = countWords(cell.value);
                     codexWordCount += wordCount;
 
-                    // Check if this is a paratext cell
-                    const isParatext = cell.metadata?.type === "paratext";
+                    // Check if this is a paratext or milestone cell
+                    const isParatext = cell.metadata?.type === "paratext" || cell.metadata?.type === CodexCellTypes.MILESTONE;
 
                     // Track content words separately
                     if (!isParatext) {

@@ -8,6 +8,7 @@ import {
     createProgress,
     createStandardCellId,
     createProcessedCell,
+    addMilestoneCellsToNotebookPair,
 } from '../../utils/workflowHelpers';
 import {
     createNotebookPair,
@@ -369,7 +370,10 @@ const createBookNotebooks = (
             }
         );
 
-        notebookPairs[bookCode] = notebookPair;
+        // Add milestone cells to the notebook pair
+        const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
+
+        notebookPairs[bookCode] = notebookPairWithMilestones;
     }
 
     return notebookPairs;

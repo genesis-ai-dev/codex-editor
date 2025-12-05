@@ -796,6 +796,7 @@ type EditMapValueType<T extends readonly string[]> =
     : T extends readonly ["metadata", "data", "chapter"] ? string
     : T extends readonly ["metadata", "data", "verse"] ? string
     : T extends readonly ["metadata", "data", "merged"] ? boolean
+    : T extends readonly ["metadata", "milestone"] ? string
     : T extends readonly ["metadata", "selectedAudioId"] ? string
     : T extends readonly ["metadata", "selectionTimestamp"] ? number
     // File-level metadata fields

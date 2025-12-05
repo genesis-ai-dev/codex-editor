@@ -243,6 +243,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     currentUsername,
     vscode,
     isSourceText,
+    isAuthenticated,
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
@@ -1037,7 +1038,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                 const preferred = event.data.tab as typeof activeTab;
 
-                if (event.data.tab === "editLabel" && cellType === CodexCellTypes.PARATEXT) {
+                if (
+                    event.data.tab === "editLabel" &&
+                    (cellType === CodexCellTypes.PARATEXT || cellType === CodexCellTypes.MILESTONE)
+                ) {
                     setActiveTab("source");
                 } else {
                     setActiveTab(preferred);
@@ -1610,7 +1614,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
             if (msg?.content?.autoDownloadAudioOnOpen === true) {
                 preloadAudioForTab();
             }
-        } catch { /* no-op */ }
+        } catch {
+            /* no-op */
+        }
     });
 
     // (Cache hydration handled in preloadAudioForTab to avoid double-renders)
@@ -1835,28 +1841,32 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             role="button"
                             aria-label="Cell id and label"
                         >
-                            {cellType !== CodexCellTypes.PARATEXT && (
-                                <div className="flex items-center gap-x-1" title="Edit cell label">
-                                    <span className="text-lg font-semibold muted-foreground">
-                                        {displayEditableLabel()}
-                                    </span>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        title="Edit label"
-                                        onClick={() => {
-                                            setActiveTab("editLabel");
-                                        }}
+                            {cellType !== CodexCellTypes.PARATEXT &&
+                                cellType !== CodexCellTypes.MILESTONE && (
+                                    <div
+                                        className="flex items-center gap-x-1"
+                                        title="Edit cell label"
                                     >
-                                        <i
-                                            className="codicon codicon-edit"
-                                            style={{
-                                                fontSize: "0.9em",
+                                        <span className="text-lg font-semibold muted-foreground">
+                                            {displayEditableLabel()}
+                                        </span>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            title="Edit label"
+                                            onClick={() => {
+                                                setActiveTab("editLabel");
                                             }}
-                                        ></i>
-                                    </Button>
-                                </div>
-                            )}
+                                        >
+                                            <i
+                                                className="codicon codicon-edit"
+                                                style={{
+                                                    fontSize: "0.9em",
+                                                }}
+                                            ></i>
+                                        </Button>
+                                    </div>
+                                )}
                             <CommentsBadge
                                 cellId={cellMarkers[0]}
                                 unresolvedCount={unresolvedCommentsCount}
@@ -2110,11 +2120,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         className="flex w-full"
                         style={{ justifyContent: "stretch", display: "flex" }}
                     >
-                        {cellType !== CodexCellTypes.PARATEXT && (
-                            <TabsTrigger value="editLabel">
-                                <Tag className="mr-2 h-4 w-4" />
-                            </TabsTrigger>
-                        )}
+                        {cellType !== CodexCellTypes.PARATEXT &&
+                            cellType !== CodexCellTypes.MILESTONE && (
+                                <TabsTrigger value="editLabel">
+                                    <Tag className="mr-2 h-4 w-4" />
+                                </TabsTrigger>
+                            )}
                         <TabsTrigger value="source">
                             <FileCode className="mr-2 h-4 w-4" />
                             {!sourceText && (
@@ -2169,27 +2180,32 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         )}
                     </TabsList>
 
-                    <TabsContent value="editLabel">
-                        <div className="space-y-6">
-                            <div className="flex items-center gap-2">
-                                <Input
-                                    type="text"
-                                    value={editableLabel}
-                                    defaultValue={cellLabel}
-                                    onChange={handleLabelChange}
-                                    placeholder="Enter label..."
-                                    className="flex-1"
-                                />
-                                <RotateCcw
-                                    className="h-4 w-4 cursor-pointer"
-                                    onClick={() => {
-                                        setIsEditorControlsExpanded(!isEditorControlsExpanded);
-                                        discardLabelChanges();
-                                    }}
-                                />
-                            </div>
-                        </div>
-                    </TabsContent>
+                    {cellType !== CodexCellTypes.PARATEXT &&
+                        cellType !== CodexCellTypes.MILESTONE && (
+                            <TabsContent value="editLabel">
+                                <div className="space-y-6">
+                                    <div className="flex items-center gap-2">
+                                        <Input
+                                            type="text"
+                                            value={editableLabel}
+                                            defaultValue={cellLabel}
+                                            onChange={handleLabelChange}
+                                            placeholder="Enter label..."
+                                            className="flex-1"
+                                        />
+                                        <RotateCcw
+                                            className="h-4 w-4 cursor-pointer"
+                                            onClick={() => {
+                                                setIsEditorControlsExpanded(
+                                                    !isEditorControlsExpanded
+                                                );
+                                                discardLabelChanges();
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            </TabsContent>
+                        )}
                     <TabsContent value="source">
                         <div className="space-y-6">
                             {/* Source Text */}
@@ -2589,23 +2605,27 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 <h3 className="text-lg font-medium">Audio Recording</h3>
 
                                 {showRecorder ||
-                                  !audioUrl ||
-                                  !(
-                                      audioUrl.startsWith("blob:") ||
-                                      audioUrl.startsWith("data:") ||
-                                      audioUrl.startsWith("http")
-                                  ) ? (
+                                !audioUrl ||
+                                !(
+                                    audioUrl.startsWith("blob:") ||
+                                    audioUrl.startsWith("data:") ||
+                                    audioUrl.startsWith("http")
+                                ) ? (
                                     <div className="bg-[var(--vscode-editor-background)] p-3 sm:p-4 rounded-md shadow w-full">
                                         {!audioUrl && (
                                             <div className="bg-[var(--vscode-editor-background)] p-3 rounded-md shadow-sm">
                                                 <div className="flex items-center justify-center h-20 text-[var(--vscode-foreground)] text-sm">
-                                                    {audioAttachments && (
-                                                        audioAttachments[cellMarkers[0]] === "available" ||
-                                                        audioAttachments[cellMarkers[0]] === "available-pointer"
-                                                    ) ? (
+                                                    {audioAttachments &&
+                                                    (audioAttachments[cellMarkers[0]] ===
+                                                        "available" ||
+                                                        audioAttachments[cellMarkers[0]] ===
+                                                            "available-pointer") ? (
                                                         <div className="flex flex-col items-center gap-2">
                                                             {isAudioLoading || audioFetchPending ? (
-                                                                <Button disabled className="h-9 px-3 text-sm opacity-80 cursor-default">
+                                                                <Button
+                                                                    disabled
+                                                                    className="h-9 px-3 text-sm opacity-80 cursor-default"
+                                                                >
                                                                     <i className="codicon codicon-sync codicon-modifier-spin mr-1" />
                                                                     Downloading audio...
                                                                 </Button>
@@ -2614,11 +2634,17 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     onClick={() => {
                                                                         setIsAudioLoading(true);
                                                                         setAudioFetchPending(true);
-                                                                        const messageContent: EditorPostMessages = {
-                                                                            command: "requestAudioForCell",
-                                                                            content: { cellId: cellMarkers[0] },
-                                                                        };
-                                                                        window.vscodeApi.postMessage(messageContent);
+                                                                        const messageContent: EditorPostMessages =
+                                                                            {
+                                                                                command:
+                                                                                    "requestAudioForCell",
+                                                                                content: {
+                                                                                    cellId: cellMarkers[0],
+                                                                                },
+                                                                            };
+                                                                        window.vscodeApi.postMessage(
+                                                                            messageContent
+                                                                        );
                                                                     }}
                                                                     className="h-9 px-3 text-sm"
                                                                 >
@@ -2627,18 +2653,24 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 </Button>
                                                             )}
                                                             {(() => {
-                                                                const autoInit = (window as any).__autoDownloadAudioOnOpenInitialized;
-                                                                const autoFlag = (window as any).__autoDownloadAudioOnOpen;
-                                                                if (autoInit && !!autoFlag) return null;
+                                                                const autoInit = (window as any)
+                                                                    .__autoDownloadAudioOnOpenInitialized;
+                                                                const autoFlag = (window as any)
+                                                                    .__autoDownloadAudioOnOpen;
+                                                                if (autoInit && !!autoFlag)
+                                                                    return null;
                                                                 return (
                                                                     <div className="text-xs text-muted-foreground">
-                                                                        You can enable auto-download in settings
+                                                                        You can enable auto-download
+                                                                        in settings
                                                                     </div>
                                                                 );
                                                             })()}
                                                         </div>
                                                     ) : (
-                                                        <span>No audio attached to this cell yet.</span>
+                                                        <span>
+                                                            No audio attached to this cell yet.
+                                                        </span>
                                                     )}
                                                 </div>
                                             </div>
@@ -2844,9 +2876,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             <Dialog open={showOfflineModal} onOpenChange={handleOfflineModalClose}>
                 <DialogContent>
                     <DialogHeader className="sm:text-center">
-                        <DialogTitle>
-                            Connect to the internet to use AI transcription
-                        </DialogTitle>
+                        <DialogTitle>Connect to the internet to use AI transcription</DialogTitle>
                     </DialogHeader>
                     <DialogFooter className="flex-col sm:justify-center sm:flex-col">
                         <Button variant="secondary" onClick={handleOfflineModalClose}>
