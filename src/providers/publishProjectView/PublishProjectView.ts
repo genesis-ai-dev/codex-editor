@@ -2,6 +2,8 @@ import * as vscode from "vscode";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import { GlobalProvider } from "../../globalProvider";
+import { getAuthApi } from "../../extension";
+import { updateProjectSettings, updateMetadataFile } from "../../projectManager/utils/projectUtils";
 
 export interface GroupList {
     id: number;
@@ -39,11 +41,27 @@ export class PublishProjectView {
                 switch (message.command) {
                     case "init": {
                         const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name || "";
+                        let projectId: string | undefined;
+
+                        // Try to read projectId from metadata.json
+                        try {
+                            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                            if (workspaceFolder) {
+                                const metadataPath = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
+                                const metadataContent = await vscode.workspace.fs.readFile(metadataPath);
+                                const metadata = JSON.parse(Buffer.from(metadataContent).toString());
+                                projectId = metadata.projectId || metadata.id;
+                            }
+                        } catch (error) {
+                            console.debug("[PublishProject] Could not read projectId from metadata.json:", error);
+                        }
+
                         safePostMessageToPanel(this._panel, {
                             type: "init",
                             defaults: {
                                 name: workspaceName,
                                 visibility: "private",
+                                projectId,
                             },
                         }, "PublishProject");
                         break;
@@ -83,6 +101,44 @@ export class PublishProjectView {
                                     });
 
                                     safePostMessageToPanel(this._panel, { type: "busy", value: true }, "PublishProject");
+
+                                    // Check and populate user info if missing before publishing
+                                    try {
+                                        const authApi = getAuthApi();
+                                        const authStatus = authApi?.getAuthStatus();
+                                        if (authStatus?.isAuthenticated) {
+                                            const userInfo = await authApi?.getUserInfo();
+                                            if (userInfo) {
+                                                const config = vscode.workspace.getConfiguration("codex-project-manager");
+                                                const currentUserName = config.get<string>("userName");
+                                                const currentUserEmail = config.get<string>("userEmail");
+                                                
+                                                // Check if user info is missing or default
+                                                const isNameMissing = !currentUserName || currentUserName === "Unknown" || currentUserName === "unknown";
+                                                const isEmailMissing = !currentUserEmail || currentUserEmail === "unknown" || currentUserEmail === "";
+
+                                                if (isNameMissing || isEmailMissing) {
+                                                    // Update project settings with authenticated user info
+                                                    if (isNameMissing) {
+                                                        await updateProjectSettings({
+                                                            userName: userInfo.username,
+                                                        });
+                                                    }
+
+                                                    if (isEmailMissing) {
+                                                         await config.update("userEmail", userInfo.email, vscode.ConfigurationTarget.Workspace);
+                                                    }
+
+                                                    // Sync to metadata.json
+                                                    await updateMetadataFile();
+                                                }
+                                            }
+                                        }
+                                    } catch (error) {
+                                        console.error("Error populating user info before publish:", error);
+                                        // Continue with publish even if this fails
+                                    }
+
                                     const payload = message.payload as {
                                         name: string;
                                         description?: string;

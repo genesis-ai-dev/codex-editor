@@ -525,8 +525,11 @@ export class IDMLExporter {
 export interface ParagraphUpdate {
     paragraphId?: string;
     paragraphOrder?: number;
+    appliedParagraphStyle?: string;
     translated: string;
     dataAfter?: string[];
+    segmentIndex?: number; // Index of this segment within the paragraph (0-based)
+    totalSegments?: number; // Total number of segments for this paragraph
 }
 
 /**
@@ -554,7 +557,13 @@ export async function exportIdmlRoundtrip(
     const storyIndexToUpdates = new Map<number, ParagraphUpdate[]>();
 
     // Build mapping for verse-based updates (Biblica format)
-    const verseUpdates: Record<string, { content: string; beforeVerse?: string; afterVerse?: string; }> = {};
+    const verseUpdates: Record<string, {
+        content: string;
+        beforeVerse?: string;
+        afterVerse?: string;
+        footnotes?: string[];
+        verseStructureXml?: string; // Full verse structure XML with footnotes in original positions
+    }> = {};
     let hasVerseBasedCells = false;
 
     // XML escape helper
@@ -623,12 +632,43 @@ export async function exportIdmlRoundtrip(
         // If we have verse metadata, use verse-based replacement
         if (isBibleVerse && verseId) {
             hasVerseBasedCells = true;
+            const rawFootnotes = meta?.footnotes; // Array of footnote XML strings (or potentially other types)
+            const verseStructureXml = meta?.verseStructureXml; // Full verse structure XML with footnotes in original positions
+
+            // Normalize footnotes to ensure they're strings (for backward compatibility)
+            let footnotes: string[] | undefined;
+            if (rawFootnotes && Array.isArray(rawFootnotes)) {
+                footnotes = rawFootnotes
+                    .filter(fn => fn != null)
+                    .map(fn => {
+                        if (typeof fn === 'string') {
+                            return fn;
+                        } else if (typeof fn === 'object' && fn !== null) {
+                            // Try to extract XML from object
+                            const fnObj = fn as any;
+                            if ('xml' in fnObj && typeof fnObj.xml === 'string') {
+                                return fnObj.xml;
+                            } else if ('content' in fnObj && typeof fnObj.content === 'string') {
+                                return fnObj.content;
+                            } else {
+                                console.warn(`[Export] Normalizing non-string footnote for ${verseId}: ${JSON.stringify(fn).substring(0, 100)}`);
+                                return String(fn);
+                            }
+                        } else {
+                            return String(fn);
+                        }
+                    })
+                    .filter(fn => fn.length > 0); // Filter out empty strings
+            }
+
             verseUpdates[verseId] = {
                 content: translated,
                 beforeVerse,
-                afterVerse
+                afterVerse,
+                footnotes, // Preserve footnotes for backward compatibility
+                verseStructureXml: typeof verseStructureXml === 'string' ? verseStructureXml : undefined // Full structure with footnotes
             };
-            console.log(`[Export] Collected verse update: ${verseId}`);
+            console.log(`[Export] Collected verse update: ${verseId}${verseStructureXml ? ' (with full structure)' : footnotes && footnotes.length > 0 ? ` with ${footnotes.length} footnote(s)` : ''}`);
             continue;
         }
 
@@ -651,9 +691,20 @@ export async function exportIdmlRoundtrip(
 
         const paragraphId: string | undefined = structure?.paragraphId || meta?.paragraphId;
         const dataAfterRuns: string[] | undefined = structure?.paragraphStyleRange?.dataAfter;
+        const appliedParagraphStyle: string | undefined =
+            structure?.paragraphStyleRange?.appliedParagraphStyle ||
+            meta?.appliedParagraphStyle;
 
         let paragraphOrder: number | undefined = typeof relationships?.paragraphOrder === 'number'
             ? relationships.paragraphOrder
+            : undefined;
+
+        // Check if this cell is part of a segmented paragraph
+        const segmentIndex: number | undefined = typeof relationships?.segmentIndex === 'number'
+            ? relationships.segmentIndex
+            : undefined;
+        const totalSegments: number | undefined = typeof relationships?.totalSegments === 'number'
+            ? relationships.totalSegments
             : undefined;
 
         // If paragraphOrder is not provided, assign sequential order per story
@@ -663,14 +714,29 @@ export async function exportIdmlRoundtrip(
             storyOrderCounters.set(storyId, current + 1);
         }
 
-        // Add to appropriate map
+        // Add to appropriate map with segment information
         if (storyId) {
             const updates = storyIdToUpdates.get(storyId) || [];
-            updates.push({ paragraphId, paragraphOrder, translated, dataAfter: dataAfterRuns });
+            updates.push({ 
+                paragraphId, 
+                paragraphOrder, 
+                appliedParagraphStyle, 
+                translated, 
+                dataAfter: dataAfterRuns,
+                segmentIndex,
+                totalSegments
+            });
             storyIdToUpdates.set(storyId, updates);
         } else if (storyOrder !== undefined) {
             const updates = storyIndexToUpdates.get(storyOrder) || [];
-            updates.push({ paragraphOrder, translated, dataAfter: dataAfterRuns });
+            updates.push({ 
+                paragraphOrder, 
+                appliedParagraphStyle, 
+                translated, 
+                dataAfter: dataAfterRuns,
+                segmentIndex,
+                totalSegments
+            });
             storyIndexToUpdates.set(storyOrder, updates);
         }
     }
@@ -742,6 +808,31 @@ export async function exportIdmlRoundtrip(
                     console.log(`[Export] Replacing verse ${book} ${chapter}:${verseNumber}`);
                 }
 
+                // NEW APPROACH: If we have the full verse structure XML, use it directly
+                // This preserves footnotes in their original positions
+                if (update.verseStructureXml) {
+                    // The verseStructureXml contains: beforeVerse + verseStructureXml + afterVerse
+                    // where beforeVerse and afterVerse are the meta%3av markers
+                    // The regex matched: cvMarker + spacing + openingMeta + _oldContent + closingMeta
+                    // So we replace the entire match with: cvMarker + spacing + verseStructureXml
+                    // (verseStructureXml already includes the meta markers)
+                    
+                    // Convert &nbsp; entities to actual non-breaking space characters (\u00A0) for IDML export
+                    // The &nbsp; entities are preserved in verseStructureXml for round-trip, but IDML uses actual Unicode characters
+                    let verseStructureWithNbsp = update.verseStructureXml.replace(/&nbsp;/gi, '\u00A0');
+                    // Also handle HTML entity &#160; (decimal) and &#xA0; (hex) if present
+                    verseStructureWithNbsp = verseStructureWithNbsp.replace(/&#160;/g, '\u00A0');
+                    verseStructureWithNbsp = verseStructureWithNbsp.replace(/&#xA0;/gi, '\u00A0');
+                    
+                    const replacement = `${cvMarker}${spacing}${verseStructureWithNbsp}`;
+                    
+                    result = result.replace(fullMatch, replacement);
+                    processedVerses.add(verseNumber);
+                    console.log(`[Export] Replaced verse ${book} ${chapter}:${verseNumber} with full structure (preserving footnotes in original positions)`);
+                    continue;
+                }
+
+                // FALLBACK: Old approach - reconstruct verse content and insert footnotes at end
                 // Extract attributes from the original verse content CharacterStyleRange
                 // Look for the main content CharacterStyleRange (the one with the actual verse text)
                 const originalAttrsMatch = _oldContent.match(
@@ -796,9 +887,61 @@ export async function exportIdmlRoundtrip(
 ${contentXML.map(line => `                    ${line}`).join('\n')}
                 </CharacterStyleRange>`;
 
-                // Replace the matched section, preserving the meta tags
+                // Insert footnotes if present (fallback - footnotes at end)
+                // Footnotes should appear after verse content but before closing meta:v
+                // Format: <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/notes%3af_call"><Footnote>...</Footnote></CharacterStyleRange>
+                let footnoteXML = '';
+                if (update.footnotes && Array.isArray(update.footnotes) && update.footnotes.length > 0) {
+                    // Wrap each footnote in CharacterStyleRange with notes%3af_call style
+                    const footnoteRanges = update.footnotes
+                        .filter(footnote => footnote != null) // Filter out null/undefined
+                        .map(footnoteXml => {
+                            // Ensure footnoteXml is a string
+                            // Handle cases where it might be an object, array, or other type
+                            let footnoteString: string;
+                            if (typeof footnoteXml === 'string') {
+                                footnoteString = footnoteXml;
+                            } else if (typeof footnoteXml === 'object' && footnoteXml !== null) {
+                                // If it's an object, try to stringify it or extract XML
+                                // Check if it has a property that contains the XML
+                                const footnoteObj = footnoteXml as any;
+                                if ('xml' in footnoteObj && typeof footnoteObj.xml === 'string') {
+                                    footnoteString = footnoteObj.xml;
+                                } else if ('content' in footnoteObj && typeof footnoteObj.content === 'string') {
+                                    footnoteString = footnoteObj.content;
+                                } else {
+                                    // Fallback: stringify the object (may not be valid XML)
+                                    console.warn(`[Export] Footnote is not a string, converting: ${JSON.stringify(footnoteXml).substring(0, 100)}`);
+                                    footnoteString = String(footnoteXml);
+                                }
+                            } else {
+                                // Convert to string as fallback
+                                footnoteString = String(footnoteXml);
+                            }
+
+                            // The footnoteString should already contain <Footnote>...</Footnote>
+                            // We need to wrap it in CharacterStyleRange with notes%3af_call style
+                            // Also add spacing CharacterStyleRange before footnote if needed
+                            return `<CharacterStyleRange AppliedCharacterStyle="CharacterStyle/notes%3af_sp">
+                    <Content> </Content>
+                </CharacterStyleRange>
+                <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/notes%3af_call">
+${footnoteString.split('\n').map(line => `                    ${line}`).join('\n')}
+                </CharacterStyleRange>`;
+                        })
+                        .filter(range => range != null); // Filter out any failed conversions
+
+                    if (footnoteRanges.length > 0) {
+                        footnoteXML = '\n                ' + footnoteRanges.join('\n                ') + '\n                ';
+                        console.log(`[Export] Inserting ${footnoteRanges.length} footnote(s) at end for verse ${book} ${chapter}:${verseNumber} (fallback mode)`);
+                    } else {
+                        console.warn(`[Export] No valid footnotes found for verse ${book} ${chapter}:${verseNumber} (filtered out invalid entries)`);
+                    }
+                }
+
+                // Replace the matched section, preserving the meta tags and inserting footnotes
                 const replacement = `${cvMarker}${spacing}${openingMeta}
-                ${newVerseContent}
+                ${newVerseContent}${footnoteXML}
                 ${closingMeta}`;
 
                 result = result.replace(fullMatch, replacement);
@@ -845,20 +988,162 @@ ${contentXML.map(line => `                    ${line}`).join('\n')}
         return xml.replace(blockRe, (_m, openTag, _inner, closeTag) => `${openTag}${replacementInner}${closeTag}`);
     };
 
-    // Helper to replace paragraph by order index
-    const replaceNthParagraph = (xml: string, index: number, newText: string, dataAfter?: string[]): string => {
-        const reBlock = /<ParagraphStyleRange\b[^>]*>[\s\S]*?<\/ParagraphStyleRange>/gi;
-        const blocks: { start: number; end: number; }[] = [];
-        let match: RegExpExecArray | null;
-        while ((match = reBlock.exec(xml)) !== null) {
-            blocks.push({ start: match.index, end: reBlock.lastIndex });
-        }
-        if (index < 0 || index >= blocks.length) return xml;
+    // Helper to replace paragraph by order index, optionally verifying by appliedParagraphStyle
+    // Only counts top-level ParagraphStyleRange elements (direct children of Story, ignores nested ones)
+    // IMPORTANT: paragraphOrder from import is the original loop index (counting ALL paragraphs)
+    // We need to map it to the filtered index (excluding verse and blank paragraphs)
+    const replaceNthParagraph = (
+        xml: string,
+        paragraphOrder: number, // Original paragraphOrder from import (counts ALL paragraphs)
+        newText: string,
+        dataAfter?: string[],
+        expectedStyle?: string
+    ): string => {
+        // Parse XML to find ALL top-level ParagraphStyleRange elements
+        // We need to track both the original index and filtered index
+        const allBlocks: { start: number; end: number; style?: string; originalIndex: number; isVerse: boolean; isBlank: boolean; }[] = [];
+        let depth = 0;
+        let currentStart = -1;
+        let currentStyle: string | undefined;
+        let inStory = false;
+        let storyDepth = 0;
+        let originalIndex = 0; // Track original index (counting ALL paragraphs)
 
-        const target = blocks[index];
-        const before = xml.slice(0, target.start);
-        const block = xml.slice(target.start, target.end);
-        const after = xml.slice(target.end);
+        // Match both opening and closing tags for Story and ParagraphStyleRange
+        const tagRegex = /<\/?(Story|ParagraphStyleRange)\b[^>]*>/gi;
+        let match: RegExpExecArray | null;
+
+        while ((match = tagRegex.exec(xml)) !== null) {
+            const tag = match[0];
+            const tagName = tag.match(/<\/?(\w+)/)?.[1];
+            const isClosing = tag.startsWith('</');
+            const pos = match.index;
+
+            if (tagName === 'Story') {
+                if (isClosing) {
+                    storyDepth--;
+                    if (storyDepth === 0) {
+                        inStory = false;
+                    }
+                } else {
+                    storyDepth++;
+                    if (storyDepth === 1) {
+                        inStory = true;
+                        depth = 0; // Reset paragraph depth when entering Story
+                        originalIndex = 0; // Reset counter for each story
+                    }
+                }
+                continue;
+            }
+
+            // Only process ParagraphStyleRange tags when inside a Story
+            if (!inStory || tagName !== 'ParagraphStyleRange') {
+                continue;
+            }
+
+            if (isClosing) {
+                depth--;
+                // If we've closed a top-level paragraph (depth back to 0), record it
+                if (depth === 0 && currentStart >= 0) {
+                    // Extract style from the full block
+                    const blockEnd = pos + tag.length;
+                    const fullBlock = xml.substring(currentStart, blockEnd);
+
+                    // Check if this paragraph is blank (matches import logic)
+                    const textContent = fullBlock
+                        .replace(/<[^>]*>/g, '') // Remove all tags
+                        .replace(/[\r\n]+/g, ' ') // Normalize line endings
+                        .replace(/\s+/g, ' ') // Collapse whitespace
+                        .trim();
+
+                    // Check if this is a verse paragraph
+                    const isVerseParagraph = /cv%3av|meta%3av|cv:v|meta:v/i.test(fullBlock);
+                    const isBlank = !textContent;
+
+                    const styleMatch = fullBlock.match(/AppliedParagraphStyle="([^"]*)"/i);
+                    const style = styleMatch ? styleMatch[1] : currentStyle;
+
+                    // Record ALL paragraphs with their original index
+                    allBlocks.push({
+                        start: currentStart,
+                        end: blockEnd,
+                        style,
+                        originalIndex,
+                        isVerse: isVerseParagraph,
+                        isBlank
+                    });
+
+                    originalIndex++; // Increment original index for ALL paragraphs
+                    currentStart = -1;
+                    currentStyle = undefined;
+                }
+            } else {
+                // Opening tag
+                if (depth === 0) {
+                    // This is a top-level paragraph start
+                    currentStart = pos;
+                    // Try to extract style from opening tag
+                    const styleMatch = tag.match(/AppliedParagraphStyle="([^"]*)"/i);
+                    currentStyle = styleMatch ? styleMatch[1] : undefined;
+                }
+                depth++;
+            }
+        }
+
+        // Find the paragraph with matching paragraphOrder (original index)
+        const targetBlock = allBlocks.find(b => b.originalIndex === paragraphOrder);
+
+        if (!targetBlock) {
+            console.warn(`[Export] Paragraph with paragraphOrder ${paragraphOrder} not found (total paragraphs: ${allBlocks.length})`);
+            return xml;
+        }
+
+        // If the target is a verse paragraph or blank, that's unexpected (shouldn't have paragraphOrder)
+        if (targetBlock.isVerse || targetBlock.isBlank) {
+            console.warn(`[Export] Paragraph at order ${paragraphOrder} is ${targetBlock.isVerse ? 'verse' : 'blank'}, skipping (should use verse-based matching)`);
+            return xml;
+        }
+
+        // If expectedStyle is provided, verify it matches
+        if (expectedStyle && targetBlock.style) {
+            const normalizedExpected = decodeURIComponent(expectedStyle).replace(/%3a/gi, ':');
+            const normalizedActual = decodeURIComponent(targetBlock.style).replace(/%3a/gi, ':');
+            if (normalizedExpected !== normalizedActual) {
+                console.warn(`[Export] Style mismatch at paragraphOrder ${paragraphOrder}: expected "${normalizedExpected}", found "${normalizedActual}". Searching for matching style...`);
+                // Try to find paragraph with matching style at or near the expected paragraphOrder
+                let foundBlock = null;
+                // Search within ±10 paragraphs of expected paragraphOrder
+                for (let i = Math.max(0, paragraphOrder - 10); i < Math.min(allBlocks.length, paragraphOrder + 11); i++) {
+                    const block = allBlocks[i];
+                    if (block.style && !block.isVerse && !block.isBlank) {
+                        const normalized = decodeURIComponent(block.style).replace(/%3a/gi, ':');
+                        if (normalized === normalizedExpected) {
+                            foundBlock = block;
+                            console.log(`[Export] Found matching style at paragraphOrder ${block.originalIndex} (expected ${paragraphOrder})`);
+                            break;
+                        }
+                    }
+                }
+                if (foundBlock) {
+                    // Use the found block instead
+                    const before = xml.slice(0, foundBlock.start);
+                    const block = xml.slice(foundBlock.start, foundBlock.end);
+                    const after = xml.slice(foundBlock.end);
+                    const updatedBlock = block.replace(/^(<ParagraphStyleRange\b[^>]*>)[\s\S]*?(<\/ParagraphStyleRange>)$/i, (_m, openTag, closeTag) => {
+                        const replacementInner = buildReplacementInner(newText, dataAfter);
+                        return `${openTag}${replacementInner}${closeTag}`;
+                    });
+                    return before + updatedBlock + after;
+                } else {
+                    console.warn(`[Export] Could not find paragraph with style "${normalizedExpected}" near paragraphOrder ${paragraphOrder}, using paragraphOrder ${paragraphOrder} anyway`);
+                }
+            }
+        }
+
+        // Use the target block's position for replacement
+        const before = xml.slice(0, targetBlock.start);
+        const block = xml.slice(targetBlock.start, targetBlock.end);
+        const after = xml.slice(targetBlock.end);
 
         const updatedBlock = block.replace(/^(<ParagraphStyleRange\b[^>]*>)[\s\S]*?(<\/ParagraphStyleRange>)$/i, (_m, openTag, closeTag) => {
             const replacementInner = buildReplacementInner(newText, dataAfter);
@@ -868,83 +1153,8 @@ ${contentXML.map(line => `                    ${line}`).join('\n')}
         return before + updatedBlock + after;
     };
 
-    // Process verse-based updates first (Biblica format)
-    if (hasVerseBasedCells && Object.keys(verseUpdates).length > 0) {
-        console.log('[Export] Processing verse-based updates...');
-
-        // Get all story files
-        const storyFiles = Object.keys(zip.files).filter(name =>
-            name.startsWith('Stories/Story_') && name.endsWith('.xml')
-        );
-
-        for (const storyPath of storyFiles) {
-            const file = zip.file(storyPath);
-            if (!file) continue;
-
-            let xmlContent = await file.async('text');
-            const originalXml = xmlContent;
-
-            // Extract book abbreviation from the XML content
-            // Look for book abbreviation in paragraph styles or metadata (meta%3abk - Biblica format)
-            const bookMatch = xmlContent.match(/AppliedParagraphStyle="[^"]*meta%3abk[^"]*"[^>]*>[\s\S]*?<Content>([A-Z]{2,4})<\/Content>/i);
-            const currentBook = bookMatch ? bookMatch[1] : '';
-
-            if (!currentBook) {
-                console.log(`[Export] No book abbreviation found in ${storyPath}, skipping verse-based replacement`);
-                continue;
-            }
-
-            // Look for chapter numbers in cv%3adc markers (Biblica format)
-            const chapterMatches = [...xmlContent.matchAll(/<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*cv%3adc[^"]*"[^>]*>\s*<Content>(\d+)<\/Content>/gi)];
-
-            if (chapterMatches.length > 0) {
-                // Process each chapter section separately
-                let modifiedXml = xmlContent;
-                let cumulativeOffset = 0;
-
-                for (let i = 0; i < chapterMatches.length; i++) {
-                    const chapterMatch = chapterMatches[i];
-                    const chapterNumber = chapterMatch[1];
-
-                    // Find the section for this chapter
-                    const startIndex = (chapterMatch.index || 0) + cumulativeOffset;
-                    const nextChapterMatch = chapterMatches[i + 1];
-                    const endIndex = nextChapterMatch && nextChapterMatch.index !== undefined
-                        ? nextChapterMatch.index + cumulativeOffset
-                        : modifiedXml.length;
-
-                    if (startIndex >= 0 && startIndex < modifiedXml.length) {
-                        const before = modifiedXml.substring(0, startIndex);
-                        const chapterSection = modifiedXml.substring(startIndex, endIndex);
-                        const after = modifiedXml.substring(endIndex);
-
-                        // Replace verses in this chapter section
-                        const updatedSection = replaceVerseContent(chapterSection, currentBook, chapterNumber);
-
-                        // Calculate offset change for next iteration
-                        const lengthDiff = updatedSection.length - chapterSection.length;
-                        cumulativeOffset += lengthDiff;
-
-                        modifiedXml = before + updatedSection + after;
-                    }
-                }
-
-                xmlContent = modifiedXml;
-            } else {
-                // No chapter markers found, try to process the whole file with chapter "1"
-                console.log(`[Export] No chapter markers in ${storyPath}, trying chapter 1`);
-                xmlContent = replaceVerseContent(xmlContent, currentBook, '1');
-            }
-
-            // Update the file if changed
-            if (xmlContent !== originalXml) {
-                console.log(`[Export] Updated ${storyPath} with verse replacements`);
-                zip.file(storyPath, xmlContent);
-            }
-        }
-    }
-
-    // Apply paragraph-based updates per story (fallback or alternative)
+    // Apply paragraph-based updates per story FIRST (on original file structure)
+    // This ensures paragraphOrder indices match correctly since they're based on original structure
     for (const [storyId, updates] of storyIdToUpdates.entries()) {
         // Find corresponding story file in the zip
         const storyKey = Object.keys(zip.files).find(k =>
@@ -961,12 +1171,85 @@ ${contentXML.map(line => `                    ${line}`).join('\n')}
         const xmlText = await zip.file(storyKey)!.async("string");
         let updated = xmlText;
 
-        // Prefer id-based replacement, otherwise fallback to order
+        // Group updates by paragraphOrder to merge segmented paragraphs
+        const updatesByParagraph = new Map<number, ParagraphUpdate[]>();
+        const standaloneUpdates: ParagraphUpdate[] = [];
+        
         for (const u of updates) {
+            if (typeof u.paragraphOrder === 'number' && typeof u.segmentIndex === 'number') {
+                // This is a segmented paragraph - group by paragraphOrder
+                const group = updatesByParagraph.get(u.paragraphOrder) || [];
+                group.push(u);
+                updatesByParagraph.set(u.paragraphOrder, group);
+            } else {
+                // Standalone update (not segmented)
+                standaloneUpdates.push(u);
+            }
+        }
+        
+        // Merge segmented paragraphs: combine segments with \n between them
+        const mergedUpdates: ParagraphUpdate[] = [];
+        for (const [paragraphOrder, segments] of updatesByParagraph.entries()) {
+            // Sort segments by segmentIndex
+            segments.sort((a, b) => {
+                const aIdx = a.segmentIndex ?? 0;
+                const bIdx = b.segmentIndex ?? 0;
+                return aIdx - bIdx;
+            });
+            
+            // Merge segments with \n between them
+            const mergedText = segments.map(s => s.translated).join('\n');
+            
+            // Use dataAfter from the last segment only
+            const lastSegment = segments[segments.length - 1];
+            const dataAfter = lastSegment?.dataAfter;
+            
+            // Use other properties from first segment
+            const firstSegment = segments[0];
+            mergedUpdates.push({
+                paragraphId: firstSegment.paragraphId,
+                paragraphOrder: firstSegment.paragraphOrder,
+                appliedParagraphStyle: firstSegment.appliedParagraphStyle,
+                translated: mergedText,
+                dataAfter
+            });
+        }
+        
+        // Combine merged updates with standalone updates
+        const allUpdates = [...mergedUpdates, ...standaloneUpdates];
+        
+        // Sort updates by paragraphOrder (descending) to process from end to start
+        // This avoids index shifting issues when replacing paragraphs
+        const sortedUpdates = allUpdates.sort((a, b) => {
+            // If both have paragraphOrder, sort by that (descending)
+            if (typeof a.paragraphOrder === 'number' && typeof b.paragraphOrder === 'number') {
+                return b.paragraphOrder - a.paragraphOrder;
+            }
+            // If only one has paragraphOrder, prioritize it
+            if (typeof a.paragraphOrder === 'number') return -1;
+            if (typeof b.paragraphOrder === 'number') return 1;
+            // If both have paragraphId, keep original order
+            if (a.paragraphId && b.paragraphId) return 0;
+            // ParagraphId-based updates come first (processed after order-based)
+            if (a.paragraphId) return 1;
+            if (b.paragraphId) return -1;
+            return 0;
+        });
+
+        // Process updates from end to start (highest paragraphOrder first)
+        // Prefer id-based replacement, but fallback to order if ID doesn't exist in XML
+        for (const u of sortedUpdates) {
             if (u.paragraphId) {
+                const beforeIdReplace = updated;
                 updated = replaceParagraphById(updated, u.paragraphId, u.translated, u.dataAfter);
+                // If ID-based replacement didn't change anything, fallback to order-based
+                if (updated === beforeIdReplace && typeof u.paragraphOrder === 'number') {
+                    console.log(`[Export] Paragraph ID ${u.paragraphId} not found, falling back to order-based replacement at index ${u.paragraphOrder}${u.appliedParagraphStyle ? ` (style: ${u.appliedParagraphStyle})` : ''}`);
+                    updated = replaceNthParagraph(updated, u.paragraphOrder, u.translated, u.dataAfter, u.appliedParagraphStyle);
+                }
             } else if (typeof u.paragraphOrder === 'number') {
-                updated = replaceNthParagraph(updated, u.paragraphOrder, u.translated, u.dataAfter);
+                console.log(`[Export] Replacing paragraph at index ${u.paragraphOrder}${u.appliedParagraphStyle ? ` (style: ${u.appliedParagraphStyle})` : ''}`);
+                updated = replaceNthParagraph(updated, u.paragraphOrder, u.translated, u.dataAfter, u.appliedParagraphStyle);
             }
         }
 
@@ -1000,9 +1283,20 @@ ${contentXML.map(line => `                    ${line}`).join('\n')}
                     const xmlText = await storyFile.async("string");
                     let updated = xmlText;
 
-                    for (const u of updates) {
+                    // Sort updates by paragraphOrder (descending) to process from end to start
+                    // This avoids index shifting issues when replacing paragraphs
+                    const sortedUpdates = [...updates].sort((a, b) => {
+                        if (typeof a.paragraphOrder === 'number' && typeof b.paragraphOrder === 'number') {
+                            return b.paragraphOrder - a.paragraphOrder;
+                        }
+                        return 0;
+                    });
+
+                    // Process updates from end to start (highest paragraphOrder first)
+                    for (const u of sortedUpdates) {
                         if (typeof u.paragraphOrder === 'number') {
-                            updated = replaceNthParagraph(updated, u.paragraphOrder, u.translated, u.dataAfter);
+                            console.log(`[Export] Replacing paragraph at index ${u.paragraphOrder}${u.appliedParagraphStyle ? ` (style: ${u.appliedParagraphStyle})` : ''}`);
+                            updated = replaceNthParagraph(updated, u.paragraphOrder, u.translated, u.dataAfter, u.appliedParagraphStyle);
                         }
                     }
 
@@ -1015,6 +1309,94 @@ ${contentXML.map(line => `                    ${line}`).join('\n')}
             console.warn("IDML roundtrip: failed fallback mapping via designmap.xml", e);
         }
     }
+
+    // Process verse-based updates SECOND (after paragraph replacement)
+    // This ensures paragraph structure is stable before verse replacement
+    // COMMENTED OUT: Verse-based export is disabled - only exporting notes, not verse content
+    /*
+    if (hasVerseBasedCells && Object.keys(verseUpdates).length > 0) {
+        console.log(`[Export] Processing ${Object.keys(verseUpdates).length} verse-based updates...`);
+
+        // Get all story files
+        const storyFiles = Object.keys(zip.files).filter(name =>
+            name.startsWith('Stories/Story_') && name.endsWith('.xml')
+        );
+
+        console.log(`[Export] Found ${storyFiles.length} story files to process`);
+
+        for (const storyPath of storyFiles) {
+            const file = zip.file(storyPath);
+            if (!file) continue;
+
+            let xmlContent = await file.async('text');
+            const originalXml = xmlContent;
+
+            // Extract book abbreviation from the XML content
+            // Look for book abbreviation in paragraph styles or metadata (meta%3abk - Biblica format)
+            const bookMatch = xmlContent.match(/AppliedParagraphStyle="[^"]*meta%3abk[^"]*"[^>]*>[\s\S]*?<Content>([A-Z]{2,4})<\/Content>/i);
+            const currentBook = bookMatch ? bookMatch[1] : '';
+
+            if (!currentBook) {
+                console.log(`[Export] No book abbreviation found in ${storyPath}, skipping verse-based replacement`);
+                continue;
+            }
+
+            console.log(`[Export] Processing story ${storyPath} for book ${currentBook}`);
+
+            // Look for chapter numbers in cv%3adc markers (Biblica format)
+            const chapterMatches = [...xmlContent.matchAll(/<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*cv%3adc[^"]*"[^>]*>\s*<Content>(\d+)<\/Content>/gi)];
+
+            if (chapterMatches.length > 0) {
+                console.log(`[Export] Found ${chapterMatches.length} chapter markers in ${storyPath}`);
+                // Process each chapter section separately
+                let modifiedXml = xmlContent;
+                let cumulativeOffset = 0;
+
+                for (let i = 0; i < chapterMatches.length; i++) {
+                    const chapterMatch = chapterMatches[i];
+                    const chapterNumber = chapterMatch[1];
+
+                    // Find the section for this chapter
+                    const startIndex = (chapterMatch.index || 0) + cumulativeOffset;
+                    const nextChapterMatch = chapterMatches[i + 1];
+                    const endIndex = nextChapterMatch && nextChapterMatch.index !== undefined
+                        ? nextChapterMatch.index + cumulativeOffset
+                        : modifiedXml.length;
+
+                    if (startIndex >= 0 && startIndex < modifiedXml.length) {
+                        const before = modifiedXml.substring(0, startIndex);
+                        const chapterSection = modifiedXml.substring(startIndex, endIndex);
+                        const after = modifiedXml.substring(endIndex);
+
+                        // Replace verses in this chapter section
+                        console.log(`[Export] Processing chapter ${chapterNumber} of ${currentBook} (${chapterSection.length} chars)`);
+                        const updatedSection = replaceVerseContent(chapterSection, currentBook, chapterNumber);
+
+                        // Calculate offset change for next iteration
+                        const lengthDiff = updatedSection.length - chapterSection.length;
+                        cumulativeOffset += lengthDiff;
+
+                        modifiedXml = before + updatedSection + after;
+                    }
+                }
+
+                xmlContent = modifiedXml;
+            } else {
+                // No chapter markers found, try to process the whole file with chapter "1"
+                console.log(`[Export] No chapter markers in ${storyPath}, trying chapter 1`);
+                xmlContent = replaceVerseContent(xmlContent, currentBook, '1');
+            }
+
+            // Update the file if changed
+            if (xmlContent !== originalXml) {
+                console.log(`[Export] Updated ${storyPath} with verse replacements`);
+                zip.file(storyPath, xmlContent);
+            } else {
+                console.log(`[Export] No changes made to ${storyPath}`);
+            }
+        }
+    }
+    */
 
     // Generate updated IDML
     const updatedIdmlData = await zip.generateAsync({ type: "uint8array" });

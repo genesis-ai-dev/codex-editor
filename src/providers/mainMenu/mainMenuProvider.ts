@@ -5,12 +5,14 @@ import { openSystemMessageEditor } from "../../copilotSettings/copilotSettings";
 import { openProjectExportView } from "../../projectManager/projectExportView";
 import { BaseWebviewProvider } from "../../globalProvider";
 import { safePostMessageToView } from "../../utils/webviewUtils";
+import { MetadataManager } from "../../utils/metadataManager";
+import { EditMapUtils, addProjectMetadataEdit } from "../../utils/editMapUtils";
 import {
     ProjectManagerMessageFromWebview,
     ProjectManagerMessageToWebview,
     ProjectManagerState,
 } from "../../../types";
-import { createNewWorkspaceAndProject, openProject, createNewProject } from "../../utils/projectCreationUtils/projectCreationUtils";
+import { createNewWorkspaceAndProject, openProject, createNewProject, extractProjectIdFromFolderName } from "../../utils/projectCreationUtils/projectCreationUtils";
 import git from "isomorphic-git";
 // Note: avoid top-level http(s) imports to keep test bundling simple
 import * as fs from "fs";
@@ -363,6 +365,15 @@ export class MainMenuProvider extends BaseWebviewProvider {
     private async initializeFrontierApi() {
         try {
             this.frontierApi = getAuthApi();
+            
+            // Listen for auth status changes to update the UI automatically
+            if (this.frontierApi) {
+                this.disposables.push(
+                    this.frontierApi.onAuthStatusChanged(() => {
+                        this.sendSyncSettings();
+                    })
+                );
+            }
         } catch (error) {
             console.error("Error initializing Frontier API:", error);
         }
@@ -468,6 +479,51 @@ export class MainMenuProvider extends BaseWebviewProvider {
         safePostMessageToView(this._view, { command: "actionCompleted" }, "MainMenu");
     }
 
+    private async sendSyncSettings() {
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
+        let syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
+
+        // Ensure minimum sync delay is 5 minutes
+        if (syncDelayMinutes < 5) {
+            syncDelayMinutes = 5;
+            // Update the configuration to persist the corrected value
+            await config.update(
+                "syncDelayMinutes",
+                syncDelayMinutes,
+                vscode.ConfigurationTarget.Workspace
+            );
+        }
+
+        // Check if Frontier Authentication extension is enabled
+        const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
+        const isFrontierExtensionEnabled = frontierExtension !== undefined && frontierExtension.isActive === true;
+
+        // Check authentication status
+        let isAuthenticated = false;
+        try {
+            const frontierApi = getAuthApi();
+            if (frontierApi) {
+                const authStatus = frontierApi.getAuthStatus();
+                isAuthenticated = authStatus?.isAuthenticated ?? false;
+            }
+        } catch (error) {
+            console.debug("Could not get authentication status:", error);
+        }
+
+        if (this._view) {
+            safePostMessageToView(this._view, {
+                command: "syncSettingsUpdate",
+                data: {
+                    autoSyncEnabled,
+                    syncDelayMinutes,
+                    isFrontierExtensionEnabled,
+                    isAuthenticated,
+                },
+            } as ProjectManagerMessageToWebview, "MainMenu");
+        }
+    }
+
     protected async handleMessage(message: any): Promise<void> {
         // Handle main menu messages
         switch (message.command) {
@@ -534,6 +590,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "createNewWorkspaceAndProject":
                 await createNewWorkspaceAndProject();
                 break;
+            case "changeProjectName":
+                await this.handleChangeProjectName(message.projectName);
+                break;
             case "openProjectSettings":
             case "renameProject":
             case "editAbbreviation":
@@ -548,6 +607,11 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "openExportView":
             case "openLicenseSettings":
                 await this.executeCommandAndNotify(message.command);
+                break;
+            case "openLoginFlow":
+                await vscode.commands.executeCommand("codex-project-manager.openStartupFlow", {
+                    forceLogin: true,
+                });
                 break;
             case "selectCategory":
                 // For backward compatibility, redirect to setValidationCount
@@ -572,30 +636,42 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 console.log("initializeProject");
                 this.store.setState({ isInitializing: true });
                 try {
-                    await createNewProject();
+                    const workspaceFolders = vscode.workspace.workspaceFolders;
+                    if (!workspaceFolders || !workspaceFolders[0]) {
+                        throw new Error("No workspace folder found");
+                    }
 
-                    // Wait for metadata to be initialized
-                    const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri;
-                    if (workspacePath) {
-                        const metadataPath = vscode.Uri.joinPath(workspacePath, "metadata.json");
+                    const workspacePath = workspaceFolders[0].uri;
+                    const metadataPath = vscode.Uri.joinPath(workspacePath, "metadata.json");
 
-                        // Wait for the metadata file to exist
-                        let attempts = 0;
-                        while (attempts < 10) {
-                            try {
-                                await vscode.workspace.fs.stat(metadataPath);
-                                // If we get here, the file exists
-                                break;
-                            } catch {
-                                await new Promise((resolve) => setTimeout(resolve, 100));
-                                attempts++;
-                            }
+                    // Check if metadata.json already exists
+                    let metadataExists = false;
+                    try {
+                        await vscode.workspace.fs.stat(metadataPath);
+                        metadataExists = true;
+                    } catch {
+                        // metadata.json doesn't exist, we'll create it
+                        metadataExists = false;
+                    }
+
+                    if (!metadataExists) {
+                        // Extract projectId from folder name if it exists
+                        const projectId = extractProjectIdFromFolderName(workspaceFolders[0].name);
+                        if (projectId) {
+                            console.log("Extracted projectId from folder name:", projectId);
                         }
 
-                        // Now that metadata exists, refresh state
-                        await this.store.refreshState();
-                        await this.updateProjectOverview();
+                        // Create metadata.json (this will also initialize git)
+                        await createNewProject({projectId});
+                    } else {
+                        // Metadata already exists, just run the initialization command
+                        // This matches StartupFlow behavior - it doesn't recreate metadata if it exists
+                        await vscode.commands.executeCommand("codex-project-manager.initializeNewProject");
                     }
+
+                    // Refresh state after initialization
+                    await this.store.refreshState();
+                    await this.updateProjectOverview();
                 } catch (error) {
                     console.error("Error during project initialization:", error);
                     this.store.setState({ isInitializing: false });
@@ -744,30 +820,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 break;
             }
             case "getSyncSettings": {
-                const config = vscode.workspace.getConfiguration("codex-project-manager");
-                const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
-                let syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
-
-                // Ensure minimum sync delay is 5 minutes
-                if (syncDelayMinutes < 5) {
-                    syncDelayMinutes = 5;
-                    // Update the configuration to persist the corrected value
-                    await config.update(
-                        "syncDelayMinutes",
-                        syncDelayMinutes,
-                        vscode.ConfigurationTarget.Workspace
-                    );
-                }
-
-                if (this._view) {
-                    safePostMessageToView(this._view, {
-                        command: "syncSettingsUpdate",
-                        data: {
-                            autoSyncEnabled,
-                            syncDelayMinutes,
-                        },
-                    } as ProjectManagerMessageToWebview, "MainMenu");
-                }
+                await this.sendSyncSettings();
                 break;
             }
             case "updateSyncSettings": {
@@ -818,6 +871,13 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     }
 
                     if (this.frontierApi) {
+                        // Check authentication status first
+                        const authStatus = this.frontierApi.getAuthStatus();
+                        if (!authStatus?.isAuthenticated) {
+                            console.log("User not authenticated, skipping aggregated progress fetch");
+                            break;
+                        }
+
                         const progressData = await vscode.commands.executeCommand(
                             "frontier.getAggregatedProgress"
                         );
@@ -1680,6 +1740,92 @@ export class MainMenuProvider extends BaseWebviewProvider {
 
         } catch (error) {
             console.error("Error refreshing webviews after text direction update:", error);
+        }
+    }
+
+    private async handleChangeProjectName(newProjectName: string): Promise<void> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage("No workspace folder found.");
+            return;
+        }
+
+        try {
+            // Get current user name for edit tracking
+            let author = "unknown";
+            try {
+                const authApi = await getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                if (userInfo?.username) {
+                    author = userInfo.username;
+                } else {
+                    // Try git username
+                    const gitUsername = vscode.workspace.getConfiguration("git").get<string>("username");
+                    if (gitUsername) {
+                        author = gitUsername;
+                    } else {
+                        // Try VS Code authentication session
+                        try {
+                            const session = await vscode.authentication.getSession('github', ['user:email'], { createIfNone: false });
+                            if (session && session.account) {
+                                author = session.account.label;
+                            }
+                        } catch (e) {
+                            // Auth provider might not be available
+                        }
+                    }
+                }
+            } catch (error) {
+                // Silent fallback to "unknown"
+            }
+
+            // Update workspace configuration
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            await config.update(
+                "projectName",
+                newProjectName,
+                vscode.ConfigurationTarget.Workspace
+            );
+
+            // Update metadata.json using MetadataManager
+            const result = await MetadataManager.safeUpdateMetadata(
+                workspaceFolder,
+                (project: any) => {
+                    const originalProjectName = project.projectName;
+                    project.projectName = newProjectName;
+
+                    // Track edit if projectName changed
+                    if (originalProjectName !== newProjectName) {
+                        // Ensure edits array exists
+                        if (!project.edits) {
+                            project.edits = [];
+                        }
+                        addProjectMetadataEdit(project, EditMapUtils.projectName(), newProjectName, author);
+                    }
+
+                    return project;
+                },
+                { author }
+            );
+
+            if (!result.success) {
+                console.error("Failed to update metadata:", result.error);
+                vscode.window.showErrorMessage(
+                    `Failed to update project name in metadata.json: ${result.error}`
+                );
+                return;
+            }
+
+            // Refresh state to reflect the change
+            await this.store.refreshState();
+            await this.updateProjectOverview();
+
+            vscode.window.showInformationMessage(`Project name updated to "${newProjectName}".`);
+        } catch (error) {
+            console.error("Error updating project name:", error);
+            vscode.window.showErrorMessage(
+                `Failed to update project name: ${(error as Error).message}`
+            );
         }
     }
 

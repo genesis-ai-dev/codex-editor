@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
+import { useNetworkState } from "@uidotdev/usehooks";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Alert, AlertDescription } from "../components/ui/alert";
@@ -8,6 +9,7 @@ import {
     TextDisplaySettingsModal,
     type TextDisplaySettings,
 } from "../components/TextDisplaySettingsModal";
+import { RenameModal } from "../components/RenameModal";
 import "../tailwind.css";
 
 const SHOULD_SHOW_RELEASE_NOTES_LINK = true;
@@ -51,6 +53,8 @@ interface State {
     projectState: ProjectManagerState;
     autoSyncEnabled: boolean;
     syncDelayMinutes: number;
+    isFrontierExtensionEnabled: boolean;
+    isAuthenticated: boolean;
     progressData: any;
 }
 
@@ -78,10 +82,17 @@ function MainMenu() {
         },
         autoSyncEnabled: true,
         syncDelayMinutes: 5,
+        isFrontierExtensionEnabled: true,
+        isAuthenticated: false,
         progressData: null,
     });
 
+    const network = useNetworkState();
+    const isOnline = network?.online ?? true;
+
     const [isTextDisplaySettingsOpen, setIsTextDisplaySettingsOpen] = useState(false);
+    const [isRenameProjectModalOpen, setIsRenameProjectModalOpen] = useState(false);
+    const [projectNameValue, setProjectNameValue] = useState("");
     // Speech-to-text settings moved to Copilot Settings panel
 
     useEffect(() => {
@@ -107,6 +118,10 @@ function MainMenu() {
                         autoSyncEnabled: message.data.autoSyncEnabled ?? prevState.autoSyncEnabled,
                         syncDelayMinutes:
                             message.data.syncDelayMinutes ?? prevState.syncDelayMinutes,
+                        isFrontierExtensionEnabled:
+                            message.data.isFrontierExtensionEnabled ??
+                            prevState.isFrontierExtensionEnabled,
+                        isAuthenticated: message.data.isAuthenticated ?? prevState.isAuthenticated,
                     }));
                     break;
                 case "progressData":
@@ -211,6 +226,10 @@ function MainMenu() {
         }
     };
 
+    const handleLogin = () => {
+        handleProjectAction("openLoginFlow");
+    };
+
     const handleToggleAutoSync = (enabled: boolean) => {
         setState((prevState) => ({
             ...prevState,
@@ -269,7 +288,7 @@ function MainMenu() {
             isSyncInProgress: projectState.isSyncInProgress,
             syncStage: projectState.syncStage,
             isInitializing: projectState.isInitializing,
-            updateState: projectState.updateState
+            updateState: projectState.updateState,
         };
         console.log("[ProjectState] Key changes:", keyProps);
     }, [
@@ -277,7 +296,7 @@ function MainMenu() {
         projectState.isSyncInProgress,
         projectState.syncStage,
         projectState.isInitializing,
-        projectState.updateState
+        projectState.updateState,
     ]);
 
     // Show scanning indicator
@@ -462,15 +481,31 @@ function MainMenu() {
                             >
                                 <CardHeader className="pb-4 rounded-t-lg">
                                     <CardTitle
-                                        className="text-lg font-semibold flex items-center gap-2"
+                                        className="text-lg font-semibold flex items-center justify-between gap-2"
                                         style={{ color: "var(--foreground)" }}
                                     >
-                                        <i
-                                            className="codicon codicon-folder-opened text-xl"
-                                            style={{ color: "var(--ring)" }}
-                                        />
-                                        {projectState.projectOverview.projectName ||
-                                            "Unnamed Project"}
+                                        <div className="flex items-center gap-2">
+                                            <i
+                                                className="codicon codicon-folder-opened text-xl"
+                                                style={{ color: "var(--ring)" }}
+                                            />
+                                            {projectState.projectOverview.projectName ||
+                                                "Unnamed Project"}
+                                        </div>
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={() => {
+                                                const currentName =
+                                                    projectState.projectOverview.projectName ||
+                                                    "Unnamed Project";
+                                                setProjectNameValue(currentName);
+                                                setIsRenameProjectModalOpen(true);
+                                            }}
+                                            className="w-9"
+                                        >
+                                            <i className="codicon codicon-edit" />
+                                        </Button>
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent className="space-y-4 pt-6">
@@ -673,9 +708,12 @@ function MainMenu() {
                                     syncDelayMinutes={state.syncDelayMinutes}
                                     isSyncInProgress={projectState.isSyncInProgress}
                                     syncStage={projectState.syncStage}
+                                    isFrontierExtensionEnabled={state.isFrontierExtensionEnabled}
+                                    isAuthenticated={state.isAuthenticated}
                                     onToggleAutoSync={handleToggleAutoSync}
                                     onChangeSyncDelay={handleChangeSyncDelay}
                                     onTriggerSync={handleTriggerSync}
+                                    onLogin={handleLogin}
                                 />
                             )}
 
@@ -723,10 +761,18 @@ function MainMenu() {
                                                 </p>
                                             </div>
                                             <Button
-                                                onClick={() =>
-                                                    handleProjectAction("publishProject")
+                                                onClick={() => {
+                                                    if (!state.isAuthenticated) {
+                                                        handleProjectAction("openLoginFlow");
+                                                    } else {
+                                                        handleProjectAction("publishProject");
                                                 }
-                                                disabled={projectState.isPublishingInProgress}
+                                                }}
+                                                disabled={
+                                                    projectState.isPublishingInProgress ||
+                                                    !isOnline ||
+                                                    !state.isFrontierExtensionEnabled
+                                                }
                                                 className="button-primary w-full h-12 font-bold text-base shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
                                             >
                                                 <i
@@ -739,8 +785,17 @@ function MainMenu() {
                                                 {projectState.isPublishingInProgress
                                                     ? projectState.publishingStage ||
                                                       "Publishing..."
+                                                    : !isOnline
+                                                    ? "Offline"
+                                                    : !state.isFrontierExtensionEnabled
+                                                    ? "Extension Required"
+                                                    : !state.isAuthenticated
+                                                    ? "Log in to Publish"
                                                     : "Publish to Cloud"}
-                                                {!projectState.isPublishingInProgress && (
+                                                {!projectState.isPublishingInProgress &&
+                                                    isOnline &&
+                                                    state.isFrontierExtensionEnabled &&
+                                                    state.isAuthenticated && (
                                                     <i className="codicon codicon-arrow-right ml-3 h-4 w-4" />
                                                 )}
                                             </Button>
@@ -1008,12 +1063,21 @@ function MainMenu() {
                                     </div>
                                 </div>
                                 <Button
-                                    onClick={() => handleProjectAction("initializeProject")}
+                                    onClick={async () => {
+                                        if (!projectState.isInitializing) {
+                                            handleProjectAction("initializeProject");
+                                        }
+                                    }}
+                                    disabled={projectState.isInitializing}
                                     className="button-primary h-12 px-8 font-bold text-base shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
                                 >
                                     <i className="codicon codicon-add mr-3 h-5 w-5" />
-                                    Initialize Project
-                                    <i className="codicon codicon-arrow-right ml-3 h-4 w-4" />
+                                    {projectState.isInitializing
+                                        ? "Initializing Project..."
+                                        : "Initialize Project"}
+                                    {!projectState.isInitializing && (
+                                        <i className="codicon codicon-arrow-right ml-3 h-4 w-4" />
+                                    )}
                                 </Button>
                             </CardContent>
                         </Card>
@@ -1041,6 +1105,37 @@ function MainMenu() {
                 isOpen={isTextDisplaySettingsOpen}
                 onClose={() => setIsTextDisplaySettingsOpen(false)}
                 onApply={handleApplyTextDisplaySettings}
+            />
+
+            {/* Rename Project Modal */}
+            <RenameModal
+                open={isRenameProjectModalOpen}
+                title="Rename Project"
+                description="Enter a new name for your project"
+                originalLabel={projectState.projectOverview?.projectName || "Unnamed Project"}
+                value={projectNameValue}
+                placeholder="Enter project name"
+                confirmButtonLabel="Save"
+                disabled={!projectNameValue.trim()}
+                onClose={() => {
+                    setIsRenameProjectModalOpen(false);
+                    setProjectNameValue("");
+                }}
+                onConfirm={() => {
+                    if (projectNameValue.trim()) {
+                        try {
+                            vscode.postMessage({
+                                command: "changeProjectName",
+                                projectName: projectNameValue.trim(),
+                            });
+                        } catch (error) {
+                            console.error("Could not send changeProjectName message:", error);
+                        }
+                        setIsRenameProjectModalOpen(false);
+                        setProjectNameValue("");
+                    }
+                }}
+                onValueChange={setProjectNameValue}
             />
         </div>
     );

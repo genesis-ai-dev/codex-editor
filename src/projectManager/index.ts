@@ -24,6 +24,9 @@ import { openSystemMessageEditor, debugValidationSetting } from "../copilotSetti
 import { openProjectExportView } from "./projectExportView";
 import { ensureCodexProjectsDirInWatchedFolders } from "../utils/projectLocationUtils";
 import { openBookNameEditor } from '../bookNameSettings/bookNameSettings';
+import { MetadataManager } from "../utils/metadataManager";
+import { EditMapUtils, addProjectMetadataEdit } from "../utils/editMapUtils";
+import { getAuthApi } from "../extension";
 
 export async function registerProjectManager(context: vscode.ExtensionContext) {
     console.log("Codex Project Manager is now active!");
@@ -148,40 +151,61 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                 // Update configuration
                 await config.update("validationCount", count, vscode.ConfigurationTarget.Workspace);
 
-                // Directly update the metadata file to ensure it happens
-                const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
+                // Get current user name for edit tracking
+                let author = "unknown";
+                try {
+                    const authApi = await getAuthApi();
+                    const userInfo = await authApi?.getUserInfo();
+                    if (userInfo?.username) {
+                        author = userInfo.username;
+                    } else {
+                        const gitUsername = vscode.workspace.getConfiguration("git").get<string>("username");
+                        if (gitUsername) {
+                            author = gitUsername;
+                        } else {
+                            try {
+                                const session = await vscode.authentication.getSession('github', ['user:email'], { createIfNone: false });
+                                if (session && session.account) {
+                                    author = session.account.label;
+                                }
+                            } catch (e) {
+                                // Auth provider might not be available
+                            }
+                        }
+                    }
+                } catch (error) {
+                    // Silent fallback to "unknown"
+                }
+
+                // Update metadata.json using MetadataManager with edit tracking
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
                 if (workspaceFolder) {
-                    const projectFilePath = vscode.Uri.joinPath(
-                        vscode.Uri.file(workspaceFolder),
-                        "metadata.json"
+                    const result = await MetadataManager.safeUpdateMetadata(
+                        workspaceFolder,
+                        (project: any) => {
+                            const originalValidationCount = project.meta?.validationCount;
+                            project.meta = project.meta || {};
+                            project.meta.validationCount = count;
+
+                            // Track edit if validationCount changed
+                            if (originalValidationCount !== count) {
+                                if (!project.edits) {
+                                    project.edits = [];
+                                }
+                                addProjectMetadataEdit(project, EditMapUtils.metaField("validationCount"), count, author);
+                            }
+
+                            return project;
+                        },
+                        { author }
                     );
-                    try {
-                        // Read existing metadata
-                        const projectFileData = await vscode.workspace.fs.readFile(projectFilePath);
-                        const project = JSON.parse(projectFileData.toString());
 
-                        // Update validation count
-                        project.meta = project.meta || {};
-                        project.meta.validationCount = count;
-
-                        // Write back to metadata file
-                        const updatedProjectFileData = Buffer.from(
-                            JSON.stringify(project, null, 4),
-                            "utf8"
-                        );
-                        await vscode.workspace.fs.writeFile(
-                            projectFilePath,
-                            updatedProjectFileData
-                        );
-
-                        console.log("Metadata file directly updated with validation count:", count);
-
-                        // Configuration change listener will automatically handle validation count updates
-                    } catch (error) {
-                        console.error("Error updating metadata file directly:", error);
-
+                    if (!result.success) {
+                        console.error("Failed to update metadata:", result.error);
                         // Fall back to using the command
                         vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
+                    } else {
+                        console.log("Metadata file updated with validation count:", count);
                     }
                 } else {
                     // Fall back to using the command if no workspace folder
@@ -221,40 +245,61 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                 // Update configuration
                 await config.update("validationCountAudio", count, vscode.ConfigurationTarget.Workspace);
 
-                // Directly update the metadata file to ensure it happens
-                const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
+                // Get current user name for edit tracking
+                let author = "unknown";
+                try {
+                    const authApi = await getAuthApi();
+                    const userInfo = await authApi?.getUserInfo();
+                    if (userInfo?.username) {
+                        author = userInfo.username;
+                    } else {
+                        const gitUsername = vscode.workspace.getConfiguration("git").get<string>("username");
+                        if (gitUsername) {
+                            author = gitUsername;
+                        } else {
+                            try {
+                                const session = await vscode.authentication.getSession('github', ['user:email'], { createIfNone: false });
+                                if (session && session.account) {
+                                    author = session.account.label;
+                                }
+                            } catch (e) {
+                                // Auth provider might not be available
+                            }
+                        }
+                    }
+                } catch (error) {
+                    // Silent fallback to "unknown"
+                }
+
+                // Update metadata.json using MetadataManager with edit tracking
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
                 if (workspaceFolder) {
-                    const projectFilePath = vscode.Uri.joinPath(
-                        vscode.Uri.file(workspaceFolder),
-                        "metadata.json"
+                    const result = await MetadataManager.safeUpdateMetadata(
+                        workspaceFolder,
+                        (project: any) => {
+                            const originalValidationCountAudio = project.meta?.validationCountAudio;
+                            project.meta = project.meta || {};
+                            project.meta.validationCountAudio = count;
+
+                            // Track edit if validationCountAudio changed
+                            if (originalValidationCountAudio !== count) {
+                                if (!project.edits) {
+                                    project.edits = [];
+                                }
+                                addProjectMetadataEdit(project, EditMapUtils.metaField("validationCountAudio"), count, author);
+                            }
+
+                            return project;
+                        },
+                        { author }
                     );
-                    try {
-                        // Read existing metadata
-                        const projectFileData = await vscode.workspace.fs.readFile(projectFilePath);
-                        const project = JSON.parse(projectFileData.toString());
 
-                        // Update validation count audio
-                        project.meta = project.meta || {};
-                        project.meta.validationCountAudio = count;
-
-                        // Write back to metadata file
-                        const updatedProjectFileData = Buffer.from(
-                            JSON.stringify(project, null, 4),
-                            "utf8"
-                        );
-                        await vscode.workspace.fs.writeFile(
-                            projectFilePath,
-                            updatedProjectFileData
-                        );
-
-                        console.log("Metadata file directly updated with validation count audio:", count);
-
-                        // Configuration change listener will automatically handle validation count updates
-                    } catch (error) {
-                        console.error("Error updating metadata file directly:", error);
-
+                    if (!result.success) {
+                        console.error("Failed to update metadata:", result.error);
                         // Fall back to using the command
                         vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
+                    } else {
+                        console.log("Metadata file updated with validation count audio:", count);
                     }
                 } else {
                     // Fall back to using the command if no workspace folder
@@ -616,6 +661,18 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         }
     );
 
+    const importLocalUsfmSourceBibleCommand = vscode.commands.registerCommand(
+        "codex-project-manager.importLocalUsfmSourceBible",
+        importLocalUsfmSourceBible
+    );
+
+    const updateGitignoreCommand = vscode.commands.registerCommand(
+        "codex-project-manager.updateGitignore",
+        executeWithRedirecting(async () => {
+            await ensureGitConfigsAreUpToDate();
+        })
+    );
+
     const toggleSpellcheckCommand = vscode.commands.registerCommand(
         "codex-project-manager.toggleSpellcheck",
         executeWithRedirecting(async () => {
@@ -639,22 +696,28 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         })
     );
 
-    const importLocalUsfmSourceBibleCommand = vscode.commands.registerCommand(
-        "codex-project-manager.importLocalUsfmSourceBible",
-        importLocalUsfmSourceBible
-    );
-
-    const updateGitignoreCommand = vscode.commands.registerCommand(
-        "codex-project-manager.updateGitignore",
-        executeWithRedirecting(async () => {
-            await ensureGitConfigsAreUpToDate();
-        })
+    const updateMetadataFileCommand = vscode.commands.registerCommand(
+        "codex-project-manager.updateMetadataFile",
+        updateMetadataFile
     );
 
     // Register event listener for configuration changes
-    const onDidChangeConfigurationListener = vscode.workspace.onDidChangeConfiguration((event) => {
+    const onDidChangeConfigurationListener = vscode.workspace.onDidChangeConfiguration(async (event) => {
         if (event.affectsConfiguration("codex-project-manager")) {
-            updateMetadataFile();
+            // Only update metadata if it already exists
+            // This prevents automatic creation when Main Menu opens
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+            if (workspaceFolder) {
+                const metadataPath = vscode.Uri.joinPath(workspaceFolder, "metadata.json");
+                try {
+                    await vscode.workspace.fs.stat(metadataPath);
+                    // metadata.json exists, safe to update
+                    updateMetadataFile();
+                } catch {
+                    // metadata.json doesn't exist - don't create it automatically
+                    console.log("[ProjectManager] Configuration changed but metadata.json doesn't exist. Skipping update to prevent automatic creation.");
+                }
+            }
         }
     });
 
@@ -696,6 +759,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         openBookNameEditorCommand,
         importLocalUsfmSourceBibleCommand,
         updateGitignoreCommand,
+        updateMetadataFileCommand,
         changeUserEmailCommand,
         onDidChangeConfigurationListener,
         onDidChangeExtensionsListener,

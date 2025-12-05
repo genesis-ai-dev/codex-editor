@@ -293,11 +293,12 @@ export const StartupFlowView: React.FC = () => {
     };
 
     const handleSkipAuth = () => {
-        // send({ type: StartupFlowEvents.SKIP_AUTH });
+        vscode.postMessage({ command: "skipAuth" } as MessagesToStartupFlowProvider);
     };
 
     const [showNameModal, setShowNameModal] = useState(false);
     const [pendingSanitizedName, setPendingSanitizedName] = useState<string | null>(null);
+    const [pendingProjectId, setPendingProjectId] = useState<string | null>(null);
     const [showConfirmSanitizedNameModal, setShowConfirmSanitizedNameModal] = useState(false);
 
     useEffect(() => {
@@ -305,6 +306,7 @@ export const StartupFlowView: React.FC = () => {
             const message = event.data as MessagesFromStartupFlowProvider;
             if (message?.command === "project.nameWillBeSanitized") {
                 setPendingSanitizedName(message.sanitized);
+                setPendingProjectId(message.projectId || null);
                 setShowConfirmSanitizedNameModal(true);
             }
         };
@@ -314,6 +316,7 @@ export const StartupFlowView: React.FC = () => {
 
     const handleCreateEmpty = () => {
         setPendingSanitizedName(null);
+        setPendingProjectId(null);
         setShowNameModal(true);
     };
 
@@ -354,7 +357,10 @@ export const StartupFlowView: React.FC = () => {
 
     const confirmModalContent = (
         <div className="flex flex-col justify-center items-center py-4">
-            <div className="font-semibold">{pendingSanitizedName}</div>
+            <div className="font-semibold">
+                {pendingSanitizedName}
+                {pendingProjectId && `-${pendingProjectId}`}
+            </div>
         </div>
     );
 
@@ -395,6 +401,7 @@ export const StartupFlowView: React.FC = () => {
                     onCloneRepo={handleCloneRepo}
                     onOpenProject={handleOpenProject}
                     vscode={vscode as unknown as WebviewApi<any>}
+                    isAuthenticated={authState?.isAuthenticated || false}
                     // state={state}
                     // send={send}
                 />
@@ -450,8 +457,10 @@ export const StartupFlowView: React.FC = () => {
                 onCancel={() => {
                     setShowNameModal(false);
                     setPendingSanitizedName(null);
+                    setPendingProjectId(null);
                 }}
                 onSubmit={submitProjectName}
+                vscode={vscode}
             />
 
             <ConfirmModal
@@ -459,10 +468,11 @@ export const StartupFlowView: React.FC = () => {
                 description="Project name will be saved in the following format"
                 open={showConfirmSanitizedNameModal}
                 content={confirmModalContent}
-                disableSubmit={!pendingSanitizedName}
+                disableSubmit={!pendingSanitizedName || !pendingProjectId}
                 onCancel={() => {
                     setShowConfirmSanitizedNameModal(false);
                     setPendingSanitizedName(null);
+                    setPendingProjectId(null);
                     setShowNameModal(true);
                 }}
                 onSubmit={() => {
@@ -470,9 +480,11 @@ export const StartupFlowView: React.FC = () => {
                         command: "project.createEmpty.confirm",
                         proceed: true,
                         projectName: pendingSanitizedName,
+                        projectId: pendingProjectId || undefined,
                     } as MessagesToStartupFlowProvider);
                     setShowConfirmSanitizedNameModal(false);
                     setPendingSanitizedName(null);
+                    setPendingProjectId(null);
                 }}
             />
         </div>

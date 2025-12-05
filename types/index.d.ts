@@ -252,6 +252,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "auth.logout"; }
     | { command: "auth.status"; }
     | { command: "auth.checkAuthStatus"; }
+    | { command: "auth.backToLogin"; }
     | { command: "auth.requestPasswordReset"; resetEmail: string; }
     | { command: "project.clone"; repoUrl: string; mediaStrategy?: MediaFilesStrategy; }
     | { command: "project.new"; }
@@ -266,7 +267,8 @@ export type MessagesToStartupFlowProvider =
     | { command: "project.delete"; projectPath: string; syncStatus?: ProjectSyncStatus; }
     | { command: "project.createEmpty"; }
     | { command: "project.createEmptyWithName"; projectName: string; }
-    | { command: "project.createEmpty.confirm"; proceed: boolean; projectName?: string; }
+    | { command: "project.createEmpty.confirm"; proceed: boolean; projectName?: string; projectId?: string; }
+    | { command: "project.checkNameExists"; projectName: string; }
     | { command: "project.initialize"; waitForStateUpdate?: boolean; }
     | { command: "metadata.check"; }
     | { command: "project.showManager"; }
@@ -276,6 +278,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "getAggregatedProgress"; }
     | { command: "showProgressDashboard"; }
     | { command: "startup.dismiss"; }
+    | { command: "skipAuth"; }
     | { command: "webview.ready"; }
     | { command: "extension.installFrontier"; }
     | { command: "navigateToMainMenu"; }
@@ -366,7 +369,8 @@ export type MessagesFromStartupFlowProvider =
     | { command: "project.progressReportSubmitted"; success: boolean; error?: string; }
     | { command: "progressData"; data: any; }
     | { command: "aggregatedProgressData"; data: any; }
-    | { command: "project.nameWillBeSanitized"; original: string; sanitized: string; }
+    | { command: "project.nameWillBeSanitized"; original: string; sanitized: string; projectId?: string; }
+    | { command: "project.nameExistsCheck"; exists: boolean; isCodexProject: boolean; errorMessage?: string; }
     | { command: "project.healingInProgress"; projectPath: string; healing: boolean; }
     | { command: "project.cloningInProgress"; projectPath: string; gitOriginUrl?: string; cloning: boolean; }
     | { command: "project.openingInProgress"; projectPath: string; opening: boolean; }
@@ -756,7 +760,8 @@ export type EditorPostMessages =
             totalVariants: number;
         };
     }
-    | { command: "adjustABTestingProbability"; content: { delta: number; buttonChoice?: "more" | "less"; testId?: string; cellId?: string; }; };
+    | { command: "adjustABTestingProbability"; content: { delta: number; buttonChoice?: "more" | "less"; testId?: string; cellId?: string; }; }
+    | { command: "openLoginFlow"; };
 
 // (revalidateMissingForCell added above in EditorPostMessages union)
 
@@ -836,6 +841,15 @@ export type EditFor<TEditMap extends readonly string[]> = {
 
 // File-level edit type for metadata edits (separate from EditHistory)
 export type FileEditHistory<TEditMap extends readonly string[] = readonly string[]> = {
+    editMap: TEditMap;
+    value: EditMapValueType<TEditMap>;
+    timestamp: number;
+    type: import("./enums").EditType;
+    author: string;
+};
+
+// Project-level metadata edit type (for metadata.json)
+export type ProjectEditHistory<TEditMap extends readonly string[] = readonly string[]> = {
     editMap: TEditMap;
     value: EditMapValueType<TEditMap>;
     timestamp: number;
@@ -995,6 +1009,7 @@ interface ProjectOverview extends Project {
 /* This is the project metadata that is saved in the metadata.json file */
 type ProjectMetadata = {
     format: string;
+    edits?: ProjectEditHistory[];
     meta: {
         version: string;
         category: string;
@@ -1016,6 +1031,7 @@ type ProjectMetadata = {
         };
         /** List of users that should be forced to restore/heal their project when opening */
         initiateRemoteHealingFor?: RemoteHealingEntry[];
+        abbreviation?: string;
     };
     idAuthorities: {
         [key: string]: {
@@ -1217,6 +1233,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "refreshState"; }
     | { command: "initializeProject"; }
     | { command: "renameProject"; }
+    | { command: "changeProjectName"; projectName: string; }
     | { command: "changeSourceLanguage"; language: LanguageMetadata; }
     | { command: "changeTargetLanguage"; language: LanguageMetadata; }
     | { command: "editAbbreviation"; }
@@ -1254,6 +1271,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
     | { command: "openCellLabelImporter"; }
     | { command: "navigateToMainMenu"; }
+    | { command: "openLoginFlow"; }
     | { command: "getProjectProgress"; }
     | { command: "showProgressDashboard"; }
     | { command: "project.delete"; data: { path: string; }; }
@@ -1303,6 +1321,8 @@ type ProjectManagerMessageToWebview =
         data: {
             autoSyncEnabled: boolean;
             syncDelayMinutes: number;
+            isFrontierExtensionEnabled: boolean;
+            isAuthenticated: boolean;
         };
     }
     | {
@@ -1617,6 +1637,7 @@ type EditorReceiveMessages =
         username?: string;
         validationCount?: number;
         validationCountAudio?: number;
+        isAuthenticated?: boolean;
     }
     | {
         type: "preferredEditorTab";

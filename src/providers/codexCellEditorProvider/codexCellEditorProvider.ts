@@ -501,13 +501,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
 
         // Watch for file changes (only if watcher was created)
+        // Use debounce to avoid reverting after our own saves
+        const SAVE_DEBOUNCE_MS = 2000;
         if (watcher) {
             watcher.onDidChange((uri) => {
                 debug("File change detected:", uri.toString());
                 if (uri.toString() === document.uri.toString()) {
-                    if (!document.isDirty) {
-                        debug("Document not dirty, reverting");
-                        document.revert(); // Reload the document if it isn't dirty
+                    const timeSinceLastSave = Date.now() - document.lastSaveTimestamp;
+                    if (!document.isDirty && timeSinceLastSave > SAVE_DEBOUNCE_MS) {
+                        // External change detected - safe to revert
+                        debug("Document not dirty and not recently saved, reverting");
+                        document.revert();
+                    } else {
+                        debug(`Skipping revert: isDirty=${document.isDirty}, timeSinceLastSave=${timeSinceLastSave}ms`);
                     }
                 }
             });
@@ -575,8 +581,28 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             const validationCount = config.get("validationCount", 1);
             const validationCountAudio = config.get("validationCountAudio", 1);
             const authApi = await this.getAuthApi();
-            const userInfo = await authApi?.getUserInfo();
+
+            let userInfo;
+            try {
+                if (authApi?.getAuthStatus()?.isAuthenticated) {
+                    userInfo = await authApi?.getUserInfo();
+                }
+            } catch (error) {
+                console.warn("Failed to fetch user info:", error);
+            }
+
             const username = userInfo?.username || "anonymous";
+
+            // Check authentication status
+            let isAuthenticated = false;
+            try {
+                if (authApi) {
+                    const authStatus = authApi.getAuthStatus();
+                    isAuthenticated = authStatus?.isAuthenticated ?? false;
+                }
+            } catch (error) {
+                console.debug("Could not get authentication status:", error);
+            }
 
             this.postMessageToWebview(webviewPanel, {
                 type: "providerSendsInitialContent",
@@ -586,6 +612,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 username: username,
                 validationCount: validationCount,
                 validationCountAudio: validationCountAudio,
+                isAuthenticated: isAuthenticated,
             });
 
             // Also send updated metadata plus the autoDownloadAudioOnOpen flag for the project
@@ -1178,7 +1205,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' 'strict-dynamic' https://www.youtube.com; frame-src https://www.youtube.com; worker-src ${webview.cspSource} blob:; connect-src https://languagetool.org/api/ https://api.frontierrnd.com wss://api.frontierrnd.com data: wss://ryderwishart--whisper-websocket-transcription-websocket-transcribe.modal.run wss://*.modal.run; img-src 'self' data: ${webview.cspSource} https:; font-src ${webview.cspSource} data:; media-src ${webview.cspSource} https: blob: data:;">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' 'strict-dynamic' https://www.youtube.com https://static.cloudflareinsights.com; frame-src https://www.youtube.com; worker-src ${webview.cspSource} blob:; connect-src https://*.vscode-cdn.net https://*.frontierrnd.com wss://*.frontierrnd.com https://languagetool.org/api/ data: wss://ryderwishart--whisper-websocket-transcription-websocket-transcribe.modal.run wss://*.modal.run; img-src 'self' data: ${webview.cspSource} https:; font-src ${webview.cspSource} data:; media-src ${webview.cspSource} https: blob: data:;">
                 <link href="${styleResetUriWithBuster}" rel="stylesheet" nonce="${nonce}">
                 <link href="${codiconsUriWithBuster}" rel="stylesheet" nonce="${nonce}" />
                 <title>Codex Cell Editor</title>
@@ -3715,7 +3742,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     ): Promise<boolean> {
         try {
             const documentUri = vscode.Uri.parse(uri);
-            
+
             // Use document model for proper undo support
             // Open/get the document instance (VS Code manages lifecycle)
             const document = await this.openCustomDocument(
@@ -3723,36 +3750,36 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 {},
                 new vscode.CancellationTokenSource().token
             );
-            
+
             // Verify cell exists in document
             const existingCell = document.getCellContent(cellId);
             if (!existingCell) {
                 console.warn(`Cell ${cellId} not found in document ${uri}`);
                 return false;
             }
-            
+
             // Ensure author is set correctly before creating edit
             await document.refreshAuthor();
-            
+
             // Use document's updateCellContent method which properly tracks changes for undo
             // This marks the document dirty and fires change events that VS Code tracks
             // For search/replace operations, always skip auto-validation (validation is handled by retainValidations logic)
             await document.updateCellContent(cellId, newContent, EditType.USER_EDIT, true, retainValidations, true);
-            
+
             // Fire custom document change event so VS Code can track for undo/redo
             this._onDidChangeCustomDocument.fire({ document });
-            
+
             // Save the document (VS Code will auto-save, but we ensure it's saved for immediate persistence)
             // Use a cancellation token that won't cancel immediately
             const cancellationToken = new vscode.CancellationTokenSource().token;
             await this.saveCustomDocument(document, cancellationToken);
-            
+
             // Refresh webview if open
             const webviewPanel = this.webviewPanels.get(documentUri.toString());
             if (webviewPanel) {
                 await this.refreshWebview(webviewPanel, document);
             }
-            
+
             return true;
         } catch (error) {
             console.error("Error updating cell content:", error);

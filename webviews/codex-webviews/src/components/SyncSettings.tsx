@@ -6,17 +6,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Alert, AlertDescription } from "./ui/alert";
 
-// @ts-ignore - VSCode API types
-declare const vscode: any;
-
 interface SyncSettingsProps {
     autoSyncEnabled: boolean;
     syncDelayMinutes: number;
     isSyncInProgress: boolean;
     syncStage: string;
+    isFrontierExtensionEnabled: boolean;
+    isAuthenticated: boolean;
     onToggleAutoSync: (enabled: boolean) => void;
     onChangeSyncDelay: (minutes: number) => void;
     onTriggerSync: () => void;
+    onLogin: () => void;
 }
 
 export const SyncSettings: React.FC<SyncSettingsProps> = ({
@@ -24,48 +24,53 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
     syncDelayMinutes,
     isSyncInProgress,
     syncStage,
+    isFrontierExtensionEnabled,
+    isAuthenticated,
     onToggleAutoSync,
     onChangeSyncDelay,
     onTriggerSync,
+    onLogin,
 }) => {
     const network = useNetworkState();
     const isOnline = network?.online ?? true; // Default to true if network state is unavailable
-    
+
     // UI Polling Fallback: Verify sync state every 5 seconds when sync is in progress
     // This prevents UI from getting stuck if backend state changes (crash, completion, etc.)
     useEffect(() => {
         if (!isSyncInProgress) {
             return; // No need to poll when not syncing
         }
-        
+
         const pollInterval = setInterval(() => {
             // Request lock status check from backend
-            if (typeof vscode !== 'undefined') {
-                vscode.postMessage({ type: 'checkSyncLock' });
+            if (typeof vscode !== "undefined") {
+                vscode.postMessage({ type: "checkSyncLock" });
             }
         }, 5000); // Poll every 5 seconds
-        
+
         return () => clearInterval(pollInterval);
     }, [isSyncInProgress]);
-    
+
     // Listen for lock status responses
     useEffect(() => {
         const handler = (event: MessageEvent) => {
-            if (event.data.type === 'syncLockStatus') {
+            if (event.data.type === "syncLockStatus") {
                 // If lock doesn't exist but UI thinks sync is in progress, request refresh
                 if (!event.data.exists && isSyncInProgress) {
-                    console.log('[SyncSettings] Lock released but UI still shows syncing, requesting state refresh');
-                    if (typeof vscode !== 'undefined') {
-                        vscode.postMessage({ type: 'refreshSyncState' });
+                    console.log(
+                        "[SyncSettings] Lock released but UI still shows syncing, requesting state refresh"
+                    );
+                    if (typeof vscode !== "undefined") {
+                        vscode.postMessage({ type: "refreshSyncState" });
                     }
                 }
             }
         };
-        
-        window.addEventListener('message', handler);
-        return () => window.removeEventListener('message', handler);
+
+        window.addEventListener("message", handler);
+        return () => window.removeEventListener("message", handler);
     }, [isSyncInProgress]);
-    
+
     return (
         <Card
             className="card border-2 shadow-lg hover:shadow-xl transition-all duration-200"
@@ -88,10 +93,20 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                         Sync Settings
                     </CardTitle>
                     <Button
-                        onClick={onTriggerSync}
-                        disabled={isSyncInProgress || !isOnline}
+                        onClick={() => {
+                            if (!isAuthenticated) {
+                                onLogin();
+                            } else {
+                                onTriggerSync();
+                            }
+                        }}
+                        disabled={
+                            isSyncInProgress ||
+                            !isOnline ||
+                            !isFrontierExtensionEnabled
+                        }
                         size="default"
-                        className="button-primary font-semibold px-3 py-2 text-sm xl:px-4 xl:text-base shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200 min-w-[100px] max-w-[140px] xl:max-w-none disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                        className="button-primary font-semibold px-3 py-2 text-sm xl:px-4 xl:text-base shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200 min-w-[100px] max-w-[160px] xl:max-w-none disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                     >
                         <i
                             className={`codicon ${
@@ -106,15 +121,45 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                                 ? "Offline"
                                 : isSyncInProgress
                                 ? syncStage || "Syncing..."
+                                : !isAuthenticated
+                                ? "Log in to sync"
                                 : "Sync Now"}
                         </span>
                         <span className="sm:hidden">
-                            {!isOnline ? "Offline" : isSyncInProgress ? "Syncing" : "Sync"}
+                            {!isOnline
+                                ? "Offline"
+                                : isSyncInProgress
+                                ? "Syncing"
+                                : !isAuthenticated
+                                ? "Log in to sync"
+                                : "Sync"}
                         </span>
                     </Button>
                 </div>
             </CardHeader>
             <CardContent className="space-y-6">
+                {!isFrontierExtensionEnabled && (
+                    <Alert variant="destructive">
+                        <AlertDescription>
+                            <div className="flex">
+                                <i className="codicon codicon-warning h-4 w-4" />
+                                <span className="ml-2">
+                                    Enable the Frontier Authentication extension to sync
+                                </span>
+                            </div>
+                        </AlertDescription>
+                    </Alert>
+                )}
+                {isFrontierExtensionEnabled && !isAuthenticated && (
+                    <Alert variant="destructive" className="hidden">
+                        <AlertDescription>
+                            <div className="flex">
+                                <i className="codicon codicon-warning h-4 w-4" />
+                                <span className="ml-2">You must be logged in to sync</span>
+                            </div>
+                        </AlertDescription>
+                    </Alert>
+                )}
                 {!isOnline && (
                     <Alert variant="destructive">
                         <i className="codicon codicon-warning h-4 w-4" />
@@ -124,41 +169,43 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                         </AlertDescription>
                     </Alert>
                 )}
-                <div
-                    className="flex items-center justify-between p-3 rounded-lg border transition-all duration-200 flex-wrap gap-2"
-                    style={{
-                        backgroundColor: "var(--muted)",
-                        borderColor: "var(--border)",
-                    }}
-                >
-                    <div className="space-y-1">
-                        <label
-                            className="text-sm font-semibold flex items-center gap-2"
-                            style={{ color: "var(--foreground)" }}
-                        >
-                            <i
-                                className="codicon codicon-settings-gear"
-                                style={{ color: "var(--muted-foreground)" }}
+                {isFrontierExtensionEnabled && isAuthenticated && (
+                    <div
+                        className="flex items-center justify-between p-3 rounded-lg border transition-all duration-200 flex-wrap gap-2"
+                        style={{
+                            backgroundColor: "var(--muted)",
+                            borderColor: "var(--border)",
+                        }}
+                    >
+                        <div className="space-y-1">
+                            <label
+                                className="text-sm font-semibold flex items-center gap-2"
+                                style={{ color: "var(--foreground)" }}
+                            >
+                                <i
+                                    className="codicon codicon-settings-gear"
+                                    style={{ color: "var(--muted-foreground)" }}
+                                />
+                                Auto-sync
+                            </label>
+                            <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+                                {!isOnline
+                                    ? "Requires network connection"
+                                    : "Automatically sync changes to cloud"}
+                            </p>
+                        </div>
+                        <div className="relative">
+                            <Switch
+                                checked={autoSyncEnabled && isOnline}
+                                onCheckedChange={isOnline ? onToggleAutoSync : undefined}
+                                disabled={!isOnline}
+                                className="shadow-sm border border-border/20"
                             />
-                            Auto-sync
-                        </label>
-                        <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>
-                            {!isOnline
-                                ? "Requires network connection"
-                                : "Automatically sync changes to cloud"}
-                        </p>
+                        </div>
                     </div>
-                    <div className="relative">
-                        <Switch
-                            checked={autoSyncEnabled && isOnline}
-                            onCheckedChange={isOnline ? onToggleAutoSync : undefined}
-                            disabled={!isOnline}
-                            className="shadow-sm border border-border/20"
-                        />
-                    </div>
-                </div>
+                )}
 
-                {autoSyncEnabled && isOnline && (
+                {autoSyncEnabled && isOnline && isFrontierExtensionEnabled && isAuthenticated && (
                     <div
                         className="flex items-center justify-between p-3 rounded-lg border animate-in slide-in-from-top-2 duration-300 flex-wrap gap-2"
                         style={{

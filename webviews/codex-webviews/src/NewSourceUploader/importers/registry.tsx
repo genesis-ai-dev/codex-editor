@@ -144,7 +144,7 @@ export const importerPlugins: ImporterPlugin[] = [
     {
         ...biblicaImporterPlugin,
         name: "Biblica Files",
-        description: "Biblica IDML files",
+        description: "Biblica IDML importer with Study Bible + Translated Bible support",
         tags: [...(biblicaImporterPlugin.tags || []), "Specialized", "Bible", "Biblica"],
     },
     {

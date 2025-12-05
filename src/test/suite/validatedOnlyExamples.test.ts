@@ -120,7 +120,7 @@ suite("Validated-only examples behavior", () => {
                         if (key === "abTestingEnabled") return true;
                         if (key === "abTestingProbability") return 1; // force
                         if (key === "useOnlyValidatedExamples") return true;
-                        if (key === "searchAlgorithm") return "fts5-bm25";
+                        if (key === "searchAlgorithm") return "sbs";
                         return (cfg as any)?.get?.(key);
                     }
                 } as any;
@@ -132,9 +132,9 @@ suite("Validated-only examples behavior", () => {
         let capturedOnlyValidated: boolean | null = null;
         const origExec = vscode.commands.executeCommand;
         (vscode.commands as any).executeCommand = async (command: string, ...args: any[]) => {
-            if (command === "codex-editor-extension.getTranslationPairsFromSourceCellQueryWithAlgorithm") {
-                // args: alg, query, k, onlyValidated
-                capturedOnlyValidated = Boolean(args[3]);
+            if (command === "codex-editor-extension.getTranslationPairsFromSourceCellQuery") {
+                // args: query, k, onlyValidated
+                capturedOnlyValidated = Boolean(args[2]);
                 // Return minimal valid pairs
                 return [
                     {

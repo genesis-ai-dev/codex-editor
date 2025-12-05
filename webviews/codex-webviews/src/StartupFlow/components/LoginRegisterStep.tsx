@@ -324,7 +324,8 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     const [resetEmailComplete, setResetEmailComplete] = useState(false);
     const [resetEmailErrorMessage, setResetEmailErrorMessage] = useState<string | null>(null);
 
-    const isMissingExtension = authState !== undefined && !authState.isLoading && !authState.isAuthExtensionInstalled;
+    const isMissingExtension =
+        authState !== undefined && !authState.isLoading && !authState.isAuthExtensionInstalled;
 
     useEffect(() => {
         const handleOnlineStatusChange = () => {
@@ -755,7 +756,9 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                     <span>
                         Frontier Authentication extension is missing or disabled. Please{" "}
                         <span
-                            onClick={() => vscode.postMessage({ command: "extension.installFrontier" })}
+                            onClick={() =>
+                                vscode.postMessage({ command: "extension.installFrontier" })
+                            }
                             style={{
                                 textDecoration: "underline",
                                 cursor: "pointer",
@@ -767,19 +770,44 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                             install or enable it
                         </span>{" "}
                         to proceed.
-                        <br /><br />
+                        <br />
+                        <br />
                         You may need to restart the application for changes to apply.
                     </span>
                 </div>
             )}
-            {!isForgettingPassword ? (
-                <>
-                    <div className="flex justify-end w-full">
+            <div className="flex justify-between w-full gap-2 items-center">
+                        <VSCodeButton
+                    appearance="secondary"
+                            onClick={onSkip}
+                            disabled={isLoading}
+                >
+                    Skip Login
+                    <i className="codicon codicon-arrow-right" style={{ marginLeft: "4px" }}></i>
+                </VSCodeButton>
+                {isForgettingPassword ? (
+                    <VSCodeButton
+                        className="hover:bg-transparent"
+                        onClick={handleBackToLogin}
+                        appearance="icon"
+                        disabled={isLoading || isMissingExtension}
+                        >
+                            <span
+                                style={{
+                                    textDecoration: "underline",
+                                    width: "auto",
+                                    height: "auto",
+                                }}
+                            >
+                            Back to Login
+                            </span>
+                        </VSCodeButton>
+                ) : (
                         <VSCodeButton
                             className="hover:bg-transparent"
                             onClick={() => setIsRegistering(!isRegistering)}
                             appearance="icon"
-                            disabled={isLoading || isMissingExtension}
+                        disabled={isLoading || isMissingExtension || isOffline}
                         >
                             <span
                                 style={{
@@ -791,8 +819,32 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                 {isRegistering ? "Back to Login" : "Create Account"}
                             </span>
                         </VSCodeButton>
+                )}
                     </div>
-                    <h2>{isRegistering ? "Register" : "Login"}</h2>
+            {!isForgettingPassword && <h2>{isRegistering ? "Register" : "Login"}</h2>}
+            {isOffline && (
+                <div
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        marginBottom: "1rem",
+                        padding: "8px 12px",
+                        backgroundColor: "var(--vscode-inputValidation-warningBackground)",
+                        border: "1px solid var(--vscode-inputValidation-warningBorder)",
+                        borderRadius: "4px",
+                        width: "min(100%, 400px)",
+                    }}
+                >
+                    <i className="codicon codicon-warning"></i>
+                    <span>
+                        You appear to be offline. Login and registration require an internet
+                        connection.
+                    </span>
+                </div>
+            )}
+            {!isForgettingPassword ? (
+                <>
                     {authError && (
                         <div
                             style={{
@@ -841,7 +893,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                 placeholder="Username"
                                 required
                                 style={{ width: "100%" }}
-                                disabled={isLoading || isMissingExtension}
+                                disabled={isLoading || isMissingExtension || isOffline}
                             />
                             {isRegistering && (
                                 <div
@@ -875,7 +927,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                         placeholder="Email"
                                         required
                                         style={{ width: "100%" }}
-                                        disabled={isLoading || isMissingExtension}
+                                        disabled={isLoading || isMissingExtension || isOffline}
                                     />
                                     <EmailDisplayIndicator
                                         email={email}
@@ -925,13 +977,13 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                         }
                                         placeholder="Password"
                                         required
-                                        disabled={isLoading || isMissingExtension}
+                                        disabled={isLoading || isMissingExtension || isOffline}
                                     />
                                     <VSCodeButton
                                         className="absolute right-1 top-1 hover:bg-transparent"
                                         appearance="icon"
                                         onClick={() => setShowPassword(!showPassword)}
-                                        disabled={isLoading || isMissingExtension}
+                                        disabled={isLoading || isMissingExtension || isOffline}
                                     >
                                         <i
                                             className={`codicon ${
@@ -943,11 +995,13 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                 <div className="flex justify-end w-full">
                                     <span
                                         className="text-sm cursor-pointer hover:underline text-var(--vscode-editor-foreground)"
-                                        onClick={isMissingExtension ? undefined : handleForgotPassword}
+                                        onClick={
+                                            isMissingExtension || isOffline ? undefined : handleForgotPassword
+                                        }
                                         style={{
-                                            opacity: isMissingExtension ? 0.5 : 1,
-                                            pointerEvents: isMissingExtension ? "none" : "auto",
-                                            cursor: isMissingExtension ? "not-allowed" : "pointer",
+                                            opacity: isMissingExtension || isOffline ? 0.5 : 1,
+                                            pointerEvents: isMissingExtension || isOffline ? "none" : "auto",
+                                            cursor: isMissingExtension || isOffline ? "not-allowed" : "pointer",
                                         }}
                                     >
                                         Forgot Password?
@@ -985,7 +1039,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                         placeholder="Confirm Password"
                                         required
                                         style={{ width: "100%" }}
-                                        disabled={isLoading || isMissingExtension}
+                                        disabled={isLoading || isMissingExtension || isOffline}
                                     />
                                     {passwordError && (
                                         <span style={{ color: "var(--vscode-errorForeground)" }}>
@@ -1007,7 +1061,12 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                         >
                             <VSCodeButton
                                 type="submit"
-                                disabled={isLoading || isMissingExtension}
+                                disabled={
+                                    isLoading ||
+                                    isMissingExtension ||
+                                    !authState?.isAuthExtensionInstalled ||
+                                    isOffline
+                                }
                                 style={{
                                     width: "160px",
                                     display: "flex",
@@ -1053,40 +1112,9 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                             )}
                         </div>
                     </form>
-                    {isOffline && (
-                        <div
-                            style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "8px",
-                                marginTop: "1rem",
-                                padding: "8px 12px",
-                                backgroundColor: "var(--vscode-inputValidation-warningBackground)",
-                                border: "1px solid var(--vscode-inputValidation-warningBorder)",
-                                borderRadius: "4px",
-                                width: "min(100%, 400px)",
-                            }}
-                        >
-                            <i className="codicon codicon-warning"></i>
-                            <span>
-                                You appear to be offline. Login and registration require an internet
-                                connection.
-                            </span>
-                        </div>
-                    )}
                 </>
             ) : (
                 <>
-                    <div className="flex justify-end w-full">
-                        <VSCodeButton
-                            className="hover:bg-transparent"
-                            onClick={handleBackToLogin}
-                            appearance="icon"
-                            disabled={isLoading || isMissingExtension}
-                        >
-                            <span className="underline w-auto h-auto">Back to Login</span>
-                        </VSCodeButton>
-                    </div>
                     {!resetEmailComplete ? (
                         <>
                             <h2>Reset Password</h2>
@@ -1110,7 +1138,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                     placeholder="Email"
                                     required
                                     style={{ width: "100%" }}
-                                    disabled={isLoading || isMissingExtension}
+                                    disabled={isLoading || isMissingExtension || isOffline}
                                 />
                                 <EmailDisplayIndicator
                                     email={resetEmail}
@@ -1149,7 +1177,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                     <VSCodeButton
                                         type="button"
                                         onClick={handleForgotPasswordSubmit}
-                                        disabled={isLoading || isMissingExtension}
+                                        disabled={isLoading || isMissingExtension || isOffline}
                                         className="relative flex justify-center items-center min-w-[160px]"
                                     >
                                         <span className="text-var(--vscode-button-foreground) w-full">
