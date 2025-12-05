@@ -1387,8 +1387,11 @@ const CodexCellEditor: React.FC = () => {
         }
 
         // For regular cells, check if they belong to the current chapter
-        const sectionCellIdParts = cellId?.split(" ")?.[1]?.split(":");
-        const sectionCellNumber = sectionCellIdParts?.[0];
+        // Handle both "BOOK CHAPTER:VERSE" (biblical) and "CHAPTER:VERSE" (non-biblical) formats
+        const cellIdWithoutBook = cellId?.includes(" ")
+            ? cellId.split(" ")[1] // Biblical format: "GEN 1:1" → "1:1"
+            : cellId; // Non-biblical format: "1:1" → "1:1"
+        const sectionCellNumber = cellIdWithoutBook?.split(":")?.[0];
         return sectionCellNumber === chapterNumber.toString();
     });
 
