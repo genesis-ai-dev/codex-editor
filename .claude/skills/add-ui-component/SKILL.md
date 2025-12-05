@@ -63,3 +63,10 @@ context.subscriptions.push(
 - **Icons** - Use `$(codicon-name)` format, see [Codicons](https://microsoft.github.io/vscode-codicons/)
 - **Webview ready state** - Track before sending messages
 - **Build webviews** - Run `npm run build:webviews` after React changes
+
+## Post-Session Review
+
+Before ending session, if this skill was used:
+1. What steps failed or needed extra lookup?
+2. What error messages were encountered?
+3. Update this SKILL.md to prevent future issues

@@ -196,12 +196,29 @@ When editing files in subdirectories, check for and read any `CLAUDE.md` in the 
 - `src/projectManager/CLAUDE.md`
 - `webviews/codex-webviews/CLAUDE.md`
 
+## File Organization
+
+- **No root docs**: Plans, summaries, analysis docs → `/plan/{task-slug}/`
+- Root is for code and essential config only
+
 ## Before Finishing a Session
 
-1. Update relevant `CLAUDE.md` files with new patterns/gotchas discovered
-2. Add new commands/views to this guide if created
-3. Document any new migrations or breaking changes
-4. Ensure tests pass: `npm run test && npm run test:webviews`
+### Required
+1. Run tests: `npm run test && npm run lint`
+2. If skill was used → review and update SKILL.md with lessons learned
+3. If user corrected you → update relevant CLAUDE.md to prevent recurrence
+
+### Self-Learning Triggers
+Update CLAUDE.md files when you:
+- Struggled to find files (add to "Key Files by Task")
+- Had to look up how to do something (add pattern/example)
+- Made an error that docs could prevent (add to "Common Mistakes")
+- Discovered new gotcha or pattern worth preserving
+
+### Guidelines
+- Keep concise—compress, don't bloat
+- Generic fixes only, skip one-offs
+- Target the most specific CLAUDE.md (subdirectory > root)
 
 ## Resources
 

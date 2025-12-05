@@ -84,3 +84,10 @@ Common contexts:
 - **When clause** - Control visibility in command palette/menus
 - **Category** - Groups commands in palette, use "Codex Editor"
 - **Both required** - package.json declaration AND code registration
+
+## Post-Session Review
+
+Before ending session, if this skill was used:
+1. What steps failed or needed extra lookup?
+2. What error messages were encountered?
+3. Update this SKILL.md to prevent future issues

@@ -64,3 +64,10 @@ See `src/utils/abTestingSetup.ts` and `docs/AB_TESTING.md` for feature experimen
 - **Streaming** - Use for long responses, update UI progressively
 - **State** - Preview vs saved edits have different dirty state handling
 - **Config** - User settings in `codex-editor-extension` namespace
+
+## Post-Session Review
+
+Before ending session, if this skill was used:
+1. What steps failed or needed extra lookup?
+2. What error messages were encountered?
+3. Update this SKILL.md to prevent future issues
