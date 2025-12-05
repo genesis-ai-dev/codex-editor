@@ -34,11 +34,11 @@ const CommentsBadge: React.FC<CommentsBadgeProps> = ({
     return (
         <Badge
             variant="secondary"
-            className={`cursor-pointer hover:bg-secondary/80 transition-colors ${className}`}
+            className={`cursor-pointer hover:bg-secondary/80 transition-colors ${className} py-1`}
             onClick={handleClick}
             title={`${unresolvedCount} unresolved comment${unresolvedCount > 1 ? "s" : ""}`}
         >
-            <MessageCircle className="w-3 h-3 mr-1" />
+            <MessageCircle className="w-4 h-4 mr-1" />
             {unresolvedCount}
         </Badge>
     );
