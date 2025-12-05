@@ -31,13 +31,7 @@ function CopilotSettingsApp() {
     // ASR (Speech to Text) settings
     const [asrSettings, setAsrSettings] = useState<{
         endpoint: string;
-        provider: 'mms' | 'whisper' | string;
-        model: string;
-        language: string; // ISO-639-3
-        phonetic: boolean;
-    }>({ endpoint: "", provider: "mms", model: "facebook/mms-1b-all", language: "eng", phonetic: false });
-    const [asrModels, setAsrModels] = useState<string[]>([]);
-    const [isFetchingModels, setIsFetchingModels] = useState(false);
+    }>({ endpoint: "" });
 
     useEffect(() => {
         const handler = (event: MessageEvent) => {
@@ -50,9 +44,6 @@ function CopilotSettingsApp() {
                 setTargetLanguage(message.data?.targetLanguage || null);
             } else if (message.command === "asrSettings") {
                 setAsrSettings((prev) => ({ ...prev, ...message.data }));
-            } else if (message.command === "asrModels") {
-                setAsrModels(Array.isArray(message.data) ? message.data.map(String) : []);
-                setIsFetchingModels(false);
             } else if (message.command === "asrSettingsSaved") {
                 // Optional toast could be shown
             } else if (message.command === "updateInput") {
@@ -73,11 +64,6 @@ function CopilotSettingsApp() {
             allowHtmlPredictions,
             text: systemMessage,
         });
-    };
-
-    const handleFetchModels = () => {
-        setIsFetchingModels(true);
-        vscode.postMessage({ command: "fetchAsrModels", data: { endpoint: asrSettings.endpoint } });
     };
 
     const handleSaveAsr = () => {
@@ -118,61 +104,15 @@ function CopilotSettingsApp() {
                     <div className="font-medium mb-2 flex items-center gap-2">
                         <i className="codicon codicon-mic" /> Speech to Text
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3">
                         <div>
                             <label className="text-xs opacity-70">Endpoint</label>
                             <input
                                 className="w-full rounded border px-2 py-1 text-sm"
                                 value={asrSettings.endpoint}
                                 onChange={(e) => setAsrSettings((s) => ({ ...s, endpoint: e.target.value }))}
-                                placeholder="wss://.../ws/transcribe"
+                                placeholder="http://localhost:8000/api/v1/asr/transcribe"
                             />
-                        </div>
-                        <div>
-                            <label className="text-xs opacity-70">Provider</label>
-                            <select
-                                className="w-full rounded border px-2 py-1 text-sm"
-                                value={asrSettings.provider}
-                                onChange={(e) => setAsrSettings((s) => ({ ...s, provider: e.target.value as any }))}
-                            >
-                                <option value="mms">MMS</option>
-                                <option value="whisper">Whisper</option>
-                            </select>
-                        </div>
-                        <div className="md:col-span-2">
-                            <label className="text-xs opacity-70">Model</label>
-                            <div className="flex gap-2">
-                                <select
-                                    className="flex-1 rounded border px-2 py-1 text-sm"
-                                    value={asrSettings.model}
-                                    onChange={(e) => setAsrSettings((s) => ({ ...s, model: e.target.value }))}
-                                >
-                                    {[asrSettings.model, ...asrModels.filter((m) => m !== asrSettings.model)].map((m) => (
-                                        <option key={m} value={m}>{m}</option>
-                                    ))}
-                                </select>
-                                <Button size="sm" variant="outline" onClick={handleFetchModels} disabled={isFetchingModels}>
-                                    {isFetchingModels ? <i className="codicon codicon-loading codicon-modifier-spin" /> : <i className="codicon codicon-refresh" />}
-                                </Button>
-                            </div>
-                        </div>
-                        <div>
-                            <label className="text-xs opacity-70">Language (ISO-639-3)</label>
-                            <input
-                                className="w-full rounded border px-2 py-1 text-sm"
-                                value={asrSettings.language}
-                                onChange={(e) => setAsrSettings((s) => ({ ...s, language: e.target.value }))}
-                                placeholder="eng"
-                            />
-                        </div>
-                        <div className="flex items-center gap-2 mt-2">
-                            <input
-                                id="phonetic"
-                                type="checkbox"
-                                checked={asrSettings.phonetic}
-                                onChange={(e) => setAsrSettings((s) => ({ ...s, phonetic: e.target.checked }))}
-                            />
-                            <label htmlFor="phonetic" className="text-sm">Return phonetic (IPA) if supported</label>
                         </div>
                     </div>
                     <div className="flex justify-end mt-3">

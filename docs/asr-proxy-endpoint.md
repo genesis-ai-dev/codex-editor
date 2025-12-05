@@ -1,136 +1,97 @@
-# ASR WebSocket Endpoint Specification
+# ASR HTTP POST Endpoint Specification
 
-This document describes the WebSocket protocol for implementing an ASR (Automatic Speech Recognition) transcription endpoint compatible with the Codex Editor.
+This document describes the HTTP POST protocol for implementing an ASR (Automatic Speech Recognition) transcription endpoint compatible with the Codex Editor.
 
 ## Overview
 
-The Codex Editor uses a WebSocket-based protocol for real-time audio transcription. This allows for streaming audio data and receiving progress updates during transcription.
+The Codex Editor uses a simple HTTP POST request for audio transcription. This allows for straightforward integration without WebSocket complexity.
 
 ## Authentication
 
-The client passes authentication via a JWT token as a query parameter:
-
-```
-wss://your-endpoint.com/ws/asr?token=JWT_TOKEN
-```
+The client passes authentication via a JWT token as either:
+1. **Authorization header**: `Authorization: Bearer <token>`
+2. **Query parameter**: `?token=<token>&source=codex`
 
 The server should:
-1. Validate the JWT token before establishing the WebSocket connection
-2. Reject connections with invalid or missing tokens
-3. Establish a proxy connection to the actual ASR service (e.g., Modal endpoint)
+1. Validate the JWT token before processing the request
+2. Reject requests with invalid or missing tokens (401)
+3. Establish a connection to the actual ASR service (e.g., Modal endpoint)
+4. Forward the audio file and return the transcription result
 
-## Message Protocol
+## Request Protocol
 
-The client and server communicate using JSON messages and binary data over WebSocket.
+### Endpoint
 
-### 1. Client Sends Metadata (JSON)
-
-First, the client sends a JSON string with transcription configuration:
-
-```json
-{
-  "type": "meta",
-  "provider": "mms",
-  "model": "facebook/mms-1b-all",
-  "mime": "audio/webm",
-  "language": "eng",
-  "task": "transcribe",
-  "phonetic": false
-}
+```
+POST /api/v1/asr/transcribe
 ```
 
-#### Metadata Fields
+### Headers
 
-- `type`: Always `"meta"` for metadata messages
-- `provider`: ASR provider - `"mms"` (Massively Multilingual Speech) or `"whisper"`
-- `model`: Model identifier (e.g., `"facebook/mms-1b-all"`)
-- `mime`: Audio MIME type (e.g., `"audio/webm"`, `"audio/wav"`, `"audio/mp3"`)
-- `language`: ISO-639-3 language code (required for MMS, e.g., `"eng"`, `"fra"`, `"spa"`)
-- `task`: Either `"transcribe"` or `"translate"`
-- `phonetic`: Boolean indicating if phonetic (IPA) transcription is desired
-
-#### Minimal Metadata (Whisper)
-
-For Whisper provider with auto-detection:
-
-```json
-{
-  "type": "meta",
-  "mime": "audio/webm"
-}
+```
+Content-Type: multipart/form-data
+Authorization: Bearer <token>  (optional if token in query)
 ```
 
-### 2. Client Sends Audio Data (Binary)
+### Query Parameters
 
-Immediately after metadata, the client sends the audio file as a binary Blob.
+- `source` (required): `"codex"` or `"langquest"`
+- `token` (optional): JWT token if not in Authorization header
 
-### 3. Server Sends Progress Updates (JSON)
+### Request Body
 
-During processing, the server can send progress updates:
+**Content-Type**: `multipart/form-data`
 
-```json
-{
-  "type": "progress",
-  "data": "Processing audio...",
-  "percentage": 50
-}
+**Form Fields**:
+- `file`: Audio file (WAV, MP3, OGG, FLAC, WebM - max 50MB)
+
+### Example Request
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/asr/transcribe?source=codex&token=JWT_TOKEN" \
+  -F "file=@audio.wav"
 ```
 
-- `type`: Always `"progress"`
-- `data`: Human-readable progress message
-- `percentage`: Progress percentage (0-100)
+## Response Protocol
 
-### 4. Server Sends Transcription Result (JSON)
-
-Upon completion, the server sends the final result:
+### Success Response (200 OK)
 
 ```json
 {
-  "type": "done",
   "text": "This is the transcribed text",
-  "language": "eng",
-  "provider": "mms",
-  "model": "facebook/mms-1b-all",
-  "phonetic": "ðɪs ɪz ðə trænskraɪbd tɛkst"
+  "duration_s": 4.94,
+  "inference_s": 1.72
 }
 ```
 
-- `type`: Always `"done"`
-- `text`: Transcribed text (required)
-- `language`: Detected or specified language code
-- `provider`: ASR provider used
-- `model`: Model used for transcription
-- `phonetic`: Phonetic (IPA) transcription if requested (optional)
-
-### 5. Server Sends Error Messages (JSON)
-
-If an error occurs, the server sends:
+### Error Response (4xx/5xx)
 
 ```json
 {
-  "type": "error",
-  "message": "Transcription failed: invalid audio format"
+  "detail": "Error description"
 }
 ```
 
-- `type`: Always `"error"`
-- `message`: Human-readable error description
+**Common Error Codes**:
+- `400`: Bad Request (missing source parameter, invalid audio format)
+- `401`: Unauthorized (invalid or missing token)
+- `502`: Bad Gateway (upstream service unavailable)
+- `504`: Gateway Timeout (upstream service timeout)
 
 ## Example Implementation (Python/FastAPI)
 
 Here's a basic example of implementing the ASR proxy endpoint:
 
 ```python
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Header
 from fastapi.responses import JSONResponse
-import websockets
-import json
+import httpx
 import jwt
 
 app = FastAPI()
 
 # Configuration
-ASR_SERVICE_URL = "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe"
+ASR_SERVICE_URL = "https://genesis-ai-dev--mms-zeroshot-asr-serve.modal.run/transcribe"
 JWT_SECRET = "your-jwt-secret"
 
 def validate_token(token: str) -> dict:
@@ -141,75 +102,47 @@ def validate_token(token: str) -> dict:
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-@app.websocket("/ws/asr")
-async def websocket_asr_proxy(
-    websocket: WebSocket,
-    token: str = Query(...)
+@app.post("/api/v1/asr/transcribe")
+async def transcribe_audio(
+    file: UploadFile = File(...),
+    authorization: Optional[str] = Header(None),
+    token: Optional[str] = Query(None),
+    source: str = Query(...)
 ):
-    """WebSocket proxy for ASR transcription with authentication"""
+    """HTTP POST endpoint for ASR transcription with authentication"""
+    
+    # Extract token from header or query
+    auth_token = None
+    if authorization and authorization.startswith("Bearer "):
+        auth_token = authorization[7:]
+    elif token:
+        auth_token = token
+    
+    if not auth_token:
+        raise HTTPException(status_code=401, detail="Token required")
     
     # Validate token
     try:
-        user = validate_token(token)
+        user = validate_token(auth_token)
         user_id = user.get("sub")
     except HTTPException:
-        await websocket.close(code=1008, reason="Invalid authentication token")
-        return
+        raise
     
-    # Accept client connection
-    await websocket.accept()
+    # Read audio file
+    audio_content = await file.read()
     
-    # Log usage
-    print(f"User {user_id} starting transcription")
-    
-    # Connect to actual ASR service
-    try:
-        async with websockets.connect(ASR_SERVICE_URL) as asr_ws:
-            async def forward_to_client():
-                """Forward messages from ASR service to client"""
-                try:
-                    async for message in asr_ws:
-                        await websocket.send_text(message)
-                except Exception as e:
-                    print(f"Error forwarding to client: {e}")
-            
-            async def forward_to_asr():
-                """Forward messages from client to ASR service"""
-                try:
-                    while True:
-                        message = await websocket.receive()
-                        
-                        if "text" in message:
-                            # Forward JSON metadata
-                            await asr_ws.send(message["text"])
-                        elif "bytes" in message:
-                            # Forward binary audio data
-                            await asr_ws.send(message["bytes"])
-                except WebSocketDisconnect:
-                    print("Client disconnected")
-                except Exception as e:
-                    print(f"Error forwarding to ASR: {e}")
-            
-            # Run both forwarding tasks concurrently
-            import asyncio
-            await asyncio.gather(
-                forward_to_client(),
-                forward_to_asr()
+    # Forward to upstream ASR service
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        files = {"file": (file.filename, audio_content, file.content_type)}
+        response = await client.post(ASR_SERVICE_URL, files=files)
+        
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"Transcription service error: {response.text}"
             )
-            
-    except Exception as e:
-        error_msg = json.dumps({
-            "type": "error",
-            "message": f"Failed to connect to ASR service: {str(e)}"
-        })
-        await websocket.send_text(error_msg)
-    finally:
-        await websocket.close()
-        print(f"User {user_id} transcription session ended")
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+        
+        return JSONResponse(content=response.json())
 ```
 
 ## Client Implementation Reference
@@ -222,35 +155,22 @@ The Codex Editor client implementation can be found in:
 ### Key Client Behavior
 
 1. Requests ASR config (including auth token) from VS Code extension
-2. Constructs WebSocket URL with token as query parameter
-3. Opens WebSocket connection
-4. Sends metadata JSON
-5. Sends audio binary data
-6. Listens for progress updates
-7. Receives final transcription result
-8. Handles errors and timeouts (default 30s)
+2. Creates FormData with audio blob
+3. POSTs to endpoint URL with token in query parameter or Authorization header
+4. Receives JSON response with transcription text
+5. Handles errors and timeouts (default 60s)
 
 ## Testing Your Implementation
-
-### Test with Manual Endpoint
-
-Users can test custom ASR endpoints by setting the VS Code configuration:
-
-```json
-{
-  "codex-editor-extension.asrEndpoint": "ws://localhost:8000/ws/asr"
-}
-```
 
 ### Test Cases
 
 1. **Valid audio**: Should return transcription
 2. **Invalid audio format**: Should return error message
-3. **Missing token**: Should reject connection
-4. **Invalid token**: Should reject connection with 401
-5. **Timeout**: Should handle gracefully (client has 30s timeout)
-6. **Large audio files**: Should handle streaming properly
-7. **Connection interruption**: Should clean up resources
+3. **Missing token**: Should reject with 401
+4. **Invalid token**: Should reject with 401
+5. **Timeout**: Should handle gracefully (client has 60s timeout)
+6. **Large audio files**: Should handle up to 50MB
+7. **Network errors**: Should return appropriate error codes
 
 ## Supported Audio Formats
 
@@ -261,34 +181,32 @@ The endpoint should support common audio formats:
 - `audio/mp3`
 - `audio/m4a`
 - `audio/ogg`
-- `audio/aac`
 - `audio/flac`
 
 ## Security Considerations
 
 1. **Token Validation**: Always validate JWT tokens before processing
 2. **Rate Limiting**: Implement per-user rate limits to prevent abuse
-3. **File Size Limits**: Set reasonable limits on audio file sizes
-4. **Timeout**: Implement server-side timeouts to prevent hanging connections
+3. **File Size Limits**: Set reasonable limits on audio file sizes (50MB recommended)
+4. **Timeout**: Implement server-side timeouts to prevent hanging requests (60s recommended)
 5. **Logging**: Log usage for monitoring and debugging (but respect privacy)
-6. **HTTPS/WSS**: Always use secure WebSocket connections in production
+6. **HTTPS**: Always use secure connections in production
 
 ## Performance Recommendations
 
-1. **Streaming**: Use streaming audio processing when possible
-2. **Caching**: Cache model loading to reduce cold starts
+1. **Streaming**: For very large files, consider streaming uploads
+2. **Caching**: Cache model loading to reduce cold starts (handled by upstream service)
 3. **Resource Cleanup**: Properly close connections and free resources
 4. **Concurrent Requests**: Handle multiple simultaneous transcriptions efficiently
-5. **Progress Updates**: Send periodic updates for long transcriptions (>5s)
+5. **Timeout Handling**: Set reasonable timeouts for upstream requests
 
 ## Integration with Frontier Auth Server
 
 The Frontier auth server should:
 
-1. Provide `getAsrEndpoint()` method returning the proxy WebSocket URL
+1. Provide `getAsrEndpoint()` method returning the proxy HTTP URL
 2. Generate short-lived JWT tokens for ASR requests
 3. Include user identification in tokens for logging
 4. Handle token refresh if needed for long transcriptions
 
 This follows the same pattern as the existing `getLlmEndpoint()` implementation.
-

@@ -17,7 +17,7 @@ import SourceCellContext from "./contextProviders/SourceCellContext";
 import ConfirmationButton from "./ConfirmationButton";
 import { generateChildCellId } from "../../../../src/providers/codexCellEditorProvider/utils/cellUtils";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
-import { WhisperTranscriptionClient, type AsrMeta } from "./WhisperTranscriptionClient";
+import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 import AudioWaveformWithTranscription from "./AudioWaveformWithTranscription";
 import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
 import SourceTextDisplay from "./SourceTextDisplay";
@@ -1364,37 +1364,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
             const client = new WhisperTranscriptionClient(wsEndpoint, asrConfig?.authToken);
             transcriptionClientRef.current = client;
 
-            // Set up progress handler
-            client.onProgress = (message, percentage) => {
-                setTranscriptionStatus(message);
-                setTranscriptionProgress(percentage);
-            };
-
             client.onError = (error) => {
                 setTranscriptionStatus(`Error: ${error}`);
             };
 
-            // Prepare provider-specific metadata
-            let meta: AsrMeta;
-            const mime = audioBlob.type || "audio/webm";
-            const provider = (asrConfig?.provider || "mms").toLowerCase();
-            if (provider === "mms") {
-                meta = {
-                    type: "meta",
-                    provider: "mms",
-                    model: asrConfig?.model || "facebook/mms-1b-all",
-                    mime,
-                    language: toIso3(asrConfig?.language || "eng"),
-                    task: "transcribe",
-                    phonetic: !!asrConfig?.phonetic,
-                };
-            } else {
-                // Whisper or other providers that follow Whisper semantics
-                meta = { type: "meta", mime };
-            }
-
             // Perform transcription
-            const result = await client.transcribe(audioBlob, meta);
+            const result = await client.transcribe(audioBlob);
 
             // Success - save transcription but don't automatically insert
             const transcribedText = result.text.trim();
@@ -1405,7 +1380,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     const transcriptionData = {
                         content: transcribedText,
                         timestamp: Date.now(),
-                        language: result.language,
                     };
 
                     // Save to cell metadata via provider
@@ -1414,7 +1388,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         content: {
                             cellId: cellMarkers[0],
                             transcribedText: transcribedText,
-                            language: result.language || "unknown",
+                            language: "unknown",
                         },
                     };
                     window.vscodeApi.postMessage(messageContent);
@@ -1423,7 +1397,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     setSavedTranscription(transcriptionData);
                 }
 
-                setTranscriptionStatus(`Transcription complete (${result.language})`);
+                setTranscriptionStatus("Transcription complete");
             } else {
                 setTranscriptionStatus("No speech detected in audio");
             }
