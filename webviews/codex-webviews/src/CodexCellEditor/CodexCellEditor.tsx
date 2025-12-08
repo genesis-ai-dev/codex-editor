@@ -1192,6 +1192,18 @@ const CodexCellEditor: React.FC = () => {
             setIsSourceText(isSourceTextValue);
             setSourceCellMap(sourceCellMapValue);
 
+            // Update chapter number to match the milestone value if milestone navigation is active
+            if (
+                milestoneIdx.milestones.length > 0 &&
+                currentMilestoneIdx < milestoneIdx.milestones.length
+            ) {
+                const milestone = milestoneIdx.milestones[currentMilestoneIdx];
+                const chapterNum = parseInt(milestone.value, 10);
+                if (!isNaN(chapterNum) && chapterNum > 0) {
+                    setChapterNumber(chapterNum);
+                }
+            }
+
             // Mark this page as loaded and cache the cells
             const pageKey = `${currentMilestoneIdx}-${currentSubsectionIdx}`;
             loadedPagesRef.current.add(pageKey);

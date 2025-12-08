@@ -607,8 +607,30 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Build milestone index for paginated loading
             const milestoneIndex = document.buildMilestoneIndex(this.CELLS_PER_PAGE);
 
-            // Get first page of cells (milestone 0, subsection 0)
-            const initialCells = document.getCellsForMilestone(0, 0, this.CELLS_PER_PAGE);
+            // Get cached chapter and map it to milestone index
+            const cachedChapter = this.getCachedChapter(document.uri.toString());
+            let initialMilestoneIndex = 0;
+            const initialSubsectionIndex = 0;
+
+            // If we have milestones and a cached chapter, try to find the matching milestone
+            if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
+                // Find milestone that matches the cached chapter number
+                const milestoneIdx = milestoneIndex.milestones.findIndex(
+                    (milestone) => milestone.value === cachedChapter.toString()
+                );
+                if (milestoneIdx !== -1) {
+                    initialMilestoneIndex = milestoneIdx;
+                } else {
+                    // Fallback: try using chapter number as index (1-indexed to 0-indexed)
+                    const fallbackIdx = cachedChapter - 1;
+                    if (fallbackIdx >= 0 && fallbackIdx < milestoneIndex.milestones.length) {
+                        initialMilestoneIndex = fallbackIdx;
+                    }
+                }
+            }
+
+            // Get first page of cells for the initial milestone
+            const initialCells = document.getCellsForMilestone(initialMilestoneIndex, initialSubsectionIndex, this.CELLS_PER_PAGE);
             const processedInitialCells = this.mergeRangesAndProcess(initialCells, this.isCorrectionEditorMode, isSourceText);
 
             // Build source cell map for the initial cells only
@@ -624,8 +646,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 type: "providerSendsInitialContentPaginated",
                 milestoneIndex: milestoneIndex,
                 cells: processedInitialCells,
-                currentMilestoneIndex: 0,
-                currentSubsectionIndex: 0,
+                currentMilestoneIndex: initialMilestoneIndex,
+                currentSubsectionIndex: initialSubsectionIndex,
                 isSourceText: isSourceText,
                 sourceCellMap: initialSourceCellMap,
                 username: username,
@@ -2144,8 +2166,30 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Build milestone index for paginated loading
         const milestoneIndex = document.buildMilestoneIndex(this.CELLS_PER_PAGE);
 
-        // Get first page of cells (milestone 0, subsection 0)
-        const initialCells = document.getCellsForMilestone(0, 0, this.CELLS_PER_PAGE);
+        // Get cached chapter and map it to milestone index
+        const cachedChapter = this.getCachedChapter(document.uri.toString());
+        let initialMilestoneIndex = 0;
+        const initialSubsectionIndex = 0;
+
+        // If we have milestones and a cached chapter, try to find the matching milestone
+        if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
+            // Find milestone that matches the cached chapter number
+            const milestoneIdx = milestoneIndex.milestones.findIndex(
+                (milestone) => milestone.value === cachedChapter.toString()
+            );
+            if (milestoneIdx !== -1) {
+                initialMilestoneIndex = milestoneIdx;
+            } else {
+                // Fallback: try using chapter number as index (1-indexed to 0-indexed)
+                const fallbackIdx = cachedChapter - 1;
+                if (fallbackIdx >= 0 && fallbackIdx < milestoneIndex.milestones.length) {
+                    initialMilestoneIndex = fallbackIdx;
+                }
+            }
+        }
+
+        // Get first page of cells for the initial milestone
+        const initialCells = document.getCellsForMilestone(initialMilestoneIndex, initialSubsectionIndex, this.CELLS_PER_PAGE);
         const processedInitialCells = this.mergeRangesAndProcess(initialCells, this.isCorrectionEditorMode, isSourceText);
 
         // Build source cell map for the initial cells only
@@ -2164,8 +2208,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 type: "providerSendsInitialContentPaginated",
                 milestoneIndex: milestoneIndex,
                 cells: processedInitialCells,
-                currentMilestoneIndex: 0,
-                currentSubsectionIndex: 0,
+                currentMilestoneIndex: initialMilestoneIndex,
+                currentSubsectionIndex: initialSubsectionIndex,
                 isSourceText: isSourceText,
                 sourceCellMap: initialSourceCellMap,
                 username: username,

@@ -691,17 +691,20 @@ ChapterNavigationHeaderProps) {
     }, []);
 
     // Update the jumpToChapter function to be reusable
-    const jumpToChapter = (newChapter: number) => {
-        if (!unsavedChanges && newChapter !== chapterNumber) {
-            vscode.postMessage({
-                command: "jumpToChapter",
-                chapterNumber: newChapter,
-            });
-            setChapterNumber(newChapter);
-            // Reset to first page when jumping to a different chapter through chapter selector
-            setCurrentSubsectionIndex(0);
-        }
-    };
+    const jumpToChapter = useCallback(
+        (newChapter: number) => {
+            if (!unsavedChanges && newChapter !== chapterNumber) {
+                vscode.postMessage({
+                    command: "jumpToChapter",
+                    chapterNumber: newChapter,
+                });
+                setChapterNumber(newChapter);
+                // Reset to first page when jumping to a different chapter through chapter selector
+                setCurrentSubsectionIndex(0);
+            }
+        },
+        [unsavedChanges, chapterNumber, vscode, setChapterNumber, setCurrentSubsectionIndex]
+    );
 
     // Navigation function for milestone-based navigation
     const jumpToMilestone = useCallback(
@@ -731,6 +734,54 @@ ChapterNavigationHeaderProps) {
             requestCellsForMilestone,
             setCurrentMilestoneIndex,
             setCurrentSubsectionIndex,
+        ]
+    );
+
+    // Handler for chapter selection that works with both milestone and chapter navigation
+    const handleChapterSelection = useCallback(
+        (selectedChapter: number) => {
+            if (useMilestoneNavigation && milestoneIndex) {
+                // Find the milestone index that corresponds to this chapter number
+                // Milestone values are strings like "1", "2", etc. (chapter numbers)
+                const milestoneIdx = milestoneIndex.milestones.findIndex(
+                    (milestone) => milestone.value === selectedChapter.toString()
+                );
+
+                if (milestoneIdx !== -1) {
+                    // Found matching milestone, navigate to it
+                    // Also cache the chapter number so it persists when switching files
+                    vscode.postMessage({
+                        command: "jumpToChapter",
+                        chapterNumber: selectedChapter,
+                    });
+                    setChapterNumber(selectedChapter);
+                    jumpToMilestone(milestoneIdx, 0);
+                } else {
+                    // Fallback: try to find by index (if chapters are 1-indexed and milestones are 0-indexed)
+                    // This handles edge cases where milestone values might not match exactly
+                    const fallbackIdx = selectedChapter - 1;
+                    if (fallbackIdx >= 0 && fallbackIdx < milestoneIndex.milestones.length) {
+                        // Also cache the chapter number so it persists when switching files
+                        vscode.postMessage({
+                            command: "jumpToChapter",
+                            chapterNumber: selectedChapter,
+                        });
+                        setChapterNumber(selectedChapter);
+                        jumpToMilestone(fallbackIdx, 0);
+                    }
+                }
+            } else {
+                // Use chapter-based navigation
+                jumpToChapter(selectedChapter);
+            }
+        },
+        [
+            useMilestoneNavigation,
+            milestoneIndex,
+            jumpToMilestone,
+            jumpToChapter,
+            vscode,
+            setChapterNumber,
         ]
     );
 
@@ -1578,7 +1629,7 @@ ChapterNavigationHeaderProps) {
             <ChapterSelectorModal
                 isOpen={showChapterSelector}
                 onClose={() => setShowChapterSelector(false)}
-                onSelectChapter={jumpToChapter}
+                onSelectChapter={handleChapterSelection}
                 currentChapter={chapterNumber}
                 totalChapters={totalChapters}
                 bookTitle={getDisplayTitle().split("\u00A0")[0]}
