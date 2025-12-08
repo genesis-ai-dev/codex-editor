@@ -214,6 +214,15 @@ ChapterNavigationHeaderProps) {
         ? currentMilestoneIndex
         : chapterNumber - 1; // Convert 1-based chapter to 0-based index
 
+    // Check if navigation buttons should be disabled (only 1 milestone and 1 subsection)
+    const shouldDisableNavigation = useMemo(() => {
+        return !!(
+            useMilestoneNavigation &&
+            milestoneIndex?.milestones.length === 1 &&
+            subsections.length <= 1
+        );
+    }, [useMilestoneNavigation, milestoneIndex?.milestones.length, subsections.length]);
+
     // Helper to determine if any translation is in progress
     const isAnyTranslationInProgress = isAutocompletingChapter || isTranslatingCell;
 
@@ -1023,7 +1032,7 @@ ChapterNavigationHeaderProps) {
                         className="inline-flex transition-all duration-200 ease-in-out"
                         variant="outline"
                         size="default"
-                        disabled={isLoadingCells}
+                        disabled={isLoadingCells || shouldDisableNavigation}
                         onClick={() => {
                             if (!unsavedChanges) {
                                 // Check if we're on the first page of the current section
@@ -1169,7 +1178,7 @@ ChapterNavigationHeaderProps) {
                         className="inline-flex transition-all duration-200 ease-in-out"
                         variant="outline"
                         size="default"
-                        disabled={isLoadingCells}
+                        disabled={isLoadingCells || shouldDisableNavigation}
                         onClick={() => {
                             if (!unsavedChanges) {
                                 // Check if we're on the last page of the current section
