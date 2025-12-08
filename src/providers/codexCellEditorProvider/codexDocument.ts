@@ -1364,9 +1364,19 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // Include leading paratext cells for the first subsection
         const result: QuillCellContent[] = [];
         if (validSubsectionIndex === 0) {
-            // Add any paratext cells that come before the first content cell
+            // Find the original index of the first content cell in the milestone section
+            let firstContentCellOriginalIndex = endCellIndex; // Default to end if no content cells
+            for (let i = startCellIndex; i < endCellIndex; i++) {
+                const cell = cells[i];
+                if (cell.metadata?.type !== CodexCellTypes.MILESTONE &&
+                    cell.metadata?.type !== "paratext") {
+                    firstContentCellOriginalIndex = i;
+                    break;
+                }
+            }
+            // Add all paratext cells that come before the first content cell
             for (const pt of paratextCells) {
-                if (pt.originalIndex < startCellIndex + startContentIndex) {
+                if (pt.originalIndex < firstContentCellOriginalIndex) {
                     result.push(pt.cell);
                 }
             }

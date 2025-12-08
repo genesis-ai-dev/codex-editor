@@ -4098,24 +4098,25 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
                 // Wait for scheduled messages to be sent with polling/retries
                 // CI environments may be slower, so we poll with exponential backoff
+                // With milestone-based pagination, the provider sends providerSendsInitialContentPaginated
                 let initialContentMessage = postMessageCalls.find(
-                    (msg) => msg.type === "providerSendsInitialContent"
+                    (msg) => msg.type === "providerSendsInitialContentPaginated"
                 );
                 let attempts = 0;
                 const maxAttempts = 20;
                 while (!initialContentMessage && attempts < maxAttempts) {
                     await sleep(50 * (attempts + 1)); // Exponential backoff: 50ms, 100ms, 150ms...
                     initialContentMessage = postMessageCalls.find(
-                        (msg) => msg.type === "providerSendsInitialContent"
+                        (msg) => msg.type === "providerSendsInitialContentPaginated"
                     );
                     attempts++;
                 }
 
-                // Verify that providerSendsInitialContent message is sent with isSourceText: true
+                // Verify that providerSendsInitialContentPaginated message is sent with isSourceText: true
                 // This ensures the webview knows it's displaying source text, which is required for merge buttons
                 assert.ok(
                     initialContentMessage,
-                    `providerSendsInitialContent message should be sent after refresh (attempted ${attempts} times, found messages: ${postMessageCalls.map(m => m.type).join(', ')})`
+                    `providerSendsInitialContentPaginated message should be sent after refresh (attempted ${attempts} times, found messages: ${postMessageCalls.map(m => m.type).join(', ')})`
                 );
                 assert.strictEqual(
                     initialContentMessage.isSourceText,
@@ -4124,7 +4125,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 );
 
                 // Verify that we have multiple cells (merge buttons only show on non-first cells)
-                const cellContent = initialContentMessage.content || [];
+                // With milestone-based pagination, cells are in the 'cells' property, not 'content'
+                const cellContent = initialContentMessage.cells || [];
                 assert.ok(
                     Array.isArray(cellContent) && cellContent.length >= 2,
                     "Source file should have at least 2 cells for merge buttons to appear (merge buttons only show on non-first cells)"
