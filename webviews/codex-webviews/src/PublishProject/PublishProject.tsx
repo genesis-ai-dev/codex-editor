@@ -82,16 +82,10 @@ export default function PublishProject() {
         if (!canCreate) return;
         setError(undefined);
 
-        // Append projectId to name if available
-        let finalName = name;
-        if (projectId) {
-            finalName = `${name}-${projectId}`;
-        }
-
         vscode.postMessage({
             command: "createProject",
             payload: {
-                name: finalName,
+                name: name,
                 description: description || undefined,
                 visibility,
                 projectType: "group",

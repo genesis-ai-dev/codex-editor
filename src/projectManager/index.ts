@@ -158,20 +158,6 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                     const userInfo = await authApi?.getUserInfo();
                     if (userInfo?.username) {
                         author = userInfo.username;
-                    } else {
-                        const gitUsername = vscode.workspace.getConfiguration("git").get<string>("username");
-                        if (gitUsername) {
-                            author = gitUsername;
-                        } else {
-                            try {
-                                const session = await vscode.authentication.getSession('github', ['user:email'], { createIfNone: false });
-                                if (session && session.account) {
-                                    author = session.account.label;
-                                }
-                            } catch (e) {
-                                // Auth provider might not be available
-                            }
-                        }
                     }
                 } catch (error) {
                     // Silent fallback to "unknown"
@@ -252,20 +238,6 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                     const userInfo = await authApi?.getUserInfo();
                     if (userInfo?.username) {
                         author = userInfo.username;
-                    } else {
-                        const gitUsername = vscode.workspace.getConfiguration("git").get<string>("username");
-                        if (gitUsername) {
-                            author = gitUsername;
-                        } else {
-                            try {
-                                const session = await vscode.authentication.getSession('github', ['user:email'], { createIfNone: false });
-                                if (session && session.account) {
-                                    author = session.account.label;
-                                }
-                            } catch (e) {
-                                // Auth provider might not be available
-                            }
-                        }
                     }
                 } catch (error) {
                     // Silent fallback to "unknown"

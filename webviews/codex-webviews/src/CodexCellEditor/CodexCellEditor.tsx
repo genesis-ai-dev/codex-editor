@@ -39,7 +39,7 @@ import { Subsection, ProgressPercentages } from "../lib/types";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { createCacheHelpers } from "./utils";
-import { WhisperTranscriptionClient, type AsrMeta } from "./WhisperTranscriptionClient";
+import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 
 // eslint-disable-next-line react-refresh/only-export-components
 export enum CELL_DISPLAY_MODES {
@@ -428,22 +428,6 @@ const CodexCellEditor: React.FC = () => {
                         // Convert data URL to Blob
                         const blob = await (await fetch(audioInfo.audioData)).blob();
 
-                        // Build meta
-                        const mime = blob.type || "audio/webm";
-                        const provider = (asrConfig.provider || "mms").toLowerCase();
-                        let meta: AsrMeta = { type: "meta", mime };
-                        if (provider === "mms") {
-                            meta = {
-                                type: "meta",
-                                provider: "mms",
-                                model: asrConfig.model || "facebook/mms-1b-all",
-                                mime,
-                                language: toIso3(asrConfig.language || "eng"),
-                                task: "transcribe",
-                                phonetic: !!asrConfig.phonetic,
-                            };
-                        }
-
                         // Transcribe
                         console.log(
                             `[BatchTranscription] Creating client for cell ${cellId}: endpoint=${wsEndpoint}, hasToken=${!!asrConfig.authToken}`
@@ -459,7 +443,7 @@ const CodexCellEditor: React.FC = () => {
                                 next.add(cellId);
                                 return next;
                             });
-                            const result = await client.transcribe(blob, meta, 30000);
+                            const result = await client.transcribe(blob);
                             const text = (result.text || "").trim();
                             if (text) {
                                 vscode.postMessage({
@@ -467,7 +451,7 @@ const CodexCellEditor: React.FC = () => {
                                     content: {
                                         cellId,
                                         transcribedText: text,
-                                        language: result.language || "unknown",
+                                        language: "unknown",
                                     },
                                 } as unknown as EditorPostMessages);
 

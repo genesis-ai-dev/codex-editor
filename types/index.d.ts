@@ -1326,7 +1326,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "setGlobalTextDirection"; }
     | { command: "setGlobalLineNumbers"; }
     | { command: "getAsrSettings"; }
-    | { command: "saveAsrSettings"; data: { endpoint: string; provider: string; model: string; language: string; phonetic: boolean; }; }
+    | { command: "saveAsrSettings"; data: { endpoint: string; }; }
     | { command: "fetchAsrModels"; data: { endpoint: string; }; };
 
 interface ProjectManagerState {
@@ -1394,7 +1394,7 @@ type ProjectManagerMessageToWebview =
             isCheckingForUpdates: boolean;
         };
     }
-    | { command: "asrSettings"; data: { endpoint: string; provider: string; model: string; language: string; phonetic: boolean; }; }
+    | { command: "asrSettings"; data: { endpoint: string; }; }
     | { command: "asrModels"; data: string[]; }
     | { command: "asrSettingsSaved"; };
 
@@ -1868,7 +1868,7 @@ type EditorReceiveMessages =
     }
     | { type: "refreshFontSizes"; }
     | { type: "refreshMetadata"; }
-    | { type: "asrConfig"; content: { endpoint: string; provider: string; model: string; language: string; phonetic: boolean; }; }
+    | { type: "asrConfig"; content: { endpoint: string; authToken?: string; }; }
     | { type: "startBatchTranscription"; content: { count: number; }; }
     | {
         type: "providerConfirmsBacktranslationSet";
