@@ -711,13 +711,17 @@ ChapterNavigationHeaderProps) {
                 (newMilestoneIdx !== currentMilestoneIndex ||
                     newSubsectionIdx !== currentSubsectionIndex)
             ) {
+                // requestCellsForMilestone handles state updates internally
+                // (both for cached pages and when loading new pages)
                 if (requestCellsForMilestone) {
                     requestCellsForMilestone(newMilestoneIdx, newSubsectionIdx);
+                } else {
+                    // Fallback if requestCellsForMilestone is not provided
+                    if (setCurrentMilestoneIndex) {
+                        setCurrentMilestoneIndex(newMilestoneIdx);
+                    }
+                    setCurrentSubsectionIndex(newSubsectionIdx);
                 }
-                if (setCurrentMilestoneIndex) {
-                    setCurrentMilestoneIndex(newMilestoneIdx);
-                }
-                setCurrentSubsectionIndex(newSubsectionIdx);
             }
         },
         [

@@ -38,6 +38,7 @@ import { getVSCodeAPI } from "../shared/vscodeApi";
 import { Subsection, ProgressPercentages } from "../lib/types";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
+import { createCacheHelpers } from "./utils";
 import { WhisperTranscriptionClient, type AsrMeta } from "./WhisperTranscriptionClient";
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -254,6 +255,22 @@ const CodexCellEditor: React.FC = () => {
 
     // Track which milestone/subsection combinations have been loaded
     const loadedPagesRef = useRef<Set<string>>(new Set());
+
+    // Cache cells for each loaded page (LRU cache with max size of 10)
+    const cellsCacheRef = useRef<Map<string, QuillCellContent[]>>(new Map());
+    const MAX_CACHE_SIZE = 10;
+
+    // Create cache helpers
+    const { getCachedCells, setCachedCells } = useMemo(
+        () =>
+            createCacheHelpers(cellsCacheRef, loadedPagesRef, MAX_CACHE_SIZE, (category, message) =>
+                debug(category, message)
+            ),
+        []
+    );
+
+    // Track the latest request to ignore stale responses
+    const latestRequestRef = useRef<{ milestoneIdx: number; subsectionIdx: number } | null>(null);
 
     // Add audio attachments state
     const [audioAttachments, setAudioAttachments] = useState<{
@@ -1175,9 +1192,10 @@ const CodexCellEditor: React.FC = () => {
             setIsSourceText(isSourceTextValue);
             setSourceCellMap(sourceCellMapValue);
 
-            // Mark this page as loaded
+            // Mark this page as loaded and cache the cells
             const pageKey = `${currentMilestoneIdx}-${currentSubsectionIdx}`;
             loadedPagesRef.current.add(pageKey);
+            setCachedCells(pageKey, cells);
             setIsLoadingCells(false);
 
             // If we're currently saving, this content update likely means the save completed
@@ -1206,6 +1224,20 @@ const CodexCellEditor: React.FC = () => {
                 cells: cells.length,
             });
 
+            // Ignore stale responses - only process if this matches the latest request
+            const latestRequest = latestRequestRef.current;
+            if (
+                latestRequest &&
+                (latestRequest.milestoneIdx !== milestoneIdx ||
+                    latestRequest.subsectionIdx !== subsectionIdx)
+            ) {
+                debug(
+                    "pagination",
+                    `Ignoring stale response for milestone ${milestoneIdx}, subsection ${subsectionIdx}. Latest request is milestone ${latestRequest.milestoneIdx}, subsection ${latestRequest.subsectionIdx}`
+                );
+                return;
+            }
+
             // Replace translation units with new cells
             setTranslationUnits(cells);
             setCurrentMilestoneIndex(milestoneIdx);
@@ -1214,9 +1246,10 @@ const CodexCellEditor: React.FC = () => {
             // Merge source cell map
             setSourceCellMap((prev) => ({ ...prev, ...sourceCellMapValue }));
 
-            // Mark this page as loaded
+            // Mark this page as loaded and cache the cells
             const pageKey = `${milestoneIdx}-${subsectionIdx}`;
             loadedPagesRef.current.add(pageKey);
+            setCachedCells(pageKey, cells);
             setIsLoadingCells(false);
         },
     });
@@ -1453,13 +1486,24 @@ const CodexCellEditor: React.FC = () => {
         (milestoneIdx: number, subsectionIdx: number = 0) => {
             const pageKey = `${milestoneIdx}-${subsectionIdx}`;
 
+            // Track this as the latest request
+            latestRequestRef.current = { milestoneIdx, subsectionIdx };
+
             // Check if this page is already loaded
             if (loadedPagesRef.current.has(pageKey)) {
-                debug("pagination", `Page ${pageKey} already loaded, skipping request`);
-                // Just update the current indices to show the cached content
-                setCurrentMilestoneIndex(milestoneIdx);
-                setCurrentSubsectionIndex(subsectionIdx);
-                return;
+                debug("pagination", `Page ${pageKey} already loaded, using cached cells`);
+                // Retrieve cached cells and update state (this also updates LRU order)
+                const cachedCells = getCachedCells(pageKey);
+                if (cachedCells) {
+                    setTranslationUnits(cachedCells);
+                    setCurrentMilestoneIndex(milestoneIdx);
+                    setCurrentSubsectionIndex(subsectionIdx);
+                    setIsLoadingCells(false);
+                    return;
+                } else {
+                    // Cache miss - fall through to request new cells
+                    debug("pagination", `Cache miss for ${pageKey}, requesting cells`);
+                }
             }
 
             debug(
@@ -1476,7 +1520,7 @@ const CodexCellEditor: React.FC = () => {
                 },
             } as EditorPostMessages);
         },
-        [vscode]
+        [vscode, getCachedCells]
     );
 
     // Get total number of milestones
