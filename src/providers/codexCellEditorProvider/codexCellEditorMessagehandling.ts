@@ -234,11 +234,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     getAsrConfig: async ({ webviewPanel }) => {
         try {
             const config = vscode.workspace.getConfiguration("codex-editor-extension");
-            let endpoint = config.get<string>("asrEndpoint", "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe");
-            const provider = config.get<string>("asrProvider", "mms");
-            const model = config.get<string>("asrModel", "facebook/mms-1b-all");
-            const language = config.get<string>("asrLanguage", "eng");
-            const phonetic = config.get<boolean>("asrPhonetic", false);
+            let endpoint = config.get<string>("asrEndpoint", "http://localhost:8000/api/v1/asr/transcribe");
 
             let authToken: string | undefined;
 
@@ -295,12 +291,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             console.log(`[getAsrConfig] Sending config: endpoint=${endpoint}, hasToken=${!!authToken}`);
             safePostMessageToPanel(webviewPanel, {
                 type: "asrConfig",
-                content: { endpoint, provider, model, language, phonetic, authToken }
+                content: { endpoint, authToken }
             });
         } catch (error) {
             console.error("Error sending ASR config:", error);
             // Always provide a valid fallback endpoint
-            const fallbackEndpoint = "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe";
+            const fallbackEndpoint = "http://localhost:8000/api/v1/asr/transcribe";
             safePostMessageToPanel(webviewPanel, {
                 type: "asrConfig",
                 content: {
