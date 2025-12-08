@@ -981,6 +981,14 @@ export interface MilestoneIndex {
     totalCells: number;
     /** Number of cells per page for sub-pagination within milestones */
     cellsPerPage: number;
+    /** Progress data for each milestone (1-based milestone number -> progress) */
+    milestoneProgress?: Record<number, {
+        percentTranslationsCompleted: number;
+        percentAudioTranslationsCompleted: number;
+        percentFullyValidatedTranslations: number;
+        percentAudioValidatedTranslations: number;
+        percentTextValidatedTranslations: number;
+    }>;
 }
 
 interface QuillCellContent {
@@ -1797,6 +1805,16 @@ type EditorReceiveMessages =
     | { type: "jumpToSection"; content: string; }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }
+    | {
+        type: "milestoneProgressUpdate";
+        milestoneProgress: Record<number, {
+            percentTranslationsCompleted: number;
+            percentAudioTranslationsCompleted: number;
+            percentFullyValidatedTranslations: number;
+            percentAudioValidatedTranslations: number;
+            percentTextValidatedTranslations: number;
+        }>;
+    }
     | {
         type: "commentsForCell";
         content: {
