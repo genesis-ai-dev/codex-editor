@@ -11,7 +11,11 @@ import {
 } from "../../components/ui/dropdown-menu";
 import { Slider } from "../../components/ui/slider";
 import { CELL_DISPLAY_MODES } from "../CodexCellEditor";
-import { type CustomNotebookMetadata, type QuillCellContent } from "../../../../../types";
+import {
+    type CustomNotebookMetadata,
+    type QuillCellContent,
+    type MilestoneIndex,
+} from "../../../../../types";
 import { type Subsection } from "../../lib/types";
 import { DropdownMenuCheckboxItem } from "../../components/ui/dropdown-menu";
 import { deriveSubsectionPercentages } from "../utils/progressUtils";
@@ -80,6 +84,11 @@ interface MobileHeaderMenuProps {
         percentAudioTranslationsCompleted?: number;
         percentAudioValidatedTranslations?: number;
     };
+
+    // Milestone-based pagination props (optional - falls back to chapter-based when not provided)
+    milestoneIndex?: MilestoneIndex | null;
+    currentMilestoneIndex?: number;
+    requestCellsForMilestone?: (milestoneIdx: number, subsectionIdx?: number) => void;
 }
 
 export function MobileHeaderMenu({
@@ -120,8 +129,14 @@ export function MobileHeaderMenu({
     shouldHideNavButtons,
     allCellsForChapter,
     calculateSubsectionProgress,
+    milestoneIndex,
+    currentMilestoneIndex,
+    requestCellsForMilestone,
 }: MobileHeaderMenuProps) {
     const isAnyTranslationInProgress = isAutocompletingChapter || isTranslatingCell;
+
+    // Determine if using milestone-based navigation
+    const useMilestoneNavigation = milestoneIndex && milestoneIndex.milestones.length > 0;
 
     return (
         <DropdownMenu>
@@ -348,7 +363,26 @@ export function MobileHeaderMenu({
                             return (
                                 <DropdownMenuItem
                                     key={section.id}
-                                    onClick={() => setCurrentSubsectionIndex(index)}
+                                    onClick={() => {
+                                        if (!unsavedChanges) {
+                                            if (
+                                                useMilestoneNavigation &&
+                                                requestCellsForMilestone &&
+                                                currentMilestoneIndex !== undefined
+                                            ) {
+                                                // Use milestone-based navigation
+                                                requestCellsForMilestone(
+                                                    currentMilestoneIndex,
+                                                    index
+                                                );
+                                            } else {
+                                                // Use traditional chapter-based navigation
+                                                setCurrentSubsectionIndex(index);
+                                            }
+                                        } else if (showUnsavedWarning) {
+                                            showUnsavedWarning();
+                                        }
+                                    }}
                                     className={`cursor-pointer ${
                                         isActive
                                             ? "bg-accent text-accent-foreground font-semibold"

@@ -971,6 +971,9 @@ ChapterNavigationHeaderProps) {
                                 console.error("Error setting auto download audio on open", error);
                             }
                         }}
+                        milestoneIndex={milestoneIndex}
+                        currentMilestoneIndex={currentMilestoneIndex}
+                        requestCellsForMilestone={requestCellsForMilestone}
                     />
                 </div>
             )}
