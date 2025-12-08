@@ -1353,125 +1353,6 @@ const CodexCellEditor: React.FC = () => {
         return sectionCellNumber === chapterNum.toString();
     };
 
-    // Add function to get subsections for a chapter based on content cells (excluding paratext)
-    const getSubsectionsForChapter = (chapterNum: number) => {
-        // Filter cells for the specific chapter
-        const cellsForChapter = translationUnits.filter((verse) => {
-            if (verse.cellType === CodexCellTypes.MILESTONE) {
-                const milestoneChapter = extractChapterFromMilestoneValue(verse.cellContent);
-                return milestoneChapter === chapterNum.toString();
-            }
-            const cellId = verse?.cellMarkers?.[0];
-            const sectionCellIdParts = cellId?.split(" ")?.[1]?.split(":");
-            const sectionCellNumber = sectionCellIdParts?.[0];
-            return sectionCellNumber === chapterNum.toString();
-        });
-
-        if (cellsForChapter.length === 0) {
-            return [];
-        }
-
-        // Filter out only source/target content cells (non-paratext, non-milestone) for pagination counting
-        const contentCells = cellsForChapter.filter((cell) => {
-            return cell.cellType !== "paratext" && cell.cellType !== CodexCellTypes.MILESTONE;
-        });
-
-        // If content cells fit in one page, no subsections needed
-        if (contentCells.length <= cellsPerPage) {
-            return [];
-        }
-
-        // Calculate number of pages based on content cells
-        const totalPages = Math.ceil(contentCells.length / cellsPerPage);
-        const subsections: Subsection[] = [];
-
-        for (let i = 0; i < totalPages; i++) {
-            const startContentIndex = i * cellsPerPage;
-            const endContentIndex = Math.min((i + 1) * cellsPerPage, contentCells.length);
-
-            // Get the range of content cells for this page
-            const pageContentCells = contentCells.slice(startContentIndex, endContentIndex);
-            const firstContentCell = pageContentCells[0];
-            const lastContentCell = pageContentCells[pageContentCells.length - 1];
-
-            // Create a generic label based on cell position/index rather than specific ID format
-            const startCellNumber = startContentIndex + 1; // 1-based indexing
-            const endCellNumber = endContentIndex;
-
-            // Find the positions of the first and last content cells in the full chapter
-            const firstContentPosition = cellsForChapter.findIndex(
-                (cell) => cell.cellMarkers[0] === firstContentCell.cellMarkers[0]
-            );
-            const lastContentPosition = cellsForChapter.findIndex(
-                (cell) => cell.cellMarkers[0] === lastContentCell.cellMarkers[0]
-            );
-
-            // Get the content cell IDs for this page for quick lookup
-            const contentCellIds = new Set(pageContentCells.map((cell) => cell.cellMarkers[0]));
-
-            // Find the actual start and end indices by expanding to include related paratext cells
-            let startCellIndex = firstContentPosition;
-            let endCellIndex = lastContentPosition + 1;
-
-            // Special handling for the first page: include all leading paratext
-            if (i === 0) {
-                // For the first page, start from the beginning to capture all leading paratext
-                startCellIndex = 0;
-            } else {
-                // For subsequent pages, expand backward to include any paratext cells
-                while (startCellIndex > 0) {
-                    const prevCell = cellsForChapter[startCellIndex - 1];
-
-                    // Include if it's paratext for this chapter
-                    if ((prevCell.cellType as string) === "paratext") {
-                        startCellIndex--;
-                        continue;
-                    }
-
-                    // Stop expanding if we hit another content cell that's not on this page
-                    if (
-                        (prevCell.cellType as string) !== "paratext" &&
-                        !contentCellIds.has(prevCell.cellMarkers[0])
-                    ) {
-                        break;
-                    }
-
-                    startCellIndex--;
-                }
-            }
-
-            // Expand forward to include any paratext cells that should be with the last content cell
-            while (endCellIndex < cellsForChapter.length) {
-                const nextCell = cellsForChapter[endCellIndex];
-
-                // Include if it's paratext for this chapter
-                if ((nextCell.cellType as string) === "paratext") {
-                    endCellIndex++;
-                    continue;
-                }
-
-                // Stop expanding if we hit another content cell that's not on this page
-                if (
-                    (nextCell.cellType as string) !== "paratext" &&
-                    !contentCellIds.has(nextCell.cellMarkers[0])
-                ) {
-                    break;
-                }
-
-                endCellIndex++;
-            }
-
-            subsections.push({
-                id: `page-${i}`,
-                label: `${startCellNumber}-${endCellNumber}`,
-                startIndex: startCellIndex,
-                endIndex: endCellIndex,
-            });
-        }
-
-        return subsections;
-    };
-
     // Milestone-based pagination functions
     const getSubsectionsForMilestone = useCallback(
         (milestoneIdx: number): Subsection[] => {
@@ -1638,15 +1519,12 @@ const CodexCellEditor: React.FC = () => {
         [translationUnits, requiredValidations, requiredAudioValidations]
     );
 
-    // Determine if using milestone-based navigation
-    const useMilestoneNavigation = milestoneIndex && milestoneIndex.milestones.length > 0;
-
     // Calculate progress for all chapters
     const allChapterProgress = useMemo(() => {
         const progress: Record<number, ProgressPercentages> = {};
 
-        // If using milestone navigation and we have pre-calculated progress, use it
-        if (useMilestoneNavigation && milestoneIndex?.milestoneProgress) {
+        // Use pre-calculated progress from backend if available
+        if (milestoneIndex?.milestoneProgress) {
             // Use pre-calculated progress from backend
             for (let i = 1; i <= totalChapters; i++) {
                 progress[i] = milestoneIndex.milestoneProgress[i] || {
@@ -1665,79 +1543,25 @@ const CodexCellEditor: React.FC = () => {
         }
 
         return progress;
-    }, [calculateChapterProgress, totalChapters, useMilestoneNavigation, milestoneIndex]);
+    }, [calculateChapterProgress, totalChapters, milestoneIndex]);
 
-    // Get all cells for the current chapter/milestone
-    // When using milestone navigation, translationUnits already contains the correct cells
+    // Get all cells for the current milestone
+    // translationUnits already contains the correct cells for the current milestone/subsection (loaded from backend)
+    // Just filter out milestone cells from display
     const allCellsForChapter = useMemo(() => {
-        if (useMilestoneNavigation) {
-            // When using milestone-based pagination, translationUnits already contains
-            // only the cells for the current milestone/subsection (loaded from backend)
-            // Just filter out milestone cells from display
-            return translationUnits.filter((verse) => {
-                return verse.cellType !== CodexCellTypes.MILESTONE;
-            });
-        }
-
-        // Traditional chapter-based filtering
         return translationUnits.filter((verse) => {
-            const cellId = verse?.cellMarkers?.[0];
-
-            // Handle paratext cells specially - they should be included based on context
-            if (cellId?.startsWith("paratext-")) {
-                // For now, include all paratext cells when viewing any chapter
-                // This ensures leading paratext (like the Tigrinya intro) is visible
-                return true;
-            }
-
-            // Exclude milestone cells from the view (they remain in JSON)
-            if (verse.cellType === CodexCellTypes.MILESTONE) {
-                return false;
-            }
-
-            // For regular cells, check if they belong to the current chapter
-            const sectionCellIdParts = cellId?.split(" ")?.[1]?.split(":");
-            const sectionCellNumber = sectionCellIdParts?.[0];
-            return sectionCellNumber === chapterNumber.toString();
+            return verse.cellType !== CodexCellTypes.MILESTONE;
         });
-    }, [translationUnits, useMilestoneNavigation, chapterNumber]);
+    }, [translationUnits]);
 
-    // Get the subsections for the current chapter
-    const subsections = useMilestoneNavigation
-        ? getSubsectionsForMilestone(currentMilestoneIndex)
-        : getSubsectionsForChapter(chapterNumber);
+    // Get the subsections for the current milestone
+    const subsections = getSubsectionsForMilestone(currentMilestoneIndex);
 
-    // Apply pagination if there are subsections
+    // Cells are already paginated by the backend for milestone navigation
+    // No additional slicing needed
     const translationUnitsForSection = useMemo(() => {
-        // When using milestone navigation, cells are already paginated by the backend
-        // No additional slicing needed
-        if (useMilestoneNavigation) {
-            return allCellsForChapter;
-        }
-
-        // Traditional chapter-based pagination
-        if (subsections.length === 0) {
-            // No pagination needed, return all cells for the chapter
-            return allCellsForChapter;
-        } else {
-            // Apply pagination based on current subsection index
-            const currentSubsection = subsections[currentSubsectionIndex];
-            if (!currentSubsection) {
-                // If somehow we have an invalid subsection index, default to first page
-                return allCellsForChapter.slice(0, cellsPerPage);
-            }
-            return allCellsForChapter.slice(
-                currentSubsection.startIndex,
-                currentSubsection.endIndex
-            );
-        }
-    }, [
-        allCellsForChapter,
-        subsections,
-        currentSubsectionIndex,
-        cellsPerPage,
-        useMilestoneNavigation,
-    ]);
+        return allCellsForChapter;
+    }, [allCellsForChapter]);
 
     const { setUnsavedChanges } = useContext(UnsavedChangesContext);
 
@@ -2719,7 +2543,6 @@ const CodexCellEditor: React.FC = () => {
                             setCurrentSubsectionIndex={setCurrentSubsectionIndex}
                             showInlineBacktranslations={showInlineBacktranslations}
                             onToggleInlineBacktranslations={toggleInlineBacktranslations}
-                            getSubsectionsForChapter={getSubsectionsForChapter}
                             editorPosition={editorPosition}
                             fileStatus={fileStatus}
                             onTriggerSync={handleTriggerSync}
