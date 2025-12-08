@@ -450,6 +450,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         const [showAuthModal, setShowAuthModal] = useState(false);
         const [showOfflineModal, setShowOfflineModal] = useState(false);
         const [isLockButtonGlowing, setIsLockButtonGlowing] = useState(false);
+        const [isLockButtonFlashing, setIsLockButtonFlashing] = useState(false);
         const { showTooltip, hideTooltip } = useTooltip();
 
         const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -813,6 +814,12 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             hideTooltip();
             if (!(cell.metadata?.isLocked ?? false)) {
                 handleCellClick(cellIds[0]);
+            } else {
+                // Flash red around lock icon when clicking a locked cell
+                setIsLockButtonFlashing(true);
+                setTimeout(() => {
+                    setIsLockButtonFlashing(false);
+                }, 500);
             }
         };
 
@@ -1008,10 +1015,17 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                         ? "not-allowed"
                                                         : "pointer",
                                                 }}
-                                                disabled={cell.metadata?.isLocked ?? false}
+                                                disabled={false}
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    if (cell.metadata?.isLocked) return;
+                                                    if (cell.metadata?.isLocked) {
+                                                        // Flash red around lock icon when clicking disabled sparkle
+                                                        setIsLockButtonFlashing(true);
+                                                        setTimeout(() => {
+                                                            setIsLockButtonFlashing(false);
+                                                        }, 500);
+                                                        return;
+                                                    }
                                                     handleSparkleButtonClick(e);
                                                 }}
                                             >
@@ -1331,7 +1345,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                             variant="ghost"
                             className={`p-1 h-[18px] ${
                                 isLockButtonGlowing ? "lock-button-glowing" : ""
-                            }`}
+                            } ${isLockButtonFlashing ? "lock-button-flashing" : ""}`}
                             onClick={
                                 userAccessLevel !== undefined && userAccessLevel >= 40
                                     ? handleToggleCellLock

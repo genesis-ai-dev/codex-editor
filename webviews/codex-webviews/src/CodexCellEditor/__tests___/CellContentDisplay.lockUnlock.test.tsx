@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QuillCellContent } from "../../../../../types";
 import { CodexCellTypes } from "../../../../../types/enums";
 import CellContentDisplay from "../CellContentDisplay";
@@ -114,6 +114,12 @@ const createMockCell = (
 describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        // Mock navigator.onLine to be true for all tests
+        Object.defineProperty(navigator, "onLine", {
+            writable: true,
+            configurable: true,
+            value: true,
+        });
     });
 
     it("should render lock icon when cell is locked", () => {
@@ -714,7 +720,7 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
     });
 
     describe("Sparkle button disabled state", () => {
-        it("should disable sparkle button when cell is locked", () => {
+        it("should disable sparkle button when cell is locked", async () => {
             const mockCell = createMockCell("cell-1", "<p>Test content</p>", true);
             const handleCellClick = vi.fn();
             const handleCellTranslation = vi.fn();
@@ -757,19 +763,28 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
             );
             expect(sparkleButton).toBeTruthy();
 
-            // Verify the button is disabled
-            expect(sparkleButton!.hasAttribute("disabled")).toBe(true);
-
-            // Verify the button has reduced opacity (0.5) via inline style
+            // Verify the button has reduced opacity (0.5) via inline style (visual disabled state)
             const buttonStyle = sparkleButton!.getAttribute("style");
             expect(buttonStyle).toMatch(/opacity:\s*0\.5/);
 
             // Verify cursor is not-allowed via inline style
             expect(buttonStyle).toMatch(/cursor:\s*not-allowed/);
 
-            // Try clicking the button - it should not trigger the handler
+            // Find the lock button to verify it flashes
+            const lockButton = container.querySelector('button[title="Cell is locked"]');
+            expect(lockButton).toBeTruthy();
+
+            // Initially, lock button should not have flashing class
+            expect(lockButton?.className).not.toContain("lock-button-flashing");
+
+            // Try clicking the button - it should flash the lock icon and not trigger the handler
             fireEvent.click(sparkleButton!);
             expect(handleCellTranslation).not.toHaveBeenCalled();
+
+            // Verify lock button now has flashing class
+            await waitFor(() => {
+                expect(lockButton?.className).toContain("lock-button-flashing");
+            });
         });
 
         it("should enable sparkle button when cell is unlocked", () => {
@@ -876,6 +891,282 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
             // Verify handlers were not called
             expect(handleCellTranslation).not.toHaveBeenCalled();
             expect((window as any).handleSparkleButtonClick).not.toHaveBeenCalled();
+        });
+
+        it("should call LLM suggestion when clicking sparkle button on unlocked cell", () => {
+            const mockCell = createMockCell("cell-1", "<p>Test content</p>", false);
+            const handleCellClick = vi.fn();
+            const handleCellTranslation = vi.fn();
+
+            const { container } = render(
+                <CellContentDisplay
+                    cell={mockCell}
+                    vscode={mockVscode as any}
+                    textDirection="ltr"
+                    isSourceText={false}
+                    hasDuplicateId={false}
+                    alertColorCode={undefined}
+                    highlightedCellId={null}
+                    scrollSyncEnabled={true}
+                    lineNumber="1"
+                    label="Test Label"
+                    lineNumbersEnabled={true}
+                    isInTranslationProcess={false}
+                    translationState={null as any}
+                    allTranslationsComplete={false}
+                    handleCellClick={handleCellClick}
+                    handleCellTranslation={handleCellTranslation}
+                    cellDisplayMode={CELL_DISPLAY_MODES.ONE_LINE_PER_CELL}
+                    audioAttachments={{}}
+                    currentUsername="test-user"
+                    requiredValidations={1}
+                    requiredAudioValidations={1}
+                    isAuthenticated={true}
+                />
+            );
+
+            // Hover over the cell actions area to show the sparkle button
+            const cellActions = container.querySelector(".cell-actions");
+            fireEvent.mouseOver(cellActions!);
+
+            // Find and click the sparkle button
+            const sparkleButton = Array.from(container.querySelectorAll("button")).find((btn) =>
+                btn.querySelector(".codicon-sparkle")
+            );
+            expect(sparkleButton).toBeTruthy();
+
+            fireEvent.click(sparkleButton!);
+
+            // Verify handleCellTranslation was called
+            expect(handleCellTranslation).toHaveBeenCalledWith("cell-1");
+        });
+
+        it("should flash lock icon when clicking sparkle button on locked cell", async () => {
+            const mockCell = createMockCell("cell-1", "<p>Test content</p>", true);
+            const handleCellClick = vi.fn();
+            const handleCellTranslation = vi.fn();
+
+            const { container } = render(
+                <CellContentDisplay
+                    cell={mockCell}
+                    vscode={mockVscode as any}
+                    textDirection="ltr"
+                    isSourceText={false}
+                    hasDuplicateId={false}
+                    alertColorCode={undefined}
+                    highlightedCellId={null}
+                    scrollSyncEnabled={true}
+                    lineNumber="1"
+                    label="Test Label"
+                    lineNumbersEnabled={true}
+                    isInTranslationProcess={false}
+                    translationState={null as any}
+                    allTranslationsComplete={false}
+                    handleCellClick={handleCellClick}
+                    handleCellTranslation={handleCellTranslation}
+                    cellDisplayMode={CELL_DISPLAY_MODES.ONE_LINE_PER_CELL}
+                    audioAttachments={{}}
+                    currentUsername="test-user"
+                    requiredValidations={1}
+                    requiredAudioValidations={1}
+                    isAuthenticated={true}
+                />
+            );
+
+            // Hover over the cell actions area to show the sparkle button
+            const cellActions = container.querySelector(".cell-actions");
+            fireEvent.mouseOver(cellActions!);
+
+            // Find the sparkle button
+            const sparkleButton = Array.from(container.querySelectorAll("button")).find((btn) =>
+                btn.querySelector(".codicon-sparkle")
+            );
+            expect(sparkleButton).toBeTruthy();
+
+            // Find the lock button
+            const lockButton = container.querySelector('button[title="Cell is locked"]');
+            expect(lockButton).toBeTruthy();
+
+            // Initially, lock button should not have flashing class
+            expect(lockButton?.className).not.toContain("lock-button-flashing");
+
+            // Click the sparkle button
+            fireEvent.click(sparkleButton!);
+
+            // Verify handleCellTranslation was NOT called
+            expect(handleCellTranslation).not.toHaveBeenCalled();
+
+            // Verify lock button now has flashing class (wait for state update)
+            await waitFor(() => {
+                expect(lockButton?.className).toContain("lock-button-flashing");
+            });
+        });
+
+        it("should call vscode.postMessage with llmCompletion when handleCellTranslation is not provided and cell is unlocked", () => {
+            const mockCell = createMockCell("cell-1", "<p>Test content</p>", false);
+
+            // Ensure window.handleSparkleButtonClick is not set (so it falls through to vscode.postMessage)
+            (window as any).handleSparkleButtonClick = undefined;
+
+            // Clear any previous calls
+            vi.clearAllMocks();
+
+            const { container } = render(
+                <CellContentDisplay
+                    cell={mockCell}
+                    vscode={mockVscode as any}
+                    textDirection="ltr"
+                    isSourceText={false}
+                    hasDuplicateId={false}
+                    alertColorCode={undefined}
+                    highlightedCellId={null}
+                    scrollSyncEnabled={true}
+                    lineNumber="1"
+                    label="Test Label"
+                    lineNumbersEnabled={true}
+                    isInTranslationProcess={false}
+                    translationState={null as any}
+                    allTranslationsComplete={false}
+                    handleCellClick={vi.fn()}
+                    cellDisplayMode={CELL_DISPLAY_MODES.ONE_LINE_PER_CELL}
+                    audioAttachments={{}}
+                    currentUsername="test-user"
+                    requiredValidations={1}
+                    requiredAudioValidations={1}
+                    isAuthenticated={true}
+                />
+            );
+
+            // Hover over the cell actions area to show the sparkle button
+            const cellActions = container.querySelector(".cell-actions");
+            fireEvent.mouseOver(cellActions!);
+
+            // Find and click the sparkle button
+            const sparkleButton = Array.from(container.querySelectorAll("button")).find((btn) =>
+                btn.querySelector(".codicon-sparkle")
+            );
+            expect(sparkleButton).toBeTruthy();
+
+            fireEvent.click(sparkleButton!);
+
+            // Verify vscode.postMessage was called with llmCompletion command
+            expect(mockVscode.postMessage).toHaveBeenCalledWith({
+                command: "llmCompletion",
+                content: {
+                    currentLineId: "cell-1",
+                    addContentToValue: true,
+                },
+            });
+        });
+
+        it("should call LLM suggestion when unlocked and flash lock icon when locked", async () => {
+            const handleCellTranslation = vi.fn();
+
+            // Test unlocked cell - should call LLM suggestion
+            const unlockedCell = createMockCell("cell-unlocked", "<p>Test content</p>", false);
+            const { container: unlockedContainer, unmount: unmountUnlocked } = render(
+                <CellContentDisplay
+                    cell={unlockedCell}
+                    vscode={mockVscode as any}
+                    textDirection="ltr"
+                    isSourceText={false}
+                    hasDuplicateId={false}
+                    alertColorCode={undefined}
+                    highlightedCellId={null}
+                    scrollSyncEnabled={true}
+                    lineNumber="1"
+                    label="Test Label"
+                    lineNumbersEnabled={true}
+                    isInTranslationProcess={false}
+                    translationState={null as any}
+                    allTranslationsComplete={false}
+                    handleCellClick={vi.fn()}
+                    handleCellTranslation={handleCellTranslation}
+                    cellDisplayMode={CELL_DISPLAY_MODES.ONE_LINE_PER_CELL}
+                    audioAttachments={{}}
+                    currentUsername="test-user"
+                    requiredValidations={1}
+                    requiredAudioValidations={1}
+                    isAuthenticated={true}
+                />
+            );
+
+            // Hover to show sparkle button
+            const unlockedCellActions = unlockedContainer.querySelector(".cell-actions");
+            fireEvent.mouseOver(unlockedCellActions!);
+
+            // Find and click sparkle button on unlocked cell
+            const unlockedSparkleButton = Array.from(
+                unlockedContainer.querySelectorAll("button")
+            ).find((btn) => btn.querySelector(".codicon-sparkle"));
+            expect(unlockedSparkleButton).toBeTruthy();
+
+            vi.clearAllMocks();
+            fireEvent.click(unlockedSparkleButton!);
+
+            // Verify LLM suggestion was called
+            expect(handleCellTranslation).toHaveBeenCalledWith("cell-unlocked");
+
+            unmountUnlocked();
+
+            // Test locked cell - should flash lock icon
+            const lockedCell = createMockCell("cell-locked", "<p>Test content</p>", true);
+            const { container: lockedContainer } = render(
+                <CellContentDisplay
+                    cell={lockedCell}
+                    vscode={mockVscode as any}
+                    textDirection="ltr"
+                    isSourceText={false}
+                    hasDuplicateId={false}
+                    alertColorCode={undefined}
+                    highlightedCellId={null}
+                    scrollSyncEnabled={true}
+                    lineNumber="2"
+                    label="Test Label"
+                    lineNumbersEnabled={true}
+                    isInTranslationProcess={false}
+                    translationState={null as any}
+                    allTranslationsComplete={false}
+                    handleCellClick={vi.fn()}
+                    handleCellTranslation={handleCellTranslation}
+                    cellDisplayMode={CELL_DISPLAY_MODES.ONE_LINE_PER_CELL}
+                    audioAttachments={{}}
+                    currentUsername="test-user"
+                    requiredValidations={1}
+                    requiredAudioValidations={1}
+                    isAuthenticated={true}
+                />
+            );
+
+            // Hover to show sparkle button
+            const lockedCellActions = lockedContainer.querySelector(".cell-actions");
+            fireEvent.mouseOver(lockedCellActions!);
+
+            // Find sparkle button and lock button
+            const lockedSparkleButton = Array.from(lockedContainer.querySelectorAll("button")).find(
+                (btn) => btn.querySelector(".codicon-sparkle")
+            );
+            expect(lockedSparkleButton).toBeTruthy();
+
+            const lockButton = lockedContainer.querySelector('button[title="Cell is locked"]');
+            expect(lockButton).toBeTruthy();
+
+            // Initially, lock button should not have flashing class
+            expect(lockButton?.className).not.toContain("lock-button-flashing");
+
+            // Clear previous calls
+            vi.clearAllMocks();
+
+            // Click sparkle button on locked cell
+            fireEvent.click(lockedSparkleButton!);
+
+            // Verify LLM suggestion was NOT called
+            expect(handleCellTranslation).not.toHaveBeenCalled();
+
+            // Verify lock button now has flashing class
+            await waitFor(() => {
+                expect(lockButton?.className).toContain("lock-button-flashing");
+            });
         });
     });
 });
