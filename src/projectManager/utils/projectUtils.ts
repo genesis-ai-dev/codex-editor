@@ -527,20 +527,6 @@ async function getCurrentUserName(): Promise<string> {
         if (userInfo?.username) {
             return userInfo.username;
         }
-
-        // Try git username
-        const gitUsername = vscode.workspace.getConfiguration("git").get<string>("username");
-        if (gitUsername) return gitUsername;
-
-        // Try VS Code authentication session
-        try {
-            const session = await vscode.authentication.getSession('github', ['user:email'], { createIfNone: false });
-            if (session && session.account) {
-                return session.account.label;
-            }
-        } catch (e) {
-            // Auth provider might not be available
-        }
     } catch (error) {
         // Silent fallback
     }
