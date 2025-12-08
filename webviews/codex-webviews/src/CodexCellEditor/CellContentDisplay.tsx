@@ -991,7 +991,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                     alignItems: "center",
                                                     justifyContent: "center",
                                                     position: "relative",
-                                                    opacity: showSparkleButton ? 1 : 0,
+                                                    opacity: showSparkleButton
+                                                        ? cell.metadata?.isLocked
+                                                            ? 0.5
+                                                            : 1
+                                                        : 0,
                                                     transform: `translateX(${
                                                         showSparkleButton ? "0" : "20px"
                                                     }) scale(${showSparkleButton ? 1 : 0})`,
@@ -1000,9 +1004,14 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                     visibility: showSparkleButton
                                                         ? "visible"
                                                         : "hidden",
+                                                    cursor: cell.metadata?.isLocked
+                                                        ? "not-allowed"
+                                                        : "pointer",
                                                 }}
+                                                disabled={cell.metadata?.isLocked ?? false}
                                                 onClick={(e) => {
                                                     e.stopPropagation();
+                                                    if (cell.metadata?.isLocked) return;
                                                     handleSparkleButtonClick(e);
                                                 }}
                                             >
@@ -1012,7 +1021,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                             ? "codicon-loading codicon-modifier-spin"
                                                             : "codicon-sparkle"
                                                     }`}
-                                                    style={{ fontSize: "12px" }}
+                                                    style={{
+                                                        fontSize: "12px",
+                                                        opacity: cell.metadata?.isLocked ? 0.5 : 1,
+                                                    }}
                                                 ></i>
                                             </Button>
                                             <Dialog

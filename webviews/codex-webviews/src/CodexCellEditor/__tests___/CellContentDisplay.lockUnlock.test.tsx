@@ -712,4 +712,170 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
             expect(lockIcon).toBeTruthy();
         });
     });
+
+    describe("Sparkle button disabled state", () => {
+        it("should disable sparkle button when cell is locked", () => {
+            const mockCell = createMockCell("cell-1", "<p>Test content</p>", true);
+            const handleCellClick = vi.fn();
+            const handleCellTranslation = vi.fn();
+
+            const { container } = render(
+                <CellContentDisplay
+                    cell={mockCell}
+                    vscode={mockVscode as any}
+                    textDirection="ltr"
+                    isSourceText={false}
+                    hasDuplicateId={false}
+                    alertColorCode={undefined}
+                    highlightedCellId={null}
+                    scrollSyncEnabled={true}
+                    lineNumber="1"
+                    label="Test Label"
+                    lineNumbersEnabled={true}
+                    isInTranslationProcess={false}
+                    translationState={null as any}
+                    allTranslationsComplete={false}
+                    handleCellClick={handleCellClick}
+                    handleCellTranslation={handleCellTranslation}
+                    cellDisplayMode={CELL_DISPLAY_MODES.ONE_LINE_PER_CELL}
+                    audioAttachments={{}}
+                    currentUsername="test-user"
+                    requiredValidations={1}
+                    requiredAudioValidations={1}
+                    isAuthenticated={true}
+                />
+            );
+
+            // Hover over the cell actions area to show the sparkle button
+            const cellActions = container.querySelector(".cell-actions");
+            expect(cellActions).toBeTruthy();
+            fireEvent.mouseOver(cellActions!);
+
+            // Find the sparkle button
+            const sparkleButton = Array.from(container.querySelectorAll("button")).find((btn) =>
+                btn.querySelector(".codicon-sparkle")
+            );
+            expect(sparkleButton).toBeTruthy();
+
+            // Verify the button is disabled
+            expect(sparkleButton!.hasAttribute("disabled")).toBe(true);
+
+            // Verify the button has reduced opacity (0.5) via inline style
+            const buttonStyle = sparkleButton!.getAttribute("style");
+            expect(buttonStyle).toMatch(/opacity:\s*0\.5/);
+
+            // Verify cursor is not-allowed via inline style
+            expect(buttonStyle).toMatch(/cursor:\s*not-allowed/);
+
+            // Try clicking the button - it should not trigger the handler
+            fireEvent.click(sparkleButton!);
+            expect(handleCellTranslation).not.toHaveBeenCalled();
+        });
+
+        it("should enable sparkle button when cell is unlocked", () => {
+            const mockCell = createMockCell("cell-1", "<p>Test content</p>", false);
+            const handleCellClick = vi.fn();
+            const handleCellTranslation = vi.fn();
+
+            const { container } = render(
+                <CellContentDisplay
+                    cell={mockCell}
+                    vscode={mockVscode as any}
+                    textDirection="ltr"
+                    isSourceText={false}
+                    hasDuplicateId={false}
+                    alertColorCode={undefined}
+                    highlightedCellId={null}
+                    scrollSyncEnabled={true}
+                    lineNumber="1"
+                    label="Test Label"
+                    lineNumbersEnabled={true}
+                    isInTranslationProcess={false}
+                    translationState={null as any}
+                    allTranslationsComplete={false}
+                    handleCellClick={handleCellClick}
+                    handleCellTranslation={handleCellTranslation}
+                    cellDisplayMode={CELL_DISPLAY_MODES.ONE_LINE_PER_CELL}
+                    audioAttachments={{}}
+                    currentUsername="test-user"
+                    requiredValidations={1}
+                    requiredAudioValidations={1}
+                    isAuthenticated={true}
+                />
+            );
+
+            // Hover over the cell actions area to show the sparkle button
+            const cellActions = container.querySelector(".cell-actions");
+            expect(cellActions).toBeTruthy();
+            fireEvent.mouseOver(cellActions!);
+
+            // Find the sparkle button
+            const sparkleButton = Array.from(container.querySelectorAll("button")).find((btn) =>
+                btn.querySelector(".codicon-sparkle")
+            );
+            expect(sparkleButton).toBeTruthy();
+
+            // Verify the button is NOT disabled
+            expect(sparkleButton!.hasAttribute("disabled")).toBe(false);
+
+            // Verify the button has full opacity (1) via inline style
+            const buttonStyle = sparkleButton!.getAttribute("style");
+            expect(buttonStyle).toMatch(/opacity:\s*1/);
+
+            // Verify cursor is pointer via inline style
+            expect(buttonStyle).toMatch(/cursor:\s*pointer/);
+        });
+
+        it("should prevent sparkle button click handler when cell is locked", () => {
+            const mockCell = createMockCell("cell-1", "<p>Test content</p>", true);
+            const handleCellClick = vi.fn();
+            const handleCellTranslation = vi.fn();
+
+            // Mock window.handleSparkleButtonClick as a fallback
+            (window as any).handleSparkleButtonClick = vi.fn();
+
+            const { container } = render(
+                <CellContentDisplay
+                    cell={mockCell}
+                    vscode={mockVscode as any}
+                    textDirection="ltr"
+                    isSourceText={false}
+                    hasDuplicateId={false}
+                    alertColorCode={undefined}
+                    highlightedCellId={null}
+                    scrollSyncEnabled={true}
+                    lineNumber="1"
+                    label="Test Label"
+                    lineNumbersEnabled={true}
+                    isInTranslationProcess={false}
+                    translationState={null as any}
+                    allTranslationsComplete={false}
+                    handleCellClick={handleCellClick}
+                    handleCellTranslation={handleCellTranslation}
+                    cellDisplayMode={CELL_DISPLAY_MODES.ONE_LINE_PER_CELL}
+                    audioAttachments={{}}
+                    currentUsername="test-user"
+                    requiredValidations={1}
+                    requiredAudioValidations={1}
+                    isAuthenticated={true}
+                />
+            );
+
+            // Hover over the cell actions area to show the sparkle button
+            const cellActions = container.querySelector(".cell-actions");
+            fireEvent.mouseOver(cellActions!);
+
+            // Find and click the sparkle button
+            const sparkleButton = Array.from(container.querySelectorAll("button")).find((btn) =>
+                btn.querySelector(".codicon-sparkle")
+            );
+            expect(sparkleButton).toBeTruthy();
+
+            fireEvent.click(sparkleButton!);
+
+            // Verify handlers were not called
+            expect(handleCellTranslation).not.toHaveBeenCalled();
+            expect((window as any).handleSparkleButtonClick).not.toHaveBeenCalled();
+        });
+    });
 });
