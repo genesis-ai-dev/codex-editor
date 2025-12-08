@@ -5,7 +5,11 @@ import NotebookMetadataModal from "./NotebookMetadataModal";
 import { AutocompleteModal } from "./modals/AutocompleteModal";
 import { ChapterSelectorModal } from "./modals/ChapterSelectorModal";
 import { MobileHeaderMenu } from "./components/MobileHeaderMenu";
-import { type QuillCellContent, type CustomNotebookMetadata } from "../../../../types";
+import {
+    type QuillCellContent,
+    type CustomNotebookMetadata,
+    type MilestoneIndex,
+} from "../../../../types";
 import { EditMapUtils } from "../../../../src/utils/editMapUtils";
 import {
     getCellValueData,
@@ -88,6 +92,14 @@ interface ChapterNavigationHeaderProps {
     requiredAudioValidations?: number | null;
     showInlineBacktranslations?: boolean;
     onToggleInlineBacktranslations?: () => void;
+
+    // Milestone-based pagination props (optional - falls back to chapter-based when not provided)
+    milestoneIndex?: MilestoneIndex | null;
+    currentMilestoneIndex?: number;
+    setCurrentMilestoneIndex?: React.Dispatch<React.SetStateAction<number>>;
+    getSubsectionsForMilestone?: (milestoneIdx: number) => Subsection[];
+    requestCellsForMilestone?: (milestoneIdx: number, subsectionIdx?: number) => void;
+    isLoadingCells?: boolean;
 }
 
 export function ChapterNavigationHeader({
@@ -140,6 +152,13 @@ export function ChapterNavigationHeader({
     requiredAudioValidations,
     showInlineBacktranslations = false,
     onToggleInlineBacktranslations,
+    // Milestone-based pagination props
+    milestoneIndex,
+    currentMilestoneIndex = 0,
+    setCurrentMilestoneIndex,
+    getSubsectionsForMilestone,
+    requestCellsForMilestone,
+    isLoadingCells = false,
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
@@ -160,8 +179,40 @@ ChapterNavigationHeaderProps) {
     const [fontSize, setFontSize] = useState(metadata?.fontSize || 14);
     const [pendingFontSize, setPendingFontSize] = useState<number | null>(null);
 
-    // Get subsections early so it's available for all hooks
-    const subsections = getSubsectionsForChapter(chapterNumber);
+    // Determine if using milestone-based navigation
+    const useMilestoneNavigation = milestoneIndex && milestoneIndex.milestones.length > 0;
+
+    // Get subsections - use milestone-based when available, otherwise chapter-based
+    const subsections = useMemo(() => {
+        if (useMilestoneNavigation && getSubsectionsForMilestone) {
+            return getSubsectionsForMilestone(currentMilestoneIndex);
+        }
+        return getSubsectionsForChapter(chapterNumber);
+    }, [
+        useMilestoneNavigation,
+        getSubsectionsForMilestone,
+        currentMilestoneIndex,
+        getSubsectionsForChapter,
+        chapterNumber,
+    ]);
+
+    // Get current milestone value for display
+    const currentMilestoneValue = useMemo(() => {
+        if (useMilestoneNavigation && milestoneIndex) {
+            return milestoneIndex.milestones[currentMilestoneIndex]?.value || "1";
+        }
+        return null;
+    }, [useMilestoneNavigation, milestoneIndex, currentMilestoneIndex]);
+
+    // Total navigation units (milestones or chapters)
+    const totalNavigationUnits = useMilestoneNavigation
+        ? milestoneIndex!.milestones.length
+        : totalChapters;
+
+    // Current navigation index (milestone or chapter)
+    const currentNavigationIndex = useMilestoneNavigation
+        ? currentMilestoneIndex
+        : chapterNumber - 1; // Convert 1-based chapter to 0-based index
 
     // Helper to determine if any translation is in progress
     const isAnyTranslationInProgress = isAutocompletingChapter || isTranslatingCell;
@@ -229,6 +280,19 @@ ChapterNavigationHeaderProps) {
 
     // Determine the display name using the map
     const getDisplayTitle = useCallback(() => {
+        // When using milestone navigation, show milestone value
+        if (useMilestoneNavigation && currentMilestoneValue) {
+            const firstMarker = translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0];
+            if (firstMarker) {
+                const parts = firstMarker.split(" ");
+                const bookAbbr = parts[0];
+                const localizedName = bibleBookMap?.get(bookAbbr)?.name;
+                const displayBookName = localizedName || bookAbbr;
+                return `${displayBookName}\u00A0${currentMilestoneValue}`;
+            }
+            return `Section\u00A0${currentMilestoneValue}`;
+        }
+
         const firstMarker = translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]; // e.g., "GEN 1"
         if (!firstMarker) return "Chapter"; // Fallback title
 
@@ -243,7 +307,7 @@ ChapterNavigationHeaderProps) {
         const displayBookName = localizedName || bookAbbr;
 
         return `${displayBookName}\u00A0${chapterNum}`;
-    }, [translationUnitsForSection, bibleBookMap]);
+    }, [translationUnitsForSection, bibleBookMap, useMilestoneNavigation, currentMilestoneValue]);
 
     // Centralized title measurement logic
     const measureAndTruncateTitle = useCallback(() => {
@@ -639,6 +703,46 @@ ChapterNavigationHeaderProps) {
         }
     };
 
+    // Navigation function for milestone-based navigation
+    const jumpToMilestone = useCallback(
+        (newMilestoneIdx: number, newSubsectionIdx: number = 0) => {
+            if (
+                !unsavedChanges &&
+                (newMilestoneIdx !== currentMilestoneIndex ||
+                    newSubsectionIdx !== currentSubsectionIndex)
+            ) {
+                if (requestCellsForMilestone) {
+                    requestCellsForMilestone(newMilestoneIdx, newSubsectionIdx);
+                }
+                if (setCurrentMilestoneIndex) {
+                    setCurrentMilestoneIndex(newMilestoneIdx);
+                }
+                setCurrentSubsectionIndex(newSubsectionIdx);
+            }
+        },
+        [
+            unsavedChanges,
+            currentMilestoneIndex,
+            currentSubsectionIndex,
+            requestCellsForMilestone,
+            setCurrentMilestoneIndex,
+            setCurrentSubsectionIndex,
+        ]
+    );
+
+    // Unified navigation function that uses milestone or chapter navigation based on mode
+    const navigateTo = useCallback(
+        (index: number, subsectionIdx: number = 0) => {
+            if (useMilestoneNavigation) {
+                jumpToMilestone(index, subsectionIdx);
+            } else {
+                jumpToChapter(index + 1); // Convert 0-based to 1-based chapter
+                setCurrentSubsectionIndex(subsectionIdx);
+            }
+        },
+        [useMilestoneNavigation, jumpToMilestone, jumpToChapter, setCurrentSubsectionIndex]
+    );
+
     // Removed unused handlePreviousChapter/handleNextChapter to reduce dead code
 
     // Use dynamic responsive state variables based on content overflow
@@ -861,24 +965,49 @@ ChapterNavigationHeaderProps) {
                         className="inline-flex transition-all duration-200 ease-in-out"
                         variant="outline"
                         size="default"
+                        disabled={isLoadingCells}
                         onClick={() => {
                             if (!unsavedChanges) {
-                                // Check if we're on the first page of the current chapter
+                                // Check if we're on the first page of the current section
                                 if (currentSubsectionIndex > 0) {
-                                    // Move to previous page within the same chapter
-                                    setCurrentSubsectionIndex(currentSubsectionIndex - 1);
+                                    // Move to previous page within the same section
+                                    if (useMilestoneNavigation) {
+                                        jumpToMilestone(
+                                            currentMilestoneIndex,
+                                            currentSubsectionIndex - 1
+                                        );
+                                    } else {
+                                        setCurrentSubsectionIndex(currentSubsectionIndex - 1);
+                                    }
                                 } else {
-                                    // Move to previous chapter
-                                    const newChapter =
-                                        chapterNumber === 1 ? totalChapters : chapterNumber - 1;
-                                    jumpToChapter(newChapter);
-
-                                    // When jumping to a new chapter, check if it has subsections
-                                    // and if so, jump to the last page
-                                    const newChapterSubsections =
-                                        getSubsectionsForChapter(newChapter);
-                                    if (newChapterSubsections.length > 0) {
-                                        setCurrentSubsectionIndex(newChapterSubsections.length - 1);
+                                    // Move to previous milestone/chapter
+                                    if (useMilestoneNavigation) {
+                                        const newMilestoneIdx =
+                                            currentMilestoneIndex === 0
+                                                ? totalNavigationUnits - 1
+                                                : currentMilestoneIndex - 1;
+                                        // Get subsections for the new milestone
+                                        const newSubsections = getSubsectionsForMilestone
+                                            ? getSubsectionsForMilestone(newMilestoneIdx)
+                                            : [];
+                                        const lastSubsectionIdx =
+                                            newSubsections.length > 0
+                                                ? newSubsections.length - 1
+                                                : 0;
+                                        jumpToMilestone(newMilestoneIdx, lastSubsectionIdx);
+                                    } else {
+                                        const newChapter =
+                                            chapterNumber === 1 ? totalChapters : chapterNumber - 1;
+                                        jumpToChapter(newChapter);
+                                        // When jumping to a new chapter, check if it has subsections
+                                        // and if so, jump to the last page
+                                        const newChapterSubsections =
+                                            getSubsectionsForChapter(newChapter);
+                                        if (newChapterSubsections.length > 0) {
+                                            setCurrentSubsectionIndex(
+                                                newChapterSubsections.length - 1
+                                            );
+                                        }
                                     }
                                 }
                             } else {
@@ -889,9 +1018,11 @@ ChapterNavigationHeaderProps) {
                         }}
                         title={
                             unsavedChanges
-                                ? "Save changes first to change chapter"
+                                ? "Save changes first to change section"
                                 : currentSubsectionIndex > 0
                                 ? "Previous Page"
+                                : useMilestoneNavigation
+                                ? "Previous Milestone"
                                 : "Previous Chapter"
                         }
                     >
@@ -980,21 +1111,37 @@ ChapterNavigationHeaderProps) {
                         className="inline-flex transition-all duration-200 ease-in-out"
                         variant="outline"
                         size="default"
+                        disabled={isLoadingCells}
                         onClick={() => {
                             if (!unsavedChanges) {
-                                // Check if we're on the last page of the current chapter
+                                // Check if we're on the last page of the current section
                                 if (
                                     subsections.length > 0 &&
                                     currentSubsectionIndex < subsections.length - 1
                                 ) {
-                                    // Move to next page within the same chapter
-                                    setCurrentSubsectionIndex(currentSubsectionIndex + 1);
+                                    // Move to next page within the same section
+                                    if (useMilestoneNavigation) {
+                                        jumpToMilestone(
+                                            currentMilestoneIndex,
+                                            currentSubsectionIndex + 1
+                                        );
+                                    } else {
+                                        setCurrentSubsectionIndex(currentSubsectionIndex + 1);
+                                    }
                                 } else {
-                                    // Move to next chapter and reset to first page
-                                    const newChapter =
-                                        chapterNumber === totalChapters ? 1 : chapterNumber + 1;
-                                    jumpToChapter(newChapter);
-                                    setCurrentSubsectionIndex(0);
+                                    // Move to next milestone/chapter and reset to first page
+                                    if (useMilestoneNavigation) {
+                                        const newMilestoneIdx =
+                                            currentMilestoneIndex === totalNavigationUnits - 1
+                                                ? 0
+                                                : currentMilestoneIndex + 1;
+                                        jumpToMilestone(newMilestoneIdx, 0);
+                                    } else {
+                                        const newChapter =
+                                            chapterNumber === totalChapters ? 1 : chapterNumber + 1;
+                                        jumpToChapter(newChapter);
+                                        setCurrentSubsectionIndex(0);
+                                    }
                                 }
                             } else {
                                 // Show warning when there are unsaved changes
@@ -1004,10 +1151,12 @@ ChapterNavigationHeaderProps) {
                         }}
                         title={
                             unsavedChanges
-                                ? "Save changes first to change chapter"
+                                ? "Save changes first to change section"
                                 : subsections.length > 0 &&
                                   currentSubsectionIndex < subsections.length - 1
                                 ? "Next Page"
+                                : useMilestoneNavigation
+                                ? "Next Milestone"
                                 : "Next Chapter"
                         }
                     >

@@ -2906,6 +2906,51 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             console.error("Failed to revalidate missing for cell", { cellId, err });
         }
     },
+
+    // Handler for requesting cells for a specific milestone/subsection (lazy loading)
+    requestCellsForMilestone: async ({ event, document, webviewPanel, provider }) => {
+        const typed = event as any;
+        const milestoneIndex = typed?.content?.milestoneIndex ?? 0;
+        const subsectionIndex = typed?.content?.subsectionIndex ?? 0;
+
+        try {
+            const config = vscode.workspace.getConfiguration("codex-editor-extension");
+            const cellsPerPage = config.get("cellsPerPage", 50);
+
+            // Get cells for the requested milestone/subsection
+            const cells = document.getCellsForMilestone(milestoneIndex, subsectionIndex, cellsPerPage);
+
+            // Process cells (merge ranges, etc.)
+            const isSourceText = document.uri.toString().includes(".source");
+            const processedCells = provider.mergeRangesAndProcess(
+                cells,
+                provider.isCorrectionEditorMode,
+                isSourceText
+            );
+
+            // Build source cell map for these cells
+            const sourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
+            for (const cell of cells) {
+                const cellId = cell.cellMarkers?.[0];
+                if (cellId && document._sourceCellMap[cellId]) {
+                    sourceCellMap[cellId] = document._sourceCellMap[cellId];
+                }
+            }
+
+            // Send the cell page to the webview
+            safePostMessageToPanel(webviewPanel, {
+                type: "providerSendsCellPage",
+                milestoneIndex,
+                subsectionIndex,
+                cells: processedCells,
+                sourceCellMap,
+            });
+
+            debug(`Sent cells for milestone ${milestoneIndex}, subsection ${subsectionIndex}: ${processedCells.length} cells`);
+        } catch (error) {
+            console.error("Error fetching cells for milestone:", error);
+        }
+    },
 };
 
 export async function performLLMCompletion(

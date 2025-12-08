@@ -9,6 +9,7 @@ import {
     CustomNotebookMetadata,
     EditorReceiveMessages,
     CellIdGlobalState,
+    MilestoneIndex,
 } from "../../../../types";
 import { CodexCellTypes } from "../../../../types/enums";
 import { ChapterNavigationHeader } from "./ChapterNavigationHeader";
@@ -245,6 +246,14 @@ const CodexCellEditor: React.FC = () => {
         "leftmost" | "rightmost" | "center" | "single" | "unknown"
     >("unknown");
     const [currentSubsectionIndex, setCurrentSubsectionIndex] = useState(0);
+
+    // Milestone-based pagination state
+    const [milestoneIndex, setMilestoneIndex] = useState<MilestoneIndex | null>(null);
+    const [currentMilestoneIndex, setCurrentMilestoneIndex] = useState(0);
+    const [isLoadingCells, setIsLoadingCells] = useState(false);
+
+    // Track which milestone/subsection combinations have been loaded
+    const loadedPagesRef = useRef<Set<string>>(new Set());
 
     // Add audio attachments state
     const [audioAttachments, setAudioAttachments] = useState<{
@@ -1142,6 +1151,74 @@ const CodexCellEditor: React.FC = () => {
             // Otherwise, auto-apply first variant quietly (no modal)
             applyVariantToCell(cellId, variants[0], testId, 0, count, 0, testName, names);
         },
+
+        // Milestone-based pagination handlers
+        setContentPaginated: (
+            milestoneIdx: MilestoneIndex,
+            cells: QuillCellContent[],
+            currentMilestoneIdx: number,
+            currentSubsectionIdx: number,
+            isSourceTextValue: boolean,
+            sourceCellMapValue: { [k: string]: { content: string; versions: string[] } }
+        ) => {
+            debug("pagination", "Received paginated content:", {
+                milestones: milestoneIdx.milestones.length,
+                cells: cells.length,
+                currentMilestone: currentMilestoneIdx,
+                currentSubsection: currentSubsectionIdx,
+            });
+
+            setMilestoneIndex(milestoneIdx);
+            setTranslationUnits(cells);
+            setCurrentMilestoneIndex(currentMilestoneIdx);
+            setCurrentSubsectionIndex(currentSubsectionIdx);
+            setIsSourceText(isSourceTextValue);
+            setSourceCellMap(sourceCellMapValue);
+
+            // Mark this page as loaded
+            const pageKey = `${currentMilestoneIdx}-${currentSubsectionIdx}`;
+            loadedPagesRef.current.add(pageKey);
+            setIsLoadingCells(false);
+
+            // If we're currently saving, this content update likely means the save completed
+            if (isSaving) {
+                debug("editor", "Content updated during save - save completed");
+                if (saveTimeoutRef.current) {
+                    clearTimeout(saveTimeoutRef.current);
+                    saveTimeoutRef.current = null;
+                }
+                setIsSaving(false);
+                setSaveError(false);
+                setSaveRetryCount(0);
+                handleCloseEditor();
+            }
+        },
+
+        handleCellPage: (
+            milestoneIdx: number,
+            subsectionIdx: number,
+            cells: QuillCellContent[],
+            sourceCellMapValue: { [k: string]: { content: string; versions: string[] } }
+        ) => {
+            debug("pagination", "Received cell page:", {
+                milestone: milestoneIdx,
+                subsection: subsectionIdx,
+                cells: cells.length,
+            });
+
+            // Replace translation units with new cells
+            setTranslationUnits(cells);
+            setCurrentMilestoneIndex(milestoneIdx);
+            setCurrentSubsectionIndex(subsectionIdx);
+
+            // Merge source cell map
+            setSourceCellMap((prev) => ({ ...prev, ...sourceCellMapValue }));
+
+            // Mark this page as loaded
+            const pageKey = `${milestoneIdx}-${subsectionIdx}`;
+            loadedPagesRef.current.add(pageKey);
+            setIsLoadingCells(false);
+        },
     });
 
     useEffect(() => {
@@ -1334,7 +1411,91 @@ const CodexCellEditor: React.FC = () => {
         return subsections;
     };
 
-    const totalChapters = calculateTotalChapters(translationUnits);
+    // Milestone-based pagination functions
+    const getSubsectionsForMilestone = useCallback(
+        (milestoneIdx: number): Subsection[] => {
+            if (!milestoneIndex || milestoneIdx >= milestoneIndex.milestones.length) {
+                return [];
+            }
+
+            const milestone = milestoneIndex.milestones[milestoneIdx];
+            const { cellCount, value } = milestone;
+            const effectiveCellsPerPage = milestoneIndex.cellsPerPage || cellsPerPage;
+
+            // If content cells fit in one page, no subsections needed
+            if (cellCount <= effectiveCellsPerPage) {
+                return [];
+            }
+
+            // Calculate number of pages based on content cells
+            const totalPages = Math.ceil(cellCount / effectiveCellsPerPage);
+            const subsections: Subsection[] = [];
+
+            for (let i = 0; i < totalPages; i++) {
+                const startCellNumber = i * effectiveCellsPerPage + 1;
+                const endCellNumber = Math.min((i + 1) * effectiveCellsPerPage, cellCount);
+
+                subsections.push({
+                    id: `milestone-${milestoneIdx}-page-${i}`,
+                    label: `${startCellNumber}-${endCellNumber}`,
+                    startIndex: i * effectiveCellsPerPage,
+                    endIndex: endCellNumber,
+                });
+            }
+
+            return subsections;
+        },
+        [milestoneIndex, cellsPerPage]
+    );
+
+    // Request cells for a specific milestone/subsection
+    const requestCellsForMilestone = useCallback(
+        (milestoneIdx: number, subsectionIdx: number = 0) => {
+            const pageKey = `${milestoneIdx}-${subsectionIdx}`;
+
+            // Check if this page is already loaded
+            if (loadedPagesRef.current.has(pageKey)) {
+                debug("pagination", `Page ${pageKey} already loaded, skipping request`);
+                // Just update the current indices to show the cached content
+                setCurrentMilestoneIndex(milestoneIdx);
+                setCurrentSubsectionIndex(subsectionIdx);
+                return;
+            }
+
+            debug(
+                "pagination",
+                `Requesting cells for milestone ${milestoneIdx}, subsection ${subsectionIdx}`
+            );
+            setIsLoadingCells(true);
+
+            vscode.postMessage({
+                command: "requestCellsForMilestone",
+                content: {
+                    milestoneIndex: milestoneIdx,
+                    subsectionIndex: subsectionIdx,
+                },
+            } as EditorPostMessages);
+        },
+        [vscode]
+    );
+
+    // Get total number of milestones
+    const totalMilestones = useMemo(() => {
+        return milestoneIndex?.milestones?.length || 0;
+    }, [milestoneIndex]);
+
+    // Get current milestone info
+    const currentMilestone = useMemo(() => {
+        if (!milestoneIndex || currentMilestoneIndex >= milestoneIndex.milestones.length) {
+            return null;
+        }
+        return milestoneIndex.milestones[currentMilestoneIndex];
+    }, [milestoneIndex, currentMilestoneIndex]);
+
+    // Use milestone-based chapters when milestone index is available, otherwise fall back to traditional chapters
+    const totalChapters = milestoneIndex
+        ? totalMilestones
+        : calculateTotalChapters(translationUnits);
 
     // Calculate progress for each chapter based on translation and validation status
     const calculateChapterProgress = useCallback(
@@ -1414,33 +1575,58 @@ const CodexCellEditor: React.FC = () => {
         return progress;
     }, [calculateChapterProgress, totalChapters]);
 
-    // Get all cells for the current chapter first
-    const allCellsForChapter = translationUnits.filter((verse) => {
-        const cellId = verse?.cellMarkers?.[0];
+    // Determine if using milestone-based navigation
+    const useMilestoneNavigation = milestoneIndex && milestoneIndex.milestones.length > 0;
 
-        // Handle paratext cells specially - they should be included based on context
-        if (cellId?.startsWith("paratext-")) {
-            // For now, include all paratext cells when viewing any chapter
-            // This ensures leading paratext (like the Tigrinya intro) is visible
-            return true;
+    // Get all cells for the current chapter/milestone
+    // When using milestone navigation, translationUnits already contains the correct cells
+    const allCellsForChapter = useMemo(() => {
+        if (useMilestoneNavigation) {
+            // When using milestone-based pagination, translationUnits already contains
+            // only the cells for the current milestone/subsection (loaded from backend)
+            // Just filter out milestone cells from display
+            return translationUnits.filter((verse) => {
+                return verse.cellType !== CodexCellTypes.MILESTONE;
+            });
         }
 
-        // Exclude milestone cells from the view (they remain in JSON)
-        if (verse.cellType === CodexCellTypes.MILESTONE) {
-            return false;
-        }
+        // Traditional chapter-based filtering
+        return translationUnits.filter((verse) => {
+            const cellId = verse?.cellMarkers?.[0];
 
-        // For regular cells, check if they belong to the current chapter
-        const sectionCellIdParts = cellId?.split(" ")?.[1]?.split(":");
-        const sectionCellNumber = sectionCellIdParts?.[0];
-        return sectionCellNumber === chapterNumber.toString();
-    });
+            // Handle paratext cells specially - they should be included based on context
+            if (cellId?.startsWith("paratext-")) {
+                // For now, include all paratext cells when viewing any chapter
+                // This ensures leading paratext (like the Tigrinya intro) is visible
+                return true;
+            }
+
+            // Exclude milestone cells from the view (they remain in JSON)
+            if (verse.cellType === CodexCellTypes.MILESTONE) {
+                return false;
+            }
+
+            // For regular cells, check if they belong to the current chapter
+            const sectionCellIdParts = cellId?.split(" ")?.[1]?.split(":");
+            const sectionCellNumber = sectionCellIdParts?.[0];
+            return sectionCellNumber === chapterNumber.toString();
+        });
+    }, [translationUnits, useMilestoneNavigation, chapterNumber]);
 
     // Get the subsections for the current chapter
-    const subsections = getSubsectionsForChapter(chapterNumber);
+    const subsections = useMilestoneNavigation
+        ? getSubsectionsForMilestone(currentMilestoneIndex)
+        : getSubsectionsForChapter(chapterNumber);
 
     // Apply pagination if there are subsections
     const translationUnitsForSection = useMemo(() => {
+        // When using milestone navigation, cells are already paginated by the backend
+        // No additional slicing needed
+        if (useMilestoneNavigation) {
+            return allCellsForChapter;
+        }
+
+        // Traditional chapter-based pagination
         if (subsections.length === 0) {
             // No pagination needed, return all cells for the chapter
             return allCellsForChapter;
@@ -1456,7 +1642,13 @@ const CodexCellEditor: React.FC = () => {
                 currentSubsection.endIndex
             );
         }
-    }, [allCellsForChapter, subsections, currentSubsectionIndex, cellsPerPage]);
+    }, [
+        allCellsForChapter,
+        subsections,
+        currentSubsectionIndex,
+        cellsPerPage,
+        useMilestoneNavigation,
+    ]);
 
     const { setUnsavedChanges } = useContext(UnsavedChangesContext);
 
@@ -2449,6 +2641,13 @@ const CodexCellEditor: React.FC = () => {
                             onFontSizeSave={handleFontSizeSave}
                             requiredValidations={requiredValidations ?? undefined}
                             requiredAudioValidations={requiredAudioValidations ?? undefined}
+                            // Milestone-based pagination props
+                            milestoneIndex={milestoneIndex}
+                            currentMilestoneIndex={currentMilestoneIndex}
+                            setCurrentMilestoneIndex={setCurrentMilestoneIndex}
+                            getSubsectionsForMilestone={getSubsectionsForMilestone}
+                            requestCellsForMilestone={requestCellsForMilestone}
+                            isLoadingCells={isLoadingCells}
                         />
                     </div>
                 </div>

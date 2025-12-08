@@ -12,6 +12,8 @@ import {
     CustomNotebookMetadata,
     ValidationEntry,
     EditMapValueType,
+    MilestoneIndex,
+    MilestoneInfo,
 } from "../../../types";
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../utils/editMapUtils";
 import { CodexCellTypes, EditType } from "../../../types/enums";
@@ -1065,6 +1067,203 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
     public getNotebookMetadata(): CustomNotebookMetadata {
         return this._documentData.metadata;
+    }
+
+    /**
+     * Builds a milestone index from the document cells.
+     * This index is used for milestone-based pagination.
+     * 
+     * @param cellsPerPage Number of cells per page for sub-pagination within milestones
+     * @returns MilestoneIndex containing milestone information and pagination settings
+     */
+    public buildMilestoneIndex(cellsPerPage: number = 50): MilestoneIndex {
+        const milestones: MilestoneInfo[] = [];
+        const cells = this._documentData.cells || [];
+        
+        // Find all milestone cells and their positions
+        const milestoneCellIndices: { cellIndex: number; value: string }[] = [];
+        
+        for (let i = 0; i < cells.length; i++) {
+            const cell = cells[i];
+            if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
+                milestoneCellIndices.push({
+                    cellIndex: i,
+                    value: cell.value || String(milestoneCellIndices.length + 1),
+                });
+            }
+        }
+        
+        // Count total content cells (excluding milestones and paratext)
+        let totalContentCells = 0;
+        for (const cell of cells) {
+            if (cell.metadata?.type !== CodexCellTypes.MILESTONE && 
+                cell.metadata?.type !== "paratext") {
+                totalContentCells++;
+            }
+        }
+        
+        // Edge case: No milestone cells found - create a virtual milestone at index 0
+        if (milestoneCellIndices.length === 0) {
+            milestones.push({
+                index: 0,
+                cellIndex: 0,
+                value: "1",
+                cellCount: totalContentCells,
+            });
+            
+            return {
+                milestones,
+                totalCells: totalContentCells,
+                cellsPerPage,
+            };
+        }
+        
+        // Build milestone info for each milestone
+        for (let i = 0; i < milestoneCellIndices.length; i++) {
+            const currentMilestone = milestoneCellIndices[i];
+            const nextMilestone = milestoneCellIndices[i + 1];
+            
+            // Count content cells from this milestone to the next (or end of document)
+            const startIndex = currentMilestone.cellIndex;
+            const endIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
+            
+            let cellCount = 0;
+            for (let j = startIndex; j < endIndex; j++) {
+                const cell = cells[j];
+                // Count only non-milestone, non-paratext cells
+                if (cell.metadata?.type !== CodexCellTypes.MILESTONE && 
+                    cell.metadata?.type !== "paratext") {
+                    cellCount++;
+                }
+            }
+            
+            milestones.push({
+                index: i,
+                cellIndex: currentMilestone.cellIndex,
+                value: currentMilestone.value,
+                cellCount,
+            });
+        }
+        
+        return {
+            milestones,
+            totalCells: totalContentCells,
+            cellsPerPage,
+        };
+    }
+
+    /**
+     * Gets cells for a specific milestone and optional subsection.
+     * Used for lazy loading cells on-demand.
+     * 
+     * @param milestoneIndex The index of the milestone (0-based)
+     * @param subsectionIndex Optional subsection index for sub-pagination within milestone
+     * @param cellsPerPage Number of cells per page
+     * @returns Array of cells for the requested milestone/subsection
+     */
+    public getCellsForMilestone(
+        milestoneIndex: number,
+        subsectionIndex: number = 0,
+        cellsPerPage: number = 50
+    ): QuillCellContent[] {
+        const cells = this._documentData.cells || [];
+        const milestoneInfo = this.buildMilestoneIndex(cellsPerPage);
+        
+        // Validate milestone index
+        if (milestoneIndex < 0 || milestoneIndex >= milestoneInfo.milestones.length) {
+            console.warn(`Invalid milestone index: ${milestoneIndex}`);
+            return [];
+        }
+        
+        const milestone = milestoneInfo.milestones[milestoneIndex];
+        const nextMilestone = milestoneInfo.milestones[milestoneIndex + 1];
+        
+        // Get all cells in this milestone section
+        const startCellIndex = milestone.cellIndex;
+        const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
+        
+        // Collect all content cells (excluding milestone cells) in this section
+        const contentCells: QuillCellContent[] = [];
+        const paratextCells: { cell: QuillCellContent; originalIndex: number }[] = [];
+        
+        for (let i = startCellIndex; i < endCellIndex; i++) {
+            const cell = cells[i];
+            
+            // Skip milestone cells - they're not displayed
+            if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
+                continue;
+            }
+            
+            const quillContent: QuillCellContent = {
+                cellMarkers: [cell.metadata?.id || ""],
+                cellContent: cell.value || "",
+                cellType: cell.metadata?.type || CodexCellTypes.TEXT,
+                editHistory: cell.metadata?.edits || [],
+                timestamps: cell.metadata?.data,
+                cellLabel: cell.metadata?.cellLabel,
+                merged: cell.metadata?.data?.merged,
+                deleted: cell.metadata?.data?.deleted,
+                data: cell.metadata?.data,
+                attachments: cell.metadata?.attachments || {},
+                metadata: {
+                    selectedAudioId: cell.metadata?.selectedAudioId,
+                },
+            };
+            
+            // Track paratext cells separately for inclusion
+            if (cell.metadata?.type === "paratext") {
+                paratextCells.push({ cell: quillContent, originalIndex: i });
+            } else {
+                contentCells.push(quillContent);
+            }
+        }
+        
+        // Calculate subsection bounds
+        const totalSubsections = Math.ceil(contentCells.length / cellsPerPage);
+        const validSubsectionIndex = Math.min(
+            Math.max(0, subsectionIndex), 
+            Math.max(0, totalSubsections - 1)
+        );
+        
+        const startContentIndex = validSubsectionIndex * cellsPerPage;
+        const endContentIndex = Math.min(startContentIndex + cellsPerPage, contentCells.length);
+        
+        // Get content cells for this subsection
+        const subsectionContentCells = contentCells.slice(startContentIndex, endContentIndex);
+        
+        // Include leading paratext cells for the first subsection
+        const result: QuillCellContent[] = [];
+        if (validSubsectionIndex === 0) {
+            // Add any paratext cells that come before the first content cell
+            for (const pt of paratextCells) {
+                if (pt.originalIndex < startCellIndex + startContentIndex) {
+                    result.push(pt.cell);
+                }
+            }
+        }
+        
+        // Add the content cells
+        result.push(...subsectionContentCells);
+        
+        return result;
+    }
+
+    /**
+     * Gets the total number of subsections for a milestone.
+     * 
+     * @param milestoneIndex The index of the milestone (0-based)
+     * @param cellsPerPage Number of cells per page
+     * @returns Number of subsections (pages) for this milestone
+     */
+    public getSubsectionCountForMilestone(milestoneIndex: number, cellsPerPage: number = 50): number {
+        const milestoneInfo = this.buildMilestoneIndex(cellsPerPage);
+        
+        if (milestoneIndex < 0 || milestoneIndex >= milestoneInfo.milestones.length) {
+            return 0;
+        }
+        
+        const milestone = milestoneInfo.milestones[milestoneIndex];
+        return Math.ceil(milestone.cellCount / cellsPerPage) || 1;
     }
 
     public updateCellLabel(cellId: string, newLabel: string) {

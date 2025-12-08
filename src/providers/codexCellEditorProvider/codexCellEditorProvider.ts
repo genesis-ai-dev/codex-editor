@@ -13,6 +13,7 @@ import {
     CellIdGlobalState,
     CustomNotebookCellData,
     CodexNotebookAsJSONData,
+    MilestoneIndex,
 } from "../../../types";
 import { CodexCellDocument } from "./codexDocument";
 import {
@@ -145,7 +146,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private bibleBookMap: Map<string, { name: string;[key: string]: any; }> | undefined;
 
     // Add correction editor mode state
-    private isCorrectionEditorMode: boolean = false;
+    public isCorrectionEditorMode: boolean = false;
 
     public static getInstance(): CodexCellEditorProvider | undefined {
         return CodexCellEditorProvider.instance;
@@ -574,7 +575,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const updateWebview = async () => {
             debug("Updating webview");
             const notebookData: CodexNotebookAsJSONData = this.getDocumentAsJson(document);
-            const processedData = this.processNotebookData(notebookData, document);
 
             // Get bundled metadata to avoid separate requests
             const config = vscode.workspace.getConfiguration("codex-project-manager");
@@ -604,11 +604,30 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 console.debug("Could not get authentication status:", error);
             }
 
+            // Build milestone index for paginated loading
+            const milestoneIndex = document.buildMilestoneIndex(this.CELLS_PER_PAGE);
+
+            // Get first page of cells (milestone 0, subsection 0)
+            const initialCells = document.getCellsForMilestone(0, 0, this.CELLS_PER_PAGE);
+            const processedInitialCells = this.mergeRangesAndProcess(initialCells, this.isCorrectionEditorMode, isSourceText);
+
+            // Build source cell map for the initial cells only
+            const initialSourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
+            for (const cell of initialCells) {
+                const cellId = cell.cellMarkers?.[0];
+                if (cellId && document._sourceCellMap[cellId]) {
+                    initialSourceCellMap[cellId] = document._sourceCellMap[cellId];
+                }
+            }
+
             this.postMessageToWebview(webviewPanel, {
-                type: "providerSendsInitialContent",
-                content: processedData,
+                type: "providerSendsInitialContentPaginated",
+                milestoneIndex: milestoneIndex,
+                cells: processedInitialCells,
+                currentMilestoneIndex: 0,
+                currentSubsectionIndex: 0,
                 isSourceText: isSourceText,
-                sourceCellMap: document._sourceCellMap,
+                sourceCellMap: initialSourceCellMap,
                 username: username,
                 validationCount: validationCount,
                 validationCountAudio: validationCountAudio,
@@ -2030,7 +2049,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         return processedData;
     }
 
-    private mergeRangesAndProcess(translationUnits: QuillCellContent[], isCorrectionEditorMode: boolean, isSourceText: boolean) {
+    public mergeRangesAndProcess(translationUnits: QuillCellContent[], isCorrectionEditorMode: boolean, isSourceText: boolean) {
         debug("Merging ranges and processing translation units");
         const isSourceAndCorrectionEditorMode = isSourceText && isCorrectionEditorMode;
         const translationUnitsWithMergedRanges: QuillCellContent[] = [];
@@ -2091,7 +2110,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     public async refreshWebview(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument) {
         debug("Refreshing webview");
         const notebookData = this.getDocumentAsJson(document);
-        const processedData = this.processNotebookData(notebookData, document);
         const isSourceText = this.isSourceText(document.uri);
         const videoUrl = this.getVideoUrl(notebookData.metadata?.videoUrl, webviewPanel);
 
@@ -2123,13 +2141,33 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const userInfo = await authApi?.getUserInfo();
         const username = userInfo?.username || "anonymous";
 
+        // Build milestone index for paginated loading
+        const milestoneIndex = document.buildMilestoneIndex(this.CELLS_PER_PAGE);
+
+        // Get first page of cells (milestone 0, subsection 0)
+        const initialCells = document.getCellsForMilestone(0, 0, this.CELLS_PER_PAGE);
+        const processedInitialCells = this.mergeRangesAndProcess(initialCells, this.isCorrectionEditorMode, isSourceText);
+
+        // Build source cell map for the initial cells only
+        const initialSourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
+        for (const cell of initialCells) {
+            const cellId = cell.cellMarkers?.[0];
+            if (cellId && document._sourceCellMap[cellId]) {
+                initialSourceCellMap[cellId] = document._sourceCellMap[cellId];
+            }
+        }
+
         // Schedule updates to wait for webview ready signal
         this.scheduleWebviewUpdate(document.uri.toString(), () => {
+            // Send paginated initial content with milestone index
             this.postMessageToWebview(webviewPanel, {
-                type: "providerSendsInitialContent",
-                content: processedData,
+                type: "providerSendsInitialContentPaginated",
+                milestoneIndex: milestoneIndex,
+                cells: processedInitialCells,
+                currentMilestoneIndex: 0,
+                currentSubsectionIndex: 0,
                 isSourceText: isSourceText,
-                sourceCellMap: document._sourceCellMap,
+                sourceCellMap: initialSourceCellMap,
                 username: username,
                 validationCount: validationCount,
                 validationCountAudio: validationCountAudio,
@@ -2150,7 +2188,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             }
         });
 
-        debug("Webview refresh scheduled");
+        debug("Webview refresh scheduled with paginated content");
 
         // Release in-flight lock after a tick and run any queued refresh once
         setTimeout(() => {
