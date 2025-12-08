@@ -800,6 +800,22 @@ const CodexCellEditor: React.FC = () => {
         []
     );
 
+    // Listen for milestone progress updates
+    useMessageHandler(
+        "codexCellEditor-milestoneProgress",
+        (event: MessageEvent) => {
+            const message = event.data as EditorReceiveMessages;
+            if (message?.type === "milestoneProgressUpdate" && milestoneIndex) {
+                // Update milestone progress in the milestone index
+                setMilestoneIndex({
+                    ...milestoneIndex,
+                    milestoneProgress: message.milestoneProgress,
+                });
+            }
+        },
+        [milestoneIndex]
+    );
+
     useEffect(() => {
         if (highlightedCellId && scrollSyncEnabled && isSourceText) {
             const cellId = highlightedCellId;
@@ -1622,17 +1638,34 @@ const CodexCellEditor: React.FC = () => {
         [translationUnits, requiredValidations, requiredAudioValidations]
     );
 
+    // Determine if using milestone-based navigation
+    const useMilestoneNavigation = milestoneIndex && milestoneIndex.milestones.length > 0;
+
     // Calculate progress for all chapters
     const allChapterProgress = useMemo(() => {
         const progress: Record<number, ProgressPercentages> = {};
-        for (let i = 1; i <= totalChapters; i++) {
-            progress[i] = calculateChapterProgress(i);
-        }
-        return progress;
-    }, [calculateChapterProgress, totalChapters]);
 
-    // Determine if using milestone-based navigation
-    const useMilestoneNavigation = milestoneIndex && milestoneIndex.milestones.length > 0;
+        // If using milestone navigation and we have pre-calculated progress, use it
+        if (useMilestoneNavigation && milestoneIndex?.milestoneProgress) {
+            // Use pre-calculated progress from backend
+            for (let i = 1; i <= totalChapters; i++) {
+                progress[i] = milestoneIndex.milestoneProgress[i] || {
+                    percentTranslationsCompleted: 0,
+                    percentAudioTranslationsCompleted: 0,
+                    percentFullyValidatedTranslations: 0,
+                    percentAudioValidatedTranslations: 0,
+                    percentTextValidatedTranslations: 0,
+                };
+            }
+        } else {
+            // Fall back to calculating progress from loaded cells
+            for (let i = 1; i <= totalChapters; i++) {
+                progress[i] = calculateChapterProgress(i);
+            }
+        }
+
+        return progress;
+    }, [calculateChapterProgress, totalChapters, useMilestoneNavigation, milestoneIndex]);
 
     // Get all cells for the current chapter/milestone
     // When using milestone navigation, translationUnits already contains the correct cells

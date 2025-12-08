@@ -55,6 +55,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private webviewPanels: Map<string, vscode.WebviewPanel> = new Map();
     private webviewReadyState: Map<string, boolean> = new Map(); // Track if webview is ready to receive content
     private pendingWebviewUpdates: Map<string, (() => void)[]> = new Map(); // Track pending update functions
+    private documents: Map<string, CodexCellDocument> = new Map(); // Track open documents
     private refreshInFlight: Set<string> = new Set(); // Prevent overlapping refreshes per document
     private pendingRefresh: Set<string> = new Set(); // Queue one follow-up refresh if needed
     private userInfo: { username: string; email: string; } | undefined;
@@ -199,6 +200,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                 // Force a refresh of validation state for all open documents
                 this.refreshValidationStateForAllDocuments();
+
+                // Update milestone progress for all open documents
+                this.updateMilestoneProgressForAllDocuments();
             }
 
             if (e.affectsConfiguration("codex-project-manager.validationCountAudio")) {
@@ -214,6 +218,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                 // Force a refresh of validation state for all open documents
                 this.refreshValidationStateForAllDocuments();
+
+                // Update milestone progress for all open documents
+                this.updateMilestoneProgressForAllDocuments();
             }
 
             if (e.affectsConfiguration("codex-editor-extension.cellsPerPage")) {
@@ -301,6 +308,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         openContext: { backupId?: string; },
         _token: vscode.CancellationToken
     ): Promise<CodexCellDocument> {
+        // Track document when opened
+        const existingDoc = this.documents.get(uri.toString());
+        if (existingDoc) {
+            return existingDoc;
+        }
         debug("Opening custom document:", uri.toString());
         const document = await CodexCellDocument.create(uri, openContext.backupId, _token);
         debug("Document created successfully");
@@ -388,6 +400,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Store the webview panel with its document URI as the key
         this.webviewPanels.set(document.uri.toString(), webviewPanel);
+        // Track the document
+        this.documents.set(document.uri.toString(), document);
 
         // Listen for when this editor becomes active
         const viewStateDisposable: vscode.Disposable = webviewPanel.onDidChangeViewState((e) => {
@@ -606,6 +620,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
             // Build milestone index for paginated loading
             const milestoneIndex = document.buildMilestoneIndex(this.CELLS_PER_PAGE);
+
+            // Calculate progress for all milestones
+            const milestoneProgress = document.calculateMilestoneProgress(validationCount, validationCountAudio);
+            milestoneIndex.milestoneProgress = milestoneProgress;
 
             // Get cached chapter and map it to milestone index
             const cachedChapter = this.getCachedChapter(document.uri.toString());
@@ -1019,6 +1037,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             this.webviewPanels.delete(docUri);
             this.webviewReadyState.delete(docUri);
             this.pendingWebviewUpdates.delete(docUri);
+            this.documents.delete(docUri);
         });
         listeners.push(disposeListener);
     }
@@ -2166,6 +2185,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Build milestone index for paginated loading
         const milestoneIndex = document.buildMilestoneIndex(this.CELLS_PER_PAGE);
 
+        // Calculate progress for all milestones
+        const milestoneProgress = document.calculateMilestoneProgress(validationCount, validationCountAudio);
+        milestoneIndex.milestoneProgress = milestoneProgress;
+
         // Get cached chapter and map it to milestone index
         const cachedChapter = this.getCachedChapter(document.uri.toString());
         let initialMilestoneIndex = 0;
@@ -2638,6 +2661,66 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         this.refreshValidationStateForAllDocuments();
     }
 
+    /**
+     * Updates milestone progress for all open documents and sends updates to webviews
+     */
+    private updateMilestoneProgressForAllDocuments() {
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        const validationCount = config.get("validationCount", 1);
+        const validationCountAudio = config.get("validationCountAudio", 1);
+
+        debug("Updating milestone progress for all documents");
+
+        // Update progress for each open document
+        this.webviewPanels.forEach((panel, docUri) => {
+            const document = this.documents.get(docUri);
+            if (document) {
+                try {
+                    const milestoneProgress = document.calculateMilestoneProgress(
+                        validationCount,
+                        validationCountAudio
+                    );
+
+                    // Send progress update to webview
+                    this.postMessageToWebview(panel, {
+                        type: "milestoneProgressUpdate",
+                        milestoneProgress,
+                    });
+                } catch (error) {
+                    debug(`Error updating milestone progress for ${docUri}:`, error);
+                }
+            }
+        });
+    }
+
+    /**
+     * Updates milestone progress for a specific document
+     */
+    private updateMilestoneProgressForDocument(document: CodexCellDocument) {
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        const validationCount = config.get("validationCount", 1);
+        const validationCountAudio = config.get("validationCountAudio", 1);
+
+        const docUri = document.uri.toString();
+        const panel = this.webviewPanels.get(docUri);
+        if (panel) {
+            try {
+                const milestoneProgress = document.calculateMilestoneProgress(
+                    validationCount,
+                    validationCountAudio
+                );
+
+                // Send progress update to webview
+                this.postMessageToWebview(panel, {
+                    type: "milestoneProgressUpdate",
+                    milestoneProgress,
+                });
+            } catch (error) {
+                debug(`Error updating milestone progress for ${docUri}:`, error);
+            }
+        }
+    }
+
     // Marks a cell as complete in our internal state tracking
     public markCellComplete(cellId: string) {
         debug(`Marking cell ${cellId} as complete`);
@@ -2742,6 +2825,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         // Remove the processed request from the queue and resolve
                         this.translationQueue.shift();
                         request.resolve(true);
+
+                        // Update milestone progress after audio validation
+                        this.updateMilestoneProgressForDocument(request.document);
                     } catch (error) {
                         debug(`Error processing audio validation for cell ${request.cellId}:`, error);
 
@@ -2807,6 +2893,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         // Remove the processed request from the queue and resolve
                         this.translationQueue.shift();
                         request.resolve(true);
+
+                        // Update milestone progress after validation
+                        this.updateMilestoneProgressForDocument(request.document);
                     } catch (error) {
                         debug(`Error processing validation for cell ${request.cellId}:`, error);
 
