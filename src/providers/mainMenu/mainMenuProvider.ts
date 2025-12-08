@@ -1758,22 +1758,6 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 const userInfo = await authApi?.getUserInfo();
                 if (userInfo?.username) {
                     author = userInfo.username;
-                } else {
-                    // Try git username
-                    const gitUsername = vscode.workspace.getConfiguration("git").get<string>("username");
-                    if (gitUsername) {
-                        author = gitUsername;
-                    } else {
-                        // Try VS Code authentication session
-                        try {
-                            const session = await vscode.authentication.getSession('github', ['user:email'], { createIfNone: false });
-                            if (session && session.account) {
-                                author = session.account.label;
-                            }
-                        } catch (e) {
-                            // Auth provider might not be available
-                        }
-                    }
                 }
             } catch (error) {
                 // Silent fallback to "unknown"

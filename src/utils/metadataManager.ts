@@ -481,20 +481,6 @@ export class MetadataManager {
                 const userInfo = await authApi?.getUserInfo();
                 if (userInfo?.username) {
                     currentAuthor = userInfo.username;
-                } else {
-                    const gitUsername = vscode.workspace.getConfiguration("git").get<string>("username");
-                    if (gitUsername) {
-                        currentAuthor = gitUsername;
-                    } else {
-                        try {
-                            const session = await vscode.authentication.getSession('github', ['user:email'], { createIfNone: false });
-                            if (session && session.account) {
-                                currentAuthor = session.account.label;
-                            }
-                        } catch (e) {
-                            // Auth provider might not be available
-                        }
-                    }
                 }
             } catch (error) {
                 // Silent fallback
