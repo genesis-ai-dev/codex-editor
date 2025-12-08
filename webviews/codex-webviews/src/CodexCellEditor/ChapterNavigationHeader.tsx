@@ -1061,6 +1061,23 @@ ChapterNavigationHeaderProps) {
                                             newSubsections.length > 0
                                                 ? newSubsections.length - 1
                                                 : 0;
+                                        // Extract and cache the chapter number from the milestone value
+                                        if (
+                                            milestoneIndex &&
+                                            milestoneIndex.milestones[newMilestoneIdx]
+                                        ) {
+                                            const milestoneValue =
+                                                milestoneIndex.milestones[newMilestoneIdx].value;
+                                            const chapterNum = parseInt(milestoneValue, 10);
+                                            if (!isNaN(chapterNum) && chapterNum > 0) {
+                                                // Cache the chapter number so it persists when switching files
+                                                vscode.postMessage({
+                                                    command: "jumpToChapter",
+                                                    chapterNumber: chapterNum,
+                                                });
+                                                setChapterNumber(chapterNum);
+                                            }
+                                        }
                                         jumpToMilestone(newMilestoneIdx, lastSubsectionIdx);
                                     } else {
                                         const newChapter =
@@ -1202,6 +1219,23 @@ ChapterNavigationHeaderProps) {
                                             currentMilestoneIndex === totalNavigationUnits - 1
                                                 ? 0
                                                 : currentMilestoneIndex + 1;
+                                        // Extract and cache the chapter number from the milestone value
+                                        if (
+                                            milestoneIndex &&
+                                            milestoneIndex.milestones[newMilestoneIdx]
+                                        ) {
+                                            const milestoneValue =
+                                                milestoneIndex.milestones[newMilestoneIdx].value;
+                                            const chapterNum = parseInt(milestoneValue, 10);
+                                            if (!isNaN(chapterNum) && chapterNum > 0) {
+                                                // Cache the chapter number so it persists when switching files
+                                                vscode.postMessage({
+                                                    command: "jumpToChapter",
+                                                    chapterNumber: chapterNum,
+                                                });
+                                                setChapterNumber(chapterNum);
+                                            }
+                                        }
                                         jumpToMilestone(newMilestoneIdx, 0);
                                     } else {
                                         const newChapter =
