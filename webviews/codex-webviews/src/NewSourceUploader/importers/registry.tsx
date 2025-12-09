@@ -16,7 +16,8 @@ import {
 // import { docxImporterPlugin } from "./docx/index.tsx"; // Old mammoth.js importer
 import { docxRoundtripImporterPlugin as docxImporterPlugin } from "./docx/experiment/index.tsx"; // New round-trip importer
 import { markdownImporterPlugin } from "./markdown/index.tsx";
-import { usfmImporterPlugin } from "./usfm/index.tsx";
+import { usfmImporterPlugin } from "./usfm/index.tsx"; // Original USFM importer
+import { usfmExperimentalImporterPlugin } from "./usfm/experimental/index.tsx"; // Experimental round-trip importer (standalone with headers in chapter 1)
 import { ebibleDownloadImporterPlugin } from "./ebibleCorpus/index.tsx";
 import { maculaBibleImporterPlugin } from "./maculaBible/index.tsx";
 import { subtitlesImporterPlugin } from "./subtitles/index.tsx";
@@ -26,6 +27,7 @@ import { paratextImporterPlugin } from "./paratext/index.tsx";
 import { spreadsheetImporterPlugin } from "./spreadsheet/index.tsx";
 import { audioImporterPlugin } from "./audio/index.tsx";
 import { biblicaImporterPlugin } from "./biblica/index.tsx";
+import { biblicaSwapperImporterPlugin } from "./biblica-swapper/index.tsx";
 import { tmsImporterPlugin } from "./tms/index.tsx";
 // import { rtfImporterPlugin } from "./rtf/index.tsx";
 import { pdfImporterPlugin } from "./pdf/index.tsx";
@@ -119,6 +121,12 @@ export const importerPlugins: ImporterPlugin[] = [
         tags: [...(usfmImporterPlugin.tags || []), "Specialized", "Bible", "USFM"],
     },
     {
+        ...usfmExperimentalImporterPlugin,
+        name: "USFM Experimental",
+        description: "USFM files with round-trip export support (headers in chapter 1, verse-only target imports)",
+        tags: [...(usfmExperimentalImporterPlugin.tags || []), "Specialized", "Bible", "USFM", "Experimental", "Round-trip"],
+    },
+    {
         ...paratextImporterPlugin,
         name: "Paratext Projects",
         description: "Translation projects with settings",
@@ -146,6 +154,12 @@ export const importerPlugins: ImporterPlugin[] = [
         name: "Biblica Files",
         description: "Biblica IDML importer with Study Bible + Translated Bible support",
         tags: [...(biblicaImporterPlugin.tags || []), "Specialized", "Bible", "Biblica"],
+    },
+    {
+        ...biblicaSwapperImporterPlugin,
+        name: "Biblica Bible Swapper",
+        description: "Swap Bible text between two IDML files while preserving notes",
+        tags: [...(biblicaSwapperImporterPlugin.tags || []), "Specialized", "Bible", "Biblica"],
     },
     {
         ...obsImporterPlugin,
