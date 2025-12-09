@@ -480,6 +480,11 @@
                         "default": false,
                         "description": "Internal flag indicating the paratext reorder migration has completed."
                     },
+                    "codex-project-manager.globalReferencesMigrationCompleted": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Internal flag indicating the global references migration has completed."
+                    },
                     "codex-project-manager.chatSystemMessageToMetadataMigrationCompleted": {
                         "type": "boolean",
                         "default": false,

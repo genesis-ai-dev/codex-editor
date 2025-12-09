@@ -2122,3 +2122,178 @@ export async function migrateParatextCellsForFile(fileUri: vscode.Uri): Promise<
         return false;
     }
 }
+
+/**
+ * Migration: Add globalReferences array to content cells.
+ * For each content cell (excluding STYLE, PARATEXT, MILESTONE), adds
+ * metadata.data.globalReferences = [cellId] if it doesn't already exist.
+ * 
+ * This migration is idempotent - it skips cells that already have globalReferences.
+ */
+export const migration_addGlobalReferences = async (context?: vscode.ExtensionContext) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        // Check if migration has already been run
+        const migrationKey = "globalReferencesMigrationCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        let hasMigrationRun = false;
+
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch (e) {
+            // Setting might not be registered yet; fall back to workspaceState
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
+
+        if (hasMigrationRun) {
+            console.log("Global references migration already completed, skipping");
+            return;
+        }
+
+        console.log("Running global references migration...");
+
+        const workspaceFolder = workspaceFolders[0];
+
+        // Find all codex and source files
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+
+        const allFiles = [...codexFiles, ...sourceFiles];
+
+        if (allFiles.length === 0) {
+            console.log("No codex or source files found, skipping global references migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                // If configuration key is not registered, fall back to workspaceState
+                await context?.workspaceState.update(migrationKey, true);
+            }
+            return;
+        }
+
+        let processedFiles = 0;
+        let migratedFiles = 0;
+
+        // Process files with progress
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Adding global references to cells",
+                cancellable: false
+            },
+            async (progress) => {
+                for (let i = 0; i < allFiles.length; i++) {
+                    const file = allFiles[i];
+                    progress.report({
+                        message: `Processing ${path.basename(file.fsPath)}`,
+                        increment: (100 / allFiles.length)
+                    });
+
+                    try {
+                        const wasMigrated = await migrateGlobalReferencesForFile(file);
+                        processedFiles++;
+                        if (wasMigrated) {
+                            migratedFiles++;
+                        }
+                    } catch (error) {
+                        console.error(`Error processing ${file.fsPath}:`, error);
+                    }
+                }
+            }
+        );
+
+        // Mark migration as completed
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch (e) {
+            // If configuration key is not registered, fall back to workspaceState
+            await context?.workspaceState.update(migrationKey, true);
+        }
+
+        console.log(`Global references migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        if (migratedFiles > 0) {
+            vscode.window.showInformationMessage(
+                `Global references migration complete: ${migratedFiles} files updated`
+            );
+        }
+
+    } catch (error) {
+        console.error("Error running global references migration:", error);
+    }
+};
+
+/**
+ * Processes a single file to add globalReferences to content cells.
+ * Returns true if the file was modified, false otherwise.
+ */
+export async function migrateGlobalReferencesForFile(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = notebookData.cells || [];
+        if (cells.length === 0) return false;
+
+        let hasChanges = false;
+
+        for (const cell of cells) {
+            const md: any = cell.metadata || {};
+            const cellType = md.type;
+            const cellId = md.id;
+
+            // Skip if cell doesn't have an ID
+            if (!cellId) {
+                continue;
+            }
+
+            // Skip STYLE, PARATEXT, and MILESTONE cells (only process content cells)
+            if (cellType === CodexCellTypes.STYLE ||
+                cellType === CodexCellTypes.PARATEXT ||
+                cellType === CodexCellTypes.MILESTONE) {
+                continue;
+            }
+
+            // Ensure metadata.data exists
+            if (!md.data) {
+                md.data = {};
+            }
+
+            // Skip if globalReferences already exists
+            if (md.data.globalReferences !== undefined) {
+                continue;
+            }
+
+            // Add globalReferences array with the cell's ID
+            md.data.globalReferences = [cellId];
+            cell.metadata = md;
+            hasChanges = true;
+        }
+
+        if (hasChanges) {
+            const updatedContent = await serializer.serializeNotebook(
+                notebookData,
+                new vscode.CancellationTokenSource().token
+            );
+            await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+            return true;
+        }
+
+        return false;
+    } catch (error) {
+        console.error(`Error migrating global references for ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
