@@ -272,6 +272,15 @@ const CodexCellEditor: React.FC = () => {
     // Track the latest request to ignore stale responses
     const latestRequestRef = useRef<{ milestoneIdx: number; subsectionIdx: number } | null>(null);
 
+    // Refs to access current milestone/subsection indices in message handlers without dependencies
+    const currentMilestoneIndexRef = useRef<number>(0);
+    const currentSubsectionIndexRef = useRef<number>(0);
+
+    // Ref to store requestCellsForMilestone function so it can be used in message handlers
+    const requestCellsForMilestoneRef = useRef<
+        ((milestoneIdx: number, subsectionIdx?: number) => void) | null
+    >(null);
+
     // Add audio attachments state
     const [audioAttachments, setAudioAttachments] = useState<{
         [cellId: string]:
@@ -696,6 +705,27 @@ const CodexCellEditor: React.FC = () => {
                 setTempFontSize(null);
                 // Request updated content to get the new font sizes and metadata
                 vscode.postMessage({ command: "getContent" } as EditorPostMessages);
+            }
+
+            // Handle current page refresh (e.g., when a paratext cell is added)
+            if (message.type === "refreshCurrentPage") {
+                // Refresh the current page by requesting cells for the current milestone/subsection
+                // This ensures paratext cells appear immediately after being added
+                // Use refs to get current values without adding them to dependency array
+                const milestoneIdx = currentMilestoneIndexRef.current;
+                const subsectionIdx = currentSubsectionIndexRef.current;
+                const pageKey = `${milestoneIdx}-${subsectionIdx}`;
+
+                // Clear the cache for this page to force a fresh request
+                cellsCacheRef.current.delete(pageKey);
+                loadedPagesRef.current.delete(pageKey);
+
+                // Request fresh cells for the current page
+                if (requestCellsForMilestoneRef.current) {
+                    requestCellsForMilestoneRef.current(milestoneIdx, subsectionIdx);
+                } else {
+                    debug("pagination", "ERROR: requestCellsForMilestoneRef.current is null!");
+                }
             }
         },
         [vscode]
@@ -1415,6 +1445,20 @@ const CodexCellEditor: React.FC = () => {
         },
         [vscode, getCachedCells]
     );
+
+    // Keep refs in sync with state (must be after requestCellsForMilestone is defined)
+    useEffect(() => {
+        currentMilestoneIndexRef.current = currentMilestoneIndex;
+    }, [currentMilestoneIndex]);
+
+    useEffect(() => {
+        currentSubsectionIndexRef.current = currentSubsectionIndex;
+    }, [currentSubsectionIndex]);
+
+    // Store requestCellsForMilestone in ref so it can be used in message handlers
+    useEffect(() => {
+        requestCellsForMilestoneRef.current = requestCellsForMilestone;
+    }, [requestCellsForMilestone]);
 
     // Get total number of milestones
     const totalMilestones = useMemo(() => {

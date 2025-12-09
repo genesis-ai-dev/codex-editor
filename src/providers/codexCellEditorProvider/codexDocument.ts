@@ -1283,8 +1283,35 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     /**
+     * Extracts the parent content cell ID from a paratext cell ID.
+     * Paratext cell IDs have the format: "parentId:paratext-..." or "parentId:paratext-..."
+     * Returns the parent ID (first two parts when split by ':') or null if not a paratext cell.
+     * 
+     * @param paratextCellId The paratext cell ID (e.g., "GEN 1:50:paratext-123456")
+     * @returns The parent content cell ID (e.g., "GEN 1:50") or null if not a paratext cell
+     */
+    private extractParentCellIdFromParatext(paratextCellId: string): string | null {
+        if (!paratextCellId || !paratextCellId.includes(":paratext-")) {
+            return null;
+        }
+
+        // Split by ':' and take the first two parts to get the parent cell ID
+        // Format: "GEN 1:50:paratext-123456" -> ["GEN 1", "50", "paratext-123456"]
+        // We want "GEN 1:50"
+        const parts = paratextCellId.split(":");
+        if (parts.length >= 2) {
+            return parts.slice(0, 2).join(":");
+        }
+
+        return null;
+    }
+
+    /**
      * Gets cells for a specific milestone and optional subsection.
      * Used for lazy loading cells on-demand.
+     * 
+     * This method ensures that paratext cells appear on the same page as their
+     * associated content cell, whether the paratext is above or below the content cell.
      * 
      * @param milestoneIndex The index of the milestone (0-based)
      * @param subsectionIndex Optional subsection index for sub-pagination within milestone
@@ -1312,9 +1339,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const startCellIndex = milestone.cellIndex;
         const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
 
-        // Collect all content cells (excluding milestone cells) in this section
+        // Convert all cells in milestone range to QuillCellContent format
+        // and separate into content cells and paratext cells
+        const allCellsInMilestone: QuillCellContent[] = [];
+        const paratextCells: QuillCellContent[] = [];
         const contentCells: QuillCellContent[] = [];
-        const paratextCells: { cell: QuillCellContent; originalIndex: number; }[] = [];
 
         for (let i = startCellIndex; i < endCellIndex; i++) {
             const cell = cells[i];
@@ -1340,15 +1369,17 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 },
             };
 
-            // Track paratext cells separately for inclusion
-            if (cell.metadata?.type === "paratext") {
-                paratextCells.push({ cell: quillContent, originalIndex: i });
+            allCellsInMilestone.push(quillContent);
+
+            // Separate paratext cells from content cells
+            if (cell.metadata?.type === CodexCellTypes.PARATEXT) {
+                paratextCells.push(quillContent);
             } else {
                 contentCells.push(quillContent);
             }
         }
 
-        // Calculate subsection bounds
+        // Calculate which content cells belong to the current page
         const totalSubsections = Math.ceil(contentCells.length / cellsPerPage);
         const validSubsectionIndex = Math.min(
             Math.max(0, subsectionIndex),
@@ -1358,32 +1389,41 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const startContentIndex = validSubsectionIndex * cellsPerPage;
         const endContentIndex = Math.min(startContentIndex + cellsPerPage, contentCells.length);
 
-        // Get content cells for this subsection
-        const subsectionContentCells = contentCells.slice(startContentIndex, endContentIndex);
+        // Get content cells for this page
+        const contentCellsForPage = contentCells.slice(startContentIndex, endContentIndex);
+        const contentCellIdsForPage = new Set(
+            contentCellsForPage.map(cell => cell.cellMarkers[0])
+        );
 
-        // Include leading paratext cells for the first subsection
-        const result: QuillCellContent[] = [];
-        if (validSubsectionIndex === 0) {
-            // Find the original index of the first content cell in the milestone section
-            let firstContentCellOriginalIndex = endCellIndex; // Default to end if no content cells
-            for (let i = startCellIndex; i < endCellIndex; i++) {
-                const cell = cells[i];
-                if (cell.metadata?.type !== CodexCellTypes.MILESTONE &&
-                    cell.metadata?.type !== "paratext") {
-                    firstContentCellOriginalIndex = i;
-                    break;
+        // Build a map of parent cell ID -> paratext cells
+        const paratextCellsByParent = new Map<string, QuillCellContent[]>();
+        for (const paratextCell of paratextCells) {
+            const parentId = this.extractParentCellIdFromParatext(paratextCell.cellMarkers[0]);
+            if (parentId) {
+                if (!paratextCellsByParent.has(parentId)) {
+                    paratextCellsByParent.set(parentId, []);
                 }
-            }
-            // Add all paratext cells that come before the first content cell
-            for (const pt of paratextCells) {
-                if (pt.originalIndex < firstContentCellOriginalIndex) {
-                    result.push(pt.cell);
-                }
+                paratextCellsByParent.get(parentId)!.push(paratextCell);
             }
         }
 
-        // Add the content cells
-        result.push(...subsectionContentCells);
+        // Build a set of all cell IDs that should be included in the result
+        // This includes content cells on the current page and their associated paratext cells
+        const cellsToInclude = new Set<string>(contentCellIdsForPage);
+
+        // Add paratext cells associated with content cells on the current page
+        for (const contentCellId of contentCellIdsForPage) {
+            const associatedParatextCells = paratextCellsByParent.get(contentCellId) || [];
+            for (const paratextCell of associatedParatextCells) {
+                cellsToInclude.add(paratextCell.cellMarkers[0]);
+            }
+        }
+
+        // Filter allCellsInMilestone to only include cells that should be on this page
+        // This maintains the original order while ensuring paratext cells appear with their content cells
+        const result = allCellsInMilestone.filter(cell =>
+            cellsToInclude.has(cell.cellMarkers[0])
+        );
 
         return result;
     }

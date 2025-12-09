@@ -923,8 +923,24 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Still update the current webview with the full content
                     updateWebview();
                 } else {
-                    // For non-validation updates, just update the webview as normal
-                    updateWebview();
+                    // Check if this is a paratext cell addition
+                    debug("Document change event", { edits: e.edits, firstEdit: e.edits?.[0] });
+                    if (e.edits && e.edits.length > 0 && e.edits[0].cellType === CodexCellTypes.PARATEXT) {
+                        debug("Paratext cell added, sending refreshCurrentPage message");
+                        // Send a message to refresh the current page (not reset to initial)
+                        // The webview will handle this by requesting cells for its current milestone/subsection
+                        this.webviewPanels.forEach((panel, docUri) => {
+                            if (docUri === document.uri.toString()) {
+                                debug(`Sending refreshCurrentPage to webview for ${docUri}`);
+                                safePostMessageToPanel(panel, {
+                                    type: "refreshCurrentPage",
+                                });
+                            }
+                        });
+                    } else {
+                        // For non-validation updates, just update the webview as normal
+                        updateWebview();
+                    }
                 }
 
                 // Update file status when document changes
