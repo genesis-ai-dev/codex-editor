@@ -661,16 +661,8 @@ const CellList: React.FC<CellListProps> = ({
                             <CellContentDisplay
                                 cell={cell}
                                 lineNumber={generatedCellLabel}
-                                label={
-                                    cell.cellType === CodexCellTypes.MILESTONE
-                                        ? undefined
-                                        : cell.cellLabel
-                                }
-                                lineNumbersEnabled={
-                                    cell.cellType === CodexCellTypes.MILESTONE
-                                        ? false
-                                        : lineNumbersEnabled
-                                }
+                                label={cell.cellLabel}
+                                lineNumbersEnabled={lineNumbersEnabled}
                                 key={`cell-${cellMarkers[0]}`}
                                 vscode={vscode}
                                 textDirection={textDirection}
@@ -850,16 +842,8 @@ const CellList: React.FC<CellListProps> = ({
                             <CellContentDisplay
                                 cell={workingTranslationUnits[i]}
                                 lineNumber={generatedCellLabel}
-                                label={
-                                    workingTranslationUnits[i].cellType === CodexCellTypes.MILESTONE
-                                        ? undefined
-                                        : cellLabel
-                                }
-                                lineNumbersEnabled={
-                                    workingTranslationUnits[i].cellType === CodexCellTypes.MILESTONE
-                                        ? false
-                                        : lineNumbersEnabled
-                                }
+                                label={cellLabel}
+                                lineNumbersEnabled={lineNumbersEnabled}
                                 key={`cell-${cellMarkers[0]}:empty`}
                                 vscode={vscode}
                                 textDirection={textDirection}

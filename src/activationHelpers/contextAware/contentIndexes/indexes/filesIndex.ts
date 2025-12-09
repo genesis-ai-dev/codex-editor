@@ -22,7 +22,7 @@ export interface FileInfo {
             type?: string;
             value: string;
             wordCount: number;
-            isParatext: boolean;
+            isParatextOrMilestone: boolean;
         }>;
     };
     codexFile: {
@@ -38,7 +38,7 @@ export interface FileInfo {
             type?: string;
             value: string;
             wordCount: number;
-            isParatext: boolean;
+            isParatextOrMilestone: boolean;
         }>;
     };
 }
@@ -107,10 +107,10 @@ export async function initializeFilesIndex(): Promise<Map<string, FileInfo>> {
                     sourceWordCount += wordCount;
 
                     // Check if this is a paratext or milestone cell
-                    const isParatext = cell.metadata?.type === "paratext" || cell.metadata?.type === CodexCellTypes.MILESTONE;
+                    const isParatextOrMilestone = cell.metadata?.type === "paratext" || cell.metadata?.type === CodexCellTypes.MILESTONE;
 
                     // Track content words separately
-                    if (!isParatext) {
+                    if (!isParatextOrMilestone) {
                         sourceContentWordCount += wordCount;
                         sourceContentCells++;
                     }
@@ -120,7 +120,7 @@ export async function initializeFilesIndex(): Promise<Map<string, FileInfo>> {
                         type: cell.metadata?.type,
                         value: cell.value,
                         wordCount,
-                        isParatext,
+                        isParatextOrMilestone,
                     };
                 });
 
@@ -130,10 +130,10 @@ export async function initializeFilesIndex(): Promise<Map<string, FileInfo>> {
                     codexWordCount += wordCount;
 
                     // Check if this is a paratext or milestone cell
-                    const isParatext = cell.metadata?.type === "paratext" || cell.metadata?.type === CodexCellTypes.MILESTONE;
+                    const isParatextOrMilestone = cell.metadata?.type === "paratext" || cell.metadata?.type === CodexCellTypes.MILESTONE;
 
                     // Track content words separately
-                    if (!isParatext) {
+                    if (!isParatextOrMilestone) {
                         codexContentWordCount += wordCount;
                         codexContentCells++;
                     }
@@ -143,7 +143,7 @@ export async function initializeFilesIndex(): Promise<Map<string, FileInfo>> {
                         type: cell.metadata?.type,
                         value: cell.value,
                         wordCount,
-                        isParatext,
+                        isParatextOrMilestone,
                     };
                 });
 
