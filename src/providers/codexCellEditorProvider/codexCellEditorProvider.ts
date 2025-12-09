@@ -70,6 +70,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private webviewReadyState: Map<string, boolean> = new Map(); // Track if webview is ready to receive content
     private pendingWebviewUpdates: Map<string, (() => void)[]> = new Map(); // Track pending update functions
     private documents: Map<string, CodexCellDocument> = new Map(); // Track open documents
+    private documentLoadTimes: Map<string, number> = new Map(); // Track when documents were last loaded from disk
     private refreshInFlight: Set<string> = new Set(); // Prevent overlapping refreshes per document
     private pendingRefresh: Set<string> = new Set(); // Queue one follow-up refresh if needed
     private userInfo: { username: string; email: string; } | undefined;
@@ -322,9 +323,28 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         openContext: { backupId?: string; },
         _token: vscode.CancellationToken
     ): Promise<CodexCellDocument> {
-        // Track document when opened
+        // Check if document is already open
         const existingDoc = this.documents.get(uri.toString());
         if (existingDoc) {
+            // Check if file has changed on disk (for test scenarios where file is modified externally)
+            try {
+                const fileStat = await vscode.workspace.fs.stat(uri);
+                const lastLoadTime = this.documentLoadTimes.get(uri.toString());
+                // If file modification time is newer than when we last loaded, reload from disk
+                if (lastLoadTime === undefined || fileStat.mtime > lastLoadTime) {
+                    debug("File has changed on disk, reloading document:", uri.toString());
+                    // Remove old document from cache
+                    this.documents.delete(uri.toString());
+                    // Create new document from disk
+                    const document = await CodexCellDocument.create(uri, openContext.backupId, _token);
+                    this.documents.set(uri.toString(), document);
+                    this.documentLoadTimes.set(uri.toString(), fileStat.mtime);
+                    return document;
+                }
+            } catch (error) {
+                // If we can't stat the file (e.g., it doesn't exist), just return cached document
+                debug("Could not stat file, returning cached document:", error);
+            }
             return existingDoc;
         }
         debug("Opening custom document:", uri.toString());
@@ -333,6 +353,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Store document immediately so it's available for milestone progress tracking
         // even if updateMilestoneProgressForAllDocuments is called before resolveCustomEditor
         this.documents.set(uri.toString(), document);
+        // Track when document was loaded
+        try {
+            const fileStat = await vscode.workspace.fs.stat(uri);
+            this.documentLoadTimes.set(uri.toString(), fileStat.mtime);
+        } catch (error) {
+            // If we can't stat, use current time as fallback
+            this.documentLoadTimes.set(uri.toString(), Date.now());
+        }
         return document;
     }
 
@@ -1071,6 +1099,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             this.webviewReadyState.delete(docUri);
             this.pendingWebviewUpdates.delete(docUri);
             this.documents.delete(docUri);
+            this.documentLoadTimes.delete(docUri);
         });
         listeners.push(disposeListener);
     }
