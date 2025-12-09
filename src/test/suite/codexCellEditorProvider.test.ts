@@ -650,7 +650,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
         await new Promise((resolve) => setTimeout(resolve, 50));
         // Read the current first cell id from the opened document to ensure it exists
         const currentFirstCellId = JSON.parse(document.getText()).cells[0].metadata.id as string;
-        const childCellId = `${currentFirstCellId}:child`;
+        // Use proper paratext cell ID format: parentId:paratext-timestamp-random
+        const childCellId = `${currentFirstCellId}:paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         onDidReceiveMessageCallback!({
             command: "makeChildOfCell",
             content: {

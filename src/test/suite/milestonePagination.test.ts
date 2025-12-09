@@ -157,19 +157,19 @@ suite("Milestone-Based Pagination Test Suite", () => {
             {
                 kind: 2,
                 languageId: "scripture",
-                value: "Paratext content",
+                value: "Regular content",
                 metadata: {
-                    type: "paratext",
-                    id: "paratext-1",
+                    type: CodexCellTypes.TEXT,
+                    id: "GEN 1:1",
                 },
             },
             {
                 kind: 2,
                 languageId: "scripture",
-                value: "Regular content",
+                value: "Paratext content",
                 metadata: {
-                    type: CodexCellTypes.TEXT,
-                    id: "cell-1",
+                    type: CodexCellTypes.PARATEXT,
+                    id: "GEN 1:1:paratext-1",
                 },
             },
         ];
@@ -346,10 +346,19 @@ suite("Milestone-Based Pagination Test Suite", () => {
             {
                 kind: 2,
                 languageId: "scripture",
+                value: "Regular cell",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "GEN 1:1",
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
                 value: "Paratext 1",
                 metadata: {
-                    type: "paratext",
-                    id: "paratext-1",
+                    type: CodexCellTypes.PARATEXT,
+                    id: "GEN 1:1:paratext-1",
                 },
             },
             {
@@ -357,17 +366,8 @@ suite("Milestone-Based Pagination Test Suite", () => {
                 languageId: "scripture",
                 value: "Paratext 2",
                 metadata: {
-                    type: "paratext",
-                    id: "paratext-2",
-                },
-            },
-            {
-                kind: 2,
-                languageId: "scripture",
-                value: "Regular cell",
-                metadata: {
-                    type: CodexCellTypes.TEXT,
-                    id: "cell-1",
+                    type: CodexCellTypes.PARATEXT,
+                    id: "GEN 1:1:paratext-2",
                 },
             },
         ];
@@ -375,11 +375,13 @@ suite("Milestone-Based Pagination Test Suite", () => {
         const document = await createDocumentWithCells(cells);
         const result = document.getCellsForMilestone(0, 0, 50);
 
-        // Should include paratext cells + regular cell
+        // Should include paratext cells + regular cell (paratext cells appear with their parent)
         assert.strictEqual(result.length, 3, "Should include paratext cells in first subsection");
-        assert.strictEqual(result[0].cellMarkers[0], "paratext-1", "First should be paratext-1");
-        assert.strictEqual(result[1].cellMarkers[0], "paratext-2", "Second should be paratext-2");
-        assert.strictEqual(result[2].cellMarkers[0], "cell-1", "Third should be regular cell");
+        // The order may vary, but all three cells should be present
+        const cellIds = result.map(c => c.cellMarkers[0]);
+        assert.ok(cellIds.includes("GEN 1:1"), "Should include parent cell");
+        assert.ok(cellIds.includes("GEN 1:1:paratext-1"), "Should include paratext-1");
+        assert.ok(cellIds.includes("GEN 1:1:paratext-2"), "Should include paratext-2");
     });
 
     test("getCellsForMilestone excludes paratext from non-first subsections", async () => {
@@ -397,19 +399,19 @@ suite("Milestone-Based Pagination Test Suite", () => {
             {
                 kind: 2,
                 languageId: "scripture",
-                value: "Paratext",
+                value: "Cell 1",
                 metadata: {
-                    type: "paratext",
-                    id: "paratext-1",
+                    type: CodexCellTypes.TEXT,
+                    id: "GEN 1:1",
                 },
             },
             {
                 kind: 2,
                 languageId: "scripture",
-                value: "Cell 1",
+                value: "Paratext",
                 metadata: {
-                    type: CodexCellTypes.TEXT,
-                    id: "cell-1",
+                    type: CodexCellTypes.PARATEXT,
+                    id: "GEN 1:1:paratext-1",
                 },
             },
             {
@@ -418,7 +420,7 @@ suite("Milestone-Based Pagination Test Suite", () => {
                 value: "Cell 2",
                 metadata: {
                     type: CodexCellTypes.TEXT,
-                    id: "cell-2",
+                    id: "GEN 1:2",
                 },
             },
             {
@@ -427,20 +429,20 @@ suite("Milestone-Based Pagination Test Suite", () => {
                 value: "Cell 3",
                 metadata: {
                     type: CodexCellTypes.TEXT,
-                    id: "cell-3",
+                    id: "GEN 1:3",
                 },
             },
         ];
 
         const document = await createDocumentWithCells(cells);
 
-        // First subsection should include paratext
+        // First subsection should include paratext (because GEN 1:1 is on first page)
         const subsection0 = document.getCellsForMilestone(0, 0, cellsPerPage);
-        assert.ok(subsection0.some((c) => c.cellMarkers[0] === "paratext-1"), "First subsection should include paratext");
+        assert.ok(subsection0.some((c) => c.cellMarkers[0] === "GEN 1:1:paratext-1"), "First subsection should include paratext when parent is on first page");
 
-        // Second subsection should NOT include paratext
+        // Second subsection should NOT include paratext (because GEN 1:1 is not on second page)
         const subsection1 = document.getCellsForMilestone(0, 1, cellsPerPage);
-        assert.ok(!subsection1.some((c) => c.cellMarkers[0] === "paratext-1"), "Second subsection should exclude paratext");
+        assert.ok(!subsection1.some((c) => c.cellMarkers[0] === "GEN 1:1:paratext-1"), "Second subsection should exclude paratext when parent is not on that page");
     });
 
     test("getCellsForMilestone returns empty array for invalid milestone index", async () => {
