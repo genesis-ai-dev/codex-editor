@@ -30,6 +30,20 @@ import { getNonce } from "../dictionaryTable/utilities/getNonce";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import path from "path";
 import { getAuthApi } from "@/extension";
+import {
+    getCachedChapter as getCachedChapterUtil,
+    updateCachedChapter as updateCachedChapterUtil,
+    getCachedSubsection as getCachedSubsectionUtil,
+    updateCachedSubsection as updateCachedSubsectionUtil,
+    getPreferredEditorTab as getPreferredEditorTabUtil,
+    updatePreferredEditorTab as updatePreferredEditorTabUtil,
+} from "./utils/workspaceStateUtils";
+import { processVideoUrl } from "./utils/videoUtils";
+import {
+    isCodexFileFlexible,
+    isSourceFileFlexible,
+    isMatchingFilePair as isMatchingFilePairUtil,
+} from "../../utils/fileTypeUtils";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -1186,39 +1200,30 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     public getCachedChapter(uri: string): number {
-        const key = `chapter-cache-${uri}`;
-        return this.context.workspaceState.get(key, 1); // Default to chapter 1
+        return getCachedChapterUtil(this.context.workspaceState, uri);
     }
 
     public async updateCachedChapter(uri: string, chapter: number) {
-        const key = `chapter-cache-${uri}`;
-        await this.context.workspaceState.update(key, chapter);
+        await updateCachedChapterUtil(this.context.workspaceState, uri, chapter);
     }
 
     public getCachedSubsection(uri: string): number {
-        const key = `subsection-cache-${uri}`;
-        return this.context.workspaceState.get(key, 0); // Default to subsection 0
+        return getCachedSubsectionUtil(this.context.workspaceState, uri);
     }
 
     public async updateCachedSubsection(uri: string, subsectionIndex: number) {
-        const key = `subsection-cache-${uri}`;
-        await this.context.workspaceState.update(key, subsectionIndex);
+        await updateCachedSubsectionUtil(this.context.workspaceState, uri, subsectionIndex);
     }
 
     // Preferred editor tab helpers (workspace-scoped)
     public getPreferredEditorTab(): "source" | "backtranslation" | "footnotes" | "timestamps" | "audio" {
-        const key = `codex-editor-preferred-tab`;
-        return this.context.workspaceState.get(
-            key,
-            "source"
-        ) as "source" | "backtranslation" | "footnotes" | "timestamps" | "audio";
+        return getPreferredEditorTabUtil(this.context.workspaceState);
     }
 
     public async updatePreferredEditorTab(
         tab: "source" | "backtranslation" | "footnotes" | "timestamps" | "audio"
     ) {
-        const key = `codex-editor-preferred-tab`;
-        await this.context.workspaceState.update(key, tab);
+        await updatePreferredEditorTabUtil(this.context.workspaceState, tab);
     }
 
     private getHtmlForWebview(
@@ -1258,28 +1263,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         const notebookData = this.getDocumentAsJson(document);
         const videoPath = notebookData.metadata?.videoUrl;
-        let videoUri = null;
-
-        // FIXME: when switching from a remote/youtube video to a local video, you need to close the webview and re-open it
-        if (videoPath) {
-            debug("Processing video path:", videoPath);
-            if (videoPath.startsWith("http://") || videoPath.startsWith("https://")) {
-                // If it's a web URL, use it directly
-                videoUri = videoPath;
-            } else if (videoPath.startsWith("file://")) {
-                // If it's a file URI, convert it to a webview URI
-                videoUri = webview.asWebviewUri(vscode.Uri.parse(videoPath)).toString();
-            } else {
-                // If it's a relative path, join it with the workspace URI
-                const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-                if (workspaceUri) {
-                    // FIXME: if we don't add the video path, then you can use videos from anywhere on your machine
-                    const fullPath = vscode.Uri.joinPath(workspaceUri, videoPath);
-                    videoUri = webview.asWebviewUri(fullPath).toString();
-                }
-            }
-            debug("Processed video URI:", videoUri);
-        }
+        const videoUri = videoPath ? processVideoUrl(videoPath, webview) : null;
 
         const nonce = getNonce();
 
@@ -1405,22 +1389,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     private isSourceText(uri: vscode.Uri | string): boolean {
-        const path = typeof uri === "string" ? uri : uri.path;
-        return path.toLowerCase().endsWith(".source");
+        return isSourceFileFlexible(uri);
     }
 
     private isMatchingFilePair(currentUri: vscode.Uri | string, otherUri: vscode.Uri | string): boolean {
-        const currentPath = typeof currentUri === "string" ? currentUri : currentUri.path;
-        const otherPath = typeof otherUri === "string" ? otherUri : otherUri.path;
-        // Remove extensions before comparing
-        const currentPathWithoutExt = currentPath.toLowerCase().replace(/\.[^/.]+$/, '');
-        const otherPathWithoutExt = otherPath.toLowerCase().replace(/\.[^/.]+$/, '');
-        return currentPathWithoutExt === otherPathWithoutExt;
+        return isMatchingFilePairUtil(currentUri, otherUri);
     }
 
     private isCodexFile(uri: vscode.Uri | string): boolean {
-        const path = typeof uri === "string" ? uri : uri.path;
-        return path.toLowerCase().endsWith(".codex");
+        return isCodexFileFlexible(uri);
     }
 
     private updateTextDirection(
@@ -2301,26 +2278,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         videoPath: string | undefined,
         webviewPanel: vscode.WebviewPanel
     ): string | null {
-        debug("Getting video URL for path:", videoPath);
-        if (!videoPath) return null;
-
-        try {
-            if (videoPath.startsWith("http://") || videoPath.startsWith("https://")) {
-                return videoPath;
-            } else if (videoPath.startsWith("file://")) {
-                return webviewPanel.webview.asWebviewUri(vscode.Uri.parse(videoPath)).toString();
-            } else {
-                const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-                if (workspaceUri) {
-                    const fullPath = vscode.Uri.joinPath(workspaceUri, videoPath);
-                    return webviewPanel.webview.asWebviewUri(fullPath).toString();
-                }
-            }
-        } catch (err) {
-            console.error("Error processing video URL:", err);
-        }
-        debug("No valid video URL found");
-        return null;
+        return processVideoUrl(videoPath, webviewPanel.webview);
     }
 
     public updateCellIdState(cellId: string, uri: string) {
