@@ -91,6 +91,21 @@ const isCellContentEmpty = (cellContent: string | undefined): boolean => {
     return onlyWhitespaceRegex.test(textContent);
 };
 
+// Helper function to extract chapter number from milestone cell value
+// Milestone cells have values like "1", "2", etc. (just the chapter number)
+const extractChapterFromMilestoneValue = (cellContent: string | undefined): string | null => {
+    if (!cellContent) return null;
+
+    // Create a temporary div to parse HTML and extract text content
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = cellContent;
+    const textContent = tempDiv.textContent || tempDiv.innerText || "";
+
+    // Match a number pattern (one or more digits)
+    const match = textContent.match(/(\d+)/);
+    return match ? match[1] : null;
+};
+
 const CodexCellEditor: React.FC = () => {
     const [translationUnits, setTranslationUnits] = useState<QuillCellContent[]>([]);
     const [alertColorCodes, setAlertColorCodes] = useState<{
@@ -769,12 +784,24 @@ const CodexCellEditor: React.FC = () => {
             if (shouldAutoNavigate) {
                 // Get all cells for the target chapter
                 const allCellsForTargetChapter = translationUnits.filter((verse) => {
+                    // Include milestone cells for their chapter
+                    if (verse.cellType === CodexCellTypes.MILESTONE) {
+                        const milestoneChapter = extractChapterFromMilestoneValue(
+                            verse.cellContent
+                        );
+                        return milestoneChapter === newChapterNumber.toString();
+                    }
                     const verseChapter = verse?.cellMarkers?.[0]?.split(" ")?.[1]?.split(":")[0];
                     return verseChapter === newChapterNumber.toString();
                 });
 
-                // Find the index of the highlighted cell within the chapter
-                const cellIndexInChapter = allCellsForTargetChapter.findIndex(
+                // Filter out milestone cells for pagination calculations (they're excluded from the view)
+                const cellsForTargetChapterWithoutMilestones = allCellsForTargetChapter.filter(
+                    (verse) => verse.cellType !== CodexCellTypes.MILESTONE
+                );
+
+                // Find the index of the highlighted cell within the chapter (excluding milestones)
+                const cellIndexInChapter = cellsForTargetChapterWithoutMilestones.findIndex(
                     (verse) => verse.cellMarkers[0] === cellId
                 );
 
@@ -792,7 +819,7 @@ const CodexCellEditor: React.FC = () => {
                     // Same chapter, but check if we need to change subsection
                     // Check if chapter has multiple pages (subsections)
                     if (
-                        allCellsForTargetChapter.length > cellsPerPage &&
+                        cellsForTargetChapterWithoutMilestones.length > cellsPerPage &&
                         targetSubsectionIndex !== currentSubsectionIndex
                     ) {
                         setCurrentSubsectionIndex(targetSubsectionIndex);
@@ -1140,17 +1167,21 @@ const CodexCellEditor: React.FC = () => {
         return sectionSet.size;
     };
 
-    // Helper function to get global line number for a cell (skips paratext and child cells)
+    // Helper function to get global line number for a cell (skips paratext, milestone, and child cells)
     const getGlobalLineNumber = (cell: QuillCellContent, allUnits: QuillCellContent[]): number => {
         const cellIndex = allUnits.findIndex((unit) => unit.cellMarkers[0] === cell.cellMarkers[0]);
 
         if (cellIndex === -1) return 0;
 
-        // Count non-paratext, non-child cells up to and including this one
+        // Count non-paratext, non-milestone, non-child cells up to and including this one
         let lineNumber = 0;
         for (let i = 0; i <= cellIndex; i++) {
             const cellIdParts = allUnits[i].cellMarkers[0].split(":");
-            if (allUnits[i].cellType !== CodexCellTypes.PARATEXT && cellIdParts.length < 3) {
+            if (
+                allUnits[i].cellType !== CodexCellTypes.PARATEXT &&
+                allUnits[i].cellType !== CodexCellTypes.MILESTONE &&
+                cellIdParts.length < 3
+            ) {
                 lineNumber++;
             }
         }
@@ -1172,6 +1203,10 @@ const CodexCellEditor: React.FC = () => {
     const getSubsectionsForChapter = (chapterNum: number) => {
         // Filter cells for the specific chapter
         const cellsForChapter = translationUnits.filter((verse) => {
+            if (verse.cellType === CodexCellTypes.MILESTONE) {
+                const milestoneChapter = extractChapterFromMilestoneValue(verse.cellContent);
+                return milestoneChapter === chapterNum.toString();
+            }
             const cellId = verse?.cellMarkers?.[0];
             const sectionCellIdParts = cellId?.split(" ")?.[1]?.split(":");
             const sectionCellNumber = sectionCellIdParts?.[0];
@@ -1182,9 +1217,9 @@ const CodexCellEditor: React.FC = () => {
             return [];
         }
 
-        // Filter out only source/target content cells (non-paratext) for pagination counting
+        // Filter out only source/target content cells (non-paratext, non-milestone) for pagination counting
         const contentCells = cellsForChapter.filter((cell) => {
-            return cell.cellType !== "paratext";
+            return cell.cellType !== "paratext" && cell.cellType !== CodexCellTypes.MILESTONE;
         });
 
         // If content cells fit in one page, no subsections needed
@@ -1288,9 +1323,13 @@ const CodexCellEditor: React.FC = () => {
     // Calculate progress for each chapter based on translation and validation status
     const calculateChapterProgress = useCallback(
         (chapterNum: number): ProgressPercentages => {
-            // Filter cells for the specific chapter (excluding paratext and merged cells)
+            // Filter cells for the specific chapter (excluding paratext, milestone, and merged cells)
             const cellsForChapter = translationUnits.filter((cell) => {
                 const cellId = cell?.cellMarkers?.[0];
+                // Exclude milestone cells from progress calculation
+                if (cell.cellType === CodexCellTypes.MILESTONE) {
+                    return false;
+                }
                 if (!cellId || cellId.startsWith("paratext-") || cell.merged) {
                     return false;
                 }
@@ -1368,6 +1407,11 @@ const CodexCellEditor: React.FC = () => {
             // For now, include all paratext cells when viewing any chapter
             // This ensures leading paratext (like the Tigrinya intro) is visible
             return true;
+        }
+
+        // Exclude milestone cells from the view (they remain in JSON)
+        if (verse.cellType === CodexCellTypes.MILESTONE) {
+            return false;
         }
 
         // For regular cells, check if they belong to the current chapter

@@ -44,13 +44,13 @@ export function disableSyncTemporarily() {
 
 export interface ProjectDetails {
     projectName?: string;
+    projectId?: string;
     projectCategory?: string;
     userName?: string;
     userEmail?: string;
     abbreviation?: string;
     sourceLanguage?: LanguageMetadata;
     targetLanguage?: LanguageMetadata;
-    projectId?: string;
 }
 
 interface CustomQuickPickItem extends vscode.QuickPickItem {
@@ -951,7 +951,7 @@ export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
         // Sync metadata values to configuration
         // Wrap in try/catch to prevent sync failures from blocking initialization
         try {
-        await syncMetadataToConfiguration();
+            await syncMetadataToConfiguration();
         } catch (e) {
             debug("Failed to sync metadata to configuration:", e);
         }

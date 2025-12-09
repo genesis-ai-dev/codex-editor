@@ -121,14 +121,21 @@ const CellList: React.FC<CellListProps> = ({
 
     // Filter out merged cells if we're in correction editor mode for source text
     const filteredTranslationUnits = useMemo(() => {
+        let filtered = translationUnits;
+        
+        // Filter out merged cells if we're in correction editor mode for source text
         if (isSourceText && isCorrectionEditorMode) {
-            return translationUnits.filter((unit) => {
+            filtered = filtered.filter((unit) => {
                 // Check if cell has merged metadata in the data property
                 const cellData = unit.data as any;
                 return !cellData?.merged;
             });
         }
-        return translationUnits;
+        
+        // Filter out milestone cells from the view (they remain in JSON)
+        filtered = filtered.filter((unit) => unit.cellType !== CodexCellTypes.MILESTONE);
+        
+        return filtered;
     }, [translationUnits, isSourceText, isCorrectionEditorMode]);
     // Use filtered units for all operations
     const workingTranslationUnits = filteredTranslationUnits;
@@ -168,7 +175,8 @@ const CellList: React.FC<CellListProps> = ({
                 // Only count footnotes if the cell is in the same chapter
                 if (
                     cellChapterId === currentChapterId &&
-                    cell.cellType !== CodexCellTypes.PARATEXT
+                    cell.cellType !== CodexCellTypes.PARATEXT &&
+                    cell.cellType !== CodexCellTypes.MILESTONE
                 ) {
                     // Extract footnotes from this cell's content
                     const tempDiv = document.createElement("div");
@@ -422,13 +430,14 @@ const CellList: React.FC<CellListProps> = ({
 
             // if (isNaN(currentVerseNumber)) return 1; // Invalid verse number
 
-            // Count non-paratext, non-child cells within the same chapter up to and including this one
+            // Count non-paratext, non-milestone, non-child cells within the same chapter up to and including this one
             // Child cells have more than 2 segments in their ID (e.g., "1TH 1:6:1740475700855-sbcr37orm")
             let visibleCellCount = 0;
             for (let i = 0; i <= cellIndex; i++) {
                 const cellIdParts = allCells[i].cellMarkers[0].split(":");
                 if (
                     allCells[i].cellType !== CodexCellTypes.PARATEXT &&
+                    allCells[i].cellType !== CodexCellTypes.MILESTONE &&
                     cellIdParts.length === 2 && // Skip child cells (which have > 2 parts)
                     !allCells[i]
                         .merged /* && FIXME: THIS BROKE LINE NUMBERS WHEN UPLOADING SUBTITLES. NEED TO FIX.
@@ -455,6 +464,11 @@ const CellList: React.FC<CellListProps> = ({
 
             // Don't use index as fallback for paratext cells
             if (cell.cellType === CodexCellTypes.PARATEXT) {
+                return "";
+            }
+
+            // Don't show line number for milestone cells
+            if (cell.cellType === CodexCellTypes.MILESTONE) {
                 return "";
             }
 

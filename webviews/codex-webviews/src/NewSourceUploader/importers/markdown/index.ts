@@ -9,6 +9,7 @@ import {
     createStandardCellId,
     createProcessedCell,
     validateFileExtension,
+    addMilestoneCellsToNotebookPair,
 } from '../../utils/workflowHelpers';
 import { extractImagesFromHtml } from '../../utils/imageProcessor';
 import { marked } from 'marked';
@@ -344,11 +345,14 @@ export const parseFile = async (
             codex: codexNotebook,
         };
 
+        // Add milestone cells to the notebook pair
+        const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
+
         onProgress?.(createProgress('Complete', 'Markdown processing complete', 100));
 
         return {
             success: true,
-            notebookPair,
+            notebookPair: notebookPairWithMilestones,
             metadata: {
                 elementCount: cells.length,
                 headingCount,
