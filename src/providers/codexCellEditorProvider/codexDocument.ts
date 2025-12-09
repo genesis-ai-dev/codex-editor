@@ -23,6 +23,7 @@ import { CodexContentSerializer } from "../../serializer";
 import { debounce } from "lodash";
 import { getSQLiteIndexManager } from "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
 import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents } from "../../../sharedUtils";
+import { extractParentCellIdFromParatext, convertCellToQuillContent } from "./utils/cellUtils";
 
 // Define debug function locally
 const DEBUG_MODE = false;
@@ -1207,22 +1208,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 }
 
                 // Convert to QuillCellContent format
-                const quillContent: QuillCellContent = {
-                    cellMarkers: [cellId],
-                    cellContent: cell.value || "",
-                    cellType: cell.metadata?.type || CodexCellTypes.TEXT,
-                    editHistory: cell.metadata?.edits || [],
-                    timestamps: cell.metadata?.data,
-                    cellLabel: cell.metadata?.cellLabel,
-                    merged: cell.metadata?.data?.merged,
-                    deleted: cell.metadata?.data?.deleted,
-                    data: cell.metadata?.data,
-                    attachments: cell.metadata?.attachments || {},
-                    metadata: {
-                        selectedAudioId: cell.metadata?.selectedAudioId,
-                    },
-                };
-
+                const quillContent = convertCellToQuillContent(cell);
                 cellsForMilestone.push(quillContent);
             }
 
@@ -1282,29 +1268,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
         return progress;
     }
 
-    /**
-     * Extracts the parent content cell ID from a paratext cell ID.
-     * Paratext cell IDs have the format: "parentId:paratext-..." or "parentId:paratext-..."
-     * Returns the parent ID (first two parts when split by ':') or null if not a paratext cell.
-     * 
-     * @param paratextCellId The paratext cell ID (e.g., "GEN 1:50:paratext-123456")
-     * @returns The parent content cell ID (e.g., "GEN 1:50") or null if not a paratext cell
-     */
-    private extractParentCellIdFromParatext(paratextCellId: string): string | null {
-        if (!paratextCellId || !paratextCellId.includes(":paratext-")) {
-            return null;
-        }
-
-        // Split by ':' and take the first two parts to get the parent cell ID
-        // Format: "GEN 1:50:paratext-123456" -> ["GEN 1", "50", "paratext-123456"]
-        // We want "GEN 1:50"
-        const parts = paratextCellId.split(":");
-        if (parts.length >= 2) {
-            return parts.slice(0, 2).join(":");
-        }
-
-        return null;
-    }
 
     /**
      * Gets cells for a specific milestone and optional subsection.
@@ -1353,22 +1316,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 continue;
             }
 
-            const quillContent: QuillCellContent = {
-                cellMarkers: [cell.metadata?.id || ""],
-                cellContent: cell.value || "",
-                cellType: cell.metadata?.type || CodexCellTypes.TEXT,
-                editHistory: cell.metadata?.edits || [],
-                timestamps: cell.metadata?.data,
-                cellLabel: cell.metadata?.cellLabel,
-                merged: cell.metadata?.data?.merged,
-                deleted: cell.metadata?.data?.deleted,
-                data: cell.metadata?.data,
-                attachments: cell.metadata?.attachments || {},
-                metadata: {
-                    selectedAudioId: cell.metadata?.selectedAudioId,
-                },
-            };
-
+            const quillContent = convertCellToQuillContent(cell);
             allCellsInMilestone.push(quillContent);
 
             // Separate paratext cells from content cells
@@ -1398,7 +1346,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // Build a map of parent cell ID -> paratext cells
         const paratextCellsByParent = new Map<string, QuillCellContent[]>();
         for (const paratextCell of paratextCells) {
-            const parentId = this.extractParentCellIdFromParatext(paratextCell.cellMarkers[0]);
+            const parentId = extractParentCellIdFromParatext(paratextCell.cellMarkers[0]);
             if (parentId) {
                 if (!paratextCellsByParent.has(parentId)) {
                     paratextCellsByParent.set(parentId, []);
