@@ -330,6 +330,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         debug("Opening custom document:", uri.toString());
         const document = await CodexCellDocument.create(uri, openContext.backupId, _token);
         debug("Document created successfully");
+        // Store document immediately so it's available for milestone progress tracking
+        // even if updateMilestoneProgressForAllDocuments is called before resolveCustomEditor
+        this.documents.set(uri.toString(), document);
         return document;
     }
 
