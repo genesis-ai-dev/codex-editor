@@ -18,6 +18,7 @@ import { getNotebookMetadataManager } from "./notebookMetadataManager";
 import { getWorkSpaceUri } from "./index";
 import { basename } from "path";
 import * as path from "path";
+import { CodexCellTypes } from "../../types/enums";
 
 export const NOTEBOOK_TYPE = "codex-type";
 
@@ -833,6 +834,11 @@ export async function migrateSourceFiles() {
 
                 const books = new Set<string>();
                 for (const cell of sourceData.cells) {
+                    // Skip milestone cells - they have UUIDs as IDs, not book references
+                    // If we don't skip them, it will create .source.combined files that we don't want.
+                    if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
+                        continue;
+                    }
                     if (cell.metadata && cell.metadata.id) {
                         const [book] = cell.metadata.id.split(" ");
                         books.add(book);
