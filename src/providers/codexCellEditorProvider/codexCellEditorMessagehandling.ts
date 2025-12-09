@@ -1171,6 +1171,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         await provider.updateCachedChapter(document.uri.toString(), typedEvent.content);
     },
 
+    updateCachedSubsection: async ({ event, document, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCachedSubsection"; }>;
+        await provider.updateCachedSubsection(document.uri.toString(), typedEvent.content);
+    },
+
     selectABTestVariant: async ({ event }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "selectABTestVariant"; }>;
         const { cellId, selectedIndex, testId, testName, selectionTimeMs, names } = (typedEvent as any).content || {};

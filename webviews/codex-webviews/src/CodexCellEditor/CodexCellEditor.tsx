@@ -2180,6 +2180,13 @@ const CodexCellEditor: React.FC = () => {
         } as EditorPostMessages);
     }, [chapterNumber]);
 
+    useEffect(() => {
+        vscode.postMessage({
+            command: "updateCachedSubsection",
+            content: currentSubsectionIndex,
+        } as EditorPostMessages);
+    }, [currentSubsectionIndex, currentMilestoneIndex]);
+
     const checkForDuplicateCells = (translationUnitsToCheck: QuillCellContent[]) => {
         const listOfCellIds = translationUnitsToCheck.map((unit) => unit.cellMarkers[0]);
         const uniqueCellIds = new Set(listOfCellIds);

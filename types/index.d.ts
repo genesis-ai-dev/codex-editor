@@ -525,6 +525,7 @@ interface EditHistoryEntry {
 
 export type EditorPostMessages =
     | { command: "updateCachedChapter"; content: number; }
+    | { command: "updateCachedSubsection"; content: number; }
     | { command: "webviewReady"; }
     | { command: "getContent"; }
     | { command: "getPreferredEditorTab"; }

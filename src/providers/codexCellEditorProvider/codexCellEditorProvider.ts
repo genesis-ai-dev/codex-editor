@@ -628,7 +628,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Get cached chapter and map it to milestone index
             const cachedChapter = this.getCachedChapter(document.uri.toString());
             let initialMilestoneIndex = 0;
-            const initialSubsectionIndex = 0;
+            const initialSubsectionIndex = this.getCachedSubsection(document.uri.toString());
 
             // If we have milestones and a cached chapter, try to find the matching milestone
             if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
@@ -1193,6 +1193,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     public async updateCachedChapter(uri: string, chapter: number) {
         const key = `chapter-cache-${uri}`;
         await this.context.workspaceState.update(key, chapter);
+    }
+
+    public getCachedSubsection(uri: string): number {
+        const key = `subsection-cache-${uri}`;
+        return this.context.workspaceState.get(key, 0); // Default to subsection 0
+    }
+
+    public async updateCachedSubsection(uri: string, subsectionIndex: number) {
+        const key = `subsection-cache-${uri}`;
+        await this.context.workspaceState.update(key, subsectionIndex);
     }
 
     // Preferred editor tab helpers (workspace-scoped)
@@ -2208,7 +2218,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Get cached chapter and map it to milestone index
         const cachedChapter = this.getCachedChapter(document.uri.toString());
         let initialMilestoneIndex = 0;
-        const initialSubsectionIndex = 0;
+        const initialSubsectionIndex = this.getCachedSubsection(document.uri.toString());
 
         // If we have milestones and a cached chapter, try to find the matching milestone
         if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
