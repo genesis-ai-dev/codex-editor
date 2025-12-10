@@ -243,6 +243,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         if (e.key === "Enter") {
             e.preventDefault();
             showPopoverHandler(e as unknown as React.MouseEvent);
+            handleButtonClick(e as unknown as React.MouseEvent);
         }
     };
 

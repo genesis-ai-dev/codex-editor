@@ -218,7 +218,9 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         e.stopPropagation();
 
         if (e.key === "Enter") {
+            e.preventDefault();
             handleMouseEnter(e as unknown as React.MouseEvent);
+            handleButtonClick(e as unknown as React.MouseEvent);
         }
     };
 
