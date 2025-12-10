@@ -211,13 +211,13 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     const handleButtonClick = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (isDisabled) return;
-        
+
         // Briefly ignore hover so the popover can't re-open immediately after clicking.
         ignoreHoverRef.current = true;
         window.setTimeout(() => {
             ignoreHoverRef.current = false;
         }, 200);
-        
+
         if (!isValidated) {
             handleValidate(e);
             closePopover();
@@ -235,6 +235,15 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         clearCloseTimer();
         setShowPopover(true);
         textPopoverTracker.setActivePopover(uniqueId.current);
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+        e.stopPropagation();
+
+        if (e.key === "Enter") {
+            e.preventDefault();
+            showPopoverHandler(e as unknown as React.MouseEvent);
+        }
     };
 
     const hidePopoverHandler = (e: React.MouseEvent) => {
@@ -280,7 +289,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             className="validation-button-container relative inline-block"
             onMouseEnter={showPopoverHandler}
             onMouseLeave={hidePopoverHandler}
-            onClick={handleButtonClick}
+            // onClick={handleButtonClick}
         >
             <VSCodeButton
                 appearance="icon"
@@ -292,10 +301,8 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                         borderRadius: "50%",
                     }),
                 }}
-                onClick={(e) => {
-                    e.stopPropagation();
-                    handleButtonClick(e);
-                }}
+                onClick={handleButtonClick}
+                onKeyDown={handleKeyDown}
                 // Disable for source text, in-progress, or when externally requested (e.g., no audio/text)
                 disabled={isDisabled}
                 title={

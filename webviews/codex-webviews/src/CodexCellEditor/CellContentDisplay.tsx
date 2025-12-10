@@ -1013,7 +1013,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                 <DialogContent>
                                                     <DialogHeader className="sm:text-center">
                                                         <DialogTitle>
-                                                            Connect to the internet to use AI translation
+                                                            Connect to the internet to use AI
+                                                            translation
                                                         </DialogTitle>
                                                         <DialogDescription></DialogDescription>
                                                     </DialogHeader>
@@ -1204,12 +1205,20 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
                 {/* Right side: wrappable label + content */}
                 <div
+                    tabIndex={0}
                     className={`flex flex-wrap items-baseline gap-[0.25rem] flex-1 min-w-0 ${
                         lineNumbersEnabled ? "flex-col" : "flex-row"
                     }`}
                     onClick={() => {
                         hideTooltip();
                         handleCellClick(cellIds[0]);
+                    }}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                            e.preventDefault();
+                            hideTooltip();
+                            handleCellClick(cellIds[0]);
+                        }
                     }}
                 >
                     {/* Cell label - shown after line number when present */}
