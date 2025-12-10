@@ -742,16 +742,16 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
     test("validation button requires text even if audio exists", () => {
         // Text present ⇒ validation enabled
-        assert.strictEqual(shouldDisableValidation("<p>hello</p>", "none"), false);
-        assert.strictEqual(shouldDisableValidation("Some text", undefined), false);
+        assert.strictEqual(shouldDisableValidation("<p>hello</p>"), false);
+        assert.strictEqual(shouldDisableValidation("Some text"), false);
 
         // Audio only ⇒ still disabled
-        assert.strictEqual(shouldDisableValidation("", "available"), true);
-        assert.strictEqual(shouldDisableValidation(undefined as any, true), true);
+        assert.strictEqual(shouldDisableValidation(""), true);
+        assert.strictEqual(shouldDisableValidation(undefined as any), true);
 
         // Neither text nor audio ⇒ disabled
-        assert.strictEqual(shouldDisableValidation("", "none"), true);
-        assert.strictEqual(shouldDisableValidation("   &nbsp;   ", undefined), true);
+        assert.strictEqual(shouldDisableValidation(""), true);
+        assert.strictEqual(shouldDisableValidation("   &nbsp;   "), true);
 
         // Sanity checks for helpers
         assert.strictEqual(hasTextContent("<p>&nbsp;</p>"), false);
