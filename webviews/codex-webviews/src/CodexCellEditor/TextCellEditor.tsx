@@ -243,6 +243,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     currentUsername,
     vscode,
     isSourceText,
+    isAuthenticated,
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
@@ -1584,7 +1585,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
             if (msg?.content?.autoDownloadAudioOnOpen === true) {
                 preloadAudioForTab();
             }
-        } catch { /* no-op */ }
+        } catch {
+            /* no-op */
+        }
     });
 
     // (Cache hydration handled in preloadAudioForTab to avoid double-renders)
@@ -2563,23 +2566,27 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 <h3 className="text-lg font-medium">Audio Recording</h3>
 
                                 {showRecorder ||
-                                  !audioUrl ||
-                                  !(
-                                      audioUrl.startsWith("blob:") ||
-                                      audioUrl.startsWith("data:") ||
-                                      audioUrl.startsWith("http")
-                                  ) ? (
+                                !audioUrl ||
+                                !(
+                                    audioUrl.startsWith("blob:") ||
+                                    audioUrl.startsWith("data:") ||
+                                    audioUrl.startsWith("http")
+                                ) ? (
                                     <div className="bg-[var(--vscode-editor-background)] p-3 sm:p-4 rounded-md shadow w-full">
                                         {!audioUrl && (
                                             <div className="bg-[var(--vscode-editor-background)] p-3 rounded-md shadow-sm">
                                                 <div className="flex items-center justify-center h-20 text-[var(--vscode-foreground)] text-sm">
-                                                    {audioAttachments && (
-                                                        audioAttachments[cellMarkers[0]] === "available" ||
-                                                        audioAttachments[cellMarkers[0]] === "available-pointer"
-                                                    ) ? (
+                                                    {audioAttachments &&
+                                                    (audioAttachments[cellMarkers[0]] ===
+                                                        "available" ||
+                                                        audioAttachments[cellMarkers[0]] ===
+                                                            "available-pointer") ? (
                                                         <div className="flex flex-col items-center gap-2">
                                                             {isAudioLoading || audioFetchPending ? (
-                                                                <Button disabled className="h-9 px-3 text-sm opacity-80 cursor-default">
+                                                                <Button
+                                                                    disabled
+                                                                    className="h-9 px-3 text-sm opacity-80 cursor-default"
+                                                                >
                                                                     <i className="codicon codicon-sync codicon-modifier-spin mr-1" />
                                                                     Downloading audio...
                                                                 </Button>
@@ -2588,11 +2595,17 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     onClick={() => {
                                                                         setIsAudioLoading(true);
                                                                         setAudioFetchPending(true);
-                                                                        const messageContent: EditorPostMessages = {
-                                                                            command: "requestAudioForCell",
-                                                                            content: { cellId: cellMarkers[0] },
-                                                                        };
-                                                                        window.vscodeApi.postMessage(messageContent);
+                                                                        const messageContent: EditorPostMessages =
+                                                                            {
+                                                                                command:
+                                                                                    "requestAudioForCell",
+                                                                                content: {
+                                                                                    cellId: cellMarkers[0],
+                                                                                },
+                                                                            };
+                                                                        window.vscodeApi.postMessage(
+                                                                            messageContent
+                                                                        );
                                                                     }}
                                                                     className="h-9 px-3 text-sm"
                                                                 >
@@ -2601,18 +2614,24 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 </Button>
                                                             )}
                                                             {(() => {
-                                                                const autoInit = (window as any).__autoDownloadAudioOnOpenInitialized;
-                                                                const autoFlag = (window as any).__autoDownloadAudioOnOpen;
-                                                                if (autoInit && !!autoFlag) return null;
+                                                                const autoInit = (window as any)
+                                                                    .__autoDownloadAudioOnOpenInitialized;
+                                                                const autoFlag = (window as any)
+                                                                    .__autoDownloadAudioOnOpen;
+                                                                if (autoInit && !!autoFlag)
+                                                                    return null;
                                                                 return (
                                                                     <div className="text-xs text-muted-foreground">
-                                                                        You can enable auto-download in settings
+                                                                        You can enable auto-download
+                                                                        in settings
                                                                     </div>
                                                                 );
                                                             })()}
                                                         </div>
                                                     ) : (
-                                                        <span>No audio attached to this cell yet.</span>
+                                                        <span>
+                                                            No audio attached to this cell yet.
+                                                        </span>
                                                     )}
                                                 </div>
                                             </div>
@@ -2818,9 +2837,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             <Dialog open={showOfflineModal} onOpenChange={handleOfflineModalClose}>
                 <DialogContent>
                     <DialogHeader className="sm:text-center">
-                        <DialogTitle>
-                            Connect to the internet to use AI transcription
-                        </DialogTitle>
+                        <DialogTitle>Connect to the internet to use AI transcription</DialogTitle>
                     </DialogHeader>
                     <DialogFooter className="flex-col sm:justify-center sm:flex-col">
                         <Button variant="secondary" onClick={handleOfflineModalClose}>

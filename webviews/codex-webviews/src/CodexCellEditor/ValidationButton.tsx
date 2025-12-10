@@ -289,7 +289,6 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             className="validation-button-container relative inline-block"
             onMouseEnter={showPopoverHandler}
             onMouseLeave={hidePopoverHandler}
-            // onClick={handleButtonClick}
         >
             <VSCodeButton
                 appearance="icon"
