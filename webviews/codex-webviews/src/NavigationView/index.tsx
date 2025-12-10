@@ -190,6 +190,8 @@ function NavigationView() {
         {}
     );
 
+    const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+
     // Initialize Bible book map on component mount
     useEffect(() => {
         const bookMap = new Map<string, BibleBookInfo>();
@@ -394,6 +396,10 @@ function NavigationView() {
 
     const handleRefresh = () => {
         vscode.postMessage({ command: "refresh" });
+    };
+
+    const handleToggleSortOrder = () => {
+        setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
     };
 
     const handleDelete = (item: CodexItem) => {
@@ -869,7 +875,12 @@ function NavigationView() {
 
     const filteredCodexItems = filterItems(state.codexItems);
     const filteredDictionaryItems = filterItems(state.dictionaryItems);
-    const hasResults = filteredCodexItems.length > 0 || filteredDictionaryItems.length > 0;
+    const sortComparison = (a: CodexItem, b: CodexItem) => {
+        const comparison = a.label.localeCompare(b.label);
+        return sortOrder === "asc" ? comparison : -comparison;
+    };
+    filteredCodexItems.sort(sortComparison);
+    filteredDictionaryItems.sort(sortComparison);
 
     const renameTestamentAbbreviations = (fileName: string, hasBibleBookMap: boolean): string => {
         if (hasBibleBookMap) {
@@ -943,6 +954,14 @@ function NavigationView() {
                     className="h-9 w-9 flex items-center justify-center rounded-md"
                 >
                     <i className="codicon codicon-refresh" />
+                </Button>
+                <Button
+                    variant="outline"
+                    onClick={handleToggleSortOrder}
+                    className="h-9 w-9 flex items-center justify-center rounded-md"
+                    title={`Sort ${sortOrder === "asc" ? "descending" : "ascending"}`}
+                >
+                    <i className="codicon codicon-sort-precedence" />
                 </Button>
             </div>
 
