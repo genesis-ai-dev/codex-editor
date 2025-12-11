@@ -134,7 +134,6 @@ export const hasAudioAvailable = (state: AudioAvailabilityState): boolean => {
 
 export const shouldDisableValidation = (
     htmlContent: string | undefined | null,
-    audioState: AudioAvailabilityState
 ): boolean => {
     return !hasTextContent(htmlContent);
 };

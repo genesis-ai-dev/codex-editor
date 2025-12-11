@@ -298,6 +298,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     const [footnoteWord, setFootnoteWord] = useState("");
     const [cursorPositionForFootnote, setCursorPositionForFootnote] = useState(0);
     const [originalCellContent, setOriginalCellContent] = useState("");
+    const [skipOnChange, setSkipOnChange] = useState(false);
 
     // Handle keyboard events for inline footnote editing
     useEffect(() => {
@@ -330,6 +331,15 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     keyboard: {
                         bindings: {
                             "list autofill": false, // This disables the automatic list creation
+                            tab: {
+                                key: "tab",
+                                // When the tab key is pressed, skip the on change logic.
+                                handler: () => {
+                                    setSkipOnChange(true);
+
+                                    return true;
+                                }
+                            }
                         },
                     },
                     spellChecker: {},
@@ -578,6 +588,12 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     quillInitialContentRef.current = quill.root.innerHTML;
                     checkIfLLMContent(); // Check on first load
                     isFirstLoad = false;
+                    return;
+                }
+
+                // Skip on change so the tab key doesn't trigger dirty state logic.
+                if (skipOnChange) {
+                    setSkipOnChange(false);
                     return;
                 }
 
