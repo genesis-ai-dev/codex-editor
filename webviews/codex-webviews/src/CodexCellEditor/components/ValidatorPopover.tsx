@@ -167,6 +167,7 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
             <div className="flex items-center justify-between w-full">
                 <div className="font-extralight text-base">{title}</div>
                 <div
+                    tabIndex={0}
                     className="flex items-baseline justify-end cursor-pointer font-light text-gray-400"
                     onClick={(e) => {
                         e.stopPropagation();
@@ -174,6 +175,13 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
                         onRequestClose && onRequestClose();
                         if (popoverTracker.getActivePopover() === uniqueId) {
                             popoverTracker.setActivePopover(null);
+                        }
+                    }}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                            e.preventDefault();
+                            setShow(false);
+                            onRequestClose && onRequestClose();
                         }
                     }}
                 >
@@ -209,12 +217,20 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
 
                                 {isCurrentUser && onRemoveSelf && (
                                     <span
+                                        tabIndex={0}
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             onRemoveSelf();
                                             setShow(false);
                                             if (popoverTracker.getActivePopover() === uniqueId) {
                                                 popoverTracker.setActivePopover(null);
+                                            }
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                                e.preventDefault();
+                                                onRemoveSelf();
+                                                setShow(false);
                                             }
                                         }}
                                         title="Remove your audio validation"
