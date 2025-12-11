@@ -6,6 +6,7 @@ import { vrefData } from "@/utils/verseRefUtils/verseData";
 import { EditMapUtils } from "@/utils/editMapUtils";
 import { EditType, CodexCellTypes } from "../../../types/enums";
 import type { ValidationEntry } from "../../../types";
+import { extractParentCellIdFromParatext } from "../../providers/codexCellEditorProvider/utils/cellUtils";
 
 // FIXME: move notebook format migration here
 
@@ -1859,3 +1860,265 @@ export const migration_addMilestoneCells = async (context?: vscode.ExtensionCont
         console.error("Error running milestone cells migration:", error);
     }
 };
+
+/**
+ * Migration: Reorder misplaced paratext cells to be above their parent cells.
+ * Paratext cells that are found at the end of files (after all content cells) and
+ * are not already positioned near their parent cells will be moved above their parent.
+ * 
+ * This migration is idempotent - it checks if paratext cells are correctly positioned.
+ */
+export const migration_reorderMisplacedParatextCells = async (context?: vscode.ExtensionContext) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        // Check if migration has already been run
+        const migrationKey = "paratextReorderMigrationCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        let hasMigrationRun = false;
+
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch (e) {
+            // Setting might not be registered yet; fall back to workspaceState
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
+
+        if (hasMigrationRun) {
+            console.log("Paratext reorder migration already completed, skipping");
+            return;
+        }
+
+        console.log("Running paratext reorder migration...");
+
+        const workspaceFolder = workspaceFolders[0];
+
+        // Find all codex and source files
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+
+        const allFiles = [...codexFiles, ...sourceFiles];
+
+        if (allFiles.length === 0) {
+            console.log("No codex or source files found, skipping paratext reorder migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                // If configuration key is not registered, fall back to workspaceState
+                await context?.workspaceState.update(migrationKey, true);
+            }
+            return;
+        }
+
+        let processedFiles = 0;
+        let migratedFiles = 0;
+
+        // Process files with progress
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Reordering misplaced paratext cells",
+                cancellable: false
+            },
+            async (progress) => {
+                for (let i = 0; i < allFiles.length; i++) {
+                    const file = allFiles[i];
+                    progress.report({
+                        message: `Processing ${path.basename(file.fsPath)}`,
+                        increment: (100 / allFiles.length)
+                    });
+
+                    try {
+                        const wasMigrated = await migrateParatextCellsForFile(file);
+                        processedFiles++;
+                        if (wasMigrated) {
+                            migratedFiles++;
+                        }
+                    } catch (error) {
+                        console.error(`Error processing ${file.fsPath}:`, error);
+                    }
+                }
+            }
+        );
+
+        // Mark migration as completed
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch (e) {
+            // If configuration key is not registered, fall back to workspaceState
+            await context?.workspaceState.update(migrationKey, true);
+        }
+
+        console.log(`Paratext reorder migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        if (migratedFiles > 0) {
+            vscode.window.showInformationMessage(
+                `Paratext reorder migration complete: ${migratedFiles} files updated`
+            );
+        }
+
+    } catch (error) {
+        console.error("Error running paratext reorder migration:", error);
+    }
+};
+
+/**
+ * Processes a single file to reorder misplaced paratext cells.
+ * Returns true if the file was modified, false otherwise.
+ */
+export async function migrateParatextCellsForFile(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = notebookData.cells || [];
+        if (cells.length === 0) return false;
+
+        // Early return if no paratext cells found in the file
+        const hasParatextCells = cells.some(
+            (cell) => cell.metadata?.type === CodexCellTypes.PARATEXT
+        );
+        if (!hasParatextCells) {
+            return false;
+        }
+
+        // Find the last content cell index (last non-paratext, non-milestone cell)
+        let lastContentCellIndex = -1;
+        for (let i = cells.length - 1; i >= 0; i--) {
+            const cell = cells[i];
+            const cellType = cell.metadata?.type;
+            if (cellType !== CodexCellTypes.PARATEXT && cellType !== CodexCellTypes.MILESTONE) {
+                lastContentCellIndex = i;
+                break;
+            }
+        }
+
+        // If no content cells found, skip this file
+        if (lastContentCellIndex === -1) {
+            return false;
+        }
+
+        // Identify misplaced paratext cells
+        // A paratext cell is misplaced if:
+        // 1. It appears after all content cells (index > lastContentCellIndex)
+        // 2. It's not already positioned immediately before or after its parent cell
+        const misplacedParatextCells: Array<{ cell: any; index: number; parentId: string; }> = [];
+        const parentCellIndexMap = new Map<string, number>();
+
+        // Build a map of parent cell IDs to their indices
+        for (let i = 0; i < cells.length; i++) {
+            const cell = cells[i];
+            const cellId = cell.metadata?.id;
+            if (cellId) {
+                parentCellIndexMap.set(cellId, i);
+            }
+        }
+
+        // Check paratext cells that appear after all content cells
+        for (let i = lastContentCellIndex + 1; i < cells.length; i++) {
+            const cell = cells[i];
+            const cellType = cell.metadata?.type;
+            const cellId = cell.metadata?.id;
+
+            if (cellType === CodexCellTypes.PARATEXT && cellId) {
+                const parentId = extractParentCellIdFromParatext(cellId);
+                if (!parentId) {
+                    // Skip paratext cells with no valid parent ID
+                    continue;
+                }
+
+                const parentIndex = parentCellIndexMap.get(parentId);
+                if (parentIndex === undefined) {
+                    // Skip if parent cell not found
+                    continue;
+                }
+
+                // Check if paratext is already positioned correctly (immediately before or after parent)
+                const isBeforeParent = i === parentIndex - 1;
+                const isAfterParent = i === parentIndex + 1;
+
+                if (!isBeforeParent && !isAfterParent) {
+                    // This paratext cell is misplaced
+                    misplacedParatextCells.push({ cell, index: i, parentId });
+                }
+            }
+        }
+
+        // If no misplaced paratext cells found, file doesn't need migration
+        if (misplacedParatextCells.length === 0) {
+            return false;
+        }
+
+        // Group misplaced paratext cells by parent ID
+        const paratextCellsByParent = new Map<string, Array<{ cell: any; originalIndex: number; }>>();
+        for (const { cell, index, parentId } of misplacedParatextCells) {
+            if (!paratextCellsByParent.has(parentId)) {
+                paratextCellsByParent.set(parentId, []);
+            }
+            paratextCellsByParent.get(parentId)!.push({ cell, originalIndex: index });
+        }
+
+        // Sort paratext cells for each parent by their original index to maintain relative order
+        for (const paratextCells of paratextCellsByParent.values()) {
+            paratextCells.sort((a, b) => a.originalIndex - b.originalIndex);
+        }
+
+        // Build new cells array
+        const newCells: any[] = [];
+        const processedIndices = new Set<number>();
+
+        // Mark all misplaced paratext cell indices as processed (they'll be moved)
+        for (const { index } of misplacedParatextCells) {
+            processedIndices.add(index);
+        }
+
+        // Iterate through original cells and rebuild array
+        for (let i = 0; i < cells.length; i++) {
+            // Skip misplaced paratext cells (they'll be inserted before their parent)
+            if (processedIndices.has(i)) {
+                continue;
+            }
+
+            const cell = cells[i];
+            const cellId = cell.metadata?.id;
+
+            // Check if this cell is a parent that has misplaced paratext cells
+            if (cellId && paratextCellsByParent.has(cellId)) {
+                // Insert paratext cells before the parent
+                const paratextCells = paratextCellsByParent.get(cellId)!;
+                for (const { cell: paratextCell } of paratextCells) {
+                    newCells.push(paratextCell);
+                }
+            }
+
+            // Add the current cell
+            newCells.push(cell);
+        }
+
+        // Update notebook data with new cells
+        notebookData.cells = newCells;
+
+        // Serialize and save
+        const updatedContent = await serializer.serializeNotebook(
+            notebookData,
+            new vscode.CancellationTokenSource().token
+        );
+        await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+
+        return true;
+    } catch (error) {
+        console.error(`Error migrating paratext cells for ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
