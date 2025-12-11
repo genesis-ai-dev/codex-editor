@@ -350,7 +350,9 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     ? processedCell.metadata
                     : {}),
                 // Then override with standard data field if it exists
-                data: processedCell.metadata?.data || {}
+                data: processedCell.metadata?.data || {},
+                // Ensure isLocked is set (preserve existing value or default to false/unlocked)
+                isLocked: processedCell.metadata?.isLocked ?? false,
             }
         }));
 
