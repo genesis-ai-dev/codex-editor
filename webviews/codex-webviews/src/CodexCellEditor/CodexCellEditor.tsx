@@ -1706,7 +1706,10 @@ const CodexCellEditor: React.FC = () => {
     useMessageHandler(
         "codexCellEditor-bundledMetadata",
         (event: MessageEvent) => {
-            if (event.data.type === "providerSendsInitialContent") {
+            if (
+                event.data.type === "providerSendsInitialContent" ||
+                event.data.type === "providerSendsInitialContentPaginated"
+            ) {
                 if (event.data.username !== undefined) {
                     setUsername(event.data.username);
                 }

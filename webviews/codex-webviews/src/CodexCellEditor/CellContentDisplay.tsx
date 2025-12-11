@@ -1013,7 +1013,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                 <DialogContent>
                                                     <DialogHeader className="sm:text-center">
                                                         <DialogTitle>
-                                                            Connect to the internet to use AI translation
+                                                            Connect to the internet to use AI
+                                                            translation
                                                         </DialogTitle>
                                                         <DialogDescription></DialogDescription>
                                                     </DialogHeader>
