@@ -12,6 +12,7 @@ import { getFrontierVersionStatus, checkVSCodeVersion } from "./utils/versionChe
 import { BookCompletionData } from "../progressReporting/progressReportingService";
 import { ProgressReportingService, registerProgressReportingCommands } from "../progressReporting/progressReportingService";
 import { CommentsMigrator } from "../utils/commentsMigrationUtils";
+import { deduplicateConsecutiveMilestoneCells } from "./utils/migrationUtils";
 // Define TranslationProgress interface locally since it's not exported from types
 interface BookProgress {
     bookId: string;
@@ -711,6 +712,14 @@ export class SyncManager {
             // Rebuild indexes in the background after successful sync (truly async)
             // Pass the sync result to optimize database synchronization
             this.rebuildIndexesInBackground(syncResult);
+
+            // Deduplicate consecutive milestone cells after successful sync (runs only once)
+            try {
+                await deduplicateConsecutiveMilestoneCells(undefined);
+            } catch (error) {
+                console.error("[SyncManager] Error during milestone cells deduplication:", error);
+                // Don't fail sync if deduplication fails
+            }
 
         } catch (error) {
             console.error("Error during background sync operation:", error);

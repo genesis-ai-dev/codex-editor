@@ -475,6 +475,11 @@
                         "default": false,
                         "description": "Internal flag indicating the milestone cells migration has completed."
                     },
+                    "codex-project-manager.milestoneCellsDeduplicationCompleted": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Internal flag indicating the milestone cells deduplication has completed."
+                    },
                     "codex-project-manager.chatSystemMessageToMetadataMigrationCompleted": {
                         "type": "boolean",
                         "default": false,
