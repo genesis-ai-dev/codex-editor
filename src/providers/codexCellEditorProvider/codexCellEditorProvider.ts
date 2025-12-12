@@ -3923,6 +3923,68 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         debug("Completed audio attachment refresh after sync");
     }
 
+    /**
+     * Refresh webviews for specific files by sending refreshCurrentPage messages.
+     * This is used after sync to ensure webviews show newly added cells.
+     * @param filePaths Array of file paths (workspace-relative or absolute) to refresh
+     */
+    public refreshWebviewsForFiles(filePaths: string[]): void {
+        if (!filePaths || filePaths.length === 0) {
+            return;
+        }
+
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            debug("No workspace folder, skipping webview refresh");
+            return;
+        }
+
+        // Filter to only .codex files
+        const codexFiles = filePaths.filter(path => path.endsWith('.codex'));
+        if (codexFiles.length === 0) {
+            debug("No .codex files to refresh");
+            return;
+        }
+
+        debug(`Refreshing webviews for ${codexFiles.length} codex file(s)`);
+
+        // Convert file paths to URIs for matching
+        const fileUris = new Set<string>();
+        for (const filePath of codexFiles) {
+            try {
+                // Try to resolve as workspace-relative path first
+                let uri: vscode.Uri;
+                if (path.isAbsolute(filePath)) {
+                    uri = vscode.Uri.file(filePath);
+                } else {
+                    // Workspace-relative path
+                    uri = vscode.Uri.joinPath(workspaceFolder.uri, filePath);
+                }
+                fileUris.add(uri.toString());
+            } catch (error) {
+                console.warn(`Failed to convert file path to URI: ${filePath}`, error);
+            }
+        }
+
+        // Find matching webview panels and send refresh messages
+        let refreshedCount = 0;
+        for (const [docUri, panel] of this.webviewPanels.entries()) {
+            if (fileUris.has(docUri)) {
+                debug(`Sending refreshCurrentPage to webview for ${docUri}`);
+                safePostMessageToPanel(panel, {
+                    type: "refreshCurrentPage",
+                });
+                refreshedCount++;
+            }
+        }
+
+        if (refreshedCount > 0) {
+            debug(`Refreshed ${refreshedCount} webview(s) for synced files`);
+        } else {
+            debug("No open webviews found for synced files");
+        }
+    }
+
     public async updateCellContentDirect(
         uri: string,
         cellId: string,

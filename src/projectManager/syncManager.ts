@@ -721,6 +721,28 @@ export class SyncManager {
                 // Don't fail sync if deduplication fails
             }
 
+            // Refresh webviews for affected codex files to show newly added cells
+            try {
+                const affectedCodexFiles = [
+                    ...syncResult.changedFiles.filter(f => f.endsWith('.codex')),
+                    ...syncResult.newFiles.filter(f => f.endsWith('.codex'))
+                ];
+
+                if (affectedCodexFiles.length > 0) {
+                    debug(`Refreshing webviews for ${affectedCodexFiles.length} affected codex file(s)`);
+                    const { GlobalProvider } = await import("../globalProvider");
+                    const provider = GlobalProvider.getInstance().getProvider("codex-cell-editor") as any;
+                    if (provider && typeof provider.refreshWebviewsForFiles === 'function') {
+                        provider.refreshWebviewsForFiles(affectedCodexFiles);
+                    } else {
+                        debug("[SyncManager] Codex cell editor provider not available or missing refreshWebviewsForFiles method");
+                    }
+                }
+            } catch (error) {
+                console.error("[SyncManager] Error refreshing webviews after sync:", error);
+                // Don't fail sync if webview refresh fails
+            }
+
         } catch (error) {
             console.error("Error during background sync operation:", error);
             const errorMessage = error instanceof Error ? error.message : String(error);

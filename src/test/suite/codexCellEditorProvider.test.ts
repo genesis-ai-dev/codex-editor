@@ -13,7 +13,7 @@ import { CodexNotebookAsJSONData, QuillCellContent, Timestamps, FileEditHistory,
 import { EditMapUtils } from "../../utils/editMapUtils";
 import { CodexContentSerializer } from "../../serializer";
 import { MetadataManager } from "../../utils/metadataManager";
-import { swallowDuplicateCommandRegistrations, createTempCodexFile, deleteIfExists, createMockExtensionContext, primeProviderWorkspaceStateForHtml, sleep } from "../testUtils";
+import { swallowDuplicateCommandRegistrations, createTempCodexFile, deleteIfExists, createMockExtensionContext, primeProviderWorkspaceStateForHtml, sleep, createMockWebviewPanel } from "../testUtils";
 
 suite("CodexCellEditorProvider Test Suite", () => {
     vscode.window.showInformationMessage("Start all tests for CodexCellEditorProvider.");
@@ -4364,6 +4364,179 @@ suite("CodexCellEditorProvider Test Suite", () => {
             );
 
             document.dispose();
+        });
+    });
+
+    suite("refreshWebviewsForFiles", () => {
+        test("refreshWebviewsForFiles sends refreshCurrentPage to matching webview", async function () {
+            this.timeout(10000);
+
+            // Create document and webview panel
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const { panel, lastPostedMessageRef } = createMockWebviewPanel();
+
+            // Register webview panel with provider
+            await provider.resolveCustomEditor(
+                document,
+                panel,
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Call refreshWebviewsForFiles with the document path
+            provider.refreshWebviewsForFiles([tempUri.fsPath]);
+
+            // Wait a bit for async operations
+            await sleep(100);
+
+            // Verify refreshCurrentPage message was sent
+            assert.ok(lastPostedMessageRef.current, "Message should have been posted");
+            assert.strictEqual(
+                lastPostedMessageRef.current.type,
+                "refreshCurrentPage",
+                "Message type should be refreshCurrentPage"
+            );
+
+            document.dispose();
+        });
+
+        test("refreshWebviewsForFiles ignores non-matching files", async function () {
+            this.timeout(10000);
+
+            // Create document and webview panel
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const { panel, lastPostedMessageRef } = createMockWebviewPanel();
+
+            // Register webview panel with provider
+            await provider.resolveCustomEditor(
+                document,
+                panel,
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Clear any initial messages
+            lastPostedMessageRef.current = null;
+
+            // Call refreshWebviewsForFiles with a different file path
+            const otherPath = path.join(os.tmpdir(), "nonexistent.codex");
+            provider.refreshWebviewsForFiles([otherPath]);
+
+            // Wait a bit for async operations
+            await sleep(100);
+
+            // Verify no message was sent
+            assert.strictEqual(
+                lastPostedMessageRef.current,
+                null,
+                "No message should be sent for non-matching file"
+            );
+
+            document.dispose();
+        });
+
+        test("refreshWebviewsForFiles filters non-codex files", async function () {
+            this.timeout(10000);
+
+            // Create document and webview panel
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const { panel, lastPostedMessageRef } = createMockWebviewPanel();
+
+            // Register webview panel with provider
+            await provider.resolveCustomEditor(
+                document,
+                panel,
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Clear any initial messages
+            lastPostedMessageRef.current = null;
+
+            // Call refreshWebviewsForFiles with mix of .codex and non-.codex files
+            const txtPath = path.join(os.tmpdir(), "test.txt");
+            provider.refreshWebviewsForFiles([tempUri.fsPath, txtPath]);
+
+            // Wait a bit for async operations
+            await sleep(100);
+
+            // Verify refreshCurrentPage message was sent (only for .codex file)
+            assert.ok(lastPostedMessageRef.current, "Message should have been posted for .codex file");
+            assert.strictEqual(
+                lastPostedMessageRef.current.type,
+                "refreshCurrentPage",
+                "Message type should be refreshCurrentPage"
+            );
+
+            document.dispose();
+        });
+
+        test("refreshWebviewsForFiles handles workspace-relative paths", async function () {
+            this.timeout(10000);
+
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                this.skip();
+            }
+
+            // Create document and webview panel
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const { panel, lastPostedMessageRef } = createMockWebviewPanel();
+
+            // Register webview panel with provider
+            await provider.resolveCustomEditor(
+                document,
+                panel,
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Get workspace-relative path
+            const relativePath = vscode.workspace.asRelativePath(tempUri);
+
+            // Call refreshWebviewsForFiles with workspace-relative path
+            provider.refreshWebviewsForFiles([relativePath]);
+
+            // Wait a bit for async operations
+            await sleep(100);
+
+            // Verify refreshCurrentPage message was sent
+            assert.ok(lastPostedMessageRef.current, "Message should have been posted");
+            assert.strictEqual(
+                lastPostedMessageRef.current.type,
+                "refreshCurrentPage",
+                "Message type should be refreshCurrentPage"
+            );
+
+            document.dispose();
+        });
+
+        test("refreshWebviewsForFiles handles empty array", () => {
+            // Should not throw
+            provider.refreshWebviewsForFiles([]);
+            assert.ok(true, "Should handle empty array without error");
+        });
+
+        test("refreshWebviewsForFiles handles no webviews open", () => {
+            // Should not throw when no webviews are open
+            provider.refreshWebviewsForFiles([tempUri.fsPath]);
+            assert.ok(true, "Should handle no open webviews without error");
         });
     });
 });
