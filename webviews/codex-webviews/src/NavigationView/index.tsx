@@ -784,12 +784,19 @@ function NavigationView() {
         return (
             <div key={item.label + item.uri}>
                 <div
+                    tabIndex={0}
                     className={`group relative cursor-pointer select-none p-0 rounded-md transition-colors hover:bg-accent ${
                         isGroup
                             ? "bg-card border border-border"
                             : "bg-transparent border border-transparent"
                     }`}
                     onClick={handleItemClick}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleItemClick(e as unknown as React.MouseEvent);
+                        }
+                    }}
                 >
                     <div className="p-3 flex flex-col gap-1.5">
                         <div className="flex items-center gap-3 w-full min-h-6">
