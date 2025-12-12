@@ -119,9 +119,13 @@ const sortItems = (a: CodexItem, b: CodexItem) => {
         if (b.label === "New Testament") return 1;
     }
 
-    // Extract any numbers from the labels for alphanumeric sorting
-    const aMatch = a.label.match(/\d+/);
-    const bMatch = b.label.match(/\d+/);
+    // For non-Biblical books, sort by fileDisplayName if available, otherwise by label
+    const aDisplayName = a.fileDisplayName || a.label;
+    const bDisplayName = b.fileDisplayName || b.label;
+
+    // Extract any numbers from the display names for alphanumeric sorting
+    const aMatch = aDisplayName.match(/\d+/);
+    const bMatch = bDisplayName.match(/\d+/);
 
     if (aMatch && bMatch) {
         const aNum = parseInt(aMatch[0]);
@@ -131,7 +135,7 @@ const sortItems = (a: CodexItem, b: CodexItem) => {
         }
     }
 
-    return a.label.localeCompare(b.label);
+    return aDisplayName.localeCompare(bDisplayName);
 };
 
 // Helper function to get proper Bible book name or format label nicely
