@@ -930,12 +930,8 @@ function NavigationView() {
     }, [state.bookNameModal.item, state.bibleBookMap]);
 
     const disableBookNameButton = useMemo(() => {
-        return (
-            !state.bookNameModal.newName.trim() ||
-            state.bookNameModal.newName.trim() === bookNameModalOriginalLabel ||
-            state.bookNameModal.newName.trim() === state.bookNameModal.item?.label
-        );
-    }, [state.bookNameModal.newName, state.bookNameModal.item?.label, bookNameModalOriginalLabel]);
+        return !state.bookNameModal.newName.trim();
+    }, [state.bookNameModal.newName]);
 
     // Separate project dictionary from other dictionaries
     const projectDictionary = filteredDictionaryItems.find((item) => item.isProjectDictionary);
