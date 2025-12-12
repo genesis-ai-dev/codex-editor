@@ -1904,27 +1904,7 @@ export const deduplicateConsecutiveMilestoneCells = async (context?: vscode.Exte
             return;
         }
 
-        // Check if deduplication has already been run
-        const deduplicationKey = "milestoneCellsDeduplicationCompleted";
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        let hasDeduplicationRun = false;
-
-        try {
-            hasDeduplicationRun = config.get(deduplicationKey, false);
-        } catch (e) {
-            // Setting might not be registered yet; fall back to workspaceState
-            hasDeduplicationRun = !!context?.workspaceState.get<boolean>(deduplicationKey);
-        }
-
-        if (hasDeduplicationRun) {
-            console.log("Milestone cells deduplication already completed, skipping");
-            return;
-        }
-
-        console.log("Running milestone cells deduplication...");
-
         const workspaceFolder = workspaceFolders[0];
-        const author = await getCurrentUserName();
 
         // Find all codex and source files
         const codexFiles = await vscode.workspace.findFiles(
@@ -1938,19 +1918,87 @@ export const deduplicateConsecutiveMilestoneCells = async (context?: vscode.Exte
 
         if (allFiles.length === 0) {
             console.log("No codex or source files found, skipping milestone cells deduplication");
-            // Mark deduplication as completed even when no files exist to prevent re-running
-            try {
-                await config.update(deduplicationKey, true, vscode.ConfigurationTarget.Workspace);
-            } catch (e) {
-                // If configuration key is not registered, fall back to workspaceState
-                await context?.workspaceState.update(deduplicationKey, true);
-            }
             return;
         }
 
+        // Scan for duplicates first - if duplicates exist, proceed with deduplication
+        const serializer = new CodexContentSerializer();
+        let hasDuplicates = false;
+
+        for (const fileUri of allFiles) {
+            try {
+                const fileContent = await vscode.workspace.fs.readFile(fileUri);
+                const notebookData: any = await serializer.deserializeNotebook(
+                    fileContent,
+                    new vscode.CancellationTokenSource().token
+                );
+
+                const cells: any[] = notebookData.cells || [];
+                if (cells.length === 0) {
+                    continue;
+                }
+
+                // Check for consecutive milestone cells with matching values and initial_import edits
+                for (let i = 0; i < cells.length - 1; i++) {
+                    const currentCell = cells[i];
+                    const nextCell = cells[i + 1];
+
+                    // Skip if either cell is already deleted
+                    if (currentCell?.metadata?.data?.deleted || nextCell?.metadata?.data?.deleted) {
+                        continue;
+                    }
+
+                    // Check that both are milestone cells
+                    const currentIsMilestone = currentCell?.metadata?.type === CodexCellTypes.MILESTONE;
+                    const nextIsMilestone = nextCell?.metadata?.type === CodexCellTypes.MILESTONE;
+
+                    if (!currentIsMilestone || !nextIsMilestone) {
+                        continue;
+                    }
+
+                    // Check if values match
+                    if (currentCell.value !== nextCell.value) {
+                        continue;
+                    }
+
+                    // Check if both have INITIAL_IMPORT edits
+                    const currentEdits = currentCell.metadata?.edits || [];
+                    const nextEdits = nextCell.metadata?.edits || [];
+
+                    const currentInitialEdit = currentEdits.find(
+                        (edit: any) => edit.type === EditType.INITIAL_IMPORT
+                    );
+                    const nextInitialEdit = nextEdits.find(
+                        (edit: any) => edit.type === EditType.INITIAL_IMPORT
+                    );
+
+                    if (currentInitialEdit && nextInitialEdit) {
+                        hasDuplicates = true;
+                        break;
+                    }
+                }
+
+                if (hasDuplicates) {
+                    break;
+                }
+            } catch (error) {
+                // Continue scanning other files even if one fails
+                continue;
+            }
+        }
+
+        // If no duplicates found, skip deduplication
+        if (!hasDuplicates) {
+            console.log("No duplicate milestone cells found, skipping deduplication");
+            return;
+        }
+
+        console.log("Running milestone cells deduplication...");
+
+        const author = await getCurrentUserName();
+
         let processedFiles = 0;
         let deduplicatedFiles = 0;
-        const serializer = new CodexContentSerializer();
 
         // Process files
         for (const fileUri of allFiles) {
@@ -1989,6 +2037,11 @@ export const deduplicateConsecutiveMilestoneCells = async (context?: vscode.Exte
                     }
 
                     // Both are milestone cells - proceed with deduplication check
+                    // Check if values match (only deduplicate when milestone values are the same)
+                    if (currentCell.value !== nextCell.value) {
+                        continue;
+                    }
+
                     // Check if both have INITIAL_IMPORT edits
                     const currentEdits = currentCell.metadata?.edits || [];
                     const nextEdits = nextCell.metadata?.edits || [];
@@ -2071,14 +2124,6 @@ export const deduplicateConsecutiveMilestoneCells = async (context?: vscode.Exte
             } catch (error) {
                 console.error(`Error processing ${fileUri.fsPath} during deduplication:`, error);
             }
-        }
-
-        // Mark deduplication as completed
-        try {
-            await config.update(deduplicationKey, true, vscode.ConfigurationTarget.Workspace);
-        } catch (e) {
-            // If configuration key is not registered, fall back to workspaceState
-            await context?.workspaceState.update(deduplicationKey, true);
         }
 
         console.log(
