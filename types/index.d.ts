@@ -525,6 +525,7 @@ interface EditHistoryEntry {
 
 export type EditorPostMessages =
     | { command: "updateCachedChapter"; content: number; }
+    | { command: "updateCachedSubsection"; content: number; }
     | { command: "webviewReady"; }
     | { command: "getContent"; }
     | { command: "getPreferredEditorTab"; }
@@ -761,7 +762,14 @@ export type EditorPostMessages =
         };
     }
     | { command: "adjustABTestingProbability"; content: { delta: number; buttonChoice?: "more" | "less"; testId?: string; cellId?: string; }; }
-    | { command: "openLoginFlow"; };
+    | { command: "openLoginFlow"; }
+    | {
+        command: "requestCellsForMilestone";
+        content: {
+            milestoneIndex: number;
+            subsectionIndex?: number; // For sub-pagination within milestone
+        };
+    };
 
 // (revalidateMissingForCell added above in EditorPostMessages union)
 
@@ -948,6 +956,41 @@ type CodexNotebookAsJSONData = {
 };
 
 type FileImporterType = "smart-segmenter" | "audio" | "docx-roundtrip" | "markdown" | "subtitles" | "spreadsheet" | "tms" | "pdf" | "indesign" | "usfm" | "paratext" | "ebible" | "macula" | "biblica" | "obs";
+
+/**
+ * Represents information about a single milestone in a document.
+ * Milestones are used as the primary navigation unit for pagination.
+ */
+export interface MilestoneInfo {
+    /** 0-based milestone index */
+    index: number;
+    /** Position in the full cells array where this milestone cell is located */
+    cellIndex: number;
+    /** Display value for the milestone (e.g., "1", "2", chapter name) */
+    value: string;
+    /** Number of content cells in this milestone section (excluding milestone cell itself) */
+    cellCount: number;
+}
+
+/**
+ * Index of all milestones in a document, used for milestone-based pagination.
+ */
+export interface MilestoneIndex {
+    /** Array of milestone information */
+    milestones: MilestoneInfo[];
+    /** Total content cells in the document (excluding milestone cells) */
+    totalCells: number;
+    /** Number of cells per page for sub-pagination within milestones */
+    cellsPerPage: number;
+    /** Progress data for each milestone (1-based milestone number -> progress) */
+    milestoneProgress?: Record<number, {
+        percentTranslationsCompleted: number;
+        percentAudioTranslationsCompleted: number;
+        percentFullyValidatedTranslations: number;
+        percentAudioValidatedTranslations: number;
+        percentTextValidatedTranslations: number;
+    }>;
+}
 
 interface QuillCellContent {
     cellMarkers: string[];
@@ -1641,6 +1684,26 @@ type EditorReceiveMessages =
         isAuthenticated?: boolean;
     }
     | {
+        type: "providerSendsInitialContentPaginated";
+        milestoneIndex: MilestoneIndex;
+        cells: QuillCellContent[];
+        currentMilestoneIndex: number;
+        currentSubsectionIndex: number;
+        isSourceText: boolean;
+        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
+        username?: string;
+        validationCount?: number;
+        validationCountAudio?: number;
+        isAuthenticated?: boolean;
+    }
+    | {
+        type: "providerSendsCellPage";
+        milestoneIndex: number;
+        subsectionIndex: number;
+        cells: QuillCellContent[];
+        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
+    }
+    | {
         type: "preferredEditorTab";
         tab:
         | "source"
@@ -1744,6 +1807,16 @@ type EditorReceiveMessages =
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }
     | {
+        type: "milestoneProgressUpdate";
+        milestoneProgress: Record<number, {
+            percentTranslationsCompleted: number;
+            percentAudioTranslationsCompleted: number;
+            percentFullyValidatedTranslations: number;
+            percentAudioValidatedTranslations: number;
+            percentTextValidatedTranslations: number;
+        }>;
+    }
+    | {
         type: "commentsForCell";
         content: {
             cellId: string;
@@ -1796,6 +1869,7 @@ type EditorReceiveMessages =
     }
     | { type: "refreshFontSizes"; }
     | { type: "refreshMetadata"; }
+    | { type: "refreshCurrentPage"; }
     | { type: "asrConfig"; content: { endpoint: string; authToken?: string; }; }
     | { type: "startBatchTranscription"; content: { count: number; }; }
     | {

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Dispatch, SetStateAction } from "react";
-import { QuillCellContent, SpellCheckResponse } from "../../../../../types";
+import { QuillCellContent, SpellCheckResponse, MilestoneIndex } from "../../../../../types";
 import { CustomNotebookMetadata } from "../../../../../types";
 
 interface UseVSCodeMessageHandlerProps {
@@ -61,6 +61,22 @@ interface UseVSCodeMessageHandlerProps {
 
     // A/B testing handlers
     showABTestVariants?: (data: { variants: string[]; cellId: string; testId: string; }) => void;
+
+    // Milestone-based pagination handlers
+    setContentPaginated?: (
+        milestoneIndex: MilestoneIndex,
+        cells: QuillCellContent[],
+        currentMilestoneIndex: number,
+        currentSubsectionIndex: number,
+        isSourceText: boolean,
+        sourceCellMap: { [k: string]: { content: string; versions: string[] } }
+    ) => void;
+    handleCellPage?: (
+        milestoneIndex: number,
+        subsectionIndex: number,
+        cells: QuillCellContent[],
+        sourceCellMap: { [k: string]: { content: string; versions: string[] } }
+    ) => void;
 }
 
 export const useVSCodeMessageHandler = ({
@@ -93,6 +109,8 @@ export const useVSCodeMessageHandler = ({
     setChapterNumber,
     setAudioAttachments,
     showABTestVariants,
+    setContentPaginated,
+    handleCellPage,
 }: UseVSCodeMessageHandlerProps) => {
     useEffect(() => {
         const handler = (event: MessageEvent) => {
@@ -290,6 +308,72 @@ export const useVSCodeMessageHandler = ({
                         showABTestVariants(message.content);
                     }
                     break;
+
+                case "providerSendsInitialContentPaginated":
+                    if (setContentPaginated) {
+                        setContentPaginated(
+                            message.milestoneIndex,
+                            message.cells,
+                            message.currentMilestoneIndex,
+                            message.currentSubsectionIndex,
+                            message.isSourceText,
+                            message.sourceCellMap
+                        );
+                    }
+                    // Bootstrap audio availability from initial cells
+                    try {
+                        const units = (message.cells || []) as QuillCellContent[];
+                        const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
+                        for (const unit of units) {
+                            const cellId = unit?.cellMarkers?.[0];
+                            if (!cellId) continue;
+                            let hasAvailable = false; let hasMissing = false; let hasDeleted = false;
+                            const atts = unit?.attachments || ({} as any);
+                            for (const key of Object.keys(atts)) {
+                                const att = (atts as any)[key];
+                                if (att && att.type === "audio") {
+                                    if (att.isDeleted) hasDeleted = true;
+                                    else if (att.isMissing) hasMissing = true;
+                                    else hasAvailable = true;
+                                }
+                            }
+                            availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                        }
+                        setAudioAttachments(availability);
+                    } catch { /* ignore */ }
+                    break;
+
+                case "providerSendsCellPage":
+                    if (handleCellPage) {
+                        handleCellPage(
+                            message.milestoneIndex,
+                            message.subsectionIndex,
+                            message.cells,
+                            message.sourceCellMap
+                        );
+                    }
+                    // Update audio availability for new cells
+                    try {
+                        const units = (message.cells || []) as QuillCellContent[];
+                        const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
+                        for (const unit of units) {
+                            const cellId = unit?.cellMarkers?.[0];
+                            if (!cellId) continue;
+                            let hasAvailable = false; let hasMissing = false; let hasDeleted = false;
+                            const atts = unit?.attachments || ({} as any);
+                            for (const key of Object.keys(atts)) {
+                                const att = (atts as any)[key];
+                                if (att && att.type === "audio") {
+                                    if (att.isDeleted) hasDeleted = true;
+                                    else if (att.isMissing) hasMissing = true;
+                                    else hasAvailable = true;
+                                }
+                            }
+                            availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                        }
+                        setAudioAttachments((prev) => ({ ...prev, ...availability }));
+                    } catch { /* ignore */ }
+                    break;
             }
         };
 
@@ -324,5 +408,7 @@ export const useVSCodeMessageHandler = ({
         setChapterNumber,
         setAudioAttachments,
         showABTestVariants,
+        setContentPaginated,
+        handleCellPage,
     ]);
 };
