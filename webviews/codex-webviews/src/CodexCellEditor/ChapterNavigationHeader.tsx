@@ -1193,7 +1193,20 @@ ChapterNavigationHeaderProps) {
                                             label={section.label}
                                             isActive={isActive}
                                             progress={progress}
-                                            onClick={() => setCurrentSubsectionIndex(index)}
+                                            onClick={() => {
+                                                if (!unsavedChanges) {
+                                                    requestCellsForMilestone(
+                                                        currentMilestoneIndex,
+                                                        index
+                                                    );
+                                                } else {
+                                                    setShowUnsavedWarning(true);
+                                                    setTimeout(
+                                                        () => setShowUnsavedWarning(false),
+                                                        3000
+                                                    );
+                                                }
+                                            }}
                                         />
                                     );
                                 })}
