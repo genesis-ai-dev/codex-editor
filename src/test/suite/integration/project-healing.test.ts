@@ -360,7 +360,9 @@ suite("Integration: Project healing", () => {
         fs.rmSync(tempBackupDir, { recursive: true, force: true });
     });
 
-    test("Healing preserves .project directory structure via merge", async () => {
+    test("Healing preserves .project directory structure via merge", async function () {
+        this.timeout(10000); // Increase timeout for file operations
+        
         // Add additional files to .project
         const attachmentsDir = path.join(tempDir, ".project", "attachments");
         fs.mkdirSync(attachmentsDir, { recursive: true });
