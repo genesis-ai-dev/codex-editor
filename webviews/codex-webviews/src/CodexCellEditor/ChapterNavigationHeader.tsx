@@ -5,7 +5,11 @@ import NotebookMetadataModal from "./NotebookMetadataModal";
 import { AutocompleteModal } from "./modals/AutocompleteModal";
 import { ChapterSelectorModal } from "./modals/ChapterSelectorModal";
 import { MobileHeaderMenu } from "./components/MobileHeaderMenu";
-import { type QuillCellContent, type CustomNotebookMetadata } from "../../../../types";
+import {
+    type QuillCellContent,
+    type CustomNotebookMetadata,
+    type MilestoneIndex,
+} from "../../../../types";
 import { EditMapUtils } from "../../../../src/utils/editMapUtils";
 import {
     getCellValueData,
@@ -72,7 +76,6 @@ interface ChapterNavigationHeaderProps {
     onStopSingleCellTranslation?: () => void;
     currentSubsectionIndex: number;
     setCurrentSubsectionIndex: React.Dispatch<React.SetStateAction<number>>;
-    getSubsectionsForChapter: (chapterNum: number) => Subsection[];
     bibleBookMap?: Map<string, { name: string; [key: string]: any }>;
     vscode: any;
     fileStatus?: FileStatus;
@@ -88,6 +91,14 @@ interface ChapterNavigationHeaderProps {
     requiredAudioValidations?: number | null;
     showInlineBacktranslations?: boolean;
     onToggleInlineBacktranslations?: () => void;
+
+    // Milestone-based pagination props
+    milestoneIndex: MilestoneIndex | null;
+    currentMilestoneIndex: number;
+    setCurrentMilestoneIndex: React.Dispatch<React.SetStateAction<number>>;
+    getSubsectionsForMilestone: (milestoneIdx: number) => Subsection[];
+    requestCellsForMilestone: (milestoneIdx: number, subsectionIdx?: number) => void;
+    isLoadingCells?: boolean;
 }
 
 export function ChapterNavigationHeader({
@@ -124,7 +135,6 @@ export function ChapterNavigationHeader({
     onStopSingleCellTranslation,
     currentSubsectionIndex,
     setCurrentSubsectionIndex,
-    getSubsectionsForChapter,
     bibleBookMap,
     vscode,
     fileStatus = "none",
@@ -140,6 +150,13 @@ export function ChapterNavigationHeader({
     requiredAudioValidations,
     showInlineBacktranslations = false,
     onToggleInlineBacktranslations,
+    // Milestone-based pagination props
+    milestoneIndex,
+    currentMilestoneIndex,
+    setCurrentMilestoneIndex,
+    getSubsectionsForMilestone,
+    requestCellsForMilestone,
+    isLoadingCells = false,
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
@@ -160,8 +177,26 @@ ChapterNavigationHeaderProps) {
     const [fontSize, setFontSize] = useState(metadata?.fontSize || 14);
     const [pendingFontSize, setPendingFontSize] = useState<number | null>(null);
 
-    // Get subsections early so it's available for all hooks
-    const subsections = getSubsectionsForChapter(chapterNumber);
+    // Get subsections for the current milestone
+    const subsections = useMemo(() => {
+        return getSubsectionsForMilestone(currentMilestoneIndex);
+    }, [getSubsectionsForMilestone, currentMilestoneIndex]);
+
+    // Get current milestone value for display
+    const currentMilestoneValue = useMemo(() => {
+        return milestoneIndex?.milestones[currentMilestoneIndex]?.value || "1";
+    }, [milestoneIndex, currentMilestoneIndex]);
+
+    // Total navigation units (milestones)
+    const totalNavigationUnits = milestoneIndex?.milestones.length || 0;
+
+    // Current navigation index (milestone)
+    const currentNavigationIndex = currentMilestoneIndex;
+
+    // Check if navigation buttons should be disabled (only 1 milestone and 1 subsection)
+    const shouldDisableNavigation = useMemo(() => {
+        return !!(milestoneIndex?.milestones.length === 1 && subsections.length <= 1);
+    }, [milestoneIndex?.milestones.length, subsections.length]);
 
     // Helper to determine if any translation is in progress
     const isAnyTranslationInProgress = isAutocompletingChapter || isTranslatingCell;
@@ -229,21 +264,17 @@ ChapterNavigationHeaderProps) {
 
     // Determine the display name using the map
     const getDisplayTitle = useCallback(() => {
-        const firstMarker = translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]; // e.g., "GEN 1"
-        if (!firstMarker) return "Chapter"; // Fallback title
-
-        const parts = firstMarker.split(" ");
-        const bookAbbr = parts[0]; // e.g., "GEN"
-        const chapterNum = parts[1] || ""; // e.g., "1"
-
-        // Look up the localized name
-        const localizedName = bibleBookMap?.get(bookAbbr)?.name;
-
-        // Use localized name if found, otherwise use the abbreviation
-        const displayBookName = localizedName || bookAbbr;
-
-        return `${displayBookName}\u00A0${chapterNum}`;
-    }, [translationUnitsForSection, bibleBookMap]);
+        // Show milestone value
+        const firstMarker = translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0];
+        if (firstMarker) {
+            const parts = firstMarker.split(" ");
+            const bookAbbr = parts[0];
+            const localizedName = bibleBookMap?.get(bookAbbr)?.name;
+            const displayBookName = localizedName || bookAbbr;
+            return `${displayBookName}\u00A0${currentMilestoneValue}`;
+        }
+        return `Section\u00A0${currentMilestoneValue}`;
+    }, [translationUnitsForSection, bibleBookMap, currentMilestoneValue]);
 
     // Centralized title measurement logic
     const measureAndTruncateTitle = useCallback(() => {
@@ -626,18 +657,59 @@ ChapterNavigationHeaderProps) {
         }
     }, []);
 
-    // Update the jumpToChapter function to be reusable
-    const jumpToChapter = (newChapter: number) => {
-        if (!unsavedChanges && newChapter !== chapterNumber) {
-            vscode.postMessage({
-                command: "jumpToChapter",
-                chapterNumber: newChapter,
-            });
-            setChapterNumber(newChapter);
-            // Reset to first page when jumping to a different chapter through chapter selector
-            setCurrentSubsectionIndex(0);
-        }
-    };
+    // Navigation function for milestone-based navigation
+    const jumpToMilestone = useCallback(
+        (newMilestoneIdx: number, newSubsectionIdx: number = 0) => {
+            if (
+                !unsavedChanges &&
+                (newMilestoneIdx !== currentMilestoneIndex ||
+                    newSubsectionIdx !== currentSubsectionIndex)
+            ) {
+                // requestCellsForMilestone handles state updates internally
+                // (both for cached pages and when loading new pages)
+                requestCellsForMilestone(newMilestoneIdx, newSubsectionIdx);
+            }
+        },
+        [unsavedChanges, currentMilestoneIndex, currentSubsectionIndex, requestCellsForMilestone]
+    );
+
+    // Handler for chapter selection - finds milestone that corresponds to chapter number
+    const handleChapterSelection = useCallback(
+        (selectedChapter: number) => {
+            if (!milestoneIndex) return;
+
+            // Find the milestone index that corresponds to this chapter number
+            // Milestone values are strings like "1", "2", etc. (chapter numbers)
+            const milestoneIdx = milestoneIndex.milestones.findIndex(
+                (milestone) => milestone.value === selectedChapter.toString()
+            );
+
+            if (milestoneIdx !== -1) {
+                // Found matching milestone, navigate to it
+                // Also cache the chapter number so it persists when switching files
+                vscode.postMessage({
+                    command: "jumpToChapter",
+                    chapterNumber: selectedChapter,
+                });
+                setChapterNumber(selectedChapter);
+                jumpToMilestone(milestoneIdx, 0);
+            } else {
+                // Fallback: try to find by index (if chapters are 1-indexed and milestones are 0-indexed)
+                // This handles edge cases where milestone values might not match exactly
+                const fallbackIdx = selectedChapter - 1;
+                if (fallbackIdx >= 0 && fallbackIdx < milestoneIndex.milestones.length) {
+                    // Also cache the chapter number so it persists when switching files
+                    vscode.postMessage({
+                        command: "jumpToChapter",
+                        chapterNumber: selectedChapter,
+                    });
+                    setChapterNumber(selectedChapter);
+                    jumpToMilestone(fallbackIdx, 0);
+                }
+            }
+        },
+        [milestoneIndex, jumpToMilestone, vscode, setChapterNumber]
+    );
 
     // Removed unused handlePreviousChapter/handleNextChapter to reduce dead code
 
@@ -791,12 +863,10 @@ ChapterNavigationHeaderProps) {
                         isCorrectionEditorMode={isCorrectionEditorMode}
                         totalChapters={totalChapters}
                         setChapterNumber={setChapterNumber}
-                        jumpToChapter={jumpToChapter}
                         showUnsavedWarning={() => {
                             setShowUnsavedWarning(true);
                             setTimeout(() => setShowUnsavedWarning(false), 3000);
                         }}
-                        getSubsectionsForChapter={getSubsectionsForChapter}
                         shouldHideNavButtons={shouldHideNavButtons}
                         allCellsForChapter={allCellsForChapter}
                         calculateSubsectionProgress={calculateSubsectionProgress}
@@ -812,6 +882,9 @@ ChapterNavigationHeaderProps) {
                                 console.error("Error setting auto download audio on open", error);
                             }
                         }}
+                        milestoneIndex={milestoneIndex}
+                        currentMilestoneIndex={currentMilestoneIndex}
+                        requestCellsForMilestone={requestCellsForMilestone}
                     />
                 </div>
             )}
@@ -861,25 +934,42 @@ ChapterNavigationHeaderProps) {
                         className="inline-flex transition-all duration-200 ease-in-out"
                         variant="outline"
                         size="default"
+                        disabled={isLoadingCells || shouldDisableNavigation}
                         onClick={() => {
                             if (!unsavedChanges) {
-                                // Check if we're on the first page of the current chapter
+                                // Check if we're on the first page of the current section
                                 if (currentSubsectionIndex > 0) {
-                                    // Move to previous page within the same chapter
-                                    setCurrentSubsectionIndex(currentSubsectionIndex - 1);
+                                    // Move to previous page within the same section
+                                    jumpToMilestone(
+                                        currentMilestoneIndex,
+                                        currentSubsectionIndex - 1
+                                    );
                                 } else {
-                                    // Move to previous chapter
-                                    const newChapter =
-                                        chapterNumber === 1 ? totalChapters : chapterNumber - 1;
-                                    jumpToChapter(newChapter);
-
-                                    // When jumping to a new chapter, check if it has subsections
-                                    // and if so, jump to the last page
-                                    const newChapterSubsections =
-                                        getSubsectionsForChapter(newChapter);
-                                    if (newChapterSubsections.length > 0) {
-                                        setCurrentSubsectionIndex(newChapterSubsections.length - 1);
+                                    // Move to previous milestone
+                                    const newMilestoneIdx =
+                                        currentMilestoneIndex === 0
+                                            ? totalNavigationUnits - 1
+                                            : currentMilestoneIndex - 1;
+                                    // Get subsections for the new milestone
+                                    const newSubsections =
+                                        getSubsectionsForMilestone(newMilestoneIdx);
+                                    const lastSubsectionIdx =
+                                        newSubsections.length > 0 ? newSubsections.length - 1 : 0;
+                                    // Extract and cache the chapter number from the milestone value
+                                    if (milestoneIndex?.milestones[newMilestoneIdx]) {
+                                        const milestoneValue =
+                                            milestoneIndex.milestones[newMilestoneIdx].value;
+                                        const chapterNum = parseInt(milestoneValue, 10);
+                                        if (!isNaN(chapterNum) && chapterNum > 0) {
+                                            // Cache the chapter number so it persists when switching files
+                                            vscode.postMessage({
+                                                command: "jumpToChapter",
+                                                chapterNumber: chapterNum,
+                                            });
+                                            setChapterNumber(chapterNum);
+                                        }
                                     }
+                                    jumpToMilestone(newMilestoneIdx, lastSubsectionIdx);
                                 }
                             } else {
                                 // Show warning when there are unsaved changes
@@ -889,10 +979,10 @@ ChapterNavigationHeaderProps) {
                         }}
                         title={
                             unsavedChanges
-                                ? "Save changes first to change chapter"
+                                ? "Save changes first to change section"
                                 : currentSubsectionIndex > 0
                                 ? "Previous Page"
-                                : "Previous Chapter"
+                                : "Previous Milestone"
                         }
                     >
                         <i
@@ -980,21 +1070,40 @@ ChapterNavigationHeaderProps) {
                         className="inline-flex transition-all duration-200 ease-in-out"
                         variant="outline"
                         size="default"
+                        disabled={isLoadingCells || shouldDisableNavigation}
                         onClick={() => {
                             if (!unsavedChanges) {
-                                // Check if we're on the last page of the current chapter
+                                // Check if we're on the last page of the current section
                                 if (
                                     subsections.length > 0 &&
                                     currentSubsectionIndex < subsections.length - 1
                                 ) {
-                                    // Move to next page within the same chapter
-                                    setCurrentSubsectionIndex(currentSubsectionIndex + 1);
+                                    // Move to next page within the same section
+                                    jumpToMilestone(
+                                        currentMilestoneIndex,
+                                        currentSubsectionIndex + 1
+                                    );
                                 } else {
-                                    // Move to next chapter and reset to first page
-                                    const newChapter =
-                                        chapterNumber === totalChapters ? 1 : chapterNumber + 1;
-                                    jumpToChapter(newChapter);
-                                    setCurrentSubsectionIndex(0);
+                                    // Move to next milestone and reset to first page
+                                    const newMilestoneIdx =
+                                        currentMilestoneIndex === totalNavigationUnits - 1
+                                            ? 0
+                                            : currentMilestoneIndex + 1;
+                                    // Extract and cache the chapter number from the milestone value
+                                    if (milestoneIndex?.milestones[newMilestoneIdx]) {
+                                        const milestoneValue =
+                                            milestoneIndex.milestones[newMilestoneIdx].value;
+                                        const chapterNum = parseInt(milestoneValue, 10);
+                                        if (!isNaN(chapterNum) && chapterNum > 0) {
+                                            // Cache the chapter number so it persists when switching files
+                                            vscode.postMessage({
+                                                command: "jumpToChapter",
+                                                chapterNumber: chapterNum,
+                                            });
+                                            setChapterNumber(chapterNum);
+                                        }
+                                    }
+                                    jumpToMilestone(newMilestoneIdx, 0);
                                 }
                             } else {
                                 // Show warning when there are unsaved changes
@@ -1004,11 +1113,11 @@ ChapterNavigationHeaderProps) {
                         }}
                         title={
                             unsavedChanges
-                                ? "Save changes first to change chapter"
+                                ? "Save changes first to change section"
                                 : subsections.length > 0 &&
                                   currentSubsectionIndex < subsections.length - 1
                                 ? "Next Page"
-                                : "Next Chapter"
+                                : "Next Milestone"
                         }
                     >
                         <i
@@ -1084,7 +1193,20 @@ ChapterNavigationHeaderProps) {
                                             label={section.label}
                                             isActive={isActive}
                                             progress={progress}
-                                            onClick={() => setCurrentSubsectionIndex(index)}
+                                            onClick={() => {
+                                                if (!unsavedChanges) {
+                                                    requestCellsForMilestone(
+                                                        currentMilestoneIndex,
+                                                        index
+                                                    );
+                                                } else {
+                                                    setShowUnsavedWarning(true);
+                                                    setTimeout(
+                                                        () => setShowUnsavedWarning(false),
+                                                        3000
+                                                    );
+                                                }
+                                            }}
                                         />
                                     );
                                 })}
@@ -1425,7 +1547,7 @@ ChapterNavigationHeaderProps) {
             <ChapterSelectorModal
                 isOpen={showChapterSelector}
                 onClose={() => setShowChapterSelector(false)}
-                onSelectChapter={jumpToChapter}
+                onSelectChapter={handleChapterSelection}
                 currentChapter={chapterNumber}
                 totalChapters={totalChapters}
                 bookTitle={getDisplayTitle().split("\u00A0")[0]}

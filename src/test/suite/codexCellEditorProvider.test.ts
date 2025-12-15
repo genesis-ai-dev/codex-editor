@@ -13,7 +13,7 @@ import { CodexNotebookAsJSONData, QuillCellContent, Timestamps, FileEditHistory,
 import { EditMapUtils } from "../../utils/editMapUtils";
 import { CodexContentSerializer } from "../../serializer";
 import { MetadataManager } from "../../utils/metadataManager";
-import { swallowDuplicateCommandRegistrations, createTempCodexFile, deleteIfExists, createMockExtensionContext, primeProviderWorkspaceStateForHtml, sleep } from "../testUtils";
+import { swallowDuplicateCommandRegistrations, createTempCodexFile, deleteIfExists, createMockExtensionContext, primeProviderWorkspaceStateForHtml, sleep, createMockWebviewPanel } from "../testUtils";
 
 suite("CodexCellEditorProvider Test Suite", () => {
     vscode.window.showInformationMessage("Start all tests for CodexCellEditorProvider.");
@@ -650,7 +650,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
         await new Promise((resolve) => setTimeout(resolve, 50));
         // Read the current first cell id from the opened document to ensure it exists
         const currentFirstCellId = JSON.parse(document.getText()).cells[0].metadata.id as string;
-        const childCellId = `${currentFirstCellId}:child`;
+        // Use proper paratext cell ID format: parentId:paratext-timestamp-random
+        const childCellId = `${currentFirstCellId}:paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         onDidReceiveMessageCallback!({
             command: "makeChildOfCell",
             content: {
@@ -4098,24 +4099,25 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
                 // Wait for scheduled messages to be sent with polling/retries
                 // CI environments may be slower, so we poll with exponential backoff
+                // With milestone-based pagination, the provider sends providerSendsInitialContentPaginated
                 let initialContentMessage = postMessageCalls.find(
-                    (msg) => msg.type === "providerSendsInitialContent"
+                    (msg) => msg.type === "providerSendsInitialContentPaginated"
                 );
                 let attempts = 0;
                 const maxAttempts = 20;
                 while (!initialContentMessage && attempts < maxAttempts) {
                     await sleep(50 * (attempts + 1)); // Exponential backoff: 50ms, 100ms, 150ms...
                     initialContentMessage = postMessageCalls.find(
-                        (msg) => msg.type === "providerSendsInitialContent"
+                        (msg) => msg.type === "providerSendsInitialContentPaginated"
                     );
                     attempts++;
                 }
 
-                // Verify that providerSendsInitialContent message is sent with isSourceText: true
+                // Verify that providerSendsInitialContentPaginated message is sent with isSourceText: true
                 // This ensures the webview knows it's displaying source text, which is required for merge buttons
                 assert.ok(
                     initialContentMessage,
-                    `providerSendsInitialContent message should be sent after refresh (attempted ${attempts} times, found messages: ${postMessageCalls.map(m => m.type).join(', ')})`
+                    `providerSendsInitialContentPaginated message should be sent after refresh (attempted ${attempts} times, found messages: ${postMessageCalls.map(m => m.type).join(', ')})`
                 );
                 assert.strictEqual(
                     initialContentMessage.isSourceText,
@@ -4124,7 +4126,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 );
 
                 // Verify that we have multiple cells (merge buttons only show on non-first cells)
-                const cellContent = initialContentMessage.content || [];
+                // With milestone-based pagination, cells are in the 'cells' property, not 'content'
+                const cellContent = initialContentMessage.cells || [];
                 assert.ok(
                     Array.isArray(cellContent) && cellContent.length >= 2,
                     "Source file should have at least 2 cells for merge buttons to appear (merge buttons only show on non-first cells)"
@@ -4361,6 +4364,179 @@ suite("CodexCellEditorProvider Test Suite", () => {
             );
 
             document.dispose();
+        });
+    });
+
+    suite("refreshWebviewsForFiles", () => {
+        test("refreshWebviewsForFiles sends refreshCurrentPage to matching webview", async function () {
+            this.timeout(10000);
+
+            // Create document and webview panel
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const { panel, lastPostedMessageRef } = createMockWebviewPanel();
+
+            // Register webview panel with provider
+            await provider.resolveCustomEditor(
+                document,
+                panel,
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Call refreshWebviewsForFiles with the document path
+            provider.refreshWebviewsForFiles([tempUri.fsPath]);
+
+            // Wait a bit for async operations
+            await sleep(100);
+
+            // Verify refreshCurrentPage message was sent
+            assert.ok(lastPostedMessageRef.current, "Message should have been posted");
+            assert.strictEqual(
+                lastPostedMessageRef.current.type,
+                "refreshCurrentPage",
+                "Message type should be refreshCurrentPage"
+            );
+
+            document.dispose();
+        });
+
+        test("refreshWebviewsForFiles ignores non-matching files", async function () {
+            this.timeout(10000);
+
+            // Create document and webview panel
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const { panel, lastPostedMessageRef } = createMockWebviewPanel();
+
+            // Register webview panel with provider
+            await provider.resolveCustomEditor(
+                document,
+                panel,
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Clear any initial messages
+            lastPostedMessageRef.current = null;
+
+            // Call refreshWebviewsForFiles with a different file path
+            const otherPath = path.join(os.tmpdir(), "nonexistent.codex");
+            provider.refreshWebviewsForFiles([otherPath]);
+
+            // Wait a bit for async operations
+            await sleep(100);
+
+            // Verify no message was sent
+            assert.strictEqual(
+                lastPostedMessageRef.current,
+                null,
+                "No message should be sent for non-matching file"
+            );
+
+            document.dispose();
+        });
+
+        test("refreshWebviewsForFiles filters non-codex files", async function () {
+            this.timeout(10000);
+
+            // Create document and webview panel
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const { panel, lastPostedMessageRef } = createMockWebviewPanel();
+
+            // Register webview panel with provider
+            await provider.resolveCustomEditor(
+                document,
+                panel,
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Clear any initial messages
+            lastPostedMessageRef.current = null;
+
+            // Call refreshWebviewsForFiles with mix of .codex and non-.codex files
+            const txtPath = path.join(os.tmpdir(), "test.txt");
+            provider.refreshWebviewsForFiles([tempUri.fsPath, txtPath]);
+
+            // Wait a bit for async operations
+            await sleep(100);
+
+            // Verify refreshCurrentPage message was sent (only for .codex file)
+            assert.ok(lastPostedMessageRef.current, "Message should have been posted for .codex file");
+            assert.strictEqual(
+                lastPostedMessageRef.current.type,
+                "refreshCurrentPage",
+                "Message type should be refreshCurrentPage"
+            );
+
+            document.dispose();
+        });
+
+        test("refreshWebviewsForFiles handles workspace-relative paths", async function () {
+            this.timeout(10000);
+
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                this.skip();
+            }
+
+            // Create document and webview panel
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const { panel, lastPostedMessageRef } = createMockWebviewPanel();
+
+            // Register webview panel with provider
+            await provider.resolveCustomEditor(
+                document,
+                panel,
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Get workspace-relative path
+            const relativePath = vscode.workspace.asRelativePath(tempUri);
+
+            // Call refreshWebviewsForFiles with workspace-relative path
+            provider.refreshWebviewsForFiles([relativePath]);
+
+            // Wait a bit for async operations
+            await sleep(100);
+
+            // Verify refreshCurrentPage message was sent
+            assert.ok(lastPostedMessageRef.current, "Message should have been posted");
+            assert.strictEqual(
+                lastPostedMessageRef.current.type,
+                "refreshCurrentPage",
+                "Message type should be refreshCurrentPage"
+            );
+
+            document.dispose();
+        });
+
+        test("refreshWebviewsForFiles handles empty array", () => {
+            // Should not throw
+            provider.refreshWebviewsForFiles([]);
+            assert.ok(true, "Should handle empty array without error");
+        });
+
+        test("refreshWebviewsForFiles handles no webviews open", () => {
+            // Should not throw when no webviews are open
+            provider.refreshWebviewsForFiles([tempUri.fsPath]);
+            assert.ok(true, "Should handle no open webviews without error");
         });
     });
 });
