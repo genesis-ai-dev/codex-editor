@@ -1013,7 +1013,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                 <DialogContent>
                                                     <DialogHeader className="sm:text-center">
                                                         <DialogTitle>
-                                                            Connect to the internet to use AI translation
+                                                            Connect to the internet to use AI
+                                                            translation
                                                         </DialogTitle>
                                                         <DialogDescription></DialogDescription>
                                                     </DialogHeader>
@@ -1116,20 +1117,15 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                 disabled={
                                                     isInTranslationProcess ||
                                                     shouldDisableValidation(
-                                                        cell.cellContent,
-                                                        audioAttachments?.[cellIds[0]] as any
+                                                        cell.cellContent
                                                     )
                                                 }
                                                 disabledReason={(() => {
                                                     if (isInTranslationProcess) {
                                                         return "Translation in progress";
                                                     }
-                                                    const audioState = audioAttachments?.[
-                                                        cellIds[0]
-                                                    ] as any;
                                                     return shouldDisableValidation(
-                                                        cell.cellContent,
-                                                        audioState
+                                                        cell.cellContent
                                                     )
                                                         ? "Validation disabled: no text"
                                                         : undefined;
@@ -1221,9 +1217,17 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         />
                     )}
                     <div
+                        tabIndex={0}
                         className={`flex-1 min-w-0 min-h-[1rem] ${
                             lineNumbersEnabled ? "pr-[0.25rem]" : "px-[0.25rem]"
                         }`}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                                e.preventDefault();
+                                hideTooltip();
+                                handleCellClick(cellIds[0]);
+                            }
+                        }}
                     >
                         {renderContent()}
 

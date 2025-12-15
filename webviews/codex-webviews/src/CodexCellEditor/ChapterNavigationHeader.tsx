@@ -55,10 +55,10 @@ interface ChapterNavigationHeaderProps {
     cellDisplayMode: CELL_DISPLAY_MODES;
     isSourceText: boolean;
     totalChapters: number;
-    totalUntranslatedCells: number;
-    totalCellsToAutocomplete: number;
-    totalCellsWithCurrentUserOption: number;
-    totalFullyValidatedCells: number;
+    untranslatedCellIds: string[];
+    cellsToAutocompleteIds: string[];
+    cellsWithCurrentUserOptionIds: string[];
+    fullyValidatedByOthersIds: string[];
     openSourceText: (chapterNumber: number) => void;
     shouldShowVideoPlayer: boolean;
     setShouldShowVideoPlayer: React.Dispatch<React.SetStateAction<boolean>>;
@@ -114,10 +114,10 @@ export function ChapterNavigationHeader({
     cellDisplayMode,
     isSourceText,
     totalChapters,
-    totalUntranslatedCells,
-    totalCellsToAutocomplete,
-    totalCellsWithCurrentUserOption,
-    totalFullyValidatedCells,
+    untranslatedCellIds,
+    cellsToAutocompleteIds,
+    cellsWithCurrentUserOptionIds,
+    fullyValidatedByOthersIds,
     openSourceText,
     shouldShowVideoPlayer,
     setShouldShowVideoPlayer,
@@ -1193,7 +1193,20 @@ ChapterNavigationHeaderProps) {
                                             label={section.label}
                                             isActive={isActive}
                                             progress={progress}
-                                            onClick={() => setCurrentSubsectionIndex(index)}
+                                            onClick={() => {
+                                                if (!unsavedChanges) {
+                                                    requestCellsForMilestone(
+                                                        currentMilestoneIndex,
+                                                        index
+                                                    );
+                                                } else {
+                                                    setShowUnsavedWarning(true);
+                                                    setTimeout(
+                                                        () => setShowUnsavedWarning(false),
+                                                        3000
+                                                    );
+                                                }
+                                            }}
                                         />
                                     );
                                 })}
@@ -1524,11 +1537,11 @@ ChapterNavigationHeaderProps) {
                 isOpen={showConfirm}
                 onClose={() => setShowConfirm(false)}
                 onConfirm={handleConfirmAutocomplete}
-                totalUntranslatedCells={totalUntranslatedCells}
-                totalCellsToAutocomplete={totalCellsToAutocomplete}
-                totalCellsWithCurrentUserOption={totalCellsWithCurrentUserOption}
-                totalFullyValidatedByOthers={totalFullyValidatedCells}
-                defaultValue={Math.min(5, totalUntranslatedCells > 0 ? totalUntranslatedCells : 5)}
+                untranslatedCellIds={untranslatedCellIds}
+                cellsToAutocompleteIds={cellsToAutocompleteIds}
+                cellsWithCurrentUserOptionIds={cellsWithCurrentUserOptionIds}
+                fullyValidatedByOthersIds={fullyValidatedByOthersIds}
+                defaultValue={Math.min(5, untranslatedCellIds.length > 0 ? untranslatedCellIds.length : 5)}
             />
 
             <ChapterSelectorModal
