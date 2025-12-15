@@ -1082,12 +1082,16 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const milestones: MilestoneInfo[] = [];
         const cells = this._documentData.cells || [];
 
-        // Find all milestone cells and their positions
+        // Find all milestone cells and their positions (excluding deleted ones)
         const milestoneCellIndices: { cellIndex: number; value: string; }[] = [];
 
         for (let i = 0; i < cells.length; i++) {
             const cell = cells[i];
             if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
+                // Skip deleted milestone cells
+                if (cell.metadata?.data?.deleted === true) {
+                    continue;
+                }
                 milestoneCellIndices.push({
                     cellIndex: i,
                     value: cell.value || String(milestoneCellIndices.length + 1),
