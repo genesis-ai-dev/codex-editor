@@ -18,6 +18,7 @@ import {
     migration_editHistoryFormat,
     migration_addMilestoneCells,
     migration_reorderMisplacedParatextCells,
+    migration_addGlobalReferences,
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/contentIndexes/indexes";
 import { migrateSourceFiles } from "./utils/codexNotebookUtils";
@@ -603,6 +604,7 @@ export async function activate(context: vscode.ExtensionContext) {
         await migration_addImporterTypeToMetadata(context);
         await migration_addMilestoneCells(context);
         await migration_reorderMisplacedParatextCells(context);
+        await migration_addGlobalReferences(context);
         trackTiming("Running Post-activation Tasks", postActivationStart);
 
         // Register update commands and check for updates (non-blocking)
