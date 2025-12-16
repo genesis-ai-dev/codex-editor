@@ -622,9 +622,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
         []
     );
 
-    const makeChild = () => {
+    const makeChild = async () => {
         const parentCellId = cellMarkers[0];
-        const newChildId = generateChildCellId(parentCellId);
+        const newChildId = await generateChildCellId(parentCellId);
 
         const startTime = cellTimestamps?.startTime;
         const endTime = cellTimestamps?.endTime;

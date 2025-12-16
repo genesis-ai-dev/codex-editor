@@ -3800,21 +3800,30 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 }
             }
 
-            // Get all cell IDs from the target document
-            const allTargetCellIds = targetDocument.getAllCellIds();
+            // Get all cells from the target document to check metadata
+            const allTargetCells = (targetDocument as any)._documentData?.cells || [];
             const childCellIds: string[] = [];
 
-            // Check each cell ID to see if it's a child of any parent cell
-            for (const cellId of allTargetCellIds) {
-                const cellIdParts = cellId.split(":");
+            // Check each cell to see if it's a child of any parent cell
+            for (const cell of allTargetCells) {
+                const cellId = cell.metadata?.id;
+                if (!cellId) continue;
 
-                // Child cells have more than 2 segments
+                // Check if this cell has a parentId in metadata (new UUID format)
+                const parentId = cell.metadata?.parentId;
+                if (parentId && parentCellIds.includes(parentId)) {
+                    childCellIds.push(cellId);
+                    continue;
+                }
+
+                // MILESTONES: This is a legacy fallback for cell IDs that don't have parentId.
+                // Legacy: Fallback to parsing ID format for backward compatibility during migration
+                // This handles cells that haven't been migrated yet
+                const cellIdParts = cellId.split(":");
                 if (cellIdParts.length > 2) {
                     // Get the parent ID (first 2 segments)
-                    const parentId = cellIdParts.slice(0, 2).join(":");
-
-                    // Check if this parent ID is in our list of cells being merged
-                    if (parentCellIds.includes(parentId)) {
+                    const legacyParentId = cellIdParts.slice(0, 2).join(":");
+                    if (parentCellIds.includes(legacyParentId)) {
                         childCellIds.push(cellId);
                     }
                 }

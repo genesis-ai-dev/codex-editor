@@ -1350,7 +1350,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // Build a map of parent cell ID -> paratext cells
         const paratextCellsByParent = new Map<string, QuillCellContent[]>();
         for (const paratextCell of paratextCells) {
-            const parentId = extractParentCellIdFromParatext(paratextCell.cellMarkers[0]);
+            // Use metadata.parentId if available (new UUID format), otherwise fall back to parsing ID
+            const cellMetadata = (paratextCell as any).metadata || {};
+            let parentId = cellMetadata.parentId;
+
+            if (!parentId) {
+                // Legacy: try to extract from ID format (for backward compatibility during migration)
+                parentId = extractParentCellIdFromParatext(paratextCell.cellMarkers[0], cellMetadata);
+            }
+
             if (parentId) {
                 if (!paratextCellsByParent.has(parentId)) {
                     paratextCellsByParent.set(parentId, []);

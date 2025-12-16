@@ -877,12 +877,14 @@ type CodexData = Timestamps & {
     merged?: boolean;
     deleted?: boolean;
     originalText?: string;
+    globalReferences?: string[]; // Array of cell IDs in original format (e.g., "GEN 1:1") used for header generation
 };
 
 type BaseCustomCellMetaData = {
     id: string;
     type: CodexCellTypes;
     edits: EditHistory[];
+    parentId?: string; // UUID of parent cell (for child cells like cues, paratext, etc.)
 };
 
 export type BaseCustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {

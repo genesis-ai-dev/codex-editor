@@ -1344,11 +1344,18 @@ const CodexCellEditor: React.FC = () => {
         // Count non-paratext, non-milestone, non-child cells up to and including this one
         let lineNumber = 0;
         for (let i = 0; i <= cellIndex; i++) {
-            const cellIdParts = allUnits[i].cellMarkers[0].split(":");
+            const unit = allUnits[i];
+            // MILESTONES: Can probably remove this after the cell ID migration.
+            // Check if this is a child cell by checking metadata.parentId (new UUID format)
+            // Legacy: also check ID format for backward compatibility during migration
+            const isChildCell =
+                unit.data?.parentId !== undefined ||
+                (unit.cellMarkers[0] && unit.cellMarkers[0].split(":").length > 2);
+
             if (
-                allUnits[i].cellType !== CodexCellTypes.PARATEXT &&
-                allUnits[i].cellType !== CodexCellTypes.MILESTONE &&
-                cellIdParts.length < 3
+                unit.cellType !== CodexCellTypes.PARATEXT &&
+                unit.cellType !== CodexCellTypes.MILESTONE &&
+                !isChildCell
             ) {
                 lineNumber++;
             }
@@ -1941,10 +1948,12 @@ const CodexCellEditor: React.FC = () => {
                 latestEdit?.validatedBy?.filter(
                     (v) => v && typeof v === "object" && !v.isDeleted
                 ) || [];
-            
+
             const hasNoValidators = activeValidators.length === 0;
             const isFullyValidated = activeValidators.length >= VALIDATION_THRESHOLD;
-            const validatedByCurrentUser = activeValidators.some((v) => v.username === currentUsername);
+            const validatedByCurrentUser = activeValidators.some(
+                (v) => v.username === currentUsername
+            );
 
             let shouldInclude = false;
 
@@ -1961,13 +1970,23 @@ const CodexCellEditor: React.FC = () => {
 
             // Check if matches "Not validated by you"
             // (Not fully validated, and not validated by current user. Includes 0-validator cells)
-            if (!shouldInclude && includeNotValidatedByCurrentUser && !isFullyValidated && !validatedByCurrentUser) {
+            if (
+                !shouldInclude &&
+                includeNotValidatedByCurrentUser &&
+                !isFullyValidated &&
+                !validatedByCurrentUser
+            ) {
                 shouldInclude = true;
             }
 
             // Check if matches "Fully validated by others"
             // (Must be fully validated, and not validated by current user)
-            if (!shouldInclude && includeFullyValidatedByOthers && isFullyValidated && !validatedByCurrentUser) {
+            if (
+                !shouldInclude &&
+                includeFullyValidatedByOthers &&
+                isFullyValidated &&
+                !validatedByCurrentUser
+            ) {
                 shouldInclude = true;
             }
 

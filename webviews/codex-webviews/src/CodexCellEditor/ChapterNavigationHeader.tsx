@@ -262,16 +262,39 @@ ChapterNavigationHeaderProps) {
         []
     );
 
+    // MILESTONES: Will have to have this read from a new key in metadata (like corpus name).
     // Determine the display name using the map
     const getDisplayTitle = useCallback(() => {
         // Show milestone value
-        const firstMarker = translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0];
-        if (firstMarker) {
-            const parts = firstMarker.split(" ");
-            const bookAbbr = parts[0];
-            const localizedName = bibleBookMap?.get(bookAbbr)?.name;
-            const displayBookName = localizedName || bookAbbr;
-            return `${displayBookName}\u00A0${currentMilestoneValue}`;
+        const firstCell = translationUnitsForSection[0];
+        if (firstCell) {
+            // Extract book name from globalReferences array (preferred method)
+            const globalRefs = firstCell.data?.globalReferences;
+            let bookAbbr = "";
+
+            if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+                const firstRef = globalRefs[0];
+                // Extract book name: "GEN 1:1" -> "GEN" or "TheChosen-201-en-SingleSpeaker 1:jkflds" -> "TheChosen-201-en-SingleSpeaker"
+                const bookMatch = firstRef.match(/^([^\s]+)/);
+                if (bookMatch) {
+                    bookAbbr = bookMatch[1];
+                }
+            }
+
+            // Fallback: try to extract from cell marker (legacy support during migration)
+            if (!bookAbbr && firstCell.cellMarkers?.[0]) {
+                const firstMarker = firstCell.cellMarkers[0].split(":")[0];
+                if (firstMarker) {
+                    const parts = firstMarker.split(" ");
+                    bookAbbr = parts[0];
+                }
+            }
+
+            if (bookAbbr) {
+                const localizedName = bibleBookMap?.get(bookAbbr)?.name;
+                const displayBookName = localizedName || bookAbbr;
+                return `${displayBookName}\u00A0${currentMilestoneValue}`;
+            }
         }
         return `Section\u00A0${currentMilestoneValue}`;
     }, [translationUnitsForSection, bibleBookMap, currentMilestoneValue]);
@@ -1541,7 +1564,10 @@ ChapterNavigationHeaderProps) {
                 cellsToAutocompleteIds={cellsToAutocompleteIds}
                 cellsWithCurrentUserOptionIds={cellsWithCurrentUserOptionIds}
                 fullyValidatedByOthersIds={fullyValidatedByOthersIds}
-                defaultValue={Math.min(5, untranslatedCellIds.length > 0 ? untranslatedCellIds.length : 5)}
+                defaultValue={Math.min(
+                    5,
+                    untranslatedCellIds.length > 0 ? untranslatedCellIds.length : 5
+                )}
             />
 
             <ChapterSelectorModal
