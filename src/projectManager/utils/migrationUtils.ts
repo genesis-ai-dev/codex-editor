@@ -8,6 +8,7 @@ import { EditType, CodexCellTypes } from "../../../types/enums";
 import type { ValidationEntry } from "../../../types";
 import { getAuthApi } from "../../extension";
 import { extractParentCellIdFromParatext } from "../../providers/codexCellEditorProvider/utils/cellUtils";
+import { extractParentCellIdFromParatext } from "../../providers/codexCellEditorProvider/utils/cellUtils";
 
 // FIXME: move notebook format migration here
 
