@@ -1335,9 +1335,23 @@ const CodexCellEditor: React.FC = () => {
         return sectionSet.size;
     };
 
+    // Helper function to get cell identifier (prefer globalReferences, fallback to cellMarkers)
+    const getCellIdentifier = (cell: QuillCellContent): string => {
+        // Prefer globalReferences (new format after migration)
+        const globalRefs = cell.data?.globalReferences;
+        if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+            return globalRefs[0];
+        }
+        // Fallback to cellMarkers for backward compatibility
+        return cell.cellMarkers[0] || "";
+    };
+
     // Helper function to get global line number for a cell (skips paratext, milestone, and child cells)
     const getGlobalLineNumber = (cell: QuillCellContent, allUnits: QuillCellContent[]): number => {
-        const cellIndex = allUnits.findIndex((unit) => unit.cellMarkers[0] === cell.cellMarkers[0]);
+        const cellIdentifier = getCellIdentifier(cell);
+        if (!cellIdentifier) return 0;
+
+        const cellIndex = allUnits.findIndex((unit) => getCellIdentifier(unit) === cellIdentifier);
 
         if (cellIndex === -1) return 0;
 
@@ -1350,7 +1364,7 @@ const CodexCellEditor: React.FC = () => {
             // Legacy: also check ID format for backward compatibility during migration
             const isChildCell =
                 unit.data?.parentId !== undefined ||
-                (unit.cellMarkers[0] && unit.cellMarkers[0].split(":").length > 2);
+                (getCellIdentifier(unit) && getCellIdentifier(unit).split(":").length > 2);
 
             if (
                 unit.cellType !== CodexCellTypes.PARATEXT &&
@@ -2665,6 +2679,10 @@ const CodexCellEditor: React.FC = () => {
                             transcribingCells={transcribingCells}
                             showInlineBacktranslations={showInlineBacktranslations}
                             backtranslationsMap={backtranslationsMap}
+                            milestoneIndex={milestoneIndex}
+                            currentMilestoneIndex={currentMilestoneIndex}
+                            currentSubsectionIndex={currentSubsectionIndex}
+                            cellsPerPage={cellsPerPage}
                         />
                     </div>
                 </div>

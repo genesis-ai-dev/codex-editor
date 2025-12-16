@@ -839,8 +839,27 @@ export async function migrateSourceFiles() {
                     if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
                         continue;
                     }
-                    if (cell.metadata && cell.metadata.id) {
-                        const [book] = cell.metadata.id.split(" ");
+                    
+                    let book = "";
+                    
+                    // Try to get book name from globalReferences first (preferred method)
+                    const globalRefs = cell?.metadata?.data?.globalReferences;
+                    if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+                        const firstRef = globalRefs[0];
+                        // Extract book name: "GEN 1:1" -> "GEN" or "TheChosen-201-en-SingleSpeaker 1:jkflds" -> "TheChosen-201-en-SingleSpeaker"
+                        const bookMatch = firstRef.match(/^([^\s]+)/);
+                        if (bookMatch) {
+                            book = bookMatch[1];
+                        }
+                    }
+                    
+                    // Fallback to parsing cell ID if globalReferences not available (legacy support)
+                    if (!book && cell.metadata && cell.metadata.id) {
+                        const [bookFromId] = cell.metadata.id.split(" ");
+                        book = bookFromId;
+                    }
+                    
+                    if (book) {
                         books.add(book);
                     }
                 }
