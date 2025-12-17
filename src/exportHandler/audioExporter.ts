@@ -8,6 +8,14 @@ import * as fs from "fs";
 
 const execAsync = promisify(exec);
 
+// Debug logging for audio export diagnostics
+const DEBUG = false;
+function debug(...args: any[]) {
+    if (DEBUG) {
+        console.log("[AudioExporter]", ...args);
+    }
+}
+
 type ExportAudioOptions = {
     includeTimestamps?: boolean;
 };
@@ -111,12 +119,13 @@ function computeDialogueLineNumbers(
     const map = new Map<string, number>();
     let line = 0;
     for (const cell of cells) {
-        const isCode = cell.kind === 2; // NotebookCellKind.Code
+        // Accept both Code cells (kind 2) and Markup cells (kind 1)
+        const isValidKind = cell.kind === 2 || cell.kind === 1;
         const data = cell?.metadata?.data;
         const isMerged = !!(data && data.merged);
         const isDeleted = !!(data && data.deleted);
         const isParatext = cell?.metadata?.type === "paratext";
-        if (!isCode || isMerged || isDeleted || isParatext) continue;
+        if (!isValidKind || isMerged || isDeleted || isParatext) continue;
         const id: string | undefined = cell?.metadata?.id;
         if (!id) continue;
         line += 1;
@@ -486,6 +495,7 @@ export async function exportAudioAttachments(
 
     const includeTimestamps = !!options?.includeTimestamps;
     const selectedFiles = filesToExport.map((p) => vscode.Uri.file(p));
+    debug(`Files to export: ${filesToExport.length}`, filesToExport);
     if (selectedFiles.length === 0) {
         vscode.window.showInformationMessage("No files selected for export.");
         return;
@@ -512,7 +522,9 @@ export async function exportAudioAttachments(
                 let notebook: CodexNotebookAsJSONData;
                 try {
                     notebook = await readNotebook(file);
+                    debug(`Successfully read notebook: ${file.fsPath}`);
                 } catch (e) {
+                    debug(`Failed to read notebook: ${file.fsPath}`, e);
                     missingCount++;
                     continue;
                 }
@@ -520,16 +532,46 @@ export async function exportAudioAttachments(
                 const langCode = getTargetLanguageCode();
                 const dialogueMap = computeDialogueLineNumbers(notebook.cells);
 
+                debug(`Processing notebook with ${notebook.cells.length} cells`);
+
                 for (const cell of notebook.cells) {
-                    if (cell.kind !== 2) continue; // NotebookCellKind.Code
-                    if (!isActiveCell(cell)) continue;
+                    // Accept both Code cells (kind 2) and Markup cells (kind 1) - consistent with other exporters
+                    if (cell.kind !== 2 && cell.kind !== 1) {
+                        debug(`Skipping cell with kind ${cell.kind}`);
+                        continue;
+                    }
+                    if (!isActiveCell(cell)) {
+                        debug(`Skipping inactive cell: ${cell?.metadata?.id}`);
+                        continue;
+                    }
                     const cellId: string | undefined = cell?.metadata?.id;
-                    if (!cellId) continue;
+                    if (!cellId) {
+                        debug(`Skipping cell with no ID`);
+                        continue;
+                    }
 
                     const pick = pickAudioAttachmentForCell(cell);
                     if (!pick) {
+                        // Log detailed info about why no audio was found
+                        const attachments = cell?.metadata?.attachments;
+                        if (!attachments || Object.keys(attachments).length === 0) {
+                            debug(`Cell ${cellId}: No attachments found`);
+                        } else {
+                            const attKeys = Object.keys(attachments);
+                            debug(`Cell ${cellId}: Has ${attKeys.length} attachments but none are valid audio:`,
+                                attKeys.map(k => ({
+                                    id: k,
+                                    type: attachments[k]?.type,
+                                    isDeleted: attachments[k]?.isDeleted,
+                                    isMissing: attachments[k]?.isMissing,
+                                    hasUrl: !!attachments[k]?.url
+                                }))
+                            );
+                        }
                         continue;
                     }
+
+                    debug(`Cell ${cellId}: Found audio attachment ${pick.id} with URL: ${pick.url}`);
 
                     // Resolve absolute source path (attachment urls are workspace-relative POSIX in this project)
                     const srcPath = pick.url;
@@ -537,7 +579,10 @@ export async function exportAudioAttachments(
                         ? vscode.Uri.file(srcPath)
                         : vscode.Uri.joinPath(workspaceFolder.uri, srcPath);
 
+                    debug(`Cell ${cellId}: Resolved absolute path: ${absoluteSrc.fsPath}`);
+
                     if (!(await pathExists(absoluteSrc))) {
+                        debug(`Cell ${cellId}: Audio file does not exist at path: ${absoluteSrc.fsPath}`);
                         missingCount++;
                         continue;
                     }
@@ -583,6 +628,7 @@ export async function exportAudioAttachments(
                 }
             }
 
+            debug(`Export summary: ${copiedCount} files copied, ${missingCount} skipped`);
             vscode.window.showInformationMessage(`Audio export completed: ${copiedCount} files copied${missingCount ? `, ${missingCount} skipped` : ""}. Output: ${finalExportDir.fsPath}`);
         }
     );

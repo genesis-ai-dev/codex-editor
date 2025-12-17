@@ -609,7 +609,9 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 if (a.sortOrder && b.sortOrder) {
                     return a.sortOrder.localeCompare(b.sortOrder);
                 }
-                return a.label.localeCompare(b.label);
+                const aDisplayName = a.fileDisplayName || a.label;
+                const bDisplayName = b.fileDisplayName || b.label;
+                return aDisplayName.localeCompare(bDisplayName);
             });
 
             groupedItems.push({
