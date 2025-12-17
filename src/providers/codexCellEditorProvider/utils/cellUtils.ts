@@ -40,12 +40,13 @@ export function extractParentCellIdFromParatext(paratextCellId: string, cellMeta
         return null;
     }
 
-    // Split by ':' and take the first two parts to get the parent cell ID
-    // Format: "GEN 1:50:paratext-123456" -> ["GEN 1", "50", "paratext-123456"]
-    // We want "GEN 1:50"
-    const parts = paratextCellId.split(":");
-    if (parts.length >= 2) {
-        return parts.slice(0, 2).join(":");
+    // Extract parent ID by taking everything before ":paratext-"
+    // This handles both formats:
+    // - Legacy: "GEN 1:50:paratext-123456" -> "GEN 1:50"
+    // - UUID: "e8676fe1-2971-37cd-7f4c-5e0f117d9862:paratext-1765972993617-vdhh8qhav" -> "e8676fe1-2971-37cd-7f4c-5e0f117d9862"
+    const paratextIndex = paratextCellId.indexOf(":paratext-");
+    if (paratextIndex > 0) {
+        return paratextCellId.substring(0, paratextIndex);
     }
 
     return null;
@@ -72,6 +73,7 @@ export function convertCellToQuillContent(cell: CustomNotebookCellData): QuillCe
         attachments: cell.metadata?.attachments || {},
         metadata: {
             selectedAudioId: cell.metadata?.selectedAudioId,
+            parentId: cell.metadata?.parentId,
         },
     };
 }

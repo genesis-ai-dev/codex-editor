@@ -14,6 +14,7 @@ import {
     EditMapValueType,
     MilestoneIndex,
     MilestoneInfo,
+    CustomCellMetaData,
 } from "../../../types";
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../utils/editMapUtils";
 import { CodexCellTypes, EditType } from "../../../types/enums";
@@ -929,18 +930,25 @@ export class CodexCellDocument implements vscode.CustomDocument {
             insertIndex = direction === "above" ? indexOfReferenceCell : indexOfReferenceCell + 1;
         }
 
+        // For paratext cells, ensure parentId is set in metadata so they can be associated with their parent cell
+        const cellMetadata: CustomCellMetaData = {
+            id: newCellId,
+            type: cellType,
+            cellLabel: content?.cellLabel,
+            edits: content?.editHistory || [],
+            data: data,
+        };
+
+        if (cellType === CodexCellTypes.PARATEXT && referenceCellId) {
+            cellMetadata.parentId = referenceCellId;
+        }
+
         // Add new cell at the determined position
         this._documentData.cells.splice(insertIndex, 0, {
             value: content?.cellContent || "",
             languageId: "html",
             kind: vscode.NotebookCellKind.Code,
-            metadata: {
-                id: newCellId,
-                type: cellType,
-                cellLabel: content?.cellLabel,
-                edits: content?.editHistory || [],
-                data: data,
-            },
+            metadata: cellMetadata,
         });
 
         // Record the edit
@@ -1478,13 +1486,20 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // Build a map of parent cell ID -> paratext cells
         const paratextCellsByParent = new Map<string, QuillCellContent[]>();
         for (const paratextCell of paratextCells) {
-            // Use metadata.parentId if available (new UUID format), otherwise fall back to parsing ID
-            const cellMetadata = (paratextCell as any).metadata || {};
-            let parentId = cellMetadata.parentId;
+            // Check metadata.parentId first (where parentId is stored for paratext cells)
+            const cellMetadata = paratextCell.metadata || {};
+            let parentId = cellMetadata.parentId as string | undefined;
+
+            if (!parentId) {
+                // Fall back to checking data.parentId (for backward compatibility with old data)
+                const cellData = paratextCell.data;
+                parentId = cellData?.parentId as string | undefined;
+            }
 
             if (!parentId) {
                 // Legacy: try to extract from ID format (for backward compatibility during migration)
-                parentId = extractParentCellIdFromParatext(paratextCell.cellMarkers[0], cellMetadata);
+                const extractedParentId = extractParentCellIdFromParatext(paratextCell.cellMarkers[0], cellMetadata);
+                parentId = extractedParentId || undefined;
             }
 
             if (parentId) {
