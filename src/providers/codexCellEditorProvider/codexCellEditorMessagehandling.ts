@@ -3032,6 +3032,38 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             console.error("Error fetching cells for milestone:", error);
         }
     },
+
+    // Handler for requesting subsection progress for a milestone
+    requestSubsectionProgress: async ({ event, document, webviewPanel, provider }) => {
+        const typed = event as any;
+        const milestoneIndex = typed?.content?.milestoneIndex ?? 0;
+
+        try {
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            const validationCount = config.get("validationCount", 1);
+            const validationCountAudio = config.get("validationCountAudio", 1);
+            const cellsPerPage = vscode.workspace.getConfiguration("codex-editor-extension").get("cellsPerPage", 50);
+
+            // Calculate progress for all subsections in this milestone
+            const subsectionProgress = document.calculateSubsectionProgress(
+                milestoneIndex,
+                cellsPerPage,
+                validationCount,
+                validationCountAudio
+            );
+
+            // Send the progress data to the webview
+            safePostMessageToPanel(webviewPanel, {
+                type: "providerSendsSubsectionProgress",
+                milestoneIndex,
+                subsectionProgress,
+            });
+
+            debug(`Sent subsection progress for milestone ${milestoneIndex}:`, subsectionProgress);
+        } catch (error) {
+            console.error("Error fetching subsection progress:", error);
+        }
+    },
 };
 
 export async function performLLMCompletion(

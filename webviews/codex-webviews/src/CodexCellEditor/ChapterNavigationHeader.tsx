@@ -12,12 +12,6 @@ import {
 } from "../../../../types";
 import { EditMapUtils } from "../../../../src/utils/editMapUtils";
 import {
-    getCellValueData,
-    cellHasAudioUsingAttachments,
-    computeValidationStats,
-    computeProgressPercents,
-} from "@sharedUtils";
-import {
     type FileStatus,
     type EditorPosition,
     type Subsection,
@@ -99,6 +93,7 @@ interface ChapterNavigationHeaderProps {
     getSubsectionsForMilestone: (milestoneIdx: number) => Subsection[];
     requestCellsForMilestone: (milestoneIdx: number, subsectionIdx?: number) => void;
     isLoadingCells?: boolean;
+    subsectionProgress?: Record<number, ProgressPercentages>;
 }
 
 export function ChapterNavigationHeader({
@@ -157,6 +152,7 @@ export function ChapterNavigationHeader({
     getSubsectionsForMilestone,
     requestCellsForMilestone,
     isLoadingCells = false,
+    subsectionProgress,
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
@@ -713,108 +709,33 @@ ChapterNavigationHeaderProps) {
     const shouldHideNavButtons = isVerySmallScreen; // Hide nav buttons on very small screens
 
     // Calculate progress for each subsection/page
-    const calculateSubsectionProgress = (
-        subsection: Subsection,
-        forSourceText: boolean = isSourceText
-    ) => {
-        // Use allCellsForChapter if available, otherwise fall back to translationUnitsForSection
-        const allChapterCells = allCellsForChapter || translationUnitsForSection;
-
-        // Get cells for this specific subsection from the full chapter data
-        const subsectionCells = allChapterCells.slice(subsection.startIndex, subsection.endIndex);
-
-        // Filter out paratext and merged cells for progress calculation
-        const validCells = subsectionCells.filter((cell) => {
-            const cellId = cell?.cellMarkers?.[0];
-            return cellId && !cellId.startsWith("paratext-") && !cell.merged;
-        });
-
-        const totalCells = validCells.length;
-        if (totalCells === 0) {
+    const calculateSubsectionProgress = (subsection: Subsection, subsectionIndex: number) => {
+        // Only use backend-calculated progress
+        if (subsectionProgress && subsectionProgress[subsectionIndex] !== undefined) {
+            const backendProgress = subsectionProgress[subsectionIndex];
             return {
-                isFullyTranslated: false,
-                isFullyValidated: false,
-                percentTranslationsCompleted: 0,
-                percentAudioTranslationsCompleted: 0,
-                percentFullyValidatedTranslations: 0,
-                percentAudioValidatedTranslations: 0,
-                percentTextValidatedTranslations: 0,
+                isFullyTranslated: backendProgress.percentTranslationsCompleted === 100,
+                isFullyValidated: backendProgress.percentFullyValidatedTranslations === 100,
+                percentTranslationsCompleted: backendProgress.percentTranslationsCompleted,
+                percentAudioTranslationsCompleted:
+                    backendProgress.percentAudioTranslationsCompleted,
+                percentFullyValidatedTranslations:
+                    backendProgress.percentFullyValidatedTranslations,
+                percentAudioValidatedTranslations:
+                    backendProgress.percentAudioValidatedTranslations,
+                percentTextValidatedTranslations: backendProgress.percentTextValidatedTranslations,
             };
         }
 
-        // Check if all cells have content (translated for target, existing for source)
-        const completedCells = validCells.filter((cell) => {
-            const hasContent =
-                cell.cellContent &&
-                cell.cellContent.trim().length > 0 &&
-                cell.cellContent !== "<span></span>";
-
-            if (forSourceText) {
-                // For source text, we just check if content exists
-                return hasContent;
-            } else {
-                // For target text, we check if it's been translated (has content)
-                return hasContent;
-            }
-        });
-        const isFullyTranslated = completedCells.length === totalCells;
-
-        // Calculate audio presence for subsection (mirrors chapter calculation)
-        const cellsWithAudioValues = validCells.filter((cell) =>
-            cellHasAudioUsingAttachments(
-                (cell as any).attachments,
-                (cell as any).metadata?.selectedAudioId
-            )
-        ).length;
-
-        // Check if all cells are validated
-        let isFullyValidated = false;
-        const minimumValidationsRequired =
-            (requiredValidations ?? undefined) !== undefined
-                ? (requiredValidations as number) ?? 1
-                : (window as any)?.initialData?.validationCount ?? 1;
-        const minimumAudioValidationsRequired =
-            (requiredAudioValidations ?? undefined) !== undefined
-                ? (requiredAudioValidations as number) ?? 1
-                : (window as any)?.initialData?.validationCountAudio ?? 1;
-
-        // Calculate validation data using shared utils
-        const cellWithValidatedData = validCells.map((cell) => getCellValueData(cell));
-
-        const { validatedCells, audioValidatedCells, fullyValidatedCells } = computeValidationStats(
-            cellWithValidatedData,
-            minimumValidationsRequired,
-            minimumAudioValidationsRequired
-        );
-
-        const {
-            percentTranslationsCompleted,
-            percentAudioTranslationsCompleted,
-            percentAudioValidatedTranslations,
-            percentTextValidatedTranslations,
-            percentFullyValidatedTranslations,
-        } = computeProgressPercents(
-            totalCells,
-            completedCells.length,
-            cellsWithAudioValues,
-            validatedCells,
-            audioValidatedCells,
-            fullyValidatedCells
-        );
-
-        if (isFullyTranslated) {
-            // Maintain existing gating for the boolean display in this header
-            isFullyValidated = fullyValidatedCells === totalCells;
-        }
-
+        // Return default values if backend progress is not available
         return {
-            isFullyTranslated,
-            isFullyValidated,
-            percentTranslationsCompleted,
-            percentAudioTranslationsCompleted,
-            percentFullyValidatedTranslations,
-            percentAudioValidatedTranslations,
-            percentTextValidatedTranslations,
+            isFullyTranslated: false,
+            isFullyValidated: false,
+            percentTranslationsCompleted: 0,
+            percentAudioTranslationsCompleted: 0,
+            percentFullyValidatedTranslations: 0,
+            percentAudioValidatedTranslations: 0,
+            percentTextValidatedTranslations: 0,
         };
     };
 
@@ -954,7 +875,8 @@ ChapterNavigationHeaderProps) {
                                     if (milestoneIndex?.milestones[newMilestoneIdx]) {
                                         const milestoneValue =
                                             milestoneIndex.milestones[newMilestoneIdx].value;
-                                        const chapterNum = extractChapterNumberFromMilestoneValue(milestoneValue);
+                                        const chapterNum =
+                                            extractChapterNumberFromMilestoneValue(milestoneValue);
                                         if (chapterNum !== null) {
                                             // Cache the chapter number so it persists when switching files
                                             vscode.postMessage({
@@ -1088,7 +1010,8 @@ ChapterNavigationHeaderProps) {
                                     if (milestoneIndex?.milestones[newMilestoneIdx]) {
                                         const milestoneValue =
                                             milestoneIndex.milestones[newMilestoneIdx].value;
-                                        const chapterNum = extractChapterNumberFromMilestoneValue(milestoneValue);
+                                        const chapterNum =
+                                            extractChapterNumberFromMilestoneValue(milestoneValue);
                                         if (chapterNum !== null) {
                                             // Cache the chapter number so it persists when switching files
                                             vscode.postMessage({
@@ -1140,7 +1063,7 @@ ChapterNavigationHeaderProps) {
                                         const currentSection = subsections[currentSubsectionIndex];
                                         const progress = calculateSubsectionProgress(
                                             currentSection,
-                                            isSourceText
+                                            currentSubsectionIndex
                                         );
                                         return (
                                             <>
@@ -1177,10 +1100,7 @@ ChapterNavigationHeaderProps) {
                                 style={{ zIndex: 99999 }}
                             >
                                 {subsections.map((section, index) => {
-                                    const progress = calculateSubsectionProgress(
-                                        section,
-                                        isSourceText
-                                    );
+                                    const progress = calculateSubsectionProgress(section, index);
                                     const isActive = currentSubsectionIndex === index;
                                     return (
                                         <MemoDropdownRow

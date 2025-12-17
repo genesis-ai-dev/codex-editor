@@ -769,6 +769,12 @@ export type EditorPostMessages =
             milestoneIndex: number;
             subsectionIndex?: number; // For sub-pagination within milestone
         };
+    }
+    | {
+        command: "requestSubsectionProgress";
+        content: {
+            milestoneIndex: number;
+        };
     };
 
 // (revalidateMissingForCell added above in EditorPostMessages union)
@@ -1704,6 +1710,17 @@ type EditorReceiveMessages =
         subsectionIndex: number;
         cells: QuillCellContent[];
         sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
+    }
+    | {
+        type: "providerSendsSubsectionProgress";
+        milestoneIndex: number;
+        subsectionProgress: Record<number, {
+            percentTranslationsCompleted: number;
+            percentAudioTranslationsCompleted: number;
+            percentFullyValidatedTranslations: number;
+            percentAudioValidatedTranslations: number;
+            percentTextValidatedTranslations: number;
+        }>;
     }
     | {
         type: "preferredEditorTab";

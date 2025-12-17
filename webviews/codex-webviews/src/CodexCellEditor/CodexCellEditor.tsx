@@ -282,6 +282,9 @@ const CodexCellEditor: React.FC = () => {
     const [currentMilestoneIndex, setCurrentMilestoneIndex] = useState(0);
     const [isLoadingCells, setIsLoadingCells] = useState(false);
 
+    // Subsection progress state (milestone index -> subsection index -> progress)
+    const [subsectionProgress, setSubsectionProgress] = useState<Record<number, Record<number, ProgressPercentages>>>({});
+
     // Track which milestone/subsection combinations have been loaded
     const loadedPagesRef = useRef<Set<string>>(new Set());
 
@@ -857,6 +860,21 @@ const CodexCellEditor: React.FC = () => {
             }
         },
         [milestoneIndex]
+    );
+
+    // Listen for subsection progress updates
+    useMessageHandler(
+        "codexCellEditor-subsectionProgress",
+        (event: MessageEvent) => {
+            const message = event.data as EditorReceiveMessages;
+            if (message?.type === "providerSendsSubsectionProgress") {
+                setSubsectionProgress((prev) => ({
+                    ...prev,
+                    [message.milestoneIndex]: message.subsectionProgress,
+                }));
+            }
+        },
+        []
     );
 
     useEffect(() => {
@@ -1634,6 +1652,19 @@ const CodexCellEditor: React.FC = () => {
 
     // Get the subsections for the current milestone
     const subsections = getSubsectionsForMilestone(currentMilestoneIndex);
+
+    // Request subsection progress when milestone changes
+    useEffect(() => {
+        if (milestoneIndex && currentMilestoneIndex < milestoneIndex.milestones.length) {
+            // Request progress for current milestone
+            vscode.postMessage({
+                command: "requestSubsectionProgress",
+                content: {
+                    milestoneIndex: currentMilestoneIndex,
+                },
+            } as EditorPostMessages);
+        }
+    }, [currentMilestoneIndex, milestoneIndex, vscode]);
 
     // Cells are already paginated by the backend for milestone navigation
     // No additional slicing needed
@@ -2637,6 +2668,7 @@ const CodexCellEditor: React.FC = () => {
                             getSubsectionsForMilestone={getSubsectionsForMilestone}
                             requestCellsForMilestone={requestCellsForMilestone}
                             isLoadingCells={isLoadingCells}
+                            subsectionProgress={subsectionProgress[currentMilestoneIndex]}
                         />
                     </div>
                 </div>
