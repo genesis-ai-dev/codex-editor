@@ -1466,7 +1466,7 @@ ChapterNavigationHeaderProps) {
                 isOpen={showChapterSelector}
                 onClose={() => setShowChapterSelector(false)}
                 onSelectChapter={handleChapterSelection}
-                currentChapter={chapterNumber}
+                currentMilestoneIndex={currentMilestoneIndex}
                 totalChapters={totalChapters}
                 bookTitle={getDisplayTitle().split("\u00A0")[0]}
                 unsavedChanges={unsavedChanges}
