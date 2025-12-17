@@ -289,32 +289,24 @@ function extractBookNameFromCell(cell: ProcessedCell): string | null {
  */
 function getLocalizedBookName(bookAbbr: string): string {
     if (!bookAbbr) return bookAbbr;
-    
+
     const bookInfo = (bibleData as any[]).find((book) => book.abbr === bookAbbr);
     return bookInfo?.name || bookAbbr;
 }
 
 /**
- * Creates a milestone cell with book name and chapter number derived from the cell below it.
- * Format: "BookName ChapterNumber" (e.g., "Isaiah 1") for Bible importers, or just chapter number for others.
+ * Creates a milestone cell with chapter number derived from the cell below it.
+ * Format: chapter number as string (e.g., "1", "5", "10").
  * @param cell - The cell below the milestone (first cell of the chapter)
  * @param milestoneIndex - The index of this milestone (1-indexed)
  * @param uuid - Optional UUID to use. If not provided, a new UUID will be generated.
- * @param isBibleType - Whether this is a Bible-type importer (determines if book name should be included)
+ * @param isBibleType - Whether this is a Bible-type importer (kept for compatibility, not used)
  */
 function createMilestoneCell(cell: ProcessedCell, milestoneIndex: number, uuid?: string, isBibleType: boolean = true): ProcessedCell {
     const cellUuid = uuid || uuidv4();
     const chapterNumber = extractChapterFromCell(cell, milestoneIndex);
 
-    // For Bible-type importers, extract book name and combine with chapter number
-    let milestoneValue = chapterNumber;
-    if (isBibleType) {
-        const bookAbbr = extractBookNameFromCell(cell);
-        const bookName = bookAbbr ? getLocalizedBookName(bookAbbr) : null;
-        milestoneValue = bookName ? `${bookName} ${chapterNumber}` : chapterNumber;
-    }
-
-    return createProcessedCell(cellUuid, milestoneValue, {
+    return createProcessedCell(cellUuid, chapterNumber, {
         type: CodexCellTypes.MILESTONE,
         id: cellUuid,
         edits: [],
