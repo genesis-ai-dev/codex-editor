@@ -93,8 +93,37 @@ const isCellContentEmpty = (cellContent: string | undefined): boolean => {
     return onlyWhitespaceRegex.test(textContent);
 };
 
+/**
+ * Extracts chapter number from a milestone value.
+ * Handles both old format ("1", "2") and new format ("Isaiah 1", "GEN 2").
+ * Returns the chapter number as a number, or null if not found.
+ */
+export const extractChapterNumberFromMilestoneValue = (
+    value: string | undefined
+): number | null => {
+    if (!value) return null;
+
+    // Try to extract the last number in the string (handles "Isaiah 1", "GEN 2", etc.)
+    // This works for both old format ("1") and new format ("BookName 1")
+    const matches = value.match(/(\d+)(?!.*\d)/);
+    if (matches && matches[1]) {
+        const chapterNum = parseInt(matches[1], 10);
+        if (!isNaN(chapterNum) && chapterNum > 0) {
+            return chapterNum;
+        }
+    }
+
+    // Fallback: try parsing the entire string as a number (for old format "1")
+    const parsed = parseInt(value, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+        return parsed;
+    }
+
+    return null;
+};
+
 // Helper function to extract chapter number from milestone cell value
-// Milestone cells have values like "1", "2", etc. (just the chapter number)
+// Milestone cells have values like "1", "2", "Isaiah 1", "GEN 2", etc.
 const extractChapterFromMilestoneValue = (cellContent: string | undefined): string | null => {
     if (!cellContent) return null;
 
@@ -103,9 +132,9 @@ const extractChapterFromMilestoneValue = (cellContent: string | undefined): stri
     tempDiv.innerHTML = cellContent;
     const textContent = tempDiv.textContent || tempDiv.innerText || "";
 
-    // Match a number pattern (one or more digits)
-    const match = textContent.match(/(\d+)/);
-    return match ? match[1] : null;
+    // Use the new helper function to extract chapter number
+    const chapterNum = extractChapterNumberFromMilestoneValue(textContent);
+    return chapterNum !== null ? chapterNum.toString() : null;
 };
 
 const CodexCellEditor: React.FC = () => {
@@ -1228,8 +1257,8 @@ const CodexCellEditor: React.FC = () => {
                 currentMilestoneIdx < milestoneIdx.milestones.length
             ) {
                 const milestone = milestoneIdx.milestones[currentMilestoneIdx];
-                const chapterNum = parseInt(milestone.value, 10);
-                if (!isNaN(chapterNum) && chapterNum > 0) {
+                const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
+                if (chapterNum !== null) {
                     setChapterNumber(chapterNum);
                 }
             }

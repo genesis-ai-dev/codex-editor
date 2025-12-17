@@ -9,6 +9,7 @@ import type { ValidationEntry } from "../../../types";
 import { getAuthApi } from "../../extension";
 import { extractParentCellIdFromParatext } from "../../providers/codexCellEditorProvider/utils/cellUtils";
 import { generateCellIdFromHash, isUuidFormat } from "../../utils/uuidUtils";
+import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 
 // FIXME: move notebook format migration here
 
@@ -1666,7 +1667,57 @@ function extractChapterFromCell(cell: any, milestoneIndex: number): string {
 }
 
 /**
- * Creates a milestone cell with chapter number derived from the cell below it.
+ * Extracts book abbreviation from a cell's globalReferences or cellMarkers.
+ * Returns null if no book abbreviation can be found.
+ */
+function extractBookNameFromCell(cell: any): string | null {
+    // Priority 1: Extract from globalReferences array (preferred method)
+    const globalRefs = cell?.data?.globalReferences || cell?.metadata?.data?.globalReferences;
+    if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+        const firstRef = globalRefs[0];
+        // Extract book name: "GEN 1:1" -> "GEN" or "TheChosen-201-en-SingleSpeaker 1:jkflds" -> "TheChosen-201-en-SingleSpeaker"
+        const bookMatch = firstRef.match(/^([^\s]+)/);
+        if (bookMatch) {
+            return bookMatch[1];
+        }
+    }
+
+    // Priority 2: Fallback to cellMarkers (legacy support during migration)
+    if (cell?.cellMarkers?.[0]) {
+        const firstMarker = cell.cellMarkers[0].split(":")[0];
+        if (firstMarker) {
+            const parts = firstMarker.split(" ");
+            return parts[0];
+        }
+    }
+
+    // Priority 3: Extract from cellId
+    const cellId = cell?.metadata?.id || cell?.id;
+    if (cellId) {
+        // Extract book name from cellId: "GEN 1:1" -> "GEN"
+        const bookMatch = cellId.match(/^([^\s]+)/);
+        if (bookMatch) {
+            return bookMatch[1];
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Gets the localized book name from a book abbreviation.
+ * Returns the abbreviation itself if no localized name is found.
+ */
+function getLocalizedBookName(bookAbbr: string): string {
+    if (!bookAbbr) return bookAbbr;
+
+    const bookInfo = (bibleData as any[]).find((book) => book.abbr === bookAbbr);
+    return bookInfo?.name || bookAbbr;
+}
+
+/**
+ * Creates a milestone cell with book name and chapter number derived from the cell below it.
+ * Format: "BookName ChapterNumber" (e.g., "Isaiah 1")
  */
 async function createMilestoneCell(cell: any, milestoneIndex: number): Promise<any> {
     const uuid = randomUUID();
@@ -1674,10 +1725,17 @@ async function createMilestoneCell(cell: any, milestoneIndex: number): Promise<a
     const currentTimestamp = Date.now();
     const author = await getCurrentUserName();
 
+    // Extract book name from cell
+    const bookAbbr = extractBookNameFromCell(cell);
+    const bookName = bookAbbr ? getLocalizedBookName(bookAbbr) : null;
+
+    // Combine book name and chapter number, or use just chapter number if no book name found
+    const milestoneValue = bookName ? `${bookName} ${chapterNumber}` : chapterNumber;
+
     // Create initial edit entry similar to source file cells
     const initialEdit = {
         editMap: EditMapUtils.value(),
-        value: chapterNumber,
+        value: milestoneValue,
         timestamp: currentTimestamp - 1000, // Ensure it's before any user edits
         type: EditType.INITIAL_IMPORT,
         author: author,
@@ -1687,7 +1745,7 @@ async function createMilestoneCell(cell: any, milestoneIndex: number): Promise<a
     return {
         kind: 2, // vscode.NotebookCellKind.Code
         languageId: "html",
-        value: chapterNumber,
+        value: milestoneValue,
         metadata: {
             id: uuid,
             type: CodexCellTypes.MILESTONE,

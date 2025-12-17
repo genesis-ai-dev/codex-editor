@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button } from "../components/ui/button";
-import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
+import { CELL_DISPLAY_MODES, extractChapterNumberFromMilestoneValue } from "./CodexCellEditor";
 import NotebookMetadataModal from "./NotebookMetadataModal";
 import { AutocompleteModal } from "./modals/AutocompleteModal";
 import { ChapterSelectorModal } from "./modals/ChapterSelectorModal";
@@ -262,42 +262,13 @@ ChapterNavigationHeaderProps) {
         []
     );
 
-    // MILESTONES: Will have to have this read from a new key in metadata (like corpus name).
-    // Determine the display name using the map
+    // Display milestone value directly (e.g., "Isaiah 1" or "1")
     const getDisplayTitle = useCallback(() => {
-        // Show milestone value
-        const firstCell = translationUnitsForSection[0];
-        if (firstCell) {
-            // Extract book name from globalReferences array (preferred method)
-            const globalRefs = firstCell.data?.globalReferences;
-            let bookAbbr = "";
-
-            if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
-                const firstRef = globalRefs[0];
-                // Extract book name: "GEN 1:1" -> "GEN" or "TheChosen-201-en-SingleSpeaker 1:jkflds" -> "TheChosen-201-en-SingleSpeaker"
-                const bookMatch = firstRef.match(/^([^\s]+)/);
-                if (bookMatch) {
-                    bookAbbr = bookMatch[1];
-                }
-            }
-
-            // Fallback: try to extract from cell marker (legacy support during migration)
-            if (!bookAbbr && firstCell.cellMarkers?.[0]) {
-                const firstMarker = firstCell.cellMarkers[0].split(":")[0];
-                if (firstMarker) {
-                    const parts = firstMarker.split(" ");
-                    bookAbbr = parts[0];
-                }
-            }
-
-            if (bookAbbr) {
-                const localizedName = bibleBookMap?.get(bookAbbr)?.name;
-                const displayBookName = localizedName || bookAbbr;
-                return `${displayBookName}\u00A0${currentMilestoneValue}`;
-            }
+        if (currentMilestoneValue) {
+            return currentMilestoneValue;
         }
-        return `Section\u00A0${currentMilestoneValue}`;
-    }, [translationUnitsForSection, bibleBookMap, currentMilestoneValue]);
+        return "Section 1";
+    }, [currentMilestoneValue]);
 
     // Centralized title measurement logic
     const measureAndTruncateTitle = useCallback(() => {
@@ -702,10 +673,11 @@ ChapterNavigationHeaderProps) {
             if (!milestoneIndex) return;
 
             // Find the milestone index that corresponds to this chapter number
-            // Milestone values are strings like "1", "2", etc. (chapter numbers)
-            const milestoneIdx = milestoneIndex.milestones.findIndex(
-                (milestone) => milestone.value === selectedChapter.toString()
-            );
+            // Milestone values can be "1", "2" (old format) or "Isaiah 1", "GEN 2" (new format)
+            const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
+                const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
+                return chapterNum !== null && chapterNum === selectedChapter;
+            });
 
             if (milestoneIdx !== -1) {
                 // Found matching milestone, navigate to it
@@ -982,8 +954,8 @@ ChapterNavigationHeaderProps) {
                                     if (milestoneIndex?.milestones[newMilestoneIdx]) {
                                         const milestoneValue =
                                             milestoneIndex.milestones[newMilestoneIdx].value;
-                                        const chapterNum = parseInt(milestoneValue, 10);
-                                        if (!isNaN(chapterNum) && chapterNum > 0) {
+                                        const chapterNum = extractChapterNumberFromMilestoneValue(milestoneValue);
+                                        if (chapterNum !== null) {
                                             // Cache the chapter number so it persists when switching files
                                             vscode.postMessage({
                                                 command: "jumpToChapter",
@@ -1116,8 +1088,8 @@ ChapterNavigationHeaderProps) {
                                     if (milestoneIndex?.milestones[newMilestoneIdx]) {
                                         const milestoneValue =
                                             milestoneIndex.milestones[newMilestoneIdx].value;
-                                        const chapterNum = parseInt(milestoneValue, 10);
-                                        if (!isNaN(chapterNum) && chapterNum > 0) {
+                                        const chapterNum = extractChapterNumberFromMilestoneValue(milestoneValue);
+                                        if (chapterNum !== null) {
                                             // Cache the chapter number so it persists when switching files
                                             vscode.postMessage({
                                                 command: "jumpToChapter",

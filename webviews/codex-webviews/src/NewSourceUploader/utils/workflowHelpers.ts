@@ -7,6 +7,7 @@ import {
 import type { CustomNotebookCellData } from 'types';
 import { CodexCellTypes } from 'types/enums';
 import { v4 as uuidv4 } from 'uuid';
+import bibleData from '../../assets/bible-books-lookup.json';
 
 /**
  * Creates a progress update object
@@ -255,16 +256,65 @@ function extractChapterFromCell(cell: ProcessedCell, milestoneIndex: number): st
 }
 
 /**
- * Creates a milestone cell with chapter number derived from the cell below it.
+ * Extracts book abbreviation from a cell's globalReferences, cellMarkers, or cellId.
+ * Returns null if no book abbreviation can be found.
+ */
+function extractBookNameFromCell(cell: ProcessedCell): string | null {
+    // Priority 1: Extract from globalReferences array (preferred method)
+    const globalRefs = cell?.metadata?.data?.globalReferences;
+    if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+        const firstRef = globalRefs[0];
+        // Extract book name: "GEN 1:1" -> "GEN" or "TheChosen-201-en-SingleSpeaker 1:jkflds" -> "TheChosen-201-en-SingleSpeaker"
+        const bookMatch = firstRef.match(/^([^\s]+)/);
+        if (bookMatch) {
+            return bookMatch[1];
+        }
+    }
+
+    // Priority 2: Extract from cellId (format: "BOOK CHAPTER:VERSE")
+    if (cell?.id) {
+        // Extract book name from cellId: "GEN 1:1" -> "GEN"
+        const bookMatch = cell.id.match(/^([^\s]+)/);
+        if (bookMatch) {
+            return bookMatch[1];
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Gets the localized book name from a book abbreviation.
+ * Returns the abbreviation itself if no localized name is found.
+ */
+function getLocalizedBookName(bookAbbr: string): string {
+    if (!bookAbbr) return bookAbbr;
+    
+    const bookInfo = (bibleData as any[]).find((book) => book.abbr === bookAbbr);
+    return bookInfo?.name || bookAbbr;
+}
+
+/**
+ * Creates a milestone cell with book name and chapter number derived from the cell below it.
+ * Format: "BookName ChapterNumber" (e.g., "Isaiah 1") for Bible importers, or just chapter number for others.
  * @param cell - The cell below the milestone (first cell of the chapter)
  * @param milestoneIndex - The index of this milestone (1-indexed)
  * @param uuid - Optional UUID to use. If not provided, a new UUID will be generated.
+ * @param isBibleType - Whether this is a Bible-type importer (determines if book name should be included)
  */
-function createMilestoneCell(cell: ProcessedCell, milestoneIndex: number, uuid?: string): ProcessedCell {
+function createMilestoneCell(cell: ProcessedCell, milestoneIndex: number, uuid?: string, isBibleType: boolean = true): ProcessedCell {
     const cellUuid = uuid || uuidv4();
     const chapterNumber = extractChapterFromCell(cell, milestoneIndex);
 
-    return createProcessedCell(cellUuid, chapterNumber, {
+    // For Bible-type importers, extract book name and combine with chapter number
+    let milestoneValue = chapterNumber;
+    if (isBibleType) {
+        const bookAbbr = extractBookNameFromCell(cell);
+        const bookName = bookAbbr ? getLocalizedBookName(bookAbbr) : null;
+        milestoneValue = bookName ? `${bookName} ${chapterNumber}` : chapterNumber;
+    }
+
+    return createProcessedCell(cellUuid, milestoneValue, {
         type: CodexCellTypes.MILESTONE,
         id: cellUuid,
         edits: [],
@@ -381,8 +431,8 @@ export function addMilestoneCellsToNotebookPair(notebookPair: NotebookPair): Not
     }
 
     // Insert first milestone cell at the beginning (using same UUID for both)
-    newSourceCells.push(createMilestoneCell(firstCell, milestoneIndex, firstMilestoneUuid));
-    newCodexCells.push(createMilestoneCell(codexCells[0] || firstCell, milestoneIndex, firstMilestoneUuid));
+    newSourceCells.push(createMilestoneCell(firstCell, milestoneIndex, firstMilestoneUuid, isBibleType));
+    newCodexCells.push(createMilestoneCell(codexCells[0] || firstCell, milestoneIndex, firstMilestoneUuid, isBibleType));
     milestoneIndex++;
 
     // Process all cells and insert milestone cells before new chapters
@@ -397,8 +447,8 @@ export function addMilestoneCellsToNotebookPair(notebookPair: NotebookPair): Not
             chapterUuids.set(chapter, chapterUuid);
 
             // Insert a milestone cell before this new chapter (using same UUID for both)
-            newSourceCells.push(createMilestoneCell(sourceCell, milestoneIndex, chapterUuid));
-            newCodexCells.push(createMilestoneCell(codexCell, milestoneIndex, chapterUuid));
+            newSourceCells.push(createMilestoneCell(sourceCell, milestoneIndex, chapterUuid, isBibleType));
+            newCodexCells.push(createMilestoneCell(codexCell, milestoneIndex, chapterUuid, isBibleType));
             milestoneIndex++;
             seenChapters.add(chapter);
         }

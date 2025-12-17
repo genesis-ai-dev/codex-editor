@@ -53,6 +53,33 @@ function debug(...args: any[]) {
     }
 }
 
+/**
+ * Extracts chapter number from a milestone value.
+ * Handles both old format ("1", "2") and new format ("Isaiah 1", "GEN 2").
+ * Returns the chapter number as a number, or null if not found.
+ */
+function extractChapterNumberFromMilestoneValue(value: string | undefined): number | null {
+    if (!value) return null;
+
+    // Try to extract the last number in the string (handles "Isaiah 1", "GEN 2", etc.)
+    // This works for both old format ("1") and new format ("BookName 1")
+    const matches = value.match(/(\d+)(?!.*\d)/);
+    if (matches && matches[1]) {
+        const chapterNum = parseInt(matches[1], 10);
+        if (!isNaN(chapterNum) && chapterNum > 0) {
+            return chapterNum;
+        }
+    }
+
+    // Fallback: try parsing the entire string as a number (for old format "1")
+    const parsed = parseInt(value, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+        return parsed;
+    }
+
+    return null;
+}
+
 // StateStore interface matching what's provided by initializeStateStore
 interface StateStore {
     storeListener: <K extends "cellId">(
@@ -678,9 +705,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // If we have milestones and a cached chapter, try to find the matching milestone
             if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
                 // Find milestone that matches the cached chapter number
-                const milestoneIdx = milestoneIndex.milestones.findIndex(
-                    (milestone) => milestone.value === cachedChapter.toString()
-                );
+                const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
+                    const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
+                    return chapterNum !== null && chapterNum === cachedChapter;
+                });
                 if (milestoneIdx !== -1) {
                     initialMilestoneIndex = milestoneIdx;
                 } else {
@@ -2232,9 +2260,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // If we have milestones and a cached chapter, try to find the matching milestone
         if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
             // Find milestone that matches the cached chapter number
-            const milestoneIdx = milestoneIndex.milestones.findIndex(
-                (milestone) => milestone.value === cachedChapter.toString()
-            );
+            const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
+                const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
+                return chapterNum !== null && chapterNum === cachedChapter;
+            });
             if (milestoneIdx !== -1) {
                 initialMilestoneIndex = milestoneIdx;
             } else {
