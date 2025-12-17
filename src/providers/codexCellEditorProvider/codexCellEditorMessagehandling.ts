@@ -126,10 +126,29 @@ async function getAudioFilePathForCell(
     }
 
     // Fallback: check filesystem for legacy audio files
-    const bookAbbr = cellId.split(' ')[0];
-    const parseCellIdToBookChapterVerse = (cellId: string): { book: string; chapter?: number; verse?: number; } => {
+    // Extract book name from globalReferences if available, otherwise fall back to parsing cell ID
+    let bookAbbr = "";
+    let basename = "";
+
+    // Try to get book name from globalReferences first
+    const globalRefs = cell?.metadata?.data?.globalReferences;
+    if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+        const firstRef = globalRefs[0];
+        // Extract book name: "GEN 1:1" -> "GEN" or "TheChosen-201-en-SingleSpeaker 1:jkflds" -> "TheChosen-201-en-SingleSpeaker"
+        const bookMatch = firstRef.match(/^([^\s]+)/);
+        if (bookMatch) {
+            bookAbbr = bookMatch[1];
+        }
+    }
+
+    // Fallback to parsing cell ID if globalReferences not available (legacy support)
+    if (!bookAbbr) {
+        bookAbbr = cellId.split(' ')[0];
+    }
+
+    const parseCellIdToBookChapterVerse = (refId: string): { book: string; chapter?: number; verse?: number; } => {
         try {
-            const [book, rest] = cellId.split(" ");
+            const [book, rest] = refId.split(" ");
             const [chapterStr, verseStr] = (rest || "").split(":");
             let chapter: number | undefined = chapterStr ? Number(chapterStr) : undefined;
             let verse: number | undefined = verseStr ? Number(verseStr) : undefined;
@@ -141,8 +160,8 @@ async function getAudioFilePathForCell(
         }
     };
 
-    const toBookChapterVerseBasename = (cellId: string): string => {
-        const { book, chapter, verse } = parseCellIdToBookChapterVerse(cellId);
+    const toBookChapterVerseBasename = (refId: string): string => {
+        const { book, chapter, verse } = parseCellIdToBookChapterVerse(refId);
         const safePad = (n: number | undefined) => (typeof n === "number" && Number.isFinite(n) ? String(n) : "0").padStart(3, "0");
         const chapStr = safePad(chapter);
         const verseStr = safePad(verse);
@@ -155,7 +174,13 @@ async function getAudioFilePathForCell(
         return sanitizeFileComponent(`${book}_${chapStr}_${verseStr}`);
     };
 
-    const basename = toBookChapterVerseBasename(cellId);
+    // Use globalReferences for basename if available
+    if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+        basename = toBookChapterVerseBasename(globalRefs[0]);
+    } else {
+        // Fallback to parsing cell ID (legacy)
+        basename = toBookChapterVerseBasename(cellId);
+    }
     const audioExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.webm'];
 
     const attachmentsFilesPath = path.join(
@@ -2570,37 +2595,92 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         // Both cells have audio - merge them
                         console.log(`[mergeCellWithPrevious] Merging audio files: ${previousAudioPath} + ${currentAudioPath}`);
 
-                        // Determine output filename using previous cell's ID
-                        const bookAbbr = previousCellId.split(' ')[0];
-                        const parseCellIdToBookChapterVerse = (cellId: string): { book: string; chapter?: number; verse?: number; } => {
-                            try {
-                                const [book, rest] = cellId.split(" ");
-                                const [chapterStr, verseStr] = (rest || "").split(":");
-                                let chapter: number | undefined = chapterStr ? Number(chapterStr) : undefined;
-                                let verse: number | undefined = verseStr ? Number(verseStr) : undefined;
-                                if (chapter !== undefined && !Number.isFinite(chapter)) chapter = undefined;
-                                if (verse !== undefined && !Number.isFinite(verse)) verse = undefined;
-                                return { book: (book || "").toUpperCase(), chapter, verse };
-                            } catch {
-                                return { book: "", chapter: undefined, verse: undefined };
+                        // Determine output filename using previous cell's globalReferences or ID
+                        // Try to get cell from document to access globalReferences
+                        let bookAbbr = "";
+                        let basename = "";
+
+                        try {
+                            const previousCell = (document as any)._documentData?.cells?.find((c: any) => c.metadata?.id === previousCellId);
+                            const globalRefs = previousCell?.metadata?.data?.globalReferences;
+
+                            if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+                                const firstRef = globalRefs[0];
+                                const bookMatch = firstRef.match(/^([^\s]+)/);
+                                if (bookMatch) {
+                                    bookAbbr = bookMatch[1];
+                                }
+
+                                // Parse for basename
+                                const parseCellIdToBookChapterVerse = (refId: string): { book: string; chapter?: number; verse?: number; } => {
+                                    try {
+                                        const [book, rest] = refId.split(" ");
+                                        const [chapterStr, verseStr] = (rest || "").split(":");
+                                        let chapter: number | undefined = chapterStr ? Number(chapterStr) : undefined;
+                                        let verse: number | undefined = verseStr ? Number(verseStr) : undefined;
+                                        if (chapter !== undefined && !Number.isFinite(chapter)) chapter = undefined;
+                                        if (verse !== undefined && !Number.isFinite(verse)) verse = undefined;
+                                        return { book: (book || "").toUpperCase(), chapter, verse };
+                                    } catch {
+                                        return { book: "", chapter: undefined, verse: undefined };
+                                    }
+                                };
+
+                                const toBookChapterVerseBasename = (refId: string): string => {
+                                    const { book, chapter, verse } = parseCellIdToBookChapterVerse(refId);
+                                    const safePad = (n: number | undefined) => (typeof n === "number" && Number.isFinite(n) ? String(n) : "0").padStart(3, "0");
+                                    const chapStr = safePad(chapter);
+                                    const verseStr = safePad(verse);
+                                    const sanitizeFileComponent = (input: string): string => {
+                                        return input
+                                            .replace(/\s+/g, "_")
+                                            .replace(/[^a-zA-Z0-9._-]/g, "-")
+                                            .replace(/_+/g, "_");
+                                    };
+                                    return sanitizeFileComponent(`${book}_${chapStr}_${verseStr}`);
+                                };
+
+                                basename = toBookChapterVerseBasename(firstRef);
                             }
-                        };
+                        } catch (e) {
+                            // Fall through to legacy parsing
+                        }
 
-                        const toBookChapterVerseBasename = (cellId: string): string => {
-                            const { book, chapter, verse } = parseCellIdToBookChapterVerse(cellId);
-                            const safePad = (n: number | undefined) => (typeof n === "number" && Number.isFinite(n) ? String(n) : "0").padStart(3, "0");
-                            const chapStr = safePad(chapter);
-                            const verseStr = safePad(verse);
-                            const sanitizeFileComponent = (input: string): string => {
-                                return input
-                                    .replace(/\s+/g, "_")
-                                    .replace(/[^a-zA-Z0-9._-]/g, "-")
-                                    .replace(/_+/g, "_");
+                        // Fallback to legacy parsing if globalReferences not available
+                        if (!bookAbbr) {
+                            bookAbbr = previousCellId.split(' ')[0];
+                        }
+                        if (!basename) {
+                            const parseCellIdToBookChapterVerse = (cellId: string): { book: string; chapter?: number; verse?: number; } => {
+                                try {
+                                    const [book, rest] = cellId.split(" ");
+                                    const [chapterStr, verseStr] = (rest || "").split(":");
+                                    let chapter: number | undefined = chapterStr ? Number(chapterStr) : undefined;
+                                    let verse: number | undefined = verseStr ? Number(verseStr) : undefined;
+                                    if (chapter !== undefined && !Number.isFinite(chapter)) chapter = undefined;
+                                    if (verse !== undefined && !Number.isFinite(verse)) verse = undefined;
+                                    return { book: (book || "").toUpperCase(), chapter, verse };
+                                } catch {
+                                    return { book: "", chapter: undefined, verse: undefined };
+                                }
                             };
-                            return sanitizeFileComponent(`${book}_${chapStr}_${verseStr}`);
-                        };
 
-                        const basename = toBookChapterVerseBasename(previousCellId);
+                            const toBookChapterVerseBasename = (cellId: string): string => {
+                                const { book, chapter, verse } = parseCellIdToBookChapterVerse(cellId);
+                                const safePad = (n: number | undefined) => (typeof n === "number" && Number.isFinite(n) ? String(n) : "0").padStart(3, "0");
+                                const chapStr = safePad(chapter);
+                                const verseStr = safePad(verse);
+                                const sanitizeFileComponent = (input: string): string => {
+                                    return input
+                                        .replace(/\s+/g, "_")
+                                        .replace(/[^a-zA-Z0-9._-]/g, "-")
+                                        .replace(/_+/g, "_");
+                                };
+                                return sanitizeFileComponent(`${book}_${chapStr}_${verseStr}`);
+                            };
+
+                            basename = toBookChapterVerseBasename(previousCellId);
+                        }
                         const ext = path.extname(previousAudioPath) || path.extname(currentAudioPath) || '.wav';
                         const outputFilename = `${basename}${ext}`;
 
@@ -2950,6 +3030,38 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             debug(`Sent cells for milestone ${milestoneIndex}, subsection ${subsectionIndex}: ${processedCells.length} cells`);
         } catch (error) {
             console.error("Error fetching cells for milestone:", error);
+        }
+    },
+
+    // Handler for requesting subsection progress for a milestone
+    requestSubsectionProgress: async ({ event, document, webviewPanel, provider }) => {
+        const typed = event as any;
+        const milestoneIndex = typed?.content?.milestoneIndex ?? 0;
+
+        try {
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            const validationCount = config.get("validationCount", 1);
+            const validationCountAudio = config.get("validationCountAudio", 1);
+            const cellsPerPage = vscode.workspace.getConfiguration("codex-editor-extension").get("cellsPerPage", 50);
+
+            // Calculate progress for all subsections in this milestone
+            const subsectionProgress = document.calculateSubsectionProgress(
+                milestoneIndex,
+                cellsPerPage,
+                validationCount,
+                validationCountAudio
+            );
+
+            // Send the progress data to the webview
+            safePostMessageToPanel(webviewPanel, {
+                type: "providerSendsSubsectionProgress",
+                milestoneIndex,
+                subsectionProgress,
+            });
+
+            debug(`Sent subsection progress for milestone ${milestoneIndex}:`, subsectionProgress);
+        } catch (error) {
+            console.error("Error fetching subsection progress:", error);
         }
     },
 };

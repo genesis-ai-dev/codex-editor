@@ -25,7 +25,30 @@ function formatDateForFolder(d: Date): string {
     return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
 }
 
-function parseCellIdToBookChapterVerse(cellId: string): { book: string; chapter?: number; verse?: number; } {
+// REMOVE: This doesn't seem to be used anywhere
+/**
+ * Parses a cell reference ID (from globalReferences) to extract book, chapter, and verse.
+ * Falls back to parsing cellId if globalReferences not available (legacy support).
+ */
+function parseCellIdToBookChapterVerse(cell: any, cellId: string): { book: string; chapter?: number; verse?: number; } {
+    // Try to get from globalReferences first
+    const globalRefs = cell?.metadata?.data?.globalReferences;
+    if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+        const refId = globalRefs[0];
+        try {
+            const [book, rest] = refId.split(" ");
+            const [chapterStr, verseStr] = (rest || "").split(":");
+            let chapter: number | undefined = chapterStr ? Number(chapterStr) : undefined;
+            let verse: number | undefined = verseStr ? Number(verseStr) : undefined;
+            if (chapter !== undefined && !Number.isFinite(chapter)) chapter = undefined;
+            if (verse !== undefined && !Number.isFinite(verse)) verse = undefined;
+            return { book: (book || "").toUpperCase(), chapter, verse };
+        } catch {
+            return { book: "", chapter: undefined, verse: undefined };
+        }
+    }
+
+    // MILESTONES: This is a legacy fallback for cell IDs that don't have globalReferences.
     try {
         const [book, rest] = cellId.split(" ");
         const [chapterStr, verseStr] = (rest || "").split(":");
@@ -39,14 +62,16 @@ function parseCellIdToBookChapterVerse(cellId: string): { book: string; chapter?
     }
 }
 
-function toBookChapterVerseBasename(cellId: string): string {
-    const { book, chapter, verse } = parseCellIdToBookChapterVerse(cellId);
+// REMOVE: This doesn't seem to be used anywhere
+function toBookChapterVerseBasename(cell: any, cellId: string): string {
+    const { book, chapter, verse } = parseCellIdToBookChapterVerse(cell, cellId);
     const safePad = (n: number | undefined) => (typeof n === "number" && Number.isFinite(n) ? String(n) : "0").padStart(3, "0");
     const chapStr = safePad(chapter);
     const verseStr = safePad(verse);
     return sanitizeFileComponent(`${book}_${chapStr}_${verseStr}`);
 }
 
+// REMOVE: This doesn't seem to be used anywhere
 function formatTimeRangeSuffix(start?: number, end?: number): string {
     if (start === undefined && end === undefined) return "";
     const coerce = (v: any): number | undefined => {

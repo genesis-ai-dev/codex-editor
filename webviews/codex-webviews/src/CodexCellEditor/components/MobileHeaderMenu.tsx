@@ -73,7 +73,7 @@ interface MobileHeaderMenuProps {
     allCellsForChapter?: QuillCellContent[];
     calculateSubsectionProgress?: (
         subsection: Subsection,
-        forSourceText?: boolean
+        subsectionIndex: number
     ) => {
         isFullyTranslated: boolean;
         isFullyValidated: boolean;
@@ -260,7 +260,7 @@ export function MobileHeaderMenu({
                         </div>
                         {subsections.map((section, index) => {
                             const progress = calculateSubsectionProgress
-                                ? calculateSubsectionProgress(section, isSourceText)
+                                ? calculateSubsectionProgress(section, index)
                                 : { isFullyTranslated: false, isFullyValidated: false };
                             const isActive = currentSubsectionIndex === index;
                             const {

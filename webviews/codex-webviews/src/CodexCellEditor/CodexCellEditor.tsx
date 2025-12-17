@@ -93,8 +93,37 @@ const isCellContentEmpty = (cellContent: string | undefined): boolean => {
     return onlyWhitespaceRegex.test(textContent);
 };
 
+/**
+ * Extracts chapter number from a milestone value.
+ * Handles both old format ("1", "2") and new format ("Isaiah 1", "GEN 2").
+ * Returns the chapter number as a number, or null if not found.
+ */
+export const extractChapterNumberFromMilestoneValue = (
+    value: string | undefined
+): number | null => {
+    if (!value) return null;
+
+    // Try to extract the last number in the string (handles "Isaiah 1", "GEN 2", etc.)
+    // This works for both old format ("1") and new format ("BookName 1")
+    const matches = value.match(/(\d+)(?!.*\d)/);
+    if (matches && matches[1]) {
+        const chapterNum = parseInt(matches[1], 10);
+        if (!isNaN(chapterNum) && chapterNum > 0) {
+            return chapterNum;
+        }
+    }
+
+    // Fallback: try parsing the entire string as a number (for old format "1")
+    const parsed = parseInt(value, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+        return parsed;
+    }
+
+    return null;
+};
+
 // Helper function to extract chapter number from milestone cell value
-// Milestone cells have values like "1", "2", etc. (just the chapter number)
+// Milestone cells have values like "1", "2", "Isaiah 1", "GEN 2", etc.
 const extractChapterFromMilestoneValue = (cellContent: string | undefined): string | null => {
     if (!cellContent) return null;
 
@@ -103,9 +132,9 @@ const extractChapterFromMilestoneValue = (cellContent: string | undefined): stri
     tempDiv.innerHTML = cellContent;
     const textContent = tempDiv.textContent || tempDiv.innerText || "";
 
-    // Match a number pattern (one or more digits)
-    const match = textContent.match(/(\d+)/);
-    return match ? match[1] : null;
+    // Use the new helper function to extract chapter number
+    const chapterNum = extractChapterNumberFromMilestoneValue(textContent);
+    return chapterNum !== null ? chapterNum.toString() : null;
 };
 
 const CodexCellEditor: React.FC = () => {
@@ -252,6 +281,9 @@ const CodexCellEditor: React.FC = () => {
     const [milestoneIndex, setMilestoneIndex] = useState<MilestoneIndex | null>(null);
     const [currentMilestoneIndex, setCurrentMilestoneIndex] = useState(0);
     const [isLoadingCells, setIsLoadingCells] = useState(false);
+
+    // Subsection progress state (milestone index -> subsection index -> progress)
+    const [subsectionProgress, setSubsectionProgress] = useState<Record<number, Record<number, ProgressPercentages>>>({});
 
     // Track which milestone/subsection combinations have been loaded
     const loadedPagesRef = useRef<Set<string>>(new Set());
@@ -830,6 +862,21 @@ const CodexCellEditor: React.FC = () => {
         [milestoneIndex]
     );
 
+    // Listen for subsection progress updates
+    useMessageHandler(
+        "codexCellEditor-subsectionProgress",
+        (event: MessageEvent) => {
+            const message = event.data as EditorReceiveMessages;
+            if (message?.type === "providerSendsSubsectionProgress") {
+                setSubsectionProgress((prev) => ({
+                    ...prev,
+                    [message.milestoneIndex]: message.subsectionProgress,
+                }));
+            }
+        },
+        []
+    );
+
     useEffect(() => {
         if (highlightedCellId && scrollSyncEnabled && isSourceText) {
             const cellId = highlightedCellId;
@@ -1228,8 +1275,8 @@ const CodexCellEditor: React.FC = () => {
                 currentMilestoneIdx < milestoneIdx.milestones.length
             ) {
                 const milestone = milestoneIdx.milestones[currentMilestoneIdx];
-                const chapterNum = parseInt(milestone.value, 10);
-                if (!isNaN(chapterNum) && chapterNum > 0) {
+                const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
+                if (chapterNum !== null) {
                     setChapterNumber(chapterNum);
                 }
             }
@@ -1335,20 +1382,41 @@ const CodexCellEditor: React.FC = () => {
         return sectionSet.size;
     };
 
+    // Helper function to get cell identifier (prefer globalReferences, fallback to cellMarkers)
+    const getCellIdentifier = (cell: QuillCellContent): string => {
+        // Prefer globalReferences (new format after migration)
+        const globalRefs = cell.data?.globalReferences;
+        if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+            return globalRefs[0];
+        }
+        // Fallback to cellMarkers for backward compatibility
+        return cell.cellMarkers[0] || "";
+    };
+
     // Helper function to get global line number for a cell (skips paratext, milestone, and child cells)
     const getGlobalLineNumber = (cell: QuillCellContent, allUnits: QuillCellContent[]): number => {
-        const cellIndex = allUnits.findIndex((unit) => unit.cellMarkers[0] === cell.cellMarkers[0]);
+        const cellIdentifier = getCellIdentifier(cell);
+        if (!cellIdentifier) return 0;
+
+        const cellIndex = allUnits.findIndex((unit) => getCellIdentifier(unit) === cellIdentifier);
 
         if (cellIndex === -1) return 0;
 
         // Count non-paratext, non-milestone, non-child cells up to and including this one
         let lineNumber = 0;
         for (let i = 0; i <= cellIndex; i++) {
-            const cellIdParts = allUnits[i].cellMarkers[0].split(":");
+            const unit = allUnits[i];
+            // MILESTONES: Can probably remove this after the cell ID migration.
+            // Check if this is a child cell by checking metadata.parentId (new UUID format)
+            // Legacy: also check ID format for backward compatibility during migration
+            const isChildCell =
+                unit.data?.parentId !== undefined ||
+                (getCellIdentifier(unit) && getCellIdentifier(unit).split(":").length > 2);
+
             if (
-                allUnits[i].cellType !== CodexCellTypes.PARATEXT &&
-                allUnits[i].cellType !== CodexCellTypes.MILESTONE &&
-                cellIdParts.length < 3
+                unit.cellType !== CodexCellTypes.PARATEXT &&
+                unit.cellType !== CodexCellTypes.MILESTONE &&
+                !isChildCell
             ) {
                 lineNumber++;
             }
@@ -1584,6 +1652,19 @@ const CodexCellEditor: React.FC = () => {
 
     // Get the subsections for the current milestone
     const subsections = getSubsectionsForMilestone(currentMilestoneIndex);
+
+    // Request subsection progress when milestone changes
+    useEffect(() => {
+        if (milestoneIndex && currentMilestoneIndex < milestoneIndex.milestones.length) {
+            // Request progress for current milestone
+            vscode.postMessage({
+                command: "requestSubsectionProgress",
+                content: {
+                    milestoneIndex: currentMilestoneIndex,
+                },
+            } as EditorPostMessages);
+        }
+    }, [currentMilestoneIndex, milestoneIndex, vscode]);
 
     // Cells are already paginated by the backend for milestone navigation
     // No additional slicing needed
@@ -1941,10 +2022,12 @@ const CodexCellEditor: React.FC = () => {
                 latestEdit?.validatedBy?.filter(
                     (v) => v && typeof v === "object" && !v.isDeleted
                 ) || [];
-            
+
             const hasNoValidators = activeValidators.length === 0;
             const isFullyValidated = activeValidators.length >= VALIDATION_THRESHOLD;
-            const validatedByCurrentUser = activeValidators.some((v) => v.username === currentUsername);
+            const validatedByCurrentUser = activeValidators.some(
+                (v) => v.username === currentUsername
+            );
 
             let shouldInclude = false;
 
@@ -1961,13 +2044,23 @@ const CodexCellEditor: React.FC = () => {
 
             // Check if matches "Not validated by you"
             // (Not fully validated, and not validated by current user. Includes 0-validator cells)
-            if (!shouldInclude && includeNotValidatedByCurrentUser && !isFullyValidated && !validatedByCurrentUser) {
+            if (
+                !shouldInclude &&
+                includeNotValidatedByCurrentUser &&
+                !isFullyValidated &&
+                !validatedByCurrentUser
+            ) {
                 shouldInclude = true;
             }
 
             // Check if matches "Fully validated by others"
             // (Must be fully validated, and not validated by current user)
-            if (!shouldInclude && includeFullyValidatedByOthers && isFullyValidated && !validatedByCurrentUser) {
+            if (
+                !shouldInclude &&
+                includeFullyValidatedByOthers &&
+                isFullyValidated &&
+                !validatedByCurrentUser
+            ) {
                 shouldInclude = true;
             }
 
@@ -2575,6 +2668,7 @@ const CodexCellEditor: React.FC = () => {
                             getSubsectionsForMilestone={getSubsectionsForMilestone}
                             requestCellsForMilestone={requestCellsForMilestone}
                             isLoadingCells={isLoadingCells}
+                            subsectionProgress={subsectionProgress[currentMilestoneIndex]}
                         />
                     </div>
                 </div>
@@ -2646,6 +2740,10 @@ const CodexCellEditor: React.FC = () => {
                             transcribingCells={transcribingCells}
                             showInlineBacktranslations={showInlineBacktranslations}
                             backtranslationsMap={backtranslationsMap}
+                            milestoneIndex={milestoneIndex}
+                            currentMilestoneIndex={currentMilestoneIndex}
+                            currentSubsectionIndex={currentSubsectionIndex}
+                            cellsPerPage={cellsPerPage}
                         />
                     </div>
                 </div>

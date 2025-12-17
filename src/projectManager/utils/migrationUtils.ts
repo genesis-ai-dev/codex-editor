@@ -8,6 +8,8 @@ import { EditType, CodexCellTypes } from "../../../types/enums";
 import type { ValidationEntry } from "../../../types";
 import { getAuthApi } from "../../extension";
 import { extractParentCellIdFromParatext } from "../../providers/codexCellEditorProvider/utils/cellUtils";
+import { generateCellIdFromHash, isUuidFormat } from "../../utils/uuidUtils";
+import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 
 // FIXME: move notebook format migration here
 
@@ -1665,7 +1667,57 @@ function extractChapterFromCell(cell: any, milestoneIndex: number): string {
 }
 
 /**
- * Creates a milestone cell with chapter number derived from the cell below it.
+ * Extracts book abbreviation from a cell's globalReferences or cellMarkers.
+ * Returns null if no book abbreviation can be found.
+ */
+function extractBookNameFromCell(cell: any): string | null {
+    // Priority 1: Extract from globalReferences array (preferred method)
+    const globalRefs = cell?.data?.globalReferences || cell?.metadata?.data?.globalReferences;
+    if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+        const firstRef = globalRefs[0];
+        // Extract book name: "GEN 1:1" -> "GEN" or "TheChosen-201-en-SingleSpeaker 1:jkflds" -> "TheChosen-201-en-SingleSpeaker"
+        const bookMatch = firstRef.match(/^([^\s]+)/);
+        if (bookMatch) {
+            return bookMatch[1];
+        }
+    }
+
+    // Priority 2: Fallback to cellMarkers (legacy support during migration)
+    if (cell?.cellMarkers?.[0]) {
+        const firstMarker = cell.cellMarkers[0].split(":")[0];
+        if (firstMarker) {
+            const parts = firstMarker.split(" ");
+            return parts[0];
+        }
+    }
+
+    // Priority 3: Extract from cellId
+    const cellId = cell?.metadata?.id || cell?.id;
+    if (cellId) {
+        // Extract book name from cellId: "GEN 1:1" -> "GEN"
+        const bookMatch = cellId.match(/^([^\s]+)/);
+        if (bookMatch) {
+            return bookMatch[1];
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Gets the localized book name from a book abbreviation.
+ * Returns the abbreviation itself if no localized name is found.
+ */
+function getLocalizedBookName(bookAbbr: string): string {
+    if (!bookAbbr) return bookAbbr;
+
+    const bookInfo = (bibleData as any[]).find((book) => book.abbr === bookAbbr);
+    return bookInfo?.name || bookAbbr;
+}
+
+/**
+ * Creates a milestone cell with book name and chapter number derived from the cell below it.
+ * Format: "BookName ChapterNumber" (e.g., "Isaiah 1")
  */
 async function createMilestoneCell(cell: any, milestoneIndex: number): Promise<any> {
     const uuid = randomUUID();
@@ -1673,10 +1725,17 @@ async function createMilestoneCell(cell: any, milestoneIndex: number): Promise<a
     const currentTimestamp = Date.now();
     const author = await getCurrentUserName();
 
+    // Extract book name from cell
+    const bookAbbr = extractBookNameFromCell(cell);
+    const bookName = bookAbbr ? getLocalizedBookName(bookAbbr) : null;
+
+    // Combine book name and chapter number, or use just chapter number if no book name found
+    const milestoneValue = bookName ? `${bookName} ${chapterNumber}` : chapterNumber;
+
     // Create initial edit entry similar to source file cells
     const initialEdit = {
         editMap: EditMapUtils.value(),
-        value: chapterNumber,
+        value: milestoneValue,
         timestamp: currentTimestamp - 1000, // Ensure it's before any user edits
         type: EditType.INITIAL_IMPORT,
         author: author,
@@ -1686,7 +1745,7 @@ async function createMilestoneCell(cell: any, milestoneIndex: number): Promise<a
     return {
         kind: 2, // vscode.NotebookCellKind.Code
         languageId: "html",
-        value: chapterNumber,
+        value: milestoneValue,
         metadata: {
             id: uuid,
             type: CodexCellTypes.MILESTONE,
@@ -2568,6 +2627,233 @@ export async function migrateGlobalReferencesForFile(fileUri: vscode.Uri): Promi
         return false;
     } catch (error) {
         console.error(`Error migrating global references for ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
+
+/**
+ * Migration: Convert all cell IDs to UUID format using SHA-256 hash of original ID.
+ * For child cells (those with IDs containing ':' separators), adds metadata.parentId field.
+ * Preserves metadata.data.globalReferences array unchanged.
+ * 
+ * This migration is idempotent - it skips cells that already have UUID format IDs.
+ */
+export const migration_cellIdsToUuid = async (context?: vscode.ExtensionContext) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        // Check if migration has already been run
+        const migrationKey = "cellIdsToUuidMigrationCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        let hasMigrationRun = false;
+
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch (e) {
+            // Setting might not be registered yet; fall back to workspaceState
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
+
+        if (hasMigrationRun) {
+            console.log("Cell IDs to UUID migration already completed, skipping");
+            return;
+        }
+
+        console.log("Running cell IDs to UUID migration...");
+
+        const workspaceFolder = workspaceFolders[0];
+
+        // Find all codex and source files
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+
+        const allFiles = [...codexFiles, ...sourceFiles];
+
+        if (allFiles.length === 0) {
+            console.log("No codex or source files found, skipping cell IDs to UUID migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                // If configuration key is not registered, fall back to workspaceState
+                await context?.workspaceState.update(migrationKey, true);
+            }
+            return;
+        }
+
+        let processedFiles = 0;
+        let migratedFiles = 0;
+
+        // Process files with progress
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Migrating cell IDs to UUID format",
+                cancellable: false
+            },
+            async (progress) => {
+                for (let i = 0; i < allFiles.length; i++) {
+                    const file = allFiles[i];
+                    progress.report({
+                        message: `Processing ${path.basename(file.fsPath)}`,
+                        increment: (100 / allFiles.length)
+                    });
+
+                    try {
+                        const wasMigrated = await migrateCellIdsToUuidForFile(file);
+                        processedFiles++;
+                        if (wasMigrated) {
+                            migratedFiles++;
+                        }
+                    } catch (error) {
+                        console.error(`Error processing ${file.fsPath}:`, error);
+                    }
+                }
+            }
+        );
+
+        // Mark migration as completed
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch (e) {
+            // If configuration key is not registered, fall back to workspaceState
+            await context?.workspaceState.update(migrationKey, true);
+        }
+
+        console.log(`Cell IDs to UUID migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        if (migratedFiles > 0) {
+            vscode.window.showInformationMessage(
+                `Cell IDs to UUID migration complete: ${migratedFiles} files updated`
+            );
+        }
+
+    } catch (error) {
+        console.error("Error running cell IDs to UUID migration:", error);
+    }
+};
+
+/**
+ * Processes a single file to convert cell IDs to UUID format.
+ * Returns true if the file was modified, false otherwise.
+ */
+export async function migrateCellIdsToUuidForFile(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = notebookData.cells || [];
+        if (cells.length === 0) return false;
+
+        let hasChanges = false;
+
+        // First pass: check if file needs migration (all cells already have UUIDs)
+        let needsMigration = false;
+        for (const cell of cells) {
+            const md: any = cell.metadata || {};
+            const cellId = md.id;
+            if (cellId && !isUuidFormat(cellId)) {
+                needsMigration = true;
+                break;
+            }
+        }
+
+        if (!needsMigration) {
+            return false; // Already migrated
+        }
+
+        // Second pass: create a map of original IDs to UUIDs for all cells
+        const idToUuidMap = new Map<string, string>();
+
+        // Build the map first by processing all cells
+        for (const cell of cells) {
+            const md: any = cell.metadata || {};
+            const originalCellId = md.id;
+
+            if (!originalCellId) continue;
+
+            // Skip if already in UUID format
+            if (isUuidFormat(originalCellId)) {
+                continue;
+            }
+
+            // Generate UUID from original ID
+            const newUuid = await generateCellIdFromHash(originalCellId);
+            idToUuidMap.set(originalCellId, newUuid);
+
+            // Also generate UUIDs for parent IDs of child cells
+            const cellIdParts = originalCellId.split(":");
+            if (cellIdParts.length > 2) {
+                const parentOriginalId = cellIdParts.slice(0, 2).join(":");
+                if (!idToUuidMap.has(parentOriginalId)) {
+                    const parentUuid = await generateCellIdFromHash(parentOriginalId);
+                    idToUuidMap.set(parentOriginalId, parentUuid);
+                }
+            }
+        }
+
+        // Third pass: update cell IDs and add parentId for child cells
+        for (const cell of cells) {
+            const md: any = cell.metadata || {};
+            const originalCellId = md.id;
+
+            if (!originalCellId) continue;
+
+            // Skip if already in UUID format
+            if (isUuidFormat(originalCellId)) {
+                continue;
+            }
+
+            // Get UUID from map
+            const newUuid = idToUuidMap.get(originalCellId);
+            if (!newUuid) {
+                continue; // Should not happen, but skip if it does
+            }
+
+            // Update cell ID
+            md.id = newUuid;
+            hasChanges = true;
+
+            // Check if this is a child cell (has more than 2 parts when split by ':')
+            // Examples: "GEN 1:1:cue-..." or "TheChosen-201-en-SingleSpeaker 1:cue-32.783-34.785:..."
+            const cellIdParts = originalCellId.split(":");
+            if (cellIdParts.length > 2) {
+                // This is a child cell - extract parent ID
+                // Parent ID is the first two parts joined by ':'
+                const parentOriginalId = cellIdParts.slice(0, 2).join(":");
+                const parentUuid = idToUuidMap.get(parentOriginalId);
+
+                if (parentUuid) {
+                    // Add parentId to metadata
+                    md.parentId = parentUuid;
+                }
+            }
+
+            cell.metadata = md;
+        }
+
+        if (hasChanges) {
+            const updatedContent = await serializer.serializeNotebook(
+                notebookData,
+                new vscode.CancellationTokenSource().token
+            );
+            await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+            return true;
+        }
+
+        return false;
+    } catch (error) {
+        console.error(`Error migrating cell IDs to UUID for ${fileUri.fsPath}:`, error);
         return false;
     }
 }

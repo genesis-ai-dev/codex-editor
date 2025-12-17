@@ -261,10 +261,15 @@ export class FileSyncManager {
                     const isMilestone = cell.metadata?.type === CodexCellTypes.MILESTONE;
                     const hasContent = cell.value && cell.value.trim() !== "";
 
+                    // Check if this is a child cell (has parentId in metadata)
+                    // Legacy: also check ID format for backward compatibility during migration
+                    const isChildCell = cell.metadata?.parentId !== undefined ||
+                        (cellId && cellId.split(":").length > 2);
+
                     // Calculate line number for database storage
                     let lineNumberForDB: number | null = null;
 
-                    if (!isParatext && !isMilestone) {
+                    if (!isParatext && !isMilestone && !isChildCell) {
                         if (fileType === 'source') {
                             // Source cells: always store line numbers (they should always have content)
                             lineNumberForDB = logicalLinePosition;
@@ -277,11 +282,11 @@ export class FileSyncManager {
                             // If no content, lineNumberForDB stays null but logical position still increments
                         }
 
-                        // Always increment logical position for non-paratext, non-milestone cells
+                        // Always increment logical position for non-paratext, non-milestone, non-child cells
                         // This ensures stable line numbering even as cells get translated
                         logicalLinePosition++;
                     }
-                    // Paratext and milestone cells: no line numbers, no position increment
+                    // Paratext, milestone, and child cells: no line numbers, no position increment
 
                     this.sqliteIndex.upsertCellSync(
                         cellId,

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button } from "../components/ui/button";
-import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
+import { CELL_DISPLAY_MODES, extractChapterNumberFromMilestoneValue } from "./CodexCellEditor";
 import NotebookMetadataModal from "./NotebookMetadataModal";
 import { AutocompleteModal } from "./modals/AutocompleteModal";
 import { ChapterSelectorModal } from "./modals/ChapterSelectorModal";
@@ -11,12 +11,6 @@ import {
     type MilestoneIndex,
 } from "../../../../types";
 import { EditMapUtils } from "../../../../src/utils/editMapUtils";
-import {
-    getCellValueData,
-    cellHasAudioUsingAttachments,
-    computeValidationStats,
-    computeProgressPercents,
-} from "@sharedUtils";
 import {
     type FileStatus,
     type EditorPosition,
@@ -99,6 +93,7 @@ interface ChapterNavigationHeaderProps {
     getSubsectionsForMilestone: (milestoneIdx: number) => Subsection[];
     requestCellsForMilestone: (milestoneIdx: number, subsectionIdx?: number) => void;
     isLoadingCells?: boolean;
+    subsectionProgress?: Record<number, ProgressPercentages>;
 }
 
 export function ChapterNavigationHeader({
@@ -157,6 +152,7 @@ export function ChapterNavigationHeader({
     getSubsectionsForMilestone,
     requestCellsForMilestone,
     isLoadingCells = false,
+    subsectionProgress,
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
@@ -262,19 +258,13 @@ ChapterNavigationHeaderProps) {
         []
     );
 
-    // Determine the display name using the map
+    // Display milestone value directly (e.g., "Isaiah 1" or "1")
     const getDisplayTitle = useCallback(() => {
-        // Show milestone value
-        const firstMarker = translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0];
-        if (firstMarker) {
-            const parts = firstMarker.split(" ");
-            const bookAbbr = parts[0];
-            const localizedName = bibleBookMap?.get(bookAbbr)?.name;
-            const displayBookName = localizedName || bookAbbr;
-            return `${displayBookName}\u00A0${currentMilestoneValue}`;
+        if (currentMilestoneValue) {
+            return currentMilestoneValue;
         }
-        return `Section\u00A0${currentMilestoneValue}`;
-    }, [translationUnitsForSection, bibleBookMap, currentMilestoneValue]);
+        return "Section 1";
+    }, [currentMilestoneValue]);
 
     // Centralized title measurement logic
     const measureAndTruncateTitle = useCallback(() => {
@@ -679,10 +669,11 @@ ChapterNavigationHeaderProps) {
             if (!milestoneIndex) return;
 
             // Find the milestone index that corresponds to this chapter number
-            // Milestone values are strings like "1", "2", etc. (chapter numbers)
-            const milestoneIdx = milestoneIndex.milestones.findIndex(
-                (milestone) => milestone.value === selectedChapter.toString()
-            );
+            // Milestone values can be "1", "2" (old format) or "Isaiah 1", "GEN 2" (new format)
+            const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
+                const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
+                return chapterNum !== null && chapterNum === selectedChapter;
+            });
 
             if (milestoneIdx !== -1) {
                 // Found matching milestone, navigate to it
@@ -718,108 +709,33 @@ ChapterNavigationHeaderProps) {
     const shouldHideNavButtons = isVerySmallScreen; // Hide nav buttons on very small screens
 
     // Calculate progress for each subsection/page
-    const calculateSubsectionProgress = (
-        subsection: Subsection,
-        forSourceText: boolean = isSourceText
-    ) => {
-        // Use allCellsForChapter if available, otherwise fall back to translationUnitsForSection
-        const allChapterCells = allCellsForChapter || translationUnitsForSection;
-
-        // Get cells for this specific subsection from the full chapter data
-        const subsectionCells = allChapterCells.slice(subsection.startIndex, subsection.endIndex);
-
-        // Filter out paratext and merged cells for progress calculation
-        const validCells = subsectionCells.filter((cell) => {
-            const cellId = cell?.cellMarkers?.[0];
-            return cellId && !cellId.startsWith("paratext-") && !cell.merged;
-        });
-
-        const totalCells = validCells.length;
-        if (totalCells === 0) {
+    const calculateSubsectionProgress = (subsection: Subsection, subsectionIndex: number) => {
+        // Only use backend-calculated progress
+        if (subsectionProgress && subsectionProgress[subsectionIndex] !== undefined) {
+            const backendProgress = subsectionProgress[subsectionIndex];
             return {
-                isFullyTranslated: false,
-                isFullyValidated: false,
-                percentTranslationsCompleted: 0,
-                percentAudioTranslationsCompleted: 0,
-                percentFullyValidatedTranslations: 0,
-                percentAudioValidatedTranslations: 0,
-                percentTextValidatedTranslations: 0,
+                isFullyTranslated: backendProgress.percentTranslationsCompleted === 100,
+                isFullyValidated: backendProgress.percentFullyValidatedTranslations === 100,
+                percentTranslationsCompleted: backendProgress.percentTranslationsCompleted,
+                percentAudioTranslationsCompleted:
+                    backendProgress.percentAudioTranslationsCompleted,
+                percentFullyValidatedTranslations:
+                    backendProgress.percentFullyValidatedTranslations,
+                percentAudioValidatedTranslations:
+                    backendProgress.percentAudioValidatedTranslations,
+                percentTextValidatedTranslations: backendProgress.percentTextValidatedTranslations,
             };
         }
 
-        // Check if all cells have content (translated for target, existing for source)
-        const completedCells = validCells.filter((cell) => {
-            const hasContent =
-                cell.cellContent &&
-                cell.cellContent.trim().length > 0 &&
-                cell.cellContent !== "<span></span>";
-
-            if (forSourceText) {
-                // For source text, we just check if content exists
-                return hasContent;
-            } else {
-                // For target text, we check if it's been translated (has content)
-                return hasContent;
-            }
-        });
-        const isFullyTranslated = completedCells.length === totalCells;
-
-        // Calculate audio presence for subsection (mirrors chapter calculation)
-        const cellsWithAudioValues = validCells.filter((cell) =>
-            cellHasAudioUsingAttachments(
-                (cell as any).attachments,
-                (cell as any).metadata?.selectedAudioId
-            )
-        ).length;
-
-        // Check if all cells are validated
-        let isFullyValidated = false;
-        const minimumValidationsRequired =
-            (requiredValidations ?? undefined) !== undefined
-                ? (requiredValidations as number) ?? 1
-                : (window as any)?.initialData?.validationCount ?? 1;
-        const minimumAudioValidationsRequired =
-            (requiredAudioValidations ?? undefined) !== undefined
-                ? (requiredAudioValidations as number) ?? 1
-                : (window as any)?.initialData?.validationCountAudio ?? 1;
-
-        // Calculate validation data using shared utils
-        const cellWithValidatedData = validCells.map((cell) => getCellValueData(cell));
-
-        const { validatedCells, audioValidatedCells, fullyValidatedCells } = computeValidationStats(
-            cellWithValidatedData,
-            minimumValidationsRequired,
-            minimumAudioValidationsRequired
-        );
-
-        const {
-            percentTranslationsCompleted,
-            percentAudioTranslationsCompleted,
-            percentAudioValidatedTranslations,
-            percentTextValidatedTranslations,
-            percentFullyValidatedTranslations,
-        } = computeProgressPercents(
-            totalCells,
-            completedCells.length,
-            cellsWithAudioValues,
-            validatedCells,
-            audioValidatedCells,
-            fullyValidatedCells
-        );
-
-        if (isFullyTranslated) {
-            // Maintain existing gating for the boolean display in this header
-            isFullyValidated = fullyValidatedCells === totalCells;
-        }
-
+        // Return default values if backend progress is not available
         return {
-            isFullyTranslated,
-            isFullyValidated,
-            percentTranslationsCompleted,
-            percentAudioTranslationsCompleted,
-            percentFullyValidatedTranslations,
-            percentAudioValidatedTranslations,
-            percentTextValidatedTranslations,
+            isFullyTranslated: false,
+            isFullyValidated: false,
+            percentTranslationsCompleted: 0,
+            percentAudioTranslationsCompleted: 0,
+            percentFullyValidatedTranslations: 0,
+            percentAudioValidatedTranslations: 0,
+            percentTextValidatedTranslations: 0,
         };
     };
 
@@ -959,8 +875,9 @@ ChapterNavigationHeaderProps) {
                                     if (milestoneIndex?.milestones[newMilestoneIdx]) {
                                         const milestoneValue =
                                             milestoneIndex.milestones[newMilestoneIdx].value;
-                                        const chapterNum = parseInt(milestoneValue, 10);
-                                        if (!isNaN(chapterNum) && chapterNum > 0) {
+                                        const chapterNum =
+                                            extractChapterNumberFromMilestoneValue(milestoneValue);
+                                        if (chapterNum !== null) {
                                             // Cache the chapter number so it persists when switching files
                                             vscode.postMessage({
                                                 command: "jumpToChapter",
@@ -1093,8 +1010,9 @@ ChapterNavigationHeaderProps) {
                                     if (milestoneIndex?.milestones[newMilestoneIdx]) {
                                         const milestoneValue =
                                             milestoneIndex.milestones[newMilestoneIdx].value;
-                                        const chapterNum = parseInt(milestoneValue, 10);
-                                        if (!isNaN(chapterNum) && chapterNum > 0) {
+                                        const chapterNum =
+                                            extractChapterNumberFromMilestoneValue(milestoneValue);
+                                        if (chapterNum !== null) {
                                             // Cache the chapter number so it persists when switching files
                                             vscode.postMessage({
                                                 command: "jumpToChapter",
@@ -1145,7 +1063,7 @@ ChapterNavigationHeaderProps) {
                                         const currentSection = subsections[currentSubsectionIndex];
                                         const progress = calculateSubsectionProgress(
                                             currentSection,
-                                            isSourceText
+                                            currentSubsectionIndex
                                         );
                                         return (
                                             <>
@@ -1182,10 +1100,7 @@ ChapterNavigationHeaderProps) {
                                 style={{ zIndex: 99999 }}
                             >
                                 {subsections.map((section, index) => {
-                                    const progress = calculateSubsectionProgress(
-                                        section,
-                                        isSourceText
-                                    );
+                                    const progress = calculateSubsectionProgress(section, index);
                                     const isActive = currentSubsectionIndex === index;
                                     return (
                                         <MemoDropdownRow
@@ -1541,14 +1456,17 @@ ChapterNavigationHeaderProps) {
                 cellsToAutocompleteIds={cellsToAutocompleteIds}
                 cellsWithCurrentUserOptionIds={cellsWithCurrentUserOptionIds}
                 fullyValidatedByOthersIds={fullyValidatedByOthersIds}
-                defaultValue={Math.min(5, untranslatedCellIds.length > 0 ? untranslatedCellIds.length : 5)}
+                defaultValue={Math.min(
+                    5,
+                    untranslatedCellIds.length > 0 ? untranslatedCellIds.length : 5
+                )}
             />
 
             <ChapterSelectorModal
                 isOpen={showChapterSelector}
                 onClose={() => setShowChapterSelector(false)}
                 onSelectChapter={handleChapterSelection}
-                currentChapter={chapterNumber}
+                currentMilestoneIndex={currentMilestoneIndex}
                 totalChapters={totalChapters}
                 bookTitle={getDisplayTitle().split("\u00A0")[0]}
                 unsavedChanges={unsavedChanges}

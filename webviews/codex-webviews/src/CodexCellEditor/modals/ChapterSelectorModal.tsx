@@ -10,7 +10,7 @@ interface ChapterSelectorModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSelectChapter: (chapter: number) => void;
-    currentChapter: number;
+    currentMilestoneIndex: number;
     totalChapters: number;
     bookTitle: string;
     unsavedChanges: boolean;
@@ -27,7 +27,7 @@ export function ChapterSelectorModal({
     isOpen,
     onClose,
     onSelectChapter,
-    currentChapter,
+    currentMilestoneIndex,
     totalChapters,
     bookTitle,
     unsavedChanges,
@@ -232,7 +232,9 @@ export function ChapterSelectorModal({
                 }}
             >
                 {Array.from({ length: totalChapters }, (_, i) => i + 1).map((chapter) => {
-                    const isSelected = currentChapter === chapter;
+                    // Calculate which chapter to highlight (milestone index is 0-based, chapters are 1-based)
+                    const chapterToHighlight = currentMilestoneIndex + 1;
+                    const isSelected = chapterToHighlight === chapter;
                     const { textBackgroundColor, audioBackgroundColor } = getChapterColor(chapter);
                     const cp = chapterProgress?.[chapter];
                     const audioCompletedPercent = Math.round(

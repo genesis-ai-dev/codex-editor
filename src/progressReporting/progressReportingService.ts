@@ -479,12 +479,22 @@ export class ProgressReportingService {
                 originalBookCompletionStmt.free();
             }
 
-            // Now try a different approach - get book completion data by extracting file info from cell IDs
-            // Since cell IDs seem to contain the file/book information
+            // MILESTONES: Will have to have this read from the milestone value.
+
+            // With UUID cell IDs, we need to extract book name from globalReferences array stored in metadata
+            // Note: This query uses JSON extraction to get book name from globalReferences
+            // For SQLite, we'll need to parse the JSON stored in metadata_data column
             const bookCompletionStmt = db.prepare(`
                 SELECT 
-                    -- Extract book name from cell_id (everything before the first space or colon)
+                    -- Extract book name from globalReferences JSON array (first element, before first space)
                     CASE 
+                        WHEN metadata_data LIKE '%"globalReferences"%' THEN
+                            -- Extract first globalReference value and get book name (part before space)
+                            TRIM(SUBSTR(
+                                SUBSTR(metadata_data, INSTR(metadata_data, '"globalReferences"') + 18),
+                                2,
+                                INSTR(SUBSTR(metadata_data, INSTR(metadata_data, '"globalReferences"') + 18), '"') - 2
+                            ), '[]"')
                         WHEN cell_id LIKE '%:%' THEN SUBSTR(cell_id, 1, INSTR(cell_id, ':') - 1)
                         WHEN cell_id LIKE '% %' THEN SUBSTR(cell_id, 1, INSTR(cell_id, ' ') - 1)
                         ELSE cell_id

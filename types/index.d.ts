@@ -769,6 +769,12 @@ export type EditorPostMessages =
             milestoneIndex: number;
             subsectionIndex?: number; // For sub-pagination within milestone
         };
+    }
+    | {
+        command: "requestSubsectionProgress";
+        content: {
+            milestoneIndex: number;
+        };
     };
 
 // (revalidateMissingForCell added above in EditorPostMessages union)
@@ -877,12 +883,14 @@ type CodexData = Timestamps & {
     merged?: boolean;
     deleted?: boolean;
     originalText?: string;
+    globalReferences?: string[]; // Array of cell IDs in original format (e.g., "GEN 1:1") used for header generation
 };
 
 type BaseCustomCellMetaData = {
     id: string;
     type: CodexCellTypes;
     edits: EditHistory[];
+    parentId?: string; // UUID of parent cell (for child cells like cues, paratext, etc.)
 };
 
 export type BaseCustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {
@@ -1702,6 +1710,17 @@ type EditorReceiveMessages =
         subsectionIndex: number;
         cells: QuillCellContent[];
         sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
+    }
+    | {
+        type: "providerSendsSubsectionProgress";
+        milestoneIndex: number;
+        subsectionProgress: Record<number, {
+            percentTranslationsCompleted: number;
+            percentAudioTranslationsCompleted: number;
+            percentFullyValidatedTranslations: number;
+            percentAudioValidatedTranslations: number;
+            percentTextValidatedTranslations: number;
+        }>;
     }
     | {
         type: "preferredEditorTab";
