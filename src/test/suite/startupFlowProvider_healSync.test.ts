@@ -40,6 +40,8 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         } as any);
 
         // Ensure heal uses our temp projects dir for snapshot
+        // Make sure the directory exists so createDirectory can succeed
+        fs.mkdirSync(tempProjectsDir, { recursive: true });
         const getCodexProjectsDirectoryStub = sinon.stub(projectLocationUtils, "getCodexProjectsDirectory").resolves(
             vscode.Uri.file(tempProjectsDir)
         );
@@ -50,6 +52,20 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
             binaryCopies: [],
         });
         const resolveConflictFilesStub = sinon.stub(mergeResolvers, "resolveConflictFiles").resolves([]);
+
+        // Try to stub vscode.workspace.fs operations (may fail if non-configurable)
+        let fsStatStub: sinon.SinonStub | undefined;
+        let fsDeleteStub: sinon.SinonStub | undefined;
+        try {
+            fsStatStub = sinon.stub(vscode.workspace.fs, "stat").resolves({ type: vscode.FileType.Directory } as any);
+        } catch {
+            // Non-configurable, will use real operations
+        }
+        try {
+            fsDeleteStub = sinon.stub(vscode.workspace.fs, "delete").resolves();
+        } catch {
+            // Non-configurable, will use real operations
+        }
 
         // Capture openFolder invocation (heal triggers reload to run sync on next activation)
         const executeCommandStub = sinon.stub(vscode.commands, "executeCommand").resolves(undefined);
@@ -68,10 +84,13 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         fs.writeFileSync(path.join(projectPath, "dummy.txt"), "dummy", "utf8");
 
         // Stub frontierApi clone used by heal step 4
+        // The clone will recreate the directory after deletion
         (provider as any).frontierApi = {
             cloneRepository: sinon.stub().callsFake(async (_repoUrl: string, cloneToPath?: string) => {
                 if (cloneToPath) {
+                    // Ensure directory exists for vscode.workspace.fs.stat check
                     fs.mkdirSync(cloneToPath, { recursive: true });
+                    fs.writeFileSync(path.join(cloneToPath, ".gitkeep"), "", "utf8");
                 }
                 return true;
             }),
@@ -107,6 +126,12 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         getCodexProjectsDirectoryStub.restore();
         buildConflictsStub.restore();
         resolveConflictFilesStub.restore();
+        if (fsStatStub) {
+            fsStatStub.restore();
+        }
+        if (fsDeleteStub) {
+            fsDeleteStub.restore();
+        }
         executeCommandStub.restore();
         sinon.restore();
 
