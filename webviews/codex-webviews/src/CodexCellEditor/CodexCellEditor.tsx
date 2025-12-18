@@ -1452,7 +1452,7 @@ const CodexCellEditor: React.FC = () => {
             }
 
             // Calculate number of pages based on content cells
-            const totalPages = Math.ceil(cellCount / effectiveCellsPerPage);
+            const totalPages = Math.ceil(cellCount / effectiveCellsPerPage) || 1;
             const subsections: Subsection[] = [];
 
             for (let i = 0; i < totalPages; i++) {
