@@ -20,7 +20,6 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
     test("performProjectHeal sets workspace and calls stageAndCommitAllAndSync", async function () {
         this.timeout(15000);
 
-        const clock = sinon.useFakeTimers({ shouldClearNativeTimers: true });
         const tempProjectsDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-heal-sync-"));
 
         // Ensure we don't actually pop UI
@@ -57,6 +56,7 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         let fsStatStub: sinon.SinonStub | undefined;
         let fsDeleteStub: sinon.SinonStub | undefined;
         let fsCreateDirectoryStub: sinon.SinonStub | undefined;
+        let fsWriteFileStub: sinon.SinonStub | undefined;
         try {
             fsStatStub = sinon.stub(vscode.workspace.fs, "stat").resolves({ type: vscode.FileType.Directory } as any);
         } catch {
@@ -72,9 +72,20 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         } catch {
             // Non-configurable, will use real operations
         }
+        try {
+            fsWriteFileStub = sinon.stub(vscode.workspace.fs, "writeFile").resolves();
+        } catch {
+            // Non-configurable, will use real operations
+        }
 
         // Capture openFolder invocation (heal triggers reload to run sync on next activation)
-        const executeCommandStub = sinon.stub(vscode.commands, "executeCommand").resolves(undefined);
+        // Ensure it resolves immediately to prevent hanging
+        const executeCommandStub = sinon.stub(vscode.commands, "executeCommand").callsFake(async (command: string) => {
+            if (command === "vscode.openFolder") {
+                return Promise.resolve(undefined);
+            }
+            return Promise.resolve(undefined);
+        });
 
         const context = createMockExtensionContext();
         const provider = new StartupFlowProvider(context);
@@ -83,6 +94,7 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         (provider as any).createProjectBackup = sinon.stub().resolves(vscode.Uri.file(path.join(tempProjectsDir, "backup.zip")));
         (provider as any).copyDirectory = sinon.stub().resolves();
         (provider as any).generateTimestamp = sinon.stub().returns("TEST_TS");
+        (provider as any).ensureDirectoryExists = sinon.stub().resolves(true);
 
         // Create an initial "corrupted" project folder so the delete step has something to remove
         const projectPath = path.join(tempProjectsDir, "healed-project");
@@ -104,7 +116,10 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
 
         const progress = { report: sinon.stub() } as any;
 
-        // Start heal, then fast-forward the internal 3s wait
+        // Make the internal post-clone delay instant for tests
+        (provider as any).sleep = sinon.stub().resolves();
+
+        // Start heal
         const healPromise = (provider as any).performProjectHeal(
             progress,
             "projectName",
@@ -112,7 +127,8 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
             "https://example.com/repo.git",
             false
         );
-        await clock.tickAsync(3000);
+
+        // Wait for the promise to resolve
         await healPromise;
 
         // Should persist a pending heal sync payload
@@ -125,7 +141,6 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         sinon.assert.calledWith(executeCommandStub, "vscode.openFolder", sinon.match.any, false);
 
         // Cleanup stubs
-        clock.restore();
         infoStub.restore();
         initStub.restore();
         getExtensionStub.restore();
@@ -140,6 +155,9 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         }
         if (fsCreateDirectoryStub) {
             fsCreateDirectoryStub.restore();
+        }
+        if (fsWriteFileStub) {
+            fsWriteFileStub.restore();
         }
         executeCommandStub.restore();
         sinon.restore();

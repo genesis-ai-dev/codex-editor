@@ -2889,6 +2889,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     /**
      * Perform project healing operation
      */
+    private sleep(ms: number): Promise<void> {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
     private async performProjectHeal(
         progress: vscode.Progress<{ message?: string; increment?: number; }>,
         projectName: string,
@@ -2971,7 +2975,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         }
 
         // Wait for clone to complete
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        await this.sleep(3000);
 
         // Step 5: Merge temporary files back
         progress.report({ increment: 20, message: "Merging local changes..." });
