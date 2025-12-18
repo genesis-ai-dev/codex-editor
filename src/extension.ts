@@ -60,6 +60,7 @@ import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
 import * as fs from "fs";
 import * as os from "os";
+import * as path from "path";
 
 const DEBUG_MODE = false;
 function debug(...args: any[]): void {
@@ -886,6 +887,15 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
         // First check if there's actually a Codex project open
         const hasCodexProject = await checkIfMetadataAndGitIsInitialized();
 
+        // If we just completed a heal, we may have a pending heal sync to run (with a specific commit message).
+        const pendingHealSync = context.globalState.get<any>("codex.pendingHealSync");
+        const workspaceFolderPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const isHealWorkspace =
+            !!pendingHealSync &&
+            typeof pendingHealSync.projectPath === "string" &&
+            typeof workspaceFolderPath === "string" &&
+            path.normalize(pendingHealSync.projectPath) === path.normalize(workspaceFolderPath);
+
         // CRITICAL: Run migrations and disable VS Code's Git BEFORE first sync
         // This must happen after checking project exists but BEFORE any Git operations
         if (hasCodexProject) {
@@ -912,9 +922,27 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
                         const syncStart = globalThis.performance.now();
                         const syncManager = SyncManager.getInstance();
                         try {
-                            await syncManager.executeSync("Initial workspace sync", true, context, false);
+                            if (isHealWorkspace && pendingHealSync?.commitMessage) {
+                                await syncManager.executeSync(String(pendingHealSync.commitMessage), true, context, false);
+                            } else {
+                                await syncManager.executeSync("Initial workspace sync", true, context, false);
+                            }
                             const syncDuration = globalThis.performance.now() - syncStart;
                             debug(`✅ [POST-WORKSPACE] Sync completed after workspace load: ${syncDuration.toFixed(2)}ms`);
+
+                            // If this was a heal-triggered sync, clear the pending flag and show success message.
+                            if (isHealWorkspace) {
+                                await context.globalState.update("codex.pendingHealSync", undefined);
+                                if (pendingHealSync?.showSuccessMessage) {
+                                    const projectName = pendingHealSync?.projectName || "Project";
+                                    const backupFileName = pendingHealSync?.backupFileName;
+                                    vscode.window.showInformationMessage(
+                                        backupFileName
+                                            ? `Project "${projectName}" has been healed and synced successfully! Backup saved to: ${backupFileName}`
+                                            : `Project "${projectName}" has been healed and synced successfully!`
+                                    );
+                                }
+                            }
                         } catch (error) {
                             console.error("❌ [POST-WORKSPACE] Error during post-workspace sync:", error);
                         }

@@ -29,6 +29,8 @@ import { safePostMessageToPanel, safeIsVisible, safeSetHtml, safeSetOptions } fr
 import * as path from "path";
 import * as fs from "fs";
 import git from "isomorphic-git";
+import { resolveConflictFiles } from "../../projectManager/utils/merge/resolvers";
+import { buildConflictsFromDirectories } from "../../projectManager/utils/merge/directoryConflicts";
 
 // Add global state tracking for startup flow
 export class StartupFlowGlobalState {
@@ -168,6 +170,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     private metadataWatcher?: vscode.FileSystemWatcher;
     private _preflightPromise?: Promise<PreflightState>;
     private _forceLogin: boolean = false;
+    private static readonly PENDING_HEAL_SYNC_KEY = "codex.pendingHealSync";
 
     public setForceLogin(force: boolean) {
         this._forceLogin = force;
@@ -2978,31 +2981,64 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         await vscode.workspace.fs.stat(clonedProjectUri);
         debugLog("Cloned project directory exists");
 
-        // Import types for conflict resolution
-        type ConflictFile = import("../../projectManager/utils/merge/types").ConflictFile;
-
-        // Enhanced ConflictFile type to handle binary files
-        interface EnhancedConflictFile extends Omit<ConflictFile, 'ours' | 'theirs' | 'base'> {
-            ours: string | Uint8Array;
-            theirs: string | Uint8Array;
-            base: string | Uint8Array;
-            isBinary?: boolean;
-        }
-
-        // Collect conflicts from temp folder
-        const conflicts: EnhancedConflictFile[] = [];
-        await this.collectConflictsRecursively(tempFolderUri, clonedProjectUri, conflicts);
-
-        debugLog("Conflicts collected:", {
-            totalConflicts: conflicts.length,
-            conflicts: conflicts.map(c => ({ filepath: c.filepath, isNew: c.isNew }))
+        // Build a full merge set from the saved snapshot (ours) vs the freshly-cloned project (theirs/base)
+        // Treat everything as a potential conflict, excluding .git/**. Do not delete files.
+        const { textConflicts, binaryCopies } = await buildConflictsFromDirectories({
+            oursRoot: tempFolderUri,
+            theirsRoot: clonedProjectUri,
+            exclude: (relativePath) => {
+                // Generated databases should not be preserved during heal
+                return (
+                    relativePath.endsWith(".sqlite") ||
+                    relativePath.endsWith(".sqlite3") ||
+                    relativePath.endsWith(".db")
+                );
+            },
+            isBinary: (relativePath) => this.isBinaryFile(relativePath),
         });
 
-        // Resolve conflicts if any exist
-        if (conflicts.length > 0) {
-            debugLog(`Merging ${conflicts.length} files...`);
-            await this.resolveProjectConflicts(clonedProjectUri, conflicts);
-            debugLog("All conflicts resolved");
+        debugLog("Heal merge inputs prepared:", {
+            textConflicts: textConflicts.length,
+            binaryCopies: binaryCopies.length,
+        });
+
+        // Merge all text files using the same resolver pipeline as sync.
+        // IMPORTANT: do NOT refresh ours from disk during heal; ours is the snapshot content.
+        if (textConflicts.length > 0) {
+            debugLog(`Merging ${textConflicts.length} text files with shared merge engine...`);
+            await resolveConflictFiles(textConflicts, projectPath, { refreshOursFromDisk: false });
+            debugLog("All text merges completed");
+        }
+
+        // Copy binary files from snapshot into the freshly-cloned project (no content merge).
+        if (binaryCopies.length > 0) {
+            debugLog(`Copying ${binaryCopies.length} binary files from snapshot...`);
+
+            // Ensure parent directories exist before writing
+            const uniqueDirs = new Set<string>();
+            for (const file of binaryCopies) {
+                const dir = path.posix.dirname(file.filepath);
+                if (dir && dir !== ".") {
+                    uniqueDirs.add(dir);
+                }
+            }
+            const sortedDirs = Array.from(uniqueDirs).sort(
+                (a, b) => a.split("/").length - b.split("/").length
+            );
+            for (const dir of sortedDirs) {
+                const dirUri = vscode.Uri.joinPath(clonedProjectUri, ...dir.split("/"));
+                const created = await this.ensureDirectoryExists(dirUri);
+                if (!created) {
+                    throw new Error(`Failed to create directory: ${dir}`);
+                }
+            }
+
+            for (const file of binaryCopies) {
+                const targetUri = vscode.Uri.joinPath(clonedProjectUri, ...file.filepath.split("/"));
+                await vscode.workspace.fs.writeFile(targetUri, file.content);
+            }
+
+            debugLog("Binary copies completed");
         }
 
         // Step 6: Clean up temporary files
@@ -3010,20 +3046,26 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         await vscode.workspace.fs.delete(tempFolderUri, { recursive: true, useTrash: false });
         debugLog(`Cleaned up temp folder: ${tempFolderUri.fsPath}`);
 
-        // Step 7: Commit the merged changes
-        progress.report({ increment: 10, message: "Finalizing healed project..." });
-        await this.commitHealedChanges(projectPath);
+        // Step 7: Finalize by opening the healed project and running the LFS-aware sync on next activation.
+        // Opening a folder from an empty window restarts extensions (VS Code prompts if Startup Flow is open),
+        // so we persist a "pending heal sync" payload and complete it after reload.
+        progress.report({ increment: 10, message: "Opening healed project to sync..." });
 
-        // Success notification and cleanup (only if not suppressed)
-        if (showSuccessMessage) {
-            vscode.window.showInformationMessage(
-                `Project "${projectName}" has been healed successfully! Backup saved to: ${backupFileName}`
-            );
-        }
+        const healedUri = vscode.Uri.file(projectPath);
+        const commitMessage = "Healed project: merged local changes after re-clone";
 
-        this.safeSendMessage({
-            command: "forceRefreshProjectsList",
+        await this.context.globalState.update(StartupFlowProvider.PENDING_HEAL_SYNC_KEY, {
+            projectPath,
+            projectName,
+            backupFileName,
+            commitMessage,
+            createdAt: Date.now(),
+            showSuccessMessage,
         });
+
+        // This will trigger a window reload; the extension will complete the sync in activate().
+        await vscode.commands.executeCommand("vscode.openFolder", healedUri, false);
+        return;
     }
 
     /**
