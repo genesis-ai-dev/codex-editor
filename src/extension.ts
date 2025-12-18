@@ -912,7 +912,7 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
         }
         if (!hasCodexProject) {
             debug("⏭️ [POST-WORKSPACE] No Codex project open, skipping post-workspace sync");
-        } else if (authApi) {
+        } else if (authApi && typeof (authApi as any).getAuthStatus === "function") {
             try {
                 const authStatus = authApi.getAuthStatus();
                 if (authStatus.isAuthenticated) {
@@ -1006,7 +1006,11 @@ export function getAuthApi(): FrontierAPI | undefined {
     if (!authApi) {
         const extension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
         if (extension?.isActive) {
-            authApi = extension.exports;
+            const exports = extension.exports as any;
+            // Defensive: only treat as auth API if it has expected surface area
+            if (exports && typeof exports.getAuthStatus === "function") {
+                authApi = exports;
+            }
         }
     }
     return authApi;

@@ -20,19 +20,23 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
     test("performProjectHeal sets workspace and calls stageAndCommitAllAndSync", async function () {
         this.timeout(15000);
 
-        const clock = sinon.useFakeTimers();
+        const clock = sinon.useFakeTimers({ shouldClearNativeTimers: true });
         const tempProjectsDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-heal-sync-"));
 
         // Ensure we don't actually pop UI
         const infoStub = sinon.stub(vscode.window, "showInformationMessage").resolves(undefined as any);
 
-        // Frontier auth extension activation stub
+        // Prevent background preflight/auth initialization from running during this test
+        const initStub = sinon.stub(StartupFlowProvider.prototype as any, "initializeComponentsAsync").resolves();
+
+        // Frontier auth extension activation stub (also used for heal version gate)
         const activateStub = sinon.stub().resolves();
         const getExtensionStub = sinon.stub(vscode.extensions, "getExtension").returns({
             id: "frontier-rnd.frontier-authentication",
             isActive: true,
             exports: {},
             activate: activateStub,
+            packageJSON: { version: "0.4.11" },
         } as any);
 
         // Ensure heal uses our temp projects dir for snapshot
@@ -98,6 +102,7 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         // Cleanup stubs
         clock.restore();
         infoStub.restore();
+        initStub.restore();
         getExtensionStub.restore();
         getCodexProjectsDirectoryStub.restore();
         buildConflictsStub.restore();
