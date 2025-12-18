@@ -266,16 +266,22 @@ export function MilestoneAccordion({
                     );
 
                     return (
-                        <AccordionItem key={milestoneIdx} value={milestoneIdx.toString()}>
-                            <AccordionTrigger className={"hover:no-underline px-2"}>
+                        <AccordionItem
+                            key={milestoneIdx}
+                            value={milestoneIdx.toString()}
+                            className="border-accent"
+                        >
+                            <AccordionTrigger className={`hover:no-underline px-2 cursor-pointer`}>
                                 <div className="flex items-center justify-between w-full">
                                     <div className="flex justify-between items-center gap-3 flex-1 min-w-0">
                                         <span
-                                            className="font-medium truncate cursor-pointer hover:underline milestone-navigate"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleMilestoneClick(milestoneIdx);
-                                            }}
+                                            className={`font-medium truncate hover:underline milestone-navigate
+                                                ${isCurrentMilestone ? "underline" : ""}
+                                            `}
+                                            // onClick={(e) => {
+                                            //     e.stopPropagation();
+                                            //     handleMilestoneClick(milestoneIdx);
+                                            // }}
                                         >
                                             {milestone.value}
                                         </span>
