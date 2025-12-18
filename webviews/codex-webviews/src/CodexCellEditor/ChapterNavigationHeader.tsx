@@ -5,6 +5,7 @@ import NotebookMetadataModal from "./NotebookMetadataModal";
 import { AutocompleteModal } from "./modals/AutocompleteModal";
 import { ChapterSelectorModal } from "./modals/ChapterSelectorModal";
 import { MobileHeaderMenu } from "./components/MobileHeaderMenu";
+import { MilestoneAccordion } from "./components/MilestoneAccordion";
 import {
     type QuillCellContent,
     type CustomNotebookMetadata,
@@ -158,7 +159,7 @@ ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
     const [autoDownloadAudioOnOpen, setAutoDownloadAudioOnOpenState] = useState<boolean>(false);
-    const [showChapterSelector, setShowChapterSelector] = useState(false);
+    const [showMilestoneAccordion, setShowMilestoneAccordion] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const chapterTitleRef = useRef<HTMLDivElement>(null);
     const headerContainerRef = useRef<HTMLDivElement>(null);
@@ -916,9 +917,9 @@ ChapterNavigationHeaderProps) {
                     ref={chapterTitleRef}
                     className="chapter-title-container flex items-center min-w-0 max-w-full cursor-pointer rounded-md transition-all duration-200 ease-in-out px-2"
                     onClick={() => {
-                        // Always allow opening the chapter selector when there are no unsaved changes
+                        // Always allow opening the milestone accordion when there are no unsaved changes
                         if (!unsavedChanges) {
-                            setShowChapterSelector(!showChapterSelector);
+                            setShowMilestoneAccordion(!showMilestoneAccordion);
                         } else {
                             // Show warning when there are unsaved changes
                             setShowUnsavedWarning(true);
@@ -976,7 +977,9 @@ ChapterNavigationHeaderProps) {
                         )}
                         <i
                             className={`codicon ${
-                                showChapterSelector ? "codicon-chevron-up" : "codicon-chevron-down"
+                                showMilestoneAccordion
+                                    ? "codicon-chevron-up"
+                                    : "codicon-chevron-down"
                             } ml-1 flex-shrink-0 ${shouldUseMinimalLayout ? "hidden" : "inline"}`}
                         />
                     </h1>
@@ -1462,16 +1465,18 @@ ChapterNavigationHeaderProps) {
                 )}
             />
 
-            <ChapterSelectorModal
-                isOpen={showChapterSelector}
-                onClose={() => setShowChapterSelector(false)}
-                onSelectChapter={handleChapterSelection}
+            <MilestoneAccordion
+                isOpen={showMilestoneAccordion}
+                onClose={() => setShowMilestoneAccordion(false)}
+                milestoneIndex={milestoneIndex}
                 currentMilestoneIndex={currentMilestoneIndex}
-                totalChapters={totalChapters}
-                bookTitle={getDisplayTitle().split("\u00A0")[0]}
+                currentSubsectionIndex={currentSubsectionIndex}
+                getSubsectionsForMilestone={getSubsectionsForMilestone}
+                requestCellsForMilestone={requestCellsForMilestone}
+                subsectionProgress={subsectionProgress}
                 unsavedChanges={unsavedChanges}
                 anchorRef={chapterTitleRef}
-                chapterProgress={chapterProgress}
+                calculateSubsectionProgress={calculateSubsectionProgress}
             />
         </div>
     );
