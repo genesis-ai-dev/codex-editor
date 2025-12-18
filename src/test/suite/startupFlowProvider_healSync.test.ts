@@ -56,6 +56,7 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         // Try to stub vscode.workspace.fs operations (may fail if non-configurable)
         let fsStatStub: sinon.SinonStub | undefined;
         let fsDeleteStub: sinon.SinonStub | undefined;
+        let fsCreateDirectoryStub: sinon.SinonStub | undefined;
         try {
             fsStatStub = sinon.stub(vscode.workspace.fs, "stat").resolves({ type: vscode.FileType.Directory } as any);
         } catch {
@@ -63,6 +64,11 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         }
         try {
             fsDeleteStub = sinon.stub(vscode.workspace.fs, "delete").resolves();
+        } catch {
+            // Non-configurable, will use real operations
+        }
+        try {
+            fsCreateDirectoryStub = sinon.stub(vscode.workspace.fs, "createDirectory").resolves();
         } catch {
             // Non-configurable, will use real operations
         }
@@ -131,6 +137,9 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         }
         if (fsDeleteStub) {
             fsDeleteStub.restore();
+        }
+        if (fsCreateDirectoryStub) {
+            fsCreateDirectoryStub.restore();
         }
         executeCommandStub.restore();
         sinon.restore();
