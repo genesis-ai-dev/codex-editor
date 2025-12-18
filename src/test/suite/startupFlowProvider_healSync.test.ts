@@ -23,11 +23,6 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         const clock = sinon.useFakeTimers();
         const tempProjectsDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-heal-sync-"));
 
-        // Stubs for heavy VS Code FS operations used during heal
-        const fsCreateDirStub = sinon.stub(vscode.workspace.fs, "createDirectory").resolves();
-        const fsDeleteStub = sinon.stub(vscode.workspace.fs, "delete").resolves();
-        const fsStatStub = sinon.stub(vscode.workspace.fs, "stat").resolves({ type: vscode.FileType.Directory, ctime: 0, mtime: 0, size: 0 });
-
         // Ensure we don't actually pop UI
         const infoStub = sinon.stub(vscode.window, "showInformationMessage").resolves(undefined as any);
 
@@ -63,13 +58,22 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         (provider as any).copyDirectory = sinon.stub().resolves();
         (provider as any).generateTimestamp = sinon.stub().returns("TEST_TS");
 
+        // Create an initial "corrupted" project folder so the delete step has something to remove
+        const projectPath = path.join(tempProjectsDir, "healed-project");
+        fs.mkdirSync(projectPath, { recursive: true });
+        fs.writeFileSync(path.join(projectPath, "dummy.txt"), "dummy", "utf8");
+
         // Stub frontierApi clone used by heal step 4
         (provider as any).frontierApi = {
-            cloneRepository: sinon.stub().resolves(true),
+            cloneRepository: sinon.stub().callsFake(async (_repoUrl: string, cloneToPath?: string) => {
+                if (cloneToPath) {
+                    fs.mkdirSync(cloneToPath, { recursive: true });
+                }
+                return true;
+            }),
         };
 
         const progress = { report: sinon.stub() } as any;
-        const projectPath = path.join(tempProjectsDir, "healed-project");
 
         // Start heal, then fast-forward the internal 3s wait
         const healPromise = (provider as any).performProjectHeal(
@@ -93,9 +97,6 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
 
         // Cleanup stubs
         clock.restore();
-        fsCreateDirStub.restore();
-        fsDeleteStub.restore();
-        fsStatStub.restore();
         infoStub.restore();
         getExtensionStub.restore();
         getCodexProjectsDirectoryStub.restore();
