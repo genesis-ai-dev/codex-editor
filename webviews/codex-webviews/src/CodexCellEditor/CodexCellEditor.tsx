@@ -1446,11 +1446,6 @@ const CodexCellEditor: React.FC = () => {
             const { cellCount, value } = milestone;
             const effectiveCellsPerPage = milestoneIndex.cellsPerPage || cellsPerPage;
 
-            // If content cells fit in one page, no subsections needed
-            if (cellCount <= effectiveCellsPerPage) {
-                return [];
-            }
-
             // Calculate number of pages based on content cells
             const totalPages = Math.ceil(cellCount / effectiveCellsPerPage) || 1;
             const subsections: Subsection[] = [];

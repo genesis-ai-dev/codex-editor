@@ -52,6 +52,7 @@ export function MilestoneAccordion({
     calculateSubsectionProgress,
 }: MilestoneAccordionProps) {
     const accordionRef = useRef<HTMLDivElement>(null);
+    const currentMilestoneRef = useRef<HTMLDivElement>(null);
     const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
     const [arrowPosition, setArrowPosition] = useState<"top" | "bottom">("top");
 
@@ -161,6 +162,21 @@ export function MilestoneAccordion({
         }
     }, [isOpen, onClose, anchorRef]);
 
+    // Scroll to current milestone when accordion opens
+    useEffect(() => {
+        if (isOpen && currentMilestoneRef.current && accordionRef.current) {
+            // Wait for accordion animation to complete before scrolling
+            const timeoutId = setTimeout(() => {
+                currentMilestoneRef.current?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "center",
+                });
+            }, 200); // Small delay to allow accordion animation to start
+
+            return () => clearTimeout(timeoutId);
+        }
+    }, [isOpen, currentMilestoneIndex]);
+
     if (!isOpen || !milestoneIndex) return null;
 
     // Get milestone progress
@@ -234,8 +250,7 @@ export function MilestoneAccordion({
                 transformOrigin: arrowPosition === "top" ? "top center" : "bottom center",
             }}
         >
-            <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold m-0">Milestones</h2>
+            <div className="flex items-center justify-end mb-4">
                 <div
                     className="flex items-center cursor-pointer hover:bg-secondary rounded-md p-1"
                     onClick={onClose}
@@ -266,52 +281,52 @@ export function MilestoneAccordion({
                     );
 
                     return (
-                        <AccordionItem
+                        <div
                             key={milestoneIdx}
-                            value={milestoneIdx.toString()}
-                            className="border-accent"
+                            ref={isCurrentMilestone ? currentMilestoneRef : undefined}
                         >
-                            <AccordionTrigger className={`hover:no-underline px-2 cursor-pointer`}>
-                                <div className="flex items-center justify-between w-full">
-                                    <div className="flex justify-between items-center gap-3 flex-1 min-w-0">
-                                        <span
-                                            className={`font-medium truncate hover:underline milestone-navigate
-                                                ${isCurrentMilestone ? "underline" : ""}
-                                            `}
-                                            // onClick={(e) => {
-                                            //     e.stopPropagation();
-                                            //     handleMilestoneClick(milestoneIdx);
-                                            // }}
-                                        >
-                                            {milestone.value}
-                                        </span>
-                                        <div className="flex items-center gap-2 flex-shrink-0">
-                                            <div
-                                                className={`flex items-center ${audioColorClass}`}
-                                                title={`Audio: ${Math.round(
-                                                    milestoneProgress.audioCompletedPercent
-                                                )}% completed, ${Math.round(
-                                                    milestoneProgress.audioValidatedPercent
-                                                )}% validated`}
-                                            >
-                                                <MicrophoneIcon width={14} height={14} />
-                                            </div>
-                                            <div
-                                                className={`flex items-center ${textColorClass}`}
-                                                title={`Text: ${Math.round(
-                                                    milestoneProgress.textCompletedPercent
-                                                )}% completed, ${Math.round(
-                                                    milestoneProgress.textValidatedPercent
-                                                )}% validated`}
-                                            >
-                                                <Languages className="h-[14px] w-[14px]" />
+                            <AccordionItem
+                                value={milestoneIdx.toString()}
+                                className="border-accent"
+                            >
+                                <AccordionTrigger
+                                    className={`hover:no-underline p-2 cursor-pointer ${
+                                        isCurrentMilestone
+                                            ? "bg-accent text-accent-foreground font-semibold"
+                                            : ""
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between w-full">
+                                        <div className="flex justify-between items-center gap-3 flex-1 min-w-0">
+                                            <span className="font-medium truncate hover:underline milestone-navigate">
+                                                {milestone.value}
+                                            </span>
+                                            <div className="flex items-center gap-2 flex-shrink-0">
+                                                <div
+                                                    className={`flex items-center ${audioColorClass}`}
+                                                    title={`Audio: ${Math.round(
+                                                        milestoneProgress.audioCompletedPercent
+                                                    )}% completed, ${Math.round(
+                                                        milestoneProgress.audioValidatedPercent
+                                                    )}% validated`}
+                                                >
+                                                    <MicrophoneIcon width={14} height={14} />
+                                                </div>
+                                                <div
+                                                    className={`flex items-center ${textColorClass}`}
+                                                    title={`Text: ${Math.round(
+                                                        milestoneProgress.textCompletedPercent
+                                                    )}% completed, ${Math.round(
+                                                        milestoneProgress.textValidatedPercent
+                                                    )}% validated`}
+                                                >
+                                                    <Languages className="h-[14px] w-[14px]" />
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-                                </div>
-                            </AccordionTrigger>
-                            <AccordionContent>
-                                {subsections.length > 0 ? (
+                                </AccordionTrigger>
+                                <AccordionContent>
                                     <div className="space-y-1 pt-2">
                                         {subsections.map((subsection, subsectionIdx) => {
                                             const progress = calculateSubsectionProgress(
@@ -333,7 +348,7 @@ export function MilestoneAccordion({
                                                             subsectionIdx
                                                         )
                                                     }
-                                                    className={`flex items-center justify-between px-3 py-2 rounded-md cursor-pointer transition-colors ${
+                                                    className={`flex items-center justify-between px-3 py-2 rounded-md cursor-pointer transition-colors pr-[36px] ${
                                                         isActive
                                                             ? "bg-accent text-accent-foreground font-semibold"
                                                             : unsavedChanges
@@ -343,6 +358,7 @@ export function MilestoneAccordion({
                                                 >
                                                     <span>{subsection.label}</span>
                                                     <ProgressDots
+                                                        className="gap-x-[14px]"
                                                         audio={{
                                                             validatedPercent:
                                                                 percentages.audioValidatedPercent,
@@ -360,13 +376,9 @@ export function MilestoneAccordion({
                                             );
                                         })}
                                     </div>
-                                ) : (
-                                    <div className="text-sm text-muted-foreground py-2 px-3">
-                                        No subsections
-                                    </div>
-                                )}
-                            </AccordionContent>
-                        </AccordionItem>
+                                </AccordionContent>
+                            </AccordionItem>
+                        </div>
                     );
                 })}
             </Accordion>
