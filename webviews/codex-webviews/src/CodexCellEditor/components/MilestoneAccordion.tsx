@@ -51,10 +51,26 @@ export function MilestoneAccordion({
     anchorRef,
     calculateSubsectionProgress,
 }: MilestoneAccordionProps) {
+    // Layout constants
+    const DROPDOWN_MAX_HEIGHT_VIEWPORT_PERCENT = 60; // 60vh
+    const DROPDOWN_MAX_HEIGHT_PIXELS = 500; // px
+    const DROPDOWN_HEADER_HEIGHT = 60; // px - approximate height of header with padding
+    const DROPDOWN_IDEAL_WIDTH = 400; // px
+    const DROPDOWN_EDGE_PADDING = 20; // px - minimum distance from viewport edges
+    const DROPDOWN_WIDTH_PADDING = 40; // px - total horizontal padding for width calculation
+    const DROPDOWN_ARROW_MARGIN = 8; // px - margin for arrow positioning
+    const DROPDOWN_ARROW_SPACING = 16; // px - spacing when positioning above anchor
+    const DROPDOWN_VIEWPORT_HEIGHT_OFFSET = 80; // px - reserved space from viewport edges
+    const DROPDOWN_BORDER_RADIUS = 6; // px
+    const DROPDOWN_Z_INDEX = 9999;
+
     const accordionRef = useRef<HTMLDivElement>(null);
     const currentMilestoneRef = useRef<HTMLDivElement>(null);
     const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
     const [arrowPosition, setArrowPosition] = useState<"top" | "bottom">("top");
+    const [expandedMilestone, setExpandedMilestone] = useState<string | null>(
+        currentMilestoneIndex.toString()
+    );
 
     // Calculate position and dimensions
     const calculatePositionAndDimensions = () => {
@@ -64,25 +80,30 @@ export function MilestoneAccordion({
             const viewportHeight = window.innerHeight;
 
             // Determine available width
-            const idealWidth = 400;
-            const availableWidth = Math.min(viewportWidth - 40, idealWidth);
+            const idealWidth = DROPDOWN_IDEAL_WIDTH;
+            const availableWidth = Math.min(viewportWidth - DROPDOWN_WIDTH_PADDING, idealWidth);
 
             // Calculate centered position
             const left = rect.left + rect.width / 2;
             const centeredLeft = left - availableWidth / 2;
 
             // Avoid going off screen to the left
-            const adjustedLeft = Math.max(20, centeredLeft);
+            const adjustedLeft = Math.max(DROPDOWN_EDGE_PADDING, centeredLeft);
 
             // Avoid going off screen to the right
             const rightEdge = adjustedLeft + availableWidth;
             const finalLeft =
-                rightEdge > viewportWidth - 20 ? viewportWidth - 20 - availableWidth : adjustedLeft;
+                rightEdge > viewportWidth - DROPDOWN_EDGE_PADDING
+                    ? viewportWidth - DROPDOWN_EDGE_PADDING - availableWidth
+                    : adjustedLeft;
 
             // Determine if dropdown should appear above or below
             const spaceBelow = viewportHeight - rect.bottom;
             const spaceAbove = rect.top;
-            const maxHeight = Math.min(500, viewportHeight - 80);
+            const maxHeight = Math.min(
+                DROPDOWN_MAX_HEIGHT_PIXELS,
+                viewportHeight - DROPDOWN_VIEWPORT_HEIGHT_OFFSET
+            );
 
             let topPosition;
             const arrowPos: "top" | "bottom" =
@@ -91,7 +112,7 @@ export function MilestoneAccordion({
             if (arrowPos === "top") {
                 topPosition = rect.bottom + window.scrollY;
             } else {
-                topPosition = rect.top + window.scrollY - maxHeight - 16;
+                topPosition = rect.top + window.scrollY - maxHeight - DROPDOWN_ARROW_SPACING;
             }
 
             setDropdownPosition({
@@ -161,6 +182,13 @@ export function MilestoneAccordion({
             };
         }
     }, [isOpen, onClose, anchorRef]);
+
+    // Sync expanded milestone state when accordion opens
+    useEffect(() => {
+        if (isOpen) {
+            setExpandedMilestone(currentMilestoneIndex.toString());
+        }
+    }, [isOpen, currentMilestoneIndex]);
 
     // Scroll to current milestone when accordion opens
     useEffect(() => {
@@ -239,18 +267,25 @@ export function MilestoneAccordion({
                 width: `${dropdownPosition.width}px`,
                 backgroundColor: "var(--vscode-editor-background)",
                 border: "1px solid var(--vscode-widget-border)",
-                borderRadius: "6px",
+                borderRadius: `${DROPDOWN_BORDER_RADIUS}px`,
                 boxShadow: "0 6px 16px rgba(0, 0, 0, 0.15)",
-                padding: "16px",
-                zIndex: 9999,
-                overflowY: "auto",
-                maxHeight: "min(60vh, 500px)",
-                marginTop: arrowPosition === "top" ? "8px" : "0",
-                marginBottom: arrowPosition === "bottom" ? "8px" : "0",
+                padding: "0",
+                zIndex: DROPDOWN_Z_INDEX,
+                display: "flex",
+                flexDirection: "column",
+                maxHeight: `min(${DROPDOWN_MAX_HEIGHT_VIEWPORT_PERCENT}vh, ${DROPDOWN_MAX_HEIGHT_PIXELS}px)`,
+                marginTop: arrowPosition === "top" ? `${DROPDOWN_ARROW_MARGIN}px` : "0",
+                marginBottom: arrowPosition === "bottom" ? `${DROPDOWN_ARROW_MARGIN}px` : "0",
                 transformOrigin: arrowPosition === "top" ? "top center" : "bottom center",
             }}
         >
-            <div className="flex items-center justify-end mb-4">
+            <div className="flex items-center justify-between px-4 pt-4 pb-2 mb-2 border-b border-[var(--vscode-widget-border)] flex-shrink-0">
+                <h2 className="text-lg font-semibold m-0">
+                    {expandedMilestone !== null &&
+                    milestoneIndex.milestones[parseInt(expandedMilestone)]
+                        ? milestoneIndex.milestones[parseInt(expandedMilestone)].value
+                        : milestoneIndex.milestones[currentMilestoneIndex]?.value}
+                </h2>
                 <div
                     className="flex items-center cursor-pointer hover:bg-secondary rounded-md p-1"
                     onClick={onClose}
@@ -258,137 +293,149 @@ export function MilestoneAccordion({
                     <i className="codicon codicon-close" />
                 </div>
             </div>
-
-            <Accordion
-                type="single"
-                collapsible
-                defaultValue={currentMilestoneIndex.toString()}
-                className="w-full"
+            <div
+                className="px-4 pb-4 overflow-y-auto overflow-x-hidden flex-1 min-h-0"
+                style={{
+                    maxHeight: `calc(min(${DROPDOWN_MAX_HEIGHT_VIEWPORT_PERCENT}vh, ${DROPDOWN_MAX_HEIGHT_PIXELS}px) - ${DROPDOWN_HEADER_HEIGHT}px)`,
+                }}
             >
-                {milestoneIndex.milestones.map((milestone: MilestoneInfo, milestoneIdx: number) => {
-                    const subsections = getSubsectionsForMilestone(milestoneIdx);
-                    const milestoneProgress = getMilestoneProgress(milestoneIdx);
-                    const isCurrentMilestone = currentMilestoneIndex === milestoneIdx;
+                <Accordion
+                    type="single"
+                    collapsible
+                    value={expandedMilestone ?? undefined}
+                    onValueChange={(value) => setExpandedMilestone(value ?? null)}
+                    className="w-full"
+                >
+                    {milestoneIndex.milestones.map(
+                        (milestone: MilestoneInfo, milestoneIdx: number) => {
+                            const subsections = getSubsectionsForMilestone(milestoneIdx);
+                            const milestoneProgress = getMilestoneProgress(milestoneIdx);
+                            const isCurrentMilestone = currentMilestoneIndex === milestoneIdx;
 
-                    // Get progress colors for icons
-                    const audioColorClass = getProgressColor(
-                        milestoneProgress.audioValidatedPercent,
-                        milestoneProgress.audioCompletedPercent
-                    );
-                    const textColorClass = getProgressColor(
-                        milestoneProgress.textValidatedPercent,
-                        milestoneProgress.textCompletedPercent
-                    );
+                            // Get progress colors for icons
+                            const audioColorClass = getProgressColor(
+                                milestoneProgress.audioValidatedPercent,
+                                milestoneProgress.audioCompletedPercent
+                            );
+                            const textColorClass = getProgressColor(
+                                milestoneProgress.textValidatedPercent,
+                                milestoneProgress.textCompletedPercent
+                            );
 
-                    return (
-                        <div
-                            key={milestoneIdx}
-                            ref={isCurrentMilestone ? currentMilestoneRef : undefined}
-                        >
-                            <AccordionItem
-                                value={milestoneIdx.toString()}
-                                className="border-accent"
-                            >
-                                <AccordionTrigger
-                                    className={`hover:no-underline p-2 cursor-pointer ${
-                                        isCurrentMilestone
-                                            ? "bg-accent text-accent-foreground font-semibold"
-                                            : ""
-                                    }`}
+                            return (
+                                <div
+                                    key={milestoneIdx}
+                                    ref={isCurrentMilestone ? currentMilestoneRef : undefined}
                                 >
-                                    <div className="flex items-center justify-between w-full">
-                                        <div className="flex justify-between items-center gap-3 flex-1 min-w-0">
-                                            <span className="font-medium truncate hover:underline milestone-navigate">
-                                                {milestone.value}
-                                            </span>
-                                            <div className="flex items-center gap-2 flex-shrink-0">
-                                                <div
-                                                    className={`flex items-center ${audioColorClass}`}
-                                                    title={`Audio: ${Math.round(
-                                                        milestoneProgress.audioCompletedPercent
-                                                    )}% completed, ${Math.round(
-                                                        milestoneProgress.audioValidatedPercent
-                                                    )}% validated`}
-                                                >
-                                                    <MicrophoneIcon width={14} height={14} />
-                                                </div>
-                                                <div
-                                                    className={`flex items-center ${textColorClass}`}
-                                                    title={`Text: ${Math.round(
-                                                        milestoneProgress.textCompletedPercent
-                                                    )}% completed, ${Math.round(
-                                                        milestoneProgress.textValidatedPercent
-                                                    )}% validated`}
-                                                >
-                                                    <Languages className="h-[14px] w-[14px]" />
+                                    <AccordionItem
+                                        value={milestoneIdx.toString()}
+                                        className="border-accent"
+                                    >
+                                        <AccordionTrigger
+                                            className={`hover:no-underline p-2 cursor-pointer [&>svg]:hidden ${
+                                                isCurrentMilestone
+                                                    ? "bg-accent text-accent-foreground font-semibold"
+                                                    : ""
+                                            }`}
+                                        >
+                                            <div className="flex items-center justify-between w-full">
+                                                <div className="flex justify-between items-center gap-3 flex-1 min-w-0">
+                                                    <span className="font-medium truncate hover:underline milestone-navigate">
+                                                        {milestone.value}
+                                                    </span>
+                                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                                        <div
+                                                            className={`flex items-center ${audioColorClass}`}
+                                                            title={`Audio: ${Math.round(
+                                                                milestoneProgress.audioCompletedPercent
+                                                            )}% completed, ${Math.round(
+                                                                milestoneProgress.audioValidatedPercent
+                                                            )}% validated`}
+                                                        >
+                                                            <MicrophoneIcon
+                                                                width={14}
+                                                                height={14}
+                                                            />
+                                                        </div>
+                                                        <div
+                                                            className={`flex items-center ${textColorClass}`}
+                                                            title={`Text: ${Math.round(
+                                                                milestoneProgress.textCompletedPercent
+                                                            )}% completed, ${Math.round(
+                                                                milestoneProgress.textValidatedPercent
+                                                            )}% validated`}
+                                                        >
+                                                            <Languages className="h-[14px] w-[14px]" />
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    </div>
-                                </AccordionTrigger>
-                                <AccordionContent>
-                                    <div className="space-y-1 pt-2">
-                                        {subsections.map((subsection, subsectionIdx) => {
-                                            const progress = calculateSubsectionProgress(
-                                                subsection,
-                                                subsectionIdx
-                                            );
-                                            const percentages =
-                                                deriveSubsectionPercentages(progress);
-                                            const isActive =
-                                                isCurrentMilestone &&
-                                                currentSubsectionIndex === subsectionIdx;
+                                        </AccordionTrigger>
+                                        <AccordionContent className="pb-2">
+                                            <div className="space-y-1 pt-2">
+                                                {subsections.map((subsection, subsectionIdx) => {
+                                                    const progress = calculateSubsectionProgress(
+                                                        subsection,
+                                                        subsectionIdx
+                                                    );
+                                                    const percentages =
+                                                        deriveSubsectionPercentages(progress);
+                                                    const isActive =
+                                                        isCurrentMilestone &&
+                                                        currentSubsectionIndex === subsectionIdx;
 
-                                            return (
-                                                <div
-                                                    key={subsection.id}
-                                                    onClick={() =>
-                                                        handleSubsectionClick(
-                                                            milestoneIdx,
-                                                            subsectionIdx
-                                                        )
-                                                    }
-                                                    className={`flex items-center justify-between px-3 py-2 rounded-md cursor-pointer transition-colors pr-[36px] ${
-                                                        isActive
-                                                            ? "bg-accent text-accent-foreground font-semibold"
-                                                            : unsavedChanges
-                                                            ? "opacity-60 cursor-not-allowed"
-                                                            : "hover:bg-secondary"
-                                                    }`}
-                                                >
-                                                    <span>{subsection.label}</span>
-                                                    <ProgressDots
-                                                        className="gap-x-[14px]"
-                                                        audio={{
-                                                            validatedPercent:
-                                                                percentages.audioValidatedPercent,
-                                                            completedPercent:
-                                                                percentages.audioCompletedPercent,
-                                                        }}
-                                                        text={{
-                                                            validatedPercent:
-                                                                percentages.textValidatedPercent,
-                                                            completedPercent:
-                                                                percentages.textCompletedPercent,
-                                                        }}
-                                                    />
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </AccordionContent>
-                            </AccordionItem>
-                        </div>
-                    );
-                })}
-            </Accordion>
+                                                    return (
+                                                        <div
+                                                            key={subsection.id}
+                                                            onClick={() =>
+                                                                handleSubsectionClick(
+                                                                    milestoneIdx,
+                                                                    subsectionIdx
+                                                                )
+                                                            }
+                                                            className={`flex items-center justify-between pr-3 pl-6 py-2 rounded-md cursor-pointer transition-colors ${
+                                                                isActive
+                                                                    ? "bg-accent text-accent-foreground font-semibold"
+                                                                    : unsavedChanges
+                                                                    ? "opacity-60 cursor-not-allowed"
+                                                                    : "hover:bg-secondary"
+                                                            }`}
+                                                        >
+                                                            <span>{subsection.label}</span>
+                                                            <ProgressDots
+                                                                className="gap-x-[14px]"
+                                                                audio={{
+                                                                    validatedPercent:
+                                                                        percentages.audioValidatedPercent,
+                                                                    completedPercent:
+                                                                        percentages.audioCompletedPercent,
+                                                                }}
+                                                                text={{
+                                                                    validatedPercent:
+                                                                        percentages.textValidatedPercent,
+                                                                    completedPercent:
+                                                                        percentages.textCompletedPercent,
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </AccordionContent>
+                                    </AccordionItem>
+                                </div>
+                            );
+                        }
+                    )}
+                </Accordion>
 
-            {unsavedChanges && (
-                <div className="mt-4 p-2 bg-inputValidation-warningBackground text-inputValidation-warningForeground border border-inputValidation-warningBorder rounded flex items-center gap-2 text-sm">
-                    <i className="codicon codicon-warning" />
-                    <span>Save changes first to change section</span>
-                </div>
-            )}
+                {unsavedChanges && (
+                    <div className="mt-4 p-2 bg-inputValidation-warningBackground text-inputValidation-warningForeground border border-inputValidation-warningBorder rounded flex items-center gap-2 text-sm">
+                        <i className="codicon codicon-warning" />
+                        <span>Save changes first to change section</span>
+                    </div>
+                )}
+            </div>
         </div>
     );
 }
