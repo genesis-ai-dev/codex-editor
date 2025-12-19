@@ -42,9 +42,11 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     const [showPopover, setShowPopover] = useState(false);
     const [isPendingValidation, setIsPendingValidation] = useState(false);
     const [isValidationInProgress, setIsValidationInProgress] = useState(false);
+    const [isKeyboardFocused, setIsKeyboardFocused] = useState(false);
     const buttonRef = useRef<HTMLDivElement>(null);
     const closeTimerRef = useRef<number | null>(null);
     const ignoreHoverRef = useRef(false);
+    const wasKeyboardNavigationRef = useRef(false);
     const clearCloseTimer = () => {
         if (closeTimerRef.current != null) {
             clearTimeout(closeTimerRef.current);
@@ -170,6 +172,28 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         }
     }, [showPopover]);
 
+    // Track keyboard navigation globally to detect when focus is achieved via keyboard
+    useEffect(() => {
+        const handleDocumentKeyDown = (e: KeyboardEvent) => {
+            // Track Tab, Arrow keys, and Enter as keyboard navigation
+            if (e.key === "Tab" || e.key.startsWith("Arrow") || e.key === "Enter") {
+                wasKeyboardNavigationRef.current = true;
+            }
+        };
+
+        const handleDocumentMouseDown = () => {
+            // Reset keyboard navigation flag when mouse is used
+            wasKeyboardNavigationRef.current = false;
+        };
+
+        document.addEventListener("keydown", handleDocumentKeyDown);
+        document.addEventListener("mousedown", handleDocumentMouseDown);
+        return () => {
+            document.removeEventListener("keydown", handleDocumentKeyDown);
+            document.removeEventListener("mousedown", handleDocumentMouseDown);
+        };
+    }, []);
+
     const handleValidate = (e: React.MouseEvent) => {
         e.stopPropagation();
         setIsPendingValidation(true);
@@ -196,6 +220,24 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
             ignoreHoverRef.current = false;
         }, 200);
 
+        // Mark that this was a mouse click, not keyboard navigation
+        wasKeyboardNavigationRef.current = false;
+        setIsKeyboardFocused(false);
+
+        // Blur the button after mouse click to remove focus (prevents pulse from continuing)
+        // Use setTimeout to ensure blur happens after the click event completes
+        window.setTimeout(() => {
+            if (buttonRef.current) {
+                // Find the actual button element within the VSCodeButton component
+                const buttonElement = buttonRef.current.querySelector(
+                    "button"
+                ) as HTMLButtonElement;
+                if (buttonElement) {
+                    buttonElement.blur();
+                }
+            }
+        }, 0);
+
         if (!isValidated) {
             handleValidate(e);
             handleRequestClose();
@@ -216,12 +258,31 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
         e.stopPropagation();
+        // Mark that keyboard navigation is being used
+        wasKeyboardNavigationRef.current = true;
 
         if (e.key === "Enter") {
             e.preventDefault();
             handleMouseEnter(e as unknown as React.MouseEvent);
             handleButtonClick(e as unknown as React.MouseEvent);
         }
+
+        if (e.key === "Escape") {
+            e.preventDefault();
+            handleMouseLeave(e as unknown as React.MouseEvent);
+        }
+    };
+
+    const handleFocus = () => {
+        // If focus was achieved via keyboard, add the class for pulse animation
+        if (wasKeyboardNavigationRef.current) {
+            setIsKeyboardFocused(true);
+        }
+    };
+
+    const handleBlur = () => {
+        setIsKeyboardFocused(false);
+        wasKeyboardNavigationRef.current = false;
     };
 
     const handleMouseLeave = (e: React.MouseEvent) => {
@@ -262,7 +323,9 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     return (
         <div
             ref={buttonRef}
-            className="audio-validation-button-container"
+            className={`audio-validation-button-container ${
+                isKeyboardFocused ? "keyboard-focused" : ""
+            }`}
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
             style={{ position: "relative", display: "inline-block" }}
@@ -279,6 +342,8 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                 }}
                 onClick={handleButtonClick}
                 onKeyDown={handleKeyDown}
+                onFocus={handleFocus}
+                onBlur={handleBlur}
                 disabled={isDisabled}
                 title={isDisabled ? disabledReason || "Audio validation requires audio" : undefined}
             >
