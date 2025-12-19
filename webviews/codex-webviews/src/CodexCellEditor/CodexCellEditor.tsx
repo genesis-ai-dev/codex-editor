@@ -38,7 +38,7 @@ import { getVSCodeAPI } from "../shared/vscodeApi";
 import { Subsection, ProgressPercentages } from "../lib/types";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
-import { createCacheHelpers } from "./utils";
+import { createCacheHelpers, createProgressCacheHelpers } from "./utils";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -283,7 +283,14 @@ const CodexCellEditor: React.FC = () => {
     const [isLoadingCells, setIsLoadingCells] = useState(false);
 
     // Subsection progress state (milestone index -> subsection index -> progress)
-    const [subsectionProgress, setSubsectionProgress] = useState<Record<number, Record<number, ProgressPercentages>>>({});
+    const [subsectionProgress, setSubsectionProgress] = useState<
+        Record<number, Record<number, ProgressPercentages>>
+    >({});
+
+    // Cache for milestone progress (LRU cache with max size of 10)
+    const MAX_PROGRESS_CACHE_SIZE = 10;
+    const progressCacheRef = useRef<Map<number, Record<number, ProgressPercentages>>>(new Map());
+    const pendingProgressRequestsRef = useRef<Set<number>>(new Set());
 
     // Track which milestone/subsection combinations have been loaded
     const loadedPagesRef = useRef<Set<string>>(new Set());
@@ -299,6 +306,18 @@ const CodexCellEditor: React.FC = () => {
                 debug(category, message)
             ),
         []
+    );
+
+    // Progress cache helpers
+    const { getCachedProgress, setCachedProgress } = useMemo(
+        () =>
+            createProgressCacheHelpers(
+                progressCacheRef,
+                MAX_PROGRESS_CACHE_SIZE,
+                setSubsectionProgress,
+                (category, message) => debug(category, message)
+            ),
+        [setSubsectionProgress]
     );
 
     // Track the latest request to ignore stale responses
@@ -868,13 +887,14 @@ const CodexCellEditor: React.FC = () => {
         (event: MessageEvent) => {
             const message = event.data as EditorReceiveMessages;
             if (message?.type === "providerSendsSubsectionProgress") {
-                setSubsectionProgress((prev) => ({
-                    ...prev,
-                    [message.milestoneIndex]: message.subsectionProgress,
-                }));
+                // Remove from pending requests
+                pendingProgressRequestsRef.current.delete(message.milestoneIndex);
+
+                // Store in cache (handles LRU eviction)
+                setCachedProgress(message.milestoneIndex, message.subsectionProgress);
             }
         },
-        []
+        [setCachedProgress]
     );
 
     useEffect(() => {
@@ -1651,15 +1671,51 @@ const CodexCellEditor: React.FC = () => {
     // Request subsection progress when milestone changes
     useEffect(() => {
         if (milestoneIndex && currentMilestoneIndex < milestoneIndex.milestones.length) {
-            // Request progress for current milestone
-            vscode.postMessage({
-                command: "requestSubsectionProgress",
-                content: {
-                    milestoneIndex: currentMilestoneIndex,
-                },
-            } as EditorPostMessages);
+            // Check cache first
+            const cached = getCachedProgress(currentMilestoneIndex);
+            if (!cached && !pendingProgressRequestsRef.current.has(currentMilestoneIndex)) {
+                // Request progress for current milestone
+                pendingProgressRequestsRef.current.add(currentMilestoneIndex);
+                vscode.postMessage({
+                    command: "requestSubsectionProgress",
+                    content: {
+                        milestoneIndex: currentMilestoneIndex,
+                    },
+                } as EditorPostMessages);
+            } else if (cached) {
+                // Ensure state is updated from cache
+                setSubsectionProgress((prev) => ({
+                    ...prev,
+                    [currentMilestoneIndex]: cached,
+                }));
+            }
         }
-    }, [currentMilestoneIndex, milestoneIndex, vscode]);
+    }, [currentMilestoneIndex, milestoneIndex, vscode, getCachedProgress]);
+
+    // Request function for milestone progress (used by accordion)
+    const requestSubsectionProgressForMilestone = useCallback(
+        (milestoneIdx: number) => {
+            // Check cache first
+            const cached = getCachedProgress(milestoneIdx);
+            if (!cached && !pendingProgressRequestsRef.current.has(milestoneIdx)) {
+                // Request progress for milestone
+                pendingProgressRequestsRef.current.add(milestoneIdx);
+                vscode.postMessage({
+                    command: "requestSubsectionProgress",
+                    content: {
+                        milestoneIndex: milestoneIdx,
+                    },
+                } as EditorPostMessages);
+            } else if (cached) {
+                // Ensure state is updated from cache
+                setSubsectionProgress((prev) => ({
+                    ...prev,
+                    [milestoneIdx]: cached,
+                }));
+            }
+        },
+        [vscode, getCachedProgress]
+    );
 
     // Cells are already paginated by the backend for milestone navigation
     // No additional slicing needed
@@ -2664,6 +2720,8 @@ const CodexCellEditor: React.FC = () => {
                             requestCellsForMilestone={requestCellsForMilestone}
                             isLoadingCells={isLoadingCells}
                             subsectionProgress={subsectionProgress[currentMilestoneIndex]}
+                            allSubsectionProgress={subsectionProgress}
+                            requestSubsectionProgress={requestSubsectionProgressForMilestone}
                         />
                     </div>
                 </div>

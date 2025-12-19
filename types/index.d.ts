@@ -1720,6 +1720,10 @@ type EditorReceiveMessages =
             percentFullyValidatedTranslations: number;
             percentAudioValidatedTranslations: number;
             percentTextValidatedTranslations: number;
+            textValidationLevels?: number[];
+            audioValidationLevels?: number[];
+            requiredTextValidations?: number;
+            requiredAudioValidations?: number;
         }>;
     }
     | {

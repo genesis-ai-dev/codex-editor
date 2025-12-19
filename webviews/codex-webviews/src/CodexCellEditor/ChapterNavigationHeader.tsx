@@ -90,6 +90,8 @@ interface ChapterNavigationHeaderProps {
     requestCellsForMilestone: (milestoneIdx: number, subsectionIdx?: number) => void;
     isLoadingCells?: boolean;
     subsectionProgress?: Record<number, ProgressPercentages>;
+    allSubsectionProgress?: Record<number, Record<number, ProgressPercentages>>;
+    requestSubsectionProgress?: (milestoneIdx: number) => void;
 }
 
 export function ChapterNavigationHeader({
@@ -149,6 +151,8 @@ export function ChapterNavigationHeader({
     requestCellsForMilestone,
     isLoadingCells = false,
     subsectionProgress,
+    allSubsectionProgress,
+    requestSubsectionProgress,
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
@@ -1249,9 +1253,11 @@ ChapterNavigationHeaderProps) {
                 getSubsectionsForMilestone={getSubsectionsForMilestone}
                 requestCellsForMilestone={requestCellsForMilestone}
                 subsectionProgress={subsectionProgress}
+                allSubsectionProgress={allSubsectionProgress}
                 unsavedChanges={unsavedChanges}
                 anchorRef={chapterTitleRef}
                 calculateSubsectionProgress={calculateSubsectionProgress}
+                requestSubsectionProgress={requestSubsectionProgress}
             />
         </div>
     );

@@ -1,5 +1,6 @@
 import type React from "react";
 import type { QuillCellContent } from "../../../../types";
+import type { ProgressPercentages } from "../lib/types";
 
 export const processVerseContent = (cellContent: string) => {
     const verseRefRegex = /(?<=^|\s)(?=[A-Z, 1-9]{3} \d{1,3}:\d{1,3})/;
@@ -105,4 +106,68 @@ export function createCacheHelpers(
     };
 
     return { getCachedCells, setCachedCells };
+}
+
+/**
+ * LRU Cache helper functions for milestone progress caching
+ */
+
+export interface ProgressCacheHelpers {
+    getCachedProgress: (milestoneIdx: number) => Record<number, ProgressPercentages> | undefined;
+    setCachedProgress: (milestoneIdx: number, progress: Record<number, ProgressPercentages>) => void;
+}
+
+/**
+ * Creates cache helper functions for managing an LRU cache for milestone progress with a maximum size
+ * @param cacheRef - Ref to the Map storing cached progress
+ * @param maxCacheSize - Maximum number of entries to keep in cache (default: 10)
+ * @param setSubsectionProgress - State setter function to update subsection progress state
+ * @param debugFn - Optional debug function for logging cache evictions
+ * @returns Object with getCachedProgress and setCachedProgress functions
+ */
+export function createProgressCacheHelpers(
+    cacheRef: React.MutableRefObject<Map<number, Record<number, ProgressPercentages>>>,
+    maxCacheSize: number = 10,
+    setSubsectionProgress: React.Dispatch<React.SetStateAction<Record<number, Record<number, ProgressPercentages>>>>,
+    debugFn?: (category: string, message: string | object, ...args: any[]) => void
+): ProgressCacheHelpers {
+    const getCachedProgress = (milestoneIdx: number): Record<number, ProgressPercentages> | undefined => {
+        const cache = cacheRef.current;
+        if (cache.has(milestoneIdx)) {
+            // Re-insert to mark as recently used (Map maintains insertion order)
+            const progress = cache.get(milestoneIdx)!;
+            cache.delete(milestoneIdx);
+            cache.set(milestoneIdx, progress);
+            return progress;
+        }
+        return undefined;
+    };
+
+    const setCachedProgress = (milestoneIdx: number, progress: Record<number, ProgressPercentages>) => {
+        const cache = cacheRef.current;
+
+        // If key already exists, remove it first to update position
+        if (cache.has(milestoneIdx)) {
+            cache.delete(milestoneIdx);
+        }
+
+        // If at limit, remove oldest entry (first in Map)
+        if (cache.size >= maxCacheSize) {
+            const firstKey = cache.keys().next().value;
+            if (firstKey !== undefined) {
+                cache.delete(firstKey);
+                if (debugFn) {
+                    debugFn("pagination", `Evicting oldest progress cache entry: milestone ${firstKey}`);
+                }
+            }
+        }
+
+        // Add new entry (will be at end, most recent)
+        cache.set(milestoneIdx, progress);
+
+        // Update state from cache
+        setSubsectionProgress(Object.fromEntries(cache));
+    };
+
+    return { getCachedProgress, setCachedProgress };
 }

@@ -23,6 +23,7 @@ interface MilestoneAccordionProps {
     getSubsectionsForMilestone: (milestoneIdx: number) => Subsection[];
     requestCellsForMilestone: (milestoneIdx: number, subsectionIdx?: number) => void;
     subsectionProgress?: Record<number, ProgressPercentages>;
+    allSubsectionProgress?: Record<number, Record<number, ProgressPercentages>>;
     unsavedChanges: boolean;
     anchorRef: React.RefObject<HTMLDivElement>;
     calculateSubsectionProgress: (
@@ -40,6 +41,7 @@ interface MilestoneAccordionProps {
         requiredTextValidations?: number;
         requiredAudioValidations?: number;
     };
+    requestSubsectionProgress?: (milestoneIdx: number) => void;
 }
 
 export function MilestoneAccordion({
@@ -51,9 +53,11 @@ export function MilestoneAccordion({
     getSubsectionsForMilestone,
     requestCellsForMilestone,
     subsectionProgress,
+    allSubsectionProgress,
     unsavedChanges,
     anchorRef,
     calculateSubsectionProgress,
+    requestSubsectionProgress,
 }: MilestoneAccordionProps) {
     // Layout constants
     const DROPDOWN_MAX_HEIGHT_VIEWPORT_PERCENT = 60; // 60vh
@@ -194,6 +198,68 @@ export function MilestoneAccordion({
             setExpandedMilestone(currentMilestoneIndex.toString());
         }
     }, [isOpen, currentMilestoneIndex]);
+
+    // Request progress when milestone is expanded
+    useEffect(() => {
+        if (isOpen && expandedMilestone !== null && requestSubsectionProgress) {
+            const milestoneIdx = parseInt(expandedMilestone);
+            if (!isNaN(milestoneIdx)) {
+                // Check if progress exists for this milestone in allSubsectionProgress
+                const hasProgress = allSubsectionProgress?.[milestoneIdx] !== undefined;
+                if (!hasProgress) {
+                    requestSubsectionProgress(milestoneIdx);
+                }
+            }
+        }
+    }, [isOpen, expandedMilestone, allSubsectionProgress, requestSubsectionProgress]);
+
+    // Helper function to calculate progress for a specific milestone's subsection
+    const calculateSubsectionProgressForMilestone = (
+        milestoneIdx: number,
+        subsection: Subsection,
+        subsectionIndex: number
+    ) => {
+        // Use progress from allSubsectionProgress if available for this milestone
+        if (allSubsectionProgress?.[milestoneIdx]?.[subsectionIndex] !== undefined) {
+            const backendProgress = allSubsectionProgress[milestoneIdx][subsectionIndex];
+            return {
+                isFullyTranslated: backendProgress.percentTranslationsCompleted === 100,
+                isFullyValidated: backendProgress.percentFullyValidatedTranslations === 100,
+                percentTranslationsCompleted: backendProgress.percentTranslationsCompleted,
+                percentAudioTranslationsCompleted:
+                    backendProgress.percentAudioTranslationsCompleted,
+                percentFullyValidatedTranslations:
+                    backendProgress.percentFullyValidatedTranslations,
+                percentAudioValidatedTranslations:
+                    backendProgress.percentAudioValidatedTranslations,
+                percentTextValidatedTranslations: backendProgress.percentTextValidatedTranslations,
+                textValidationLevels: backendProgress.textValidationLevels,
+                audioValidationLevels: backendProgress.audioValidationLevels,
+                requiredTextValidations: backendProgress.requiredTextValidations,
+                requiredAudioValidations: backendProgress.requiredAudioValidations,
+            };
+        }
+
+        // Fall back to calculateSubsectionProgress for current milestone
+        if (milestoneIdx === currentMilestoneIndex) {
+            return calculateSubsectionProgress(subsection, subsectionIndex);
+        }
+
+        // Return default values if progress is not available
+        return {
+            isFullyTranslated: false,
+            isFullyValidated: false,
+            percentTranslationsCompleted: 0,
+            percentAudioTranslationsCompleted: 0,
+            percentFullyValidatedTranslations: 0,
+            percentAudioValidatedTranslations: 0,
+            percentTextValidatedTranslations: 0,
+            textValidationLevels: undefined,
+            audioValidationLevels: undefined,
+            requiredTextValidations: undefined,
+            requiredAudioValidations: undefined,
+        };
+    };
 
     // Scroll to current subsection when accordion opens
     useEffect(() => {
@@ -395,10 +461,12 @@ export function MilestoneAccordion({
                                         <AccordionContent className="pb-2">
                                             <div className="space-y-1 pt-2">
                                                 {subsections.map((subsection, subsectionIdx) => {
-                                                    const progress = calculateSubsectionProgress(
-                                                        subsection,
-                                                        subsectionIdx
-                                                    );
+                                                    const progress =
+                                                        calculateSubsectionProgressForMilestone(
+                                                            milestoneIdx,
+                                                            subsection,
+                                                            subsectionIdx
+                                                        );
                                                     const percentages =
                                                         deriveSubsectionPercentages(progress);
                                                     const isActive =
