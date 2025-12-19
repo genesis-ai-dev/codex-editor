@@ -755,30 +755,49 @@ export async function splitSourceFileByBook(
 ): Promise<vscode.Uri[]> {
     const content = await vscode.workspace.fs.readFile(sourceUri);
     const textContent = Buffer.from(content).toString("utf-8");
-    const lines = textContent.split("\n").filter((line) => line.trim());
+    const sourceData = JSON.parse(textContent);
 
-    // Group verses by book
-    const bookGroups = new Map<string, string[]>();
+    if (!sourceData.cells || !Array.isArray(sourceData.cells)) {
+        throw new Error("Invalid notebook format: expected cells array");
+    }
 
-    lines.forEach((line) => {
-        const match = line.match(/^([\w\s]+)\s+\d+:\d+\s+.+$/);
-        if (match) {
-            const book = match[1].trim();
-            if (!bookGroups.has(book)) {
-                bookGroups.set(book, []);
-            }
-            bookGroups.get(book)!.push(line);
+    // Group cells by book using globalReferences
+    const bookGroups = new Map<string, any[]>();
+
+    for (const cell of sourceData.cells) {
+        // Skip milestone cells - they have UUIDs as IDs, not book references
+        // If we don't skip them, it will create .source.combined files that we don't want.
+        if (
+            cell.metadata?.type === CodexCellTypes.MILESTONE ||
+            cell.metadata?.type === CodexCellTypes.STYLE ||
+            cell.metadata?.type === CodexCellTypes.PARATEXT
+        ) {
+            continue;
         }
-    });
+
+        // Try to get book name from globalReferences first (preferred method)
+        const globalRefs = cell?.metadata?.data?.globalReferences;
+        if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+            const firstRef = globalRefs[0];
+            // Extract book name: "GEN 1:1" -> "GEN" or "TheChosen-201-en-SingleSpeaker 1:jkflds" -> "TheChosen-201-en-SingleSpeaker"
+            const bookMatch = firstRef.match(/^([^\s]+)/);
+            if (bookMatch) {
+                const book = bookMatch[1];
+                if (!bookGroups.has(book)) {
+                    bookGroups.set(book, []);
+                }
+                bookGroups.get(book)!.push(cell);
+            }
+        }
+    }
 
     const createdFiles: vscode.Uri[] = [];
 
     // Create source directory if it doesn't exist
     const sourceTextDir = vscode.Uri.joinPath(
         vscode.Uri.file(workspacePath),
-        "files",
-        "source",
-        `${language}Texts`
+        ".project",
+        "sourceTexts"
     );
 
     try {
@@ -788,13 +807,19 @@ export async function splitSourceFileByBook(
     }
 
     // Create a file for each book
-    for (const [book, verses] of bookGroups) {
+    for (const [book, cells] of bookGroups) {
         const safeBookName = book.replace(/[^a-zA-Z0-9]/g, "");
         const sourceFilePath = vscode.Uri.joinPath(sourceTextDir, `${safeBookName}.source`);
 
+        // Create notebook structure with filtered cells
+        const notebookData = {
+            ...sourceData,
+            cells: cells,
+        };
+
         await vscode.workspace.fs.writeFile(
             sourceFilePath,
-            Buffer.from(verses.join("\n"), "utf-8")
+            Buffer.from(JSON.stringify(notebookData, null, 2), "utf-8")
         );
 
         createdFiles.push(sourceFilePath);
@@ -802,78 +827,3 @@ export async function splitSourceFileByBook(
 
     return createdFiles;
 }
-
-export async function migrateSourceFiles() {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    if (!workspaceFolder) {
-        return;
-    }
-
-    const sourceTextsFolderUri = vscode.Uri.joinPath(
-        workspaceFolder.uri,
-        ".project",
-        "sourceTexts"
-    );
-
-    try {
-        await vscode.workspace.fs.stat(sourceTextsFolderUri);
-    } catch {
-        console.log("No source texts folder found. Skipping migration.");
-        return;
-    }
-
-    const sourceFiles = await vscode.workspace.fs.readDirectory(sourceTextsFolderUri);
-
-    for (const [fileName, fileType] of sourceFiles) {
-        if (fileType === vscode.FileType.File && fileName.endsWith(".source")) {
-            const fileUri = vscode.Uri.joinPath(sourceTextsFolderUri, fileName);
-
-            try {
-                const fileContent = await vscode.workspace.fs.readFile(fileUri);
-                const sourceData = JSON.parse(fileContent.toString());
-
-                const books = new Set<string>();
-                for (const cell of sourceData.cells) {
-                    // Skip milestone cells - they have UUIDs as IDs, not book references
-                    // If we don't skip them, it will create .source.combined files that we don't want.
-                    if (cell.metadata?.type === CodexCellTypes.MILESTONE || cell.metadata?.type === CodexCellTypes.STYLE || cell.metadata?.type === CodexCellTypes.PARATEXT) {
-                        continue;
-                    }
-
-                    let book = "";
-
-                    // Try to get book name from globalReferences first (preferred method)
-                    const globalRefs = cell?.metadata?.data?.globalReferences;
-                    if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
-                        const firstRef = globalRefs[0];
-                        // Extract book name: "GEN 1:1" -> "GEN" or "TheChosen-201-en-SingleSpeaker 1:jkflds" -> "TheChosen-201-en-SingleSpeaker"
-                        const bookMatch = firstRef.match(/^([^\s]+)/);
-                        if (bookMatch) {
-                            book = bookMatch[1];
-                        }
-                    }
-                }
-
-                if (books.size > 1) {
-                    console.log(`Splitting ${fileName} into multiple files...`);
-                    await splitSourceFileByBook(fileUri, workspaceFolder.uri.fsPath, "source");
-
-                    // Rename the original file
-                    const newFileName = fileName.replace(".source", ".source.combined");
-                    const newFileUri = vscode.Uri.joinPath(sourceTextsFolderUri, newFileName);
-                    try {
-                        await vscode.workspace.fs.rename(fileUri, newFileUri);
-                        console.log(`Renamed original file to ${newFileName}`);
-                    } catch (error) {
-                        console.error(`Failed to rename ${fileName}: ${error}`);
-                    }
-                }
-            } catch (error) {
-                console.error(`Error processing ${fileName}: ${error}`);
-            }
-        }
-    }
-
-    console.log("Source file migration completed.");
-}
-
