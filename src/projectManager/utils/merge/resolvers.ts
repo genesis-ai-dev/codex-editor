@@ -2317,7 +2317,7 @@ export async function resolveConflictFiles(
                     debugLog(`Creating new file: ${conflict.filepath}`);
                     try {
                         // Use non-empty content (prefer ours, fallback to theirs)
-                        const content = conflict.ours ?? conflict.theirs ?? "";
+                        const content = conflict.ours || conflict.theirs;
                         await vscode.workspace.fs.writeFile(filePath, Buffer.from(content));
                         resolvedFiles.push({
                             filepath: conflict.filepath,
