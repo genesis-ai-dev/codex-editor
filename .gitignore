@@ -1,24 +1,87 @@
-out
-node_modules
-.vscode-test/
+# ============================================
+# BUILD ARTIFACTS (Essential - Don't Remove!)
+# ============================================
+# Compiled extension code
+out/
 *.vsix
+
+# Node modules
+node_modules/
+webviews/editable-react-table/node_modules/
+webviews/codex-webviews/node_modules/
+
+# Package manager lock files
 /package-lock.json
-pnpm-lock.yaml
-__pycache__
-webviews/editable-react-table/node_modules
-/webviews/commentsWebview
-.DS_Store
 package-lock.json
-.project/complete_drafts.txt
-.project/indexes.sqlite
-.project/dictionary.sqlite
+pnpm-lock.yaml
+
+# Webview build outputs (all dist directories)
+webviews/*/dist/
+webviews/codex-webviews/dist/
+/webviews/commentsWebview
+
+# Test artifacts
+.vscode-test/
 .wdio-vscode-service
-AGENTS.md
+
 # TypeScript build cache
 .tsbuildinfo
 
-CLAUDE.md
-
 # Vite build artifacts
 *.timestamp-*.mjs
-webviews/codex-webviews/dist/
+
+# ============================================
+# PROJECT-SPECIFIC FILES
+# ============================================
+# Sync .project/sourceTexts/ folder (source text files)
+
+# Don't sync user-specific SQLite databases
+.project/*.sqlite
+
+# Don't sync SQLite auxiliary files
+.project/*.sqlite-wal
+.project/*.sqlite-shm
+
+# Don't sync user-specific files
+.project/complete_drafts.txt
+.project/localProjectSettings.json
+copilot-messages.log
+
+# Archive formats
+*.zip
+*.rar
+*.7z
+*.tar
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.gz
+*.bz2
+*.xz
+
+# Windows executables and installers
+*.exe
+*.msi
+*.bat
+*.cmd
+*.com
+*.scr
+*.dll
+
+# macOS executables and disk images
+*.dmg
+*.pkg
+
+# Disk images and virtual machine files
+*.iso
+*.img
+*.vhd
+*.vmdk
+
+# System files
+.DS_Store
+.project/attachments/files/**
+
+# Development/Debug files
+AGENTS.md
+CLAUDE.md

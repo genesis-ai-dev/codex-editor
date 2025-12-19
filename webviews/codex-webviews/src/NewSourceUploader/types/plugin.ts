@@ -115,6 +115,7 @@ export const defaultCellAligner: CellAligner = async (
 ): Promise<AlignedCell[]> => {
     const alignedCells: AlignedCell[] = [];
     let totalMatches = 0;
+    let emptyCellMatches = 0;
 
     // Create a map of target cells for quick lookup
     const targetCellsMap = new Map<string, any>();
@@ -124,13 +125,24 @@ export const defaultCellAligner: CellAligner = async (
         }
     });
 
+    console.log(`[Aligner] Processing ${importedContent.length} imported items against ${targetCells.length} target cells`);
+    console.log(`[Aligner] Target cell IDs: ${Array.from(targetCellsMap.keys()).join(', ')}`);
+    console.log(`[Aligner] Imported content IDs: ${importedContent.map(item => item.id).join(', ')}`);
+
     // Process each imported content item (including empty cells to preserve order)
     for (const importedItem of importedContent) {
         // Look for exact ID match in target cells
         const targetCell = targetCellsMap.get(importedItem.id);
 
         if (targetCell) {
-            // Found matching cell - create aligned cell
+            // Found matching cell - create aligned cell (even if content is empty)
+            // This ensures empty imported cells maintain their position instead of being appended at the end
+            const isEmpty = !importedItem.content || importedItem.content.trim() === '';
+            if (isEmpty) {
+                emptyCellMatches++;
+                console.log(`[Aligner] Matched empty cell: ${importedItem.id}`);
+            }
+
             alignedCells.push({
                 notebookCell: targetCell,
                 importedContent: importedItem,
@@ -140,6 +152,7 @@ export const defaultCellAligner: CellAligner = async (
             totalMatches++;
         } else if (importedItem.content.trim()) {
             // No matching cell found AND has content - treat as paratext
+            console.warn(`[Aligner] No target cell found for ID "${importedItem.id}" (has content), adding as paratext`);
             alignedCells.push({
                 notebookCell: null,
                 importedContent: {
@@ -150,12 +163,15 @@ export const defaultCellAligner: CellAligner = async (
                 alignmentMethod: 'exact-id',
                 confidence: 0.0 // No confidence for unmatched content
             });
+        } else {
+            // Empty cell with no matching target - skip (trailing blanks from Excel/CSV)
+            console.log(`[Aligner] Skipping empty cell with no match: ${importedItem.id}`);
         }
-        // Skip empty cells that don't match any target cell (trailing blanks from Excel)
     }
 
     // Log matching statistics
-    console.log(`Default aligner: ${totalMatches} exact matches found out of ${importedContent.length} imported items`);
+    console.log(`[Aligner] Results: ${totalMatches} exact matches (${emptyCellMatches} empty cells), ${alignedCells.filter(c => c.isParatext).length} paratext items`);
+    console.log(`[Aligner] Aligned cells IDs: ${alignedCells.filter(c => !c.isParatext).map(c => c.importedContent.id).join(', ')}`);
 
     return alignedCells;
 };
@@ -419,7 +435,7 @@ export interface AudioFileSelectedMessage {
     sessionId: string;
     fileName: string;
     durationSec: number;
-    segments: Array<{ id: string; startSec: number; endSec: number }>;
+    segments: Array<{ id: string; startSec: number; endSec: number; }>;
     waveformPeaks: number[];
     fullAudioUri?: string;
     thresholdDb?: number;
@@ -433,7 +449,7 @@ export interface AudioFilesSelectedMessage {
         sessionId: string;
         fileName: string;
         durationSec: number;
-        segments: Array<{ id: string; startSec: number; endSec: number }>;
+        segments: Array<{ id: string; startSec: number; endSec: number; }>;
         waveformPeaks: number[];
         fullAudioUri?: string;
     }>;
@@ -462,7 +478,7 @@ export interface FinalizeAudioImportMessage {
     sessionId: string;
     documentName: string;
     notebookPairs: NotebookPair[];
-    segmentMappings: Array<{ segmentId: string; cellId: string; attachmentId: string; fileName: string }>;
+    segmentMappings: Array<{ segmentId: string; cellId: string; attachmentId: string; fileName: string; }>;
 }
 
 export interface AudioImportProgressMessage {
@@ -486,7 +502,7 @@ export interface AudioImportCompleteMessage {
 export interface UpdateAudioSegmentsMessage {
     command: 'updateAudioSegments';
     sessionId: string;
-    segments: Array<{ id: string; startSec: number; endSec: number }>;
+    segments: Array<{ id: string; startSec: number; endSec: number; }>;
 }
 
 export interface AudioSegmentsUpdatedMessage {
