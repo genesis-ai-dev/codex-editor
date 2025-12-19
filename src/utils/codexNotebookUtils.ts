@@ -852,16 +852,6 @@ export async function migrateSourceFiles() {
                             book = bookMatch[1];
                         }
                     }
-
-                    // Fallback to parsing cell ID if globalReferences not available (legacy support)
-                    if (!book && cell.metadata && cell.metadata.id) {
-                        const [bookFromId] = cell.metadata.id.split(" ");
-                        book = bookFromId;
-                    }
-
-                    if (book) {
-                        books.add(book);
-                    }
                 }
 
                 if (books.size > 1) {
