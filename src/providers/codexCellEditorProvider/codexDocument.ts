@@ -1301,6 +1301,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
         percentFullyValidatedTranslations: number;
         percentAudioValidatedTranslations: number;
         percentTextValidatedTranslations: number;
+        textValidationLevels?: number[];
+        audioValidationLevels?: number[];
+        requiredTextValidations?: number;
+        requiredAudioValidations?: number;
     }> {
         const progress: Record<number, {
             percentTranslationsCompleted: number;
@@ -1308,6 +1312,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
             percentFullyValidatedTranslations: number;
             percentAudioValidatedTranslations: number;
             percentTextValidatedTranslations: number;
+            textValidationLevels?: number[];
+            audioValidationLevels?: number[];
+            requiredTextValidations?: number;
+            requiredAudioValidations?: number;
         }> = {};
 
         const cells = this._documentData.cells || [];
@@ -1363,6 +1371,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     percentFullyValidatedTranslations: 0,
                     percentAudioValidatedTranslations: 0,
                     percentTextValidatedTranslations: 0,
+                    textValidationLevels: [],
+                    audioValidationLevels: [],
+                    requiredTextValidations: minimumValidationsRequired,
+                    requiredAudioValidations: minimumAudioValidationsRequired,
                 };
                 continue;
             }
@@ -1393,6 +1405,24 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     minimumAudioValidationsRequired
                 );
 
+            // Compute per-level validation percentages for text and audio
+            const countNonDeleted = (arr: any[] | undefined) => (arr || []).filter((v: any) => !v.isDeleted).length;
+            const textValidationCounts = cellWithValidatedData.map((c) => countNonDeleted(c.validatedBy));
+            const audioValidationCounts = cellWithValidatedData.map((c) => countNonDeleted(c.audioValidatedBy));
+
+            const computeLevelPercents = (counts: number[], maxLevel: number) => {
+                const levels: number[] = [];
+                const total = totalCells > 0 ? totalCells : 1;
+                for (let k = 1; k <= Math.max(0, maxLevel); k++) {
+                    const satisfied = counts.filter((n) => n >= k).length;
+                    levels.push((satisfied / total) * 100);
+                }
+                return levels;
+            };
+
+            const textValidationLevels = computeLevelPercents(textValidationCounts, minimumValidationsRequired);
+            const audioValidationLevels = computeLevelPercents(audioValidationCounts, minimumAudioValidationsRequired);
+
             // Calculate progress percentages
             const progressPercentages = computeProgressPercents(
                 totalCells,
@@ -1403,7 +1433,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 fullyValidatedCells
             );
 
-            progress[subsectionIdx] = progressPercentages;
+            progress[subsectionIdx] = {
+                ...progressPercentages,
+                textValidationLevels,
+                audioValidationLevels,
+                requiredTextValidations: minimumValidationsRequired,
+                requiredAudioValidations: minimumAudioValidationsRequired,
+            };
         }
 
         return progress;

@@ -35,6 +35,10 @@ interface MilestoneAccordionProps {
         percentTextValidatedTranslations?: number;
         percentAudioTranslationsCompleted?: number;
         percentAudioValidatedTranslations?: number;
+        textValidationLevels?: number[];
+        audioValidationLevels?: number[];
+        requiredTextValidations?: number;
+        requiredAudioValidations?: number;
     };
 }
 
@@ -409,12 +413,20 @@ export function MilestoneAccordion({
                                                                         percentages.audioValidatedPercent,
                                                                     completedPercent:
                                                                         percentages.audioCompletedPercent,
+                                                                    validationLevels:
+                                                                        progress.audioValidationLevels,
+                                                                    requiredValidations:
+                                                                        progress.requiredAudioValidations,
                                                                 }}
                                                                 text={{
                                                                     validatedPercent:
                                                                         percentages.textValidatedPercent,
                                                                     completedPercent:
                                                                         percentages.textCompletedPercent,
+                                                                    validationLevels:
+                                                                        progress.textValidationLevels,
+                                                                    requiredValidations:
+                                                                        progress.requiredTextValidations,
                                                                 }}
                                                             />
                                                         </div>

@@ -725,6 +725,10 @@ ChapterNavigationHeaderProps) {
                 percentAudioValidatedTranslations:
                     backendProgress.percentAudioValidatedTranslations,
                 percentTextValidatedTranslations: backendProgress.percentTextValidatedTranslations,
+                textValidationLevels: backendProgress.textValidationLevels,
+                audioValidationLevels: backendProgress.audioValidationLevels,
+                requiredTextValidations: backendProgress.requiredTextValidations,
+                requiredAudioValidations: backendProgress.requiredAudioValidations,
             };
         }
 
@@ -737,6 +741,10 @@ ChapterNavigationHeaderProps) {
             percentFullyValidatedTranslations: 0,
             percentAudioValidatedTranslations: 0,
             percentTextValidatedTranslations: 0,
+            textValidationLevels: undefined,
+            audioValidationLevels: undefined,
+            requiredTextValidations: undefined,
+            requiredAudioValidations: undefined,
         };
     };
 
