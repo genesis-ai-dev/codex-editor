@@ -13,13 +13,8 @@ import { Slider } from "../../components/ui/slider";
 import { CELL_DISPLAY_MODES } from "../CodexCellEditor";
 import {
     type CustomNotebookMetadata,
-    type QuillCellContent,
-    type MilestoneIndex,
 } from "../../../../../types";
 import { type Subsection } from "../../lib/types";
-import { DropdownMenuCheckboxItem } from "../../components/ui/dropdown-menu";
-import { deriveSubsectionPercentages } from "../utils/progressUtils";
-import { ProgressDots } from "./ProgressDots";
 
 interface MobileHeaderMenuProps {
     // Translation controls
@@ -64,29 +59,6 @@ interface MobileHeaderMenuProps {
     vscode: any;
     autoDownloadAudioOnOpen?: boolean;
     onToggleAutoDownloadAudio?: (value: boolean) => void;
-
-    // Chapter navigation props (for very small screens)
-    totalChapters?: number;
-    setChapterNumber?: React.Dispatch<React.SetStateAction<number>>;
-    showUnsavedWarning?: () => void;
-    shouldHideNavButtons?: boolean;
-    allCellsForChapter?: QuillCellContent[];
-    calculateSubsectionProgress?: (
-        subsection: Subsection,
-        subsectionIndex: number
-    ) => {
-        isFullyTranslated: boolean;
-        isFullyValidated: boolean;
-        percentTranslationsCompleted?: number;
-        percentTextValidatedTranslations?: number;
-        percentAudioTranslationsCompleted?: number;
-        percentAudioValidatedTranslations?: number;
-    };
-
-    // Milestone-based pagination props
-    milestoneIndex: MilestoneIndex | null;
-    currentMilestoneIndex: number;
-    requestCellsForMilestone: (milestoneIdx: number, subsectionIdx?: number) => void;
 }
 
 export function MobileHeaderMenu({
@@ -108,9 +80,6 @@ export function MobileHeaderMenu({
     shouldShowVideoPlayer,
     onToggleVideoPlayer,
     onOpenMetadataModal,
-    subsections,
-    currentSubsectionIndex,
-    setCurrentSubsectionIndex,
     toggleScrollSync,
     scrollSyncEnabled,
     openSourceText,
@@ -119,15 +88,6 @@ export function MobileHeaderMenu({
     vscode,
     autoDownloadAudioOnOpen,
     onToggleAutoDownloadAudio,
-    totalChapters,
-    setChapterNumber,
-    showUnsavedWarning,
-    shouldHideNavButtons,
-    allCellsForChapter,
-    calculateSubsectionProgress,
-    milestoneIndex,
-    currentMilestoneIndex,
-    requestCellsForMilestone,
 }: MobileHeaderMenuProps) {
     const isAnyTranslationInProgress = isAutocompletingChapter || isTranslatingCell;
 
@@ -249,62 +209,6 @@ export function MobileHeaderMenu({
                 </DropdownMenuItem>
 
                 <DropdownMenuSeparator />
-
-                {/* Page Selector - only show on mobile when pages exist */}
-                {subsections.length > 0 && (
-                    <>
-                        <div className="px-3 py-1">
-                            <span className="text-sm text-muted-foreground">
-                                Current Page: {subsections[currentSubsectionIndex]?.label || ""}
-                            </span>
-                        </div>
-                        {subsections.map((section, index) => {
-                            const progress = calculateSubsectionProgress
-                                ? calculateSubsectionProgress(section, index)
-                                : { isFullyTranslated: false, isFullyValidated: false };
-                            const isActive = currentSubsectionIndex === index;
-                            const {
-                                textValidatedPercent,
-                                textCompletedPercent,
-                                audioValidatedPercent,
-                                audioCompletedPercent,
-                            } = deriveSubsectionPercentages(progress);
-                            return (
-                                <DropdownMenuItem
-                                    key={section.id}
-                                    onClick={() => {
-                                        if (!unsavedChanges) {
-                                            // Use milestone-based navigation
-                                            requestCellsForMilestone(currentMilestoneIndex, index);
-                                        } else if (showUnsavedWarning) {
-                                            showUnsavedWarning();
-                                        }
-                                    }}
-                                    className={`cursor-pointer ${
-                                        isActive
-                                            ? "bg-accent text-accent-foreground font-semibold"
-                                            : ""
-                                    }`}
-                                >
-                                    <i className="codicon codicon-location mr-2 h-4 w-4" />
-                                    <span>Go to {section.label}</span>
-                                    <ProgressDots
-                                        className="ml-auto"
-                                        audio={{
-                                            validatedPercent: audioValidatedPercent,
-                                            completedPercent: audioCompletedPercent,
-                                        }}
-                                        text={{
-                                            validatedPercent: textValidatedPercent,
-                                            completedPercent: textCompletedPercent,
-                                        }}
-                                    />
-                                </DropdownMenuItem>
-                            );
-                        })}
-                        <DropdownMenuSeparator />
-                    </>
-                )}
 
                 {/* Line Numbers */}
                 <DropdownMenuItem
