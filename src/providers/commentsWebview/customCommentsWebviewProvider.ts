@@ -880,32 +880,6 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         }
     }
 
-    private async getCurrentUserName(): Promise<string> {
-        try {
-            // First try authenticated user
-            if (this.isAuthenticated && this.authApi) {
-                const user = await this.authApi.getUserInfo();
-                if (user && user.username) {
-                    return user.username;
-                }
-            }
-
-            // Try git username
-            const gitUsername = vscode.workspace.getConfiguration("git").get<string>("username");
-            if (gitUsername) return gitUsername;
-
-            // Try VS Code authentication
-            const session = await vscode.authentication.getSession('github', ['user:email'], { createIfNone: false });
-            if (session && session.account) {
-                return session.account.label;
-            }
-        } catch (error) {
-            // Silent fallback
-        }
-
-        // Fallback
-        return "unknown";
-    }
 }
 
 
