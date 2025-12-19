@@ -70,6 +70,7 @@ export function MilestoneAccordion({
 
     const accordionRef = useRef<HTMLDivElement>(null);
     const currentMilestoneRef = useRef<HTMLDivElement>(null);
+    const currentSubsectionRef = useRef<HTMLDivElement>(null);
     const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
     const [arrowPosition, setArrowPosition] = useState<"top" | "bottom">("top");
     const [expandedMilestone, setExpandedMilestone] = useState<string | null>(
@@ -194,20 +195,36 @@ export function MilestoneAccordion({
         }
     }, [isOpen, currentMilestoneIndex]);
 
-    // Scroll to current milestone when accordion opens
+    // Scroll to current subsection when accordion opens
     useEffect(() => {
-        if (isOpen && currentMilestoneRef.current && accordionRef.current) {
+        if (isOpen && accordionRef.current) {
             // Wait for accordion animation to complete before scrolling
             const timeoutId = setTimeout(() => {
-                currentMilestoneRef.current?.scrollIntoView({
+                // Prefer scrolling to the subsection if available, otherwise fall back to milestone
+                const targetElement = currentSubsectionRef.current || currentMilestoneRef.current;
+                if (!targetElement) return;
+
+                // Find the scrollable container (the div with overflow-y-auto)
+                const scrollContainer = accordionRef.current?.querySelector(
+                    '[class*="overflow-y-auto"]'
+                ) as HTMLElement;
+
+                // Get the element's position relative to the scroll container
+                const elementTop = targetElement.offsetTop;
+
+                // Calculate scroll position to show the element at the top of visible area
+                // accounting for the header height.
+                const scrollPosition = elementTop - DROPDOWN_HEADER_HEIGHT;
+
+                scrollContainer.scrollTo({
+                    top: Math.max(0, scrollPosition),
                     behavior: "smooth",
-                    block: "center",
                 });
-            }, 200); // Small delay to allow accordion animation to start
+            }, 200);
 
             return () => clearTimeout(timeoutId);
         }
-    }, [isOpen, currentMilestoneIndex]);
+    }, [isOpen, currentMilestoneIndex, currentSubsectionIndex]);
 
     if (!isOpen || !milestoneIndex) return null;
 
@@ -391,6 +408,11 @@ export function MilestoneAccordion({
                                                     return (
                                                         <div
                                                             key={subsection.id}
+                                                            ref={
+                                                                isActive
+                                                                    ? currentSubsectionRef
+                                                                    : undefined
+                                                            }
                                                             onClick={() =>
                                                                 handleSubsectionClick(
                                                                     milestoneIdx,
