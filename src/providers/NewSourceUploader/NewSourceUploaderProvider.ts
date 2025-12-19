@@ -899,13 +899,10 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             let skippedCount = 0;
             let paratextCount = 0;
             let childCellCount = 0;
-            let emptyInsertCount = 0;
 
             // Process aligned cells and update the notebook
             const processedCells = new Map<string, any>();
             const processedSourceCells = new Set<string>();
-
-            console.log(`[Translation Import] Processing ${message.alignedContent.length} aligned cells into processedCells map`);
 
             for (const alignedCell of message.alignedContent) {
                 if (alignedCell.isParatext) {
@@ -929,7 +926,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 } else if (alignedCell.notebookCell) {
                     const targetId = alignedCell.importedContent.id;
                     const existingCell = existingCellsMap.get(targetId);
-                    const isEmpty = !alignedCell.importedContent.content || alignedCell.importedContent.content.trim() === '';
 
                     if (existingCell && existingCell.value && existingCell.value.trim() !== "") {
                         // Keep existing content if cell already has content
@@ -957,11 +953,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         };
                         processedCells.set(targetId, updatedCell);
 
-                        if (isEmpty) {
-                            emptyInsertCount++;
-                            console.log(`[Translation Import] Processing empty cell ${targetId} - will maintain position`);
-                        }
-
                         if (alignedCell.isAdditionalOverlap) {
                             childCellCount++;
                         } else {
@@ -973,14 +964,9 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 }
             }
 
-            console.log(`[Translation Import] processedCells map populated with ${processedCells.size} entries (${emptyInsertCount} empty content inserts)`);
-            console.log(`[Translation Import] Statistics: ${insertedCount} inserted, ${skippedCount} skipped, ${paratextCount} paratext, ${childCellCount} child cells`);
-
             // Build the final cell array, preserving the temporal order from alignedContent
             const newCells: any[] = [];
             const usedExistingCellIds = new Set<string>();
-
-            console.log(`[Translation Import] Processing ${message.alignedContent.length} aligned cells`);
 
             // Process cells in the order they appear in alignedContent (temporal order)
             for (const alignedCell of message.alignedContent) {
@@ -1001,7 +987,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     } else {
                         // Defensive: If cell should be in processedCells but isn't, reconstruct it to maintain order
                         // This prevents cells from being appended at the end incorrectly
-                        console.warn(`[Translation Import] Cell ${targetId} has alignedCell.notebookCell but not in processedCells - reconstructing to maintain order`);
                         const existingMetadata = alignedCell.notebookCell.metadata || {};
                         const existingData = existingMetadata.data || {};
 
@@ -1023,26 +1008,16 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         newCells.push(reconstructedCell);
                         usedExistingCellIds.add(targetId);
                     }
-                } else {
-                    console.warn(`[Translation Import] Aligned cell for ${alignedCell.importedContent.id} has no notebookCell - skipping`);
                 }
             }
 
-            console.log(`[Translation Import] Added ${newCells.length} cells from aligned content, ${usedExistingCellIds.size} IDs marked as used`);
-
             // Add any existing cells that weren't in the aligned content (shouldn't happen normally)
-            const appendedCells: string[] = [];
             for (const cell of existingNotebook.cells) {
                 const cellId = cell.metadata?.id;
                 if (cellId && !usedExistingCellIds.has(cellId)) {
-                    console.warn(`[Translation Import] Cell ${cellId} was not in aligned content, appending at end`);
-                    appendedCells.push(cellId);
+                    console.warn(`Cell ${cellId} was not in aligned content, appending at end`);
                     newCells.push(cell);
                 }
-            }
-
-            if (appendedCells.length > 0) {
-                console.warn(`[Translation Import] WARNING: ${appendedCells.length} cells were appended at end: ${appendedCells.join(', ')}`);
             }
 
             // Update the notebook

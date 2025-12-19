@@ -288,16 +288,19 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                 // Source import - create notebook pair
                 // If ID column present, preserve all rows (even empty) to maintain order
                 // If no ID column, filter out empty rows to avoid importing trailing blanks
+
+                // First, map to preserve original indices before filtering
                 const sourceCells = parsedData.rows
+                    .map((row, originalIndex) => ({ row, originalIndex }))
                     .filter(
-                        (row) =>
+                        ({ row }) =>
                             idColumnIndex !== undefined || row[parseInt(sourceColumnIndex!)]?.trim()
                     )
-                    .map((row, index) => {
+                    .map(({ row, originalIndex }) => {
                         const id = idColumnIndex
                             ? row[parseInt(idColumnIndex)]?.trim() ||
-                              createCellId(parsedData.filename, index)
-                            : createCellId(parsedData.filename, index);
+                              createCellId(parsedData.filename, originalIndex)
+                            : createCellId(parsedData.filename, originalIndex);
 
                         return {
                             id,
@@ -305,9 +308,9 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                             images: [],
                             metadata: {
                                 id,
-                                cellLabel: (index + 1).toString(), // Add cell label for display
+                                cellLabel: (originalIndex + 1).toString(), // Display label based on original row position
                                 data: {
-                                    rowIndex: index,
+                                    rowIndex: originalIndex, // Preserve original row index from spreadsheet
                                     originalRow: row,
                                 },
                             },
