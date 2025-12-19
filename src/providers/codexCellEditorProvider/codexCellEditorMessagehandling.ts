@@ -3018,6 +3018,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             }
 
+            // Store the current milestone/subsection for this document to preserve position during updates
+            provider.currentMilestoneSubsectionMap.set(document.uri.toString(), {
+                milestoneIndex,
+                subsectionIndex,
+            });
+
             // Send the cell page to the webview
             safePostMessageToPanel(webviewPanel, {
                 type: "providerSendsCellPage",

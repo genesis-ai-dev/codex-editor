@@ -730,6 +730,7 @@ const CodexCellEditor: React.FC = () => {
             // Also listen for validation completion message
             if (message.type === "validationsApplied") {
                 setIsApplyingValidations(false);
+                // Note: Progress refresh for validationsApplied is handled in the validationProgress handler below
             }
 
             // Handle file status updates
@@ -1054,6 +1055,68 @@ const CodexCellEditor: React.FC = () => {
         successfulCompletions,
     ]);
 
+    // Helper function to invalidate progress cache and force refresh for a milestone
+    const refreshProgressForMilestone = useCallback(
+        (milestoneIdx: number) => {
+            // Remove from cache to force fresh fetch
+            if (progressCacheRef.current.has(milestoneIdx)) {
+                progressCacheRef.current.delete(milestoneIdx);
+                debug("progress", `Invalidated progress cache for milestone ${milestoneIdx}`);
+            }
+
+            // Remove from pending requests if present (to allow new request)
+            pendingProgressRequestsRef.current.delete(milestoneIdx);
+
+            // Request fresh progress
+            pendingProgressRequestsRef.current.add(milestoneIdx);
+            vscode.postMessage({
+                command: "requestSubsectionProgress",
+                content: {
+                    milestoneIndex: milestoneIdx,
+                },
+            } as EditorPostMessages);
+
+            debug("progress", `Requested fresh progress for milestone ${milestoneIdx}`);
+        },
+        [vscode]
+    );
+
+    // Listen for validation state updates to refresh progress
+    useMessageHandler(
+        "codexCellEditor-validationProgress",
+        (event: MessageEvent) => {
+            const message = event.data;
+
+            // Listen for batch validation completion
+            if (message.type === "validationsApplied") {
+                // Refresh progress for current milestone after batch validations are applied
+                const milestoneIdx = currentMilestoneIndexRef.current;
+                if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
+                    refreshProgressForMilestone(milestoneIdx);
+                }
+            }
+
+            // Listen for individual validation state updates to refresh progress
+            if (message.type === "providerUpdatesValidationState") {
+                // Refresh progress for current milestone after text validation completes
+                const milestoneIdx = currentMilestoneIndexRef.current;
+                if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
+                    refreshProgressForMilestone(milestoneIdx);
+                }
+            }
+
+            // Listen for audio validation state updates to refresh progress
+            if (message.type === "providerUpdatesAudioValidationState") {
+                // Refresh progress for current milestone after audio validation completes
+                const milestoneIdx = currentMilestoneIndexRef.current;
+                if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
+                    refreshProgressForMilestone(milestoneIdx);
+                }
+            }
+        },
+        [milestoneIndex, refreshProgressForMilestone]
+    );
+
     useVSCodeMessageHandler({
         setContent: (
             content: QuillCellContent[],
@@ -1128,6 +1191,12 @@ const CodexCellEditor: React.FC = () => {
                     // Important: call both state updates in sequence to ensure they happen in the same render cycle
                     setSingleCellQueueProcessingId(undefined);
                     setIsProcessingCell(false);
+
+                    // Refresh progress for current milestone after autocomplete completes
+                    const milestoneIdx = currentMilestoneIndexRef.current;
+                    if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
+                        refreshProgressForMilestone(milestoneIdx);
+                    }
                 }
             }
         },
@@ -1135,6 +1204,11 @@ const CodexCellEditor: React.FC = () => {
         // Add this for compatibility
         autocompleteChapterComplete: () => {
             debug("autocomplete", "Autocomplete chapter complete (legacy handler)");
+            // Refresh progress for current milestone after autocomplete completes
+            const milestoneIdx = currentMilestoneIndexRef.current;
+            if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
+                refreshProgressForMilestone(milestoneIdx);
+            }
         },
 
         // New handlers for provider-centric state management
@@ -1174,6 +1248,12 @@ const CodexCellEditor: React.FC = () => {
                     newSet.add(cellId);
                     return newSet;
                 });
+
+                // Refresh progress for current milestone after successful autocomplete
+                const milestoneIdx = currentMilestoneIndexRef.current;
+                if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
+                    refreshProgressForMilestone(milestoneIdx);
+                }
             } else if (cancelled) {
                 // Cell was cancelled - make sure it's not in successful completions
                 debug("translation", `Cell ${cellId} was cancelled`);
