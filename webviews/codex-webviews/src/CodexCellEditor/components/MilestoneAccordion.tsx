@@ -525,7 +525,7 @@ export function MilestoneAccordion({
                                         <AccordionTrigger
                                             className={`hover:no-underline p-2 cursor-pointer [&>svg]:hidden ${
                                                 isCurrentMilestone
-                                                    ? "bg-accent text-accent-foreground font-semibold"
+                                                    ? "bg-accent font-semibold"
                                                     : ""
                                             }`}
                                         >
@@ -599,7 +599,7 @@ export function MilestoneAccordion({
                                                             }
                                                             className={`flex items-center justify-between pr-3 pl-6 py-2 rounded-md cursor-pointer transition-colors ${
                                                                 isActive
-                                                                    ? "bg-accent text-accent-foreground font-semibold"
+                                                                    ? "bg-accent font-semibold"
                                                                     : unsavedChanges
                                                                     ? "opacity-60 cursor-not-allowed"
                                                                     : "hover:bg-secondary"
