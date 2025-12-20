@@ -1055,28 +1055,47 @@ const CodexCellEditor: React.FC = () => {
         successfulCompletions,
     ]);
 
+    // Debounce refs for progress refresh
+    const progressRefreshTimeoutRef = useRef<Map<number, NodeJS.Timeout>>(new Map());
+
     // Helper function to invalidate progress cache and force refresh for a milestone
+    // Debounced to avoid overwhelming the system with frequent requests
     const refreshProgressForMilestone = useCallback(
         (milestoneIdx: number) => {
-            // Remove from cache to force fresh fetch
-            if (progressCacheRef.current.has(milestoneIdx)) {
-                progressCacheRef.current.delete(milestoneIdx);
-                debug("progress", `Invalidated progress cache for milestone ${milestoneIdx}`);
+            // Clear any existing timeout for this milestone
+            const existingTimeout = progressRefreshTimeoutRef.current.get(milestoneIdx);
+            if (existingTimeout) {
+                clearTimeout(existingTimeout);
             }
 
-            // Remove from pending requests if present (to allow new request)
-            pendingProgressRequestsRef.current.delete(milestoneIdx);
+            // Set a new debounced timeout (300ms delay)
+            const timeoutId = setTimeout(() => {
+                // Remove from cache to force fresh fetch
+                if (progressCacheRef.current.has(milestoneIdx)) {
+                    progressCacheRef.current.delete(milestoneIdx);
+                    debug("progress", `Invalidated progress cache for milestone ${milestoneIdx}`);
+                }
 
-            // Request fresh progress
-            pendingProgressRequestsRef.current.add(milestoneIdx);
-            vscode.postMessage({
-                command: "requestSubsectionProgress",
-                content: {
-                    milestoneIndex: milestoneIdx,
-                },
-            } as EditorPostMessages);
+                // Remove from pending requests if present (to allow new request)
+                pendingProgressRequestsRef.current.delete(milestoneIdx);
 
-            debug("progress", `Requested fresh progress for milestone ${milestoneIdx}`);
+                // Request fresh progress
+                pendingProgressRequestsRef.current.add(milestoneIdx);
+                vscode.postMessage({
+                    command: "requestSubsectionProgress",
+                    content: {
+                        milestoneIndex: milestoneIdx,
+                    },
+                } as EditorPostMessages);
+
+                debug("progress", `Requested fresh progress for milestone ${milestoneIdx}`);
+
+                // Clean up timeout reference
+                progressRefreshTimeoutRef.current.delete(milestoneIdx);
+            }, 300);
+
+            // Store timeout reference
+            progressRefreshTimeoutRef.current.set(milestoneIdx, timeoutId);
         },
         [vscode]
     );

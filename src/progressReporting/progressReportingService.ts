@@ -667,7 +667,19 @@ export class ProgressReportingService {
             debug(`📊 Validation status: ${report.validationStatus.stage} stage`);
 
         } catch (error) {
-            console.error("📊 Error collecting translation progress data:", error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorStack = error instanceof Error ? error.stack : undefined;
+
+            // Check if this is a "Statement closed" error - might be due to concurrent database access
+            if (errorMessage.includes("Statement closed") || errorMessage.includes("closed")) {
+                debug("📊 Progress collection interrupted (statement closed) - this may happen during concurrent database operations");
+                // Don't log as error if it's just a concurrency issue
+            } else {
+                console.error("📊 Error collecting translation progress data:", errorMessage);
+                if (errorStack) {
+                    console.error("📊 Error stack:", errorStack);
+                }
+            }
         }
     }
 
