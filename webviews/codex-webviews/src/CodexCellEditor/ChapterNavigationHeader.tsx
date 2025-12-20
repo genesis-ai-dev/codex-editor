@@ -1252,7 +1252,6 @@ ChapterNavigationHeaderProps) {
                 currentSubsectionIndex={currentSubsectionIndex}
                 getSubsectionsForMilestone={getSubsectionsForMilestone}
                 requestCellsForMilestone={requestCellsForMilestone}
-                subsectionProgress={subsectionProgress}
                 allSubsectionProgress={allSubsectionProgress}
                 unsavedChanges={unsavedChanges}
                 anchorRef={chapterTitleRef}

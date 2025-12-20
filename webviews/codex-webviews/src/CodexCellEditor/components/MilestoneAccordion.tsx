@@ -8,11 +8,17 @@ import {
     AccordionTrigger,
 } from "../../components/ui/accordion";
 import { ProgressDots } from "./ProgressDots";
-import { deriveSubsectionPercentages, getProgressColor } from "../utils/progressUtils";
+import {
+    deriveSubsectionPercentages,
+    getProgressColor,
+    getProgressDisplay,
+} from "../utils/progressUtils";
 import MicrophoneIcon from "../../components/ui/icons/MicrophoneIcon";
 import { Languages } from "lucide-react";
 import type { Subsection, ProgressPercentages } from "../../lib/types";
 import type { MilestoneIndex, MilestoneInfo } from "../../../../../types";
+
+const MAX_VALIDATION_LEVELS = 15;
 
 interface MilestoneAccordionProps {
     isOpen: boolean;
@@ -22,7 +28,6 @@ interface MilestoneAccordionProps {
     currentSubsectionIndex: number;
     getSubsectionsForMilestone: (milestoneIdx: number) => Subsection[];
     requestCellsForMilestone: (milestoneIdx: number, subsectionIdx?: number) => void;
-    subsectionProgress?: Record<number, ProgressPercentages>;
     allSubsectionProgress?: Record<number, Record<number, ProgressPercentages>>;
     unsavedChanges: boolean;
     anchorRef: React.RefObject<HTMLDivElement>;
@@ -52,7 +57,6 @@ export function MilestoneAccordion({
     currentSubsectionIndex,
     getSubsectionsForMilestone,
     requestCellsForMilestone,
-    subsectionProgress,
     allSubsectionProgress,
     unsavedChanges,
     anchorRef,
@@ -317,12 +321,80 @@ export function MilestoneAccordion({
         });
     };
 
-    // Handle milestone header click - navigate to first subsection
-    const handleMilestoneClick = (milestoneIdx: number) => {
-        if (!unsavedChanges) {
-            requestCellsForMilestone(milestoneIdx, 0);
-            onClose();
+    // Helper function to aggregate validation levels from all subsections for a milestone
+    const getMilestoneValidationLevels = (milestoneIdx: number) => {
+        const subsections = getSubsectionsForMilestone(milestoneIdx);
+        const subsectionProgressData = allSubsectionProgress?.[milestoneIdx];
+
+        if (!subsectionProgressData || subsections.length === 0) {
+            return {
+                textValidationLevels: undefined,
+                audioValidationLevels: undefined,
+                requiredTextValidations: undefined,
+                requiredAudioValidations: undefined,
+            };
         }
+
+        // Collect validation level arrays from all subsections
+        const textValidationLevelsArrays: number[][] = [];
+        const audioValidationLevelsArrays: number[][] = [];
+        let maxRequiredTextValidations = 0;
+        let maxRequiredAudioValidations = 0;
+
+        subsections.forEach((_, subsectionIdx) => {
+            const progress = subsectionProgressData[subsectionIdx];
+            if (progress) {
+                if (progress.textValidationLevels) {
+                    textValidationLevelsArrays.push(progress.textValidationLevels);
+                }
+                if (progress.audioValidationLevels) {
+                    audioValidationLevelsArrays.push(progress.audioValidationLevels);
+                }
+                if (progress.requiredTextValidations) {
+                    maxRequiredTextValidations = Math.max(
+                        maxRequiredTextValidations,
+                        progress.requiredTextValidations
+                    );
+                }
+                if (progress.requiredAudioValidations) {
+                    maxRequiredAudioValidations = Math.max(
+                        maxRequiredAudioValidations,
+                        progress.requiredAudioValidations
+                    );
+                }
+            }
+        });
+
+        // Average the validation level percentages across subsections
+        const averageLevels = (levelArrays: number[][]): number[] | undefined => {
+            if (levelArrays.length === 0) return undefined;
+
+            const maxLength = Math.max(...levelArrays.map((arr) => arr.length));
+            if (maxLength === 0) return undefined;
+
+            const averaged: number[] = [];
+            for (let i = 0; i < maxLength; i++) {
+                let sum = 0;
+                let count = 0;
+                levelArrays.forEach((arr) => {
+                    if (i < arr.length) {
+                        sum += arr[i];
+                        count++;
+                    }
+                });
+                averaged.push(count > 0 ? sum / count : 0);
+            }
+            return averaged;
+        };
+
+        return {
+            textValidationLevels: averageLevels(textValidationLevelsArrays),
+            audioValidationLevels: averageLevels(audioValidationLevelsArrays),
+            requiredTextValidations:
+                maxRequiredTextValidations > 0 ? maxRequiredTextValidations : undefined,
+            requiredAudioValidations:
+                maxRequiredAudioValidations > 0 ? maxRequiredAudioValidations : undefined,
+        };
     };
 
     // Handle subsection click
@@ -332,15 +404,6 @@ export function MilestoneAccordion({
             onClose();
         }
     };
-
-    // Calculate where to display the arrow relative to button center
-    const buttonCenterX = anchorRef.current
-        ? anchorRef.current.getBoundingClientRect().left +
-          anchorRef.current.getBoundingClientRect().width / 2
-        : 0;
-
-    const arrowLeft = buttonCenterX - dropdownPosition.left;
-    const arrowLeftPercent = Math.min(Math.max((arrowLeft / dropdownPosition.width) * 100, 10), 90);
 
     return (
         <div
@@ -399,15 +462,56 @@ export function MilestoneAccordion({
                             const milestoneProgress = getMilestoneProgress(milestoneIdx);
                             const isCurrentMilestone = currentMilestoneIndex === milestoneIdx;
 
-                            // Get progress colors for icons
-                            const audioColorClass = getProgressColor(
+                            // Get validation level data for this milestone
+                            const validationLevels = getMilestoneValidationLevels(milestoneIdx);
+
+                            // Get progress display info using getProgressDisplay (like ProgressDots)
+                            const audioDisplay = getProgressDisplay(
                                 milestoneProgress.audioValidatedPercent,
-                                milestoneProgress.audioCompletedPercent
+                                milestoneProgress.audioCompletedPercent,
+                                "Audio",
+                                validationLevels.audioValidationLevels,
+                                validationLevels.requiredAudioValidations
                             );
-                            const textColorClass = getProgressColor(
+                            const textDisplay = getProgressDisplay(
                                 milestoneProgress.textValidatedPercent,
-                                milestoneProgress.textCompletedPercent
+                                milestoneProgress.textCompletedPercent,
+                                "Text",
+                                validationLevels.textValidationLevels,
+                                validationLevels.requiredTextValidations
                             );
+
+                            // Helper function to get icon style (similar to getDotStyle in ProgressDots)
+                            const getIconStyle = (
+                                colorClass: string,
+                                completedLevels: number,
+                                isTextCompleted: boolean,
+                                requiredValidations?: number
+                            ) => {
+                                // Only apply progressive darkness when text is fully translated
+                                if (isTextCompleted && colorClass === "text-charts-blue-dark") {
+                                    const maxLevels = Math.min(
+                                        requiredValidations || 1,
+                                        MAX_VALIDATION_LEVELS
+                                    );
+                                    const brightnessRange = 0.55; // 0.95 to 0.4
+                                    const baseBrightness = 0.95;
+                                    const brightness = Math.max(
+                                        0.4, // Minimum darkness (for 15 levels)
+                                        baseBrightness -
+                                            brightnessRange * (completedLevels / maxLevels)
+                                    );
+
+                                    return {
+                                        filter: `brightness(${brightness})`,
+                                    };
+                                }
+                                return {};
+                            };
+
+                            // Determine if text is fully translated
+                            const isTextFullyTranslated =
+                                milestoneProgress.textCompletedPercent >= 100;
 
                             return (
                                 <div
@@ -432,12 +536,15 @@ export function MilestoneAccordion({
                                                     </span>
                                                     <div className="flex items-center gap-2 flex-shrink-0">
                                                         <div
-                                                            className={`flex items-center ${audioColorClass}`}
-                                                            title={`Audio: ${Math.round(
-                                                                milestoneProgress.audioCompletedPercent
-                                                            )}% completed, ${Math.round(
-                                                                milestoneProgress.audioValidatedPercent
-                                                            )}% validated`}
+                                                            className={`flex items-center ${audioDisplay.colorClass}`}
+                                                            style={getIconStyle(
+                                                                audioDisplay.colorClass,
+                                                                audioDisplay.completedValidationLevels ||
+                                                                    0,
+                                                                isTextFullyTranslated,
+                                                                validationLevels.requiredAudioValidations
+                                                            )}
+                                                            title={audioDisplay.title}
                                                         >
                                                             <MicrophoneIcon
                                                                 width={14}
@@ -445,12 +552,15 @@ export function MilestoneAccordion({
                                                             />
                                                         </div>
                                                         <div
-                                                            className={`flex items-center ${textColorClass}`}
-                                                            title={`Text: ${Math.round(
-                                                                milestoneProgress.textCompletedPercent
-                                                            )}% completed, ${Math.round(
-                                                                milestoneProgress.textValidatedPercent
-                                                            )}% validated`}
+                                                            className={`flex items-center ${textDisplay.colorClass}`}
+                                                            style={getIconStyle(
+                                                                textDisplay.colorClass,
+                                                                textDisplay.completedValidationLevels ||
+                                                                    0,
+                                                                isTextFullyTranslated,
+                                                                validationLevels.requiredTextValidations
+                                                            )}
+                                                            title={textDisplay.title}
                                                         >
                                                             <Languages className="h-[14px] w-[14px]" />
                                                         </div>
