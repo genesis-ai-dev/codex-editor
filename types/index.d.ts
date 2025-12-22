@@ -775,6 +775,13 @@ export type EditorPostMessages =
         content: {
             milestoneIndex: number;
         };
+    }
+    | {
+        command: "updateMilestoneValue";
+        content: {
+            milestoneIndex: number;
+            newValue: string;
+        };
     };
 
 // (revalidateMissingForCell added above in EditorPostMessages union)

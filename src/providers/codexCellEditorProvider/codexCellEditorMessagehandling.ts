@@ -5,7 +5,7 @@ import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import type { CodexCellEditorProvider } from "./codexCellEditorProvider";
 import { GlobalMessage, EditorPostMessages, EditHistory, CodexNotebookAsJSONData } from "../../../types";
 import { EditMapUtils } from "../../utils/editMapUtils";
-import { EditType } from "../../../types/enums";
+import { EditType, CodexCellTypes } from "../../../types/enums";
 import {
     QuillCellContent,
     SpellCheckResponse,
@@ -995,6 +995,75 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellLabel"; }>;
         console.log("updateCellLabel message received", { event });
         document.updateCellLabel(typedEvent.content.cellId, typedEvent.content.cellLabel);
+    },
+
+    updateMilestoneValue: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateMilestoneValue"; }>;
+        console.log("updateMilestoneValue message received", { event });
+
+        // Build milestone index to find the milestone cell
+        const milestoneIndex = document.buildMilestoneIndex();
+        const milestoneInfo = milestoneIndex.milestones[typedEvent.content.milestoneIndex];
+
+        if (!milestoneInfo) {
+            console.error("Milestone not found at index", typedEvent.content.milestoneIndex);
+            return;
+        }
+
+        // Find the milestone cell by iterating through all cells and matching the milestone index
+        // We need to find the cell that matches the milestone's cellIndex position
+        const allCellIds = document.getAllCellIds();
+        let milestoneCellId: string | null = null;
+        let milestoneCellCount = 0;
+
+        // Iterate through cells to find the one at the milestone's cellIndex
+        for (const cellId of allCellIds) {
+            const cell = document.getCell(cellId);
+            if (!cell) continue;
+
+            // Check if this is a milestone cell
+            if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
+                // Skip deleted milestone cells
+                if (cell.metadata?.data?.deleted === true) {
+                    continue;
+                }
+                // Check if this is the milestone we're looking for
+                if (milestoneCellCount === typedEvent.content.milestoneIndex) {
+                    milestoneCellId = cellId;
+                    break;
+                }
+                milestoneCellCount++;
+            }
+        }
+
+        if (!milestoneCellId) {
+            console.error("Milestone cell not found at index", typedEvent.content.milestoneIndex);
+            return;
+        }
+
+        // Ensure author is set correctly before creating edit
+        await document.refreshAuthor();
+
+        // Update the milestone cell value
+        await document.updateCellContent(
+            milestoneCellId,
+            typedEvent.content.newValue,
+            EditType.USER_EDIT,
+            true, // shouldUpdateValue
+            false, // retainValidations
+            false // skipAutoValidation
+        );
+
+        // Note: The custom document change event is automatically fired by updateCellContent
+        // through the document's _onDidChangeForVsCodeAndWebview event, which the provider
+        // listens to and fires _onDidChangeCustomDocument. No need to fire it explicitly here.
+
+        // Save the document using provider's saveCustomDocument for proper VS Code integration
+        const cancellationToken = new vscode.CancellationTokenSource().token;
+        await provider.saveCustomDocument(document, cancellationToken);
+
+        // Refresh the webview to show the updated milestone
+        provider.refreshWebview(webviewPanel, document);
     },
 
     updateNotebookMetadata: async ({ event, document, webviewPanel, provider }) => {
