@@ -30,8 +30,126 @@ import {
 } from "lucide-react";
 
 import { notebookToImportedContent } from "../common/translationHelper";
-import { getCorpusMarkerForBook } from "../../utils/corpusUtils";
+import { getCorpusMarkerForBook, isNewTestamentBook } from "../../utils/corpusUtils";
 import { addMilestoneCellsToNotebookPair } from "../../utils/workflowHelpers";
+import { createMaculaVerseCellMetadata } from "./cellMetadata";
+
+/**
+ * Maps book codes to their full names
+ */
+const bookCodeToName: Record<string, string> = {
+    // Old Testament
+    GEN: "Genesis",
+    EXO: "Exodus",
+    LEV: "Leviticus",
+    NUM: "Numbers",
+    DEU: "Deuteronomy",
+    JOS: "Joshua",
+    JDG: "Judges",
+    RUT: "Ruth",
+    "1SA": "1 Samuel",
+    "2SA": "2 Samuel",
+    "1KI": "1 Kings",
+    "2KI": "2 Kings",
+    "1CH": "1 Chronicles",
+    "2CH": "2 Chronicles",
+    EZR: "Ezra",
+    NEH: "Nehemiah",
+    EST: "Esther",
+    JOB: "Job",
+    PSA: "Psalms",
+    PRO: "Proverbs",
+    ECC: "Ecclesiastes",
+    SNG: "Song of Songs",
+    ISA: "Isaiah",
+    JER: "Jeremiah",
+    LAM: "Lamentations",
+    EZK: "Ezekiel",
+    DAN: "Daniel",
+    HOS: "Hosea",
+    JOL: "Joel",
+    AMO: "Amos",
+    OBA: "Obadiah",
+    JON: "Jonah",
+    MIC: "Micah",
+    NAM: "Nahum",
+    HAB: "Habakkuk",
+    ZEP: "Zephaniah",
+    HAG: "Haggai",
+    ZEC: "Zechariah",
+    MAL: "Malachi",
+    // New Testament
+    MAT: "Matthew",
+    MRK: "Mark",
+    LUK: "Luke",
+    JHN: "John",
+    ACT: "Acts",
+    ROM: "Romans",
+    "1CO": "1 Corinthians",
+    "2CO": "2 Corinthians",
+    GAL: "Galatians",
+    EPH: "Ephesians",
+    PHP: "Philippians",
+    COL: "Colossians",
+    "1TH": "1 Thessalonians",
+    "2TH": "2 Thessalonians",
+    "1TI": "1 Timothy",
+    "2TI": "2 Timothy",
+    TIT: "Titus",
+    PHM: "Philemon",
+    HEB: "Hebrews",
+    JAS: "James",
+    "1PE": "1 Peter",
+    "2PE": "2 Peter",
+    "1JN": "1 John",
+    "2JN": "2 John",
+    "3JN": "3 John",
+    JUD: "Jude",
+    REV: "Revelation",
+};
+
+/**
+ * Gets the full book name from a book code
+ */
+function getFullBookName(bookCode: string): string {
+    if (!bookCode) return bookCode;
+    
+    const upperCode = bookCode.toUpperCase().trim();
+    
+    // Check exact match first
+    if (bookCodeToName[upperCode]) {
+        return bookCodeToName[upperCode];
+    }
+    
+    // Handle common variations/misspellings
+    const variations: Record<string, string> = {
+        'RIM': 'ROM', // Romans variation
+        'ROM': 'ROM',
+        'PHL': 'PHP', // Philippians variation
+        'PHP': 'PHP',
+    };
+    
+    const normalizedCode = variations[upperCode] || upperCode;
+    if (bookCodeToName[normalizedCode]) {
+        return bookCodeToName[normalizedCode];
+    }
+    
+    // Try matching by first 2-3 characters for partial matches
+    const cleanCode = normalizedCode.replace(/[^A-Z0-9]/g, '');
+    
+    // Check all mappings for partial matches (e.g., "1CO" matches "1CO")
+    for (const [code, name] of Object.entries(bookCodeToName)) {
+        if (code === cleanCode || 
+            (cleanCode.length >= 2 && code.startsWith(cleanCode.substring(0, 2))) ||
+            (cleanCode.length >= 2 && cleanCode.startsWith(code.substring(0, 2)))) {
+            return name;
+        }
+    }
+    
+    // Fallback: return the code as-is if no match found
+    console.warn(`[Macula Bible] Unknown book code: "${bookCode}", using as-is`);
+    return bookCode;
+}
 
 export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props) => {
     const {
@@ -79,11 +197,11 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                 // Group verses by book
                 const bookGroups = new Map<string, typeof verses>();
                 for (const verse of verses) {
-                    const bookName = verse.vref.split(" ")[0];
-                    if (!bookGroups.has(bookName)) {
-                        bookGroups.set(bookName, []);
+                    const bookCode = verse.vref.split(" ")[0];
+                    if (!bookGroups.has(bookCode)) {
+                        bookGroups.set(bookCode, []);
                     }
-                    bookGroups.get(bookName)!.push(verse);
+                    bookGroups.get(bookCode)!.push(verse);
                 }
 
                 // Create notebook pairs for each book
@@ -91,30 +209,54 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                 let bookCount = 0;
                 const totalBooks = bookGroups.size;
 
-                for (const [bookName, bookVerses] of bookGroups.entries()) {
+                for (const [bookCode, bookVerses] of bookGroups.entries()) {
+                    // Convert book code to full name (e.g., "1CO" -> "1 Corinthians")
+                    const fullBookName = getFullBookName(bookCode);
+                    
+                    // Determine corpus marker: Use language-specific format for Macula
+                    const baseCorpusMarker = getCorpusMarkerForBook(bookCode);
+                    const isNT = isNewTestamentBook(bookCode);
+                    const corpusMarker = baseCorpusMarker 
+                        ? (baseCorpusMarker === "NT" ? "Greek Bible" : "Hebrew Bible")
+                        : (isNT ? "Greek Bible" : "Hebrew Bible");
+
+                    // Name notebooks with language prefix: "Hebrew Genesis", "Greek Matthew", etc.
+                    const languagePrefix = isNT ? "Greek" : "Hebrew";
+                    const notebookName = `${languagePrefix} ${fullBookName}`;
+
                     const sourceNotebook: ProcessedNotebook = {
-                        name: bookName,
-                        cells: bookVerses.map((verse) => ({
-                            id: verse.vref,
+                        name: notebookName,
+                        cells: bookVerses.map((verse) => {
+                            // Create cell metadata with UUID, globalReferences, and chapterNumber
+                            const { cellId, metadata } = createMaculaVerseCellMetadata({
+                                vref: verse.vref,
+                                text: verse.text,
+                                fileName: `${bookCode}.macula`,
+                            });
+                            return {
+                                id: cellId,
                             content: verse.text,
                             images: [],
                             metadata: {
-                                type: "text",
-                                id: verse.vref,
-                                cellLabel: verse.vref.split(":")?.[1] || "1",
+                                    ...metadata,
+                                    // Keep vref for backward compatibility
+                                    vref: verse.vref,
                             },
-                        })),
+                            };
+                        }),
                         metadata: {
-                            id: bookName,
-                            originalFileName: `${bookName}.macula`,
+                            id: notebookName,
+                            originalFileName: `${fullBookName}.macula`, // Use full name instead of code
                             importerType: "macula",
                             createdAt: new Date().toISOString(),
-                            corpusMarker: getCorpusMarkerForBook(bookName) || "OT",
+                            corpusMarker: corpusMarker,
+                            fileDisplayName: notebookName, // Use full name for display (e.g., "1 Corinthians Macula")
                         },
                     };
 
                     const codexNotebook: ProcessedNotebook = {
                         ...sourceNotebook,
+                        name: notebookName,
                         cells: sourceNotebook.cells.map((cell) => ({
                             ...cell,
                             content: "", // Empty for codex
@@ -134,7 +276,7 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                     bookCount++;
                     setProgress({
                         stage: "creating",
-                        message: `Processing book ${bookCount}/${totalBooks}: ${bookName}`,
+                        message: `Processing book ${bookCount}/${totalBooks}: ${notebookName}`,
                         progress: 60 + (bookCount / totalBooks) * 30,
                     });
                 }
@@ -290,11 +432,13 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                     <CardContent className="space-y-6">
                         <Alert>
                             <CheckCircle className="h-4 w-4" />
+                            <div>
                             <AlertTitle>Alignment Complete</AlertTitle>
                             <AlertDescription>
                                 Successfully aligned {alignedContent.length} items from the Macula
                                 Bible. Ready to import translations.
                             </AlertDescription>
+                            </div>
                         </Alert>
 
                         <div className="flex justify-between">
@@ -379,6 +523,7 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                     {existingMaculaBible && (
                         <Alert>
                             <Info className="h-4 w-4" />
+                            <div>
                             <AlertTitle>Existing Macula Bible Found</AlertTitle>
                             <AlertDescription>
                                 You already have a Macula Bible in your project:{" "}
@@ -387,6 +532,7 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                                     ? " This import will add translations to your existing target files."
                                     : " Importing again will create duplicate files."}
                             </AlertDescription>
+                            </div>
                         </Alert>
                     )}
 
@@ -394,8 +540,10 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                     {error && (
                         <Alert variant="destructive">
                             <XCircle className="h-4 w-4" />
+                            <div>
                             <AlertTitle>Download Failed</AlertTitle>
                             <AlertDescription>{error}</AlertDescription>
+                            </div>
                         </Alert>
                     )}
 
@@ -419,11 +567,13 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                     {downloadComplete && !isTranslationImport && (
                         <Alert>
                             <CheckCircle className="h-4 w-4" />
+                            <div>
                             <AlertTitle>Download Complete</AlertTitle>
                             <AlertDescription>
                                 Successfully downloaded {notebooks.length} books from the Macula
                                 Bible. Ready to import into your project.
                             </AlertDescription>
+                            </div>
                         </Alert>
                     )}
 

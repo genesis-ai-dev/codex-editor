@@ -8,13 +8,12 @@ import {
 } from '../../types/common';
 import {
     createProgress,
-    createProcessedCell,
     validateFileExtension,
     addMilestoneCellsToNotebookPair,
 } from '../../utils/workflowHelpers';
 import { WebVTTParser } from 'webvtt-parser';
 import { englishSubtitlesRaw, tigrinyaSubtitlesRaw, sourceOfTruthMapping } from './testData';
-import { CodexCellTypes } from 'types/enums';
+import { createSubtitleCellMetadata } from './cellMetadata';
 // Remove automatic import of compile-time tests to avoid circular dependency
 // Import './compiletimeTests' manually when needed for testing
 
@@ -177,29 +176,30 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
 
         onProgress?.(createProgress('Creating Cells', 'Creating notebook cells...', 70));
 
-        // Create notebook cells using ProcessedCell format
+        // Create notebook cells using ProcessedCell format with cellMetadata
         const cells: ProcessedCell[] = [];
 
         // Add cells using the ProcessedCell format
-        for (const cue of parsed.cues) {
-            // Generate a unique identifier for the cue that matches the expected format
-            const cueId = `${baseNameAsId} 1:cue-${cue.startTime}-${cue.endTime}`;
+        for (let index = 0; index < parsed.cues.length; index++) {
+            const cue = parsed.cues[index];
 
-            // Create ProcessedCell using the structure expected by the editor
-            // Timestamps and related fields should live under metadata.data
-            const cell = createProcessedCell(cueId, cue.text, {
-                type: "text" as CodexCellTypes,
-                data: {
-                    startTime: cue.startTime,
-                    endTime: cue.endTime,
-                    format: format,
-                    originalText: cue.text,
-                },
-                edits: [],
-                id: cueId,
+            // Create cell metadata with UUID, globalReferences, and chapterNumber
+            const { cellId, metadata } = createSubtitleCellMetadata({
+                text: cue.text,
+                startTime: cue.startTime,
+                endTime: cue.endTime,
+                format: format,
+                fileName: file.name,
+                cellLabel: `cue-${cue.startTime}-${cue.endTime}`,
+                segmentIndex: index,
             });
 
-            cells.push(cell);
+            cells.push({
+                id: cellId,
+                content: cue.text,
+                images: [],
+                metadata: metadata,
+            });
         }
 
         // Create notebook pair using ProcessedNotebook format
@@ -217,18 +217,18 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
         };
 
         // Create codex cells (empty content for translation)
-        const codexCells = cells.map(sourceCell =>
-            createProcessedCell(sourceCell.id, '', {
+        const codexCells = cells.map(sourceCell => ({
+            id: sourceCell.id,
+            content: '', // Empty for translation
+            images: sourceCell.images,
+            metadata: {
                 ...sourceCell.metadata,
                 data: {
                     ...sourceCell.metadata?.data,
                     originalText: sourceCell.content,
                 },
-                edits: [...(sourceCell.metadata?.edits || [])],
-                id: sourceCell.id,
-                type: "text" as CodexCellTypes,
-            })
-        );
+            },
+        }));
 
         const codexNotebook: ProcessedNotebook = {
             name: baseName,

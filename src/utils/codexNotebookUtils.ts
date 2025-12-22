@@ -839,9 +839,9 @@ export async function migrateSourceFiles() {
                     if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
                         continue;
                     }
-                    
+
                     let book = "";
-                    
+
                     // Try to get book name from globalReferences first (preferred method)
                     const globalRefs = cell?.metadata?.data?.globalReferences;
                     if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
@@ -851,16 +851,6 @@ export async function migrateSourceFiles() {
                         if (bookMatch) {
                             book = bookMatch[1];
                         }
-                    }
-                    
-                    // Fallback to parsing cell ID if globalReferences not available (legacy support)
-                    if (!book && cell.metadata && cell.metadata.id) {
-                        const [bookFromId] = cell.metadata.id.split(" ");
-                        book = bookFromId;
-                    }
-                    
-                    if (book) {
-                        books.add(book);
                     }
                 }
 

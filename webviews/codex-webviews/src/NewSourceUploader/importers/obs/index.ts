@@ -8,12 +8,11 @@ import {
 } from '../../types/common';
 import {
     createProgress,
-    createStandardCellId,
-    createProcessedCell,
     validateFileExtension,
     addMilestoneCellsToNotebookPair,
 } from '../../utils/workflowHelpers';
 import { processImageData } from '../../utils/imageProcessor';
+import { createObsTextCellMetadata, createObsImageCellMetadata } from './cellMetadata';
 import JSZip from 'jszip';
 
 const SUPPORTED_EXTENSIONS = ['md', 'zip'];
@@ -192,13 +191,11 @@ const downloadObsRepository = async (
 
                 // Create text cell if there's text content
                 if (segment.text && segment.text.trim()) {
-                    const textCellId = `${documentId} ${sectionId}:${cellCounter}`;
                     // Create HTML with just the text content, no images
                     const textOnlyHtml = `<p class="obs-text">${segment.text}</p>`;
-                    const textCell = createProcessedCell(textCellId, textOnlyHtml, {
+                    const { cellId, metadata } = createObsTextCellMetadata({
                         storyNumber: obsStory.storyNumber,
                         storyTitle: obsStory.title,
-                        segmentType: 'text',
                         segmentIndex,
                         originalText: segment.text,
                         fileName: storyFile.name,
@@ -206,7 +203,14 @@ const downloadObsRepository = async (
                         sectionId,
                         cellIndex: cellCounter,
                         cellLabel: cellCounter.toString(),
+                        sourceReference: obsStory.sourceReference,
                     });
+                    const textCell = {
+                        id: cellId,
+                        content: textOnlyHtml,
+                        images: [],
+                        metadata,
+                    };
                     storyCells.push(textCell);
                     cellCounter++;
                 }
@@ -214,28 +218,33 @@ const downloadObsRepository = async (
                 // Create separate cells for each image
                 if (segment.images.length > 0) {
                     for (const img of segment.images as ObsImage[]) {
-                        const imageCellId = `${documentId} ${sectionId}:${cellCounter}`;
                         const processedImage = await processImageData(img.src, {
                             alt: img.alt,
                             title: img.title,
                         });
 
-                        const imageCell = createProcessedCell(imageCellId, `<img src="${processedImage.src}" alt="${img.alt || ''}" title="${img.title || ''}" />`, {
+                        const { cellId, metadata } = createObsImageCellMetadata({
                             storyNumber: obsStory.storyNumber,
                             storyTitle: obsStory.title,
-                            segmentType: 'image',
                             segmentIndex,
-                            originalImageSrc: img.src,
-                            imageAlt: img.alt,
-                            imageTitle: img.title,
                             fileName: storyFile.name,
                             documentId,
                             sectionId,
                             cellIndex: cellCounter,
                             cellLabel: cellCounter.toString(),
+                            imageAlt: img.alt,
+                            imageTitle: img.title,
+                            originalImageSrc: img.src,
+                            sourceReference: obsStory.sourceReference,
                         });
 
-                        imageCell.images = [processedImage];
+                        const imageCell = {
+                            id: cellId,
+                            content: `<img src="${processedImage.src}" alt="${img.alt || ''}" title="${img.title || ''}" />`,
+                            images: [processedImage],
+                            metadata,
+                        };
+
                         storyCells.push(imageCell);
                         cellCounter++;
                     }
@@ -252,10 +261,15 @@ const downloadObsRepository = async (
                     return { ...cell };
                 } else {
                     // Text cells become empty in codex (for translation)
-                    return createProcessedCell(cell.id, '', {
+                    return {
+                        id: cell.id,
+                        content: '',
+                        images: cell.images,
+                        metadata: {
                         ...cell.metadata,
                         originalContent: cell.content, // Keep reference to original for context
-                    });
+                        },
+                    };
                 }
             });
 
@@ -423,13 +437,11 @@ const parseObsMarkdown = async (
     for (const [segmentIndex, segment] of obsStory.segments.entries()) {
         // Create text cell if there's text content
         if (segment.text && segment.text.trim()) {
-            const textCellId = `${documentId} ${sectionId}:${cellCounter}`;
             // Create HTML with just the text content, no images
             const textOnlyHtml = `<p class="obs-text">${segment.text}</p>`;
-            const textCell = createProcessedCell(textCellId, textOnlyHtml, {
+            const { cellId, metadata } = createObsTextCellMetadata({
                 storyNumber: obsStory.storyNumber,
                 storyTitle: obsStory.title,
-                segmentType: 'text',
                 segmentIndex,
                 originalText: segment.text,
                 fileName: file.name,
@@ -437,7 +449,14 @@ const parseObsMarkdown = async (
                 sectionId,
                 cellIndex: cellCounter,
                 cellLabel: cellCounter.toString(),
+                sourceReference: obsStory.sourceReference,
             });
+            const textCell = {
+                id: cellId,
+                content: textOnlyHtml,
+                images: [],
+                metadata,
+            };
             cells.push(textCell);
             cellCounter++;
         }
@@ -445,8 +464,6 @@ const parseObsMarkdown = async (
         // Create separate cells for each image
         if (segment.images.length > 0) {
             for (const img of segment.images) {
-                const imageCellId = `${documentId} ${sectionId}:${cellCounter}`;
-
                 // Process the image data
                 let processedImage: ProcessedImage;
                 try {
@@ -464,11 +481,9 @@ const parseObsMarkdown = async (
                     };
                 }
 
-                const imageHtml = `<img src="${processedImage.src}" alt="${img.alt || ''}" title="${img.title || ''}" class="obs-image" />`;
-                const imageCell = createProcessedCell(imageCellId, imageHtml, {
+                const { cellId, metadata } = createObsImageCellMetadata({
                     storyNumber: obsStory.storyNumber,
                     storyTitle: obsStory.title,
-                    segmentType: 'image',
                     segmentIndex,
                     fileName: file.name,
                     documentId,
@@ -478,9 +493,16 @@ const parseObsMarkdown = async (
                     imageAlt: img.alt,
                     imageTitle: img.title,
                     originalImageSrc: img.src,
+                    sourceReference: obsStory.sourceReference,
                 });
 
-                imageCell.images = [processedImage];
+                const imageCell = {
+                    id: cellId,
+                    content: `<img src="${processedImage.src}" alt="${img.alt || ''}" title="${img.title || ''}" class="obs-image" />`,
+                    images: [processedImage],
+                    metadata,
+                };
+
                 cells.push(imageCell);
                 cellCounter++;
             }
@@ -541,11 +563,14 @@ const parseObsMarkdown = async (
         codex: codexNotebook,
     };
 
+    // Add milestone cells to notebook pair
+    const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
+
     onProgress?.(createProgress('Complete', 'OBS processing complete', 100));
 
     return {
         success: true,
-        notebookPair,
+        notebookPair: notebookPairWithMilestones,
         metadata: {
             storyNumber: obsStory.storyNumber,
             storyTitle: obsStory.title,
@@ -646,12 +671,10 @@ const parseObsZip = async (
             for (const [segmentIndex, segment] of obsStory.segments.entries()) {
                 // Create text cell if there's text content
                 if (segment.text && segment.text.trim()) {
-                    const textCellId = `${documentId} ${sectionId}:${cellCounter}`;
                     const textOnlyHtml = `<p class="obs-text">${segment.text}</p>`;
-                    const textCell = createProcessedCell(textCellId, textOnlyHtml, {
+                    const { cellId, metadata } = createObsTextCellMetadata({
                         storyNumber: obsStory.storyNumber,
                         storyTitle: obsStory.title,
-                        segmentType: 'text',
                         segmentIndex,
                         originalText: segment.text,
                         fileName: markdownFile.name,
@@ -659,7 +682,14 @@ const parseObsZip = async (
                         sectionId,
                         cellIndex: cellCounter,
                         cellLabel: cellCounter.toString(),
+                        sourceReference: obsStory.sourceReference,
                     });
+                    const textCell = {
+                        id: cellId,
+                        content: textOnlyHtml,
+                        images: [],
+                        metadata,
+                    };
                     cells.push(textCell);
                     cellCounter++;
                 }
@@ -667,8 +697,6 @@ const parseObsZip = async (
                 // Create separate cells for each image, processing local images
                 if (segment.images.length > 0) {
                     for (const img of segment.images) {
-                        const imageCellId = `${documentId} ${sectionId}:${cellCounter}`;
-
                         // Try to find the image in our local files
                         let processedImage: ProcessedImage | null = null;
                         let imageFound = false;
@@ -720,10 +748,9 @@ const parseObsZip = async (
                             };
                         }
 
-                        const imageCell = createProcessedCell(imageCellId, `<img src="${processedImage.src}" alt="${img.alt || ''}" title="${img.title || ''}" class="obs-image" />`, {
+                        const { cellId, metadata } = createObsImageCellMetadata({
                             storyNumber: obsStory.storyNumber,
                             storyTitle: obsStory.title,
-                            segmentType: 'image',
                             segmentIndex,
                             fileName: markdownFile.name,
                             documentId,
@@ -733,9 +760,16 @@ const parseObsZip = async (
                             imageAlt: img.alt,
                             imageTitle: img.title,
                             originalImageSrc: img.src,
+                            sourceReference: obsStory.sourceReference,
                         });
 
-                        imageCell.images = [processedImage];
+                        const imageCell = {
+                            id: cellId,
+                            content: `<img src="${processedImage.src}" alt="${img.alt || ''}" title="${img.title || ''}" class="obs-image" />`,
+                            images: [processedImage],
+                            metadata,
+                        };
+
                         cells.push(imageCell);
                         cellCounter++;
                     }
@@ -752,10 +786,15 @@ const parseObsZip = async (
                     return { ...cell };
                 } else {
                     // Text cells become empty in codex (for translation)
-                    return createProcessedCell(cell.id, '', {
+                    return {
+                        id: cell.id,
+                        content: '',
+                        images: cell.images,
+                        metadata: {
                         ...cell.metadata,
                         originalContent: cell.content,
-                    });
+                        },
+                    };
                 }
             });
 
@@ -819,11 +858,14 @@ const parseObsZip = async (
 
         onProgress?.(createProgress('Creating Notebooks', 'Creating OBS notebooks...', 90));
 
-        // Convert individual notebooks to NotebookPair format
-        const notebookPairs = sourceNotebooks.map((sourceNotebook, index) => ({
+        // Convert individual notebooks to NotebookPair format and add milestones
+        const notebookPairs = sourceNotebooks.map((sourceNotebook, index) => {
+            const notebookPair = {
             source: sourceNotebook,
             codex: codexNotebooks[index],
-        }));
+            };
+            return addMilestoneCellsToNotebookPair(notebookPair);
+        });
 
         onProgress?.(createProgress('Complete', 'ZIP processing complete', 100));
 

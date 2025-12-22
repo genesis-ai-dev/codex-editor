@@ -324,6 +324,7 @@ function isBibleTypeImporter(importerType: string | undefined): boolean {
     // All entries must be lowercase since we normalize the input
     const bibleTypeImporters = [
         'usfm',
+        'usfm-experimental',
         'paratext',
         'ebiblecorpus',
         'ebible',

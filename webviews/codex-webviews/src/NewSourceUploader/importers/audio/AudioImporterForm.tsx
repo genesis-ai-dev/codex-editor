@@ -9,8 +9,8 @@ import { Alert, AlertDescription } from "../../../components/ui/alert";
 import { Upload, Music, Play, Pause, ArrowLeft, Check, AlertTriangle, Settings, Trash2, Plus } from "lucide-react";
 import { Slider } from "../../../components/ui/slider";
 import { NotebookPair, ProcessedCell } from "../../types/common";
-import { createProcessedCell, addMilestoneCellsToNotebookPair } from "../../utils/workflowHelpers";
-import { CodexCellTypes } from "types/enums";
+import { addMilestoneCellsToNotebookPair } from "../../utils/workflowHelpers";
+import { createAudioCellMetadata } from "./cellMetadata";
 
 const vscode: { postMessage: (message: any) => void } = (window as any).vscodeApi;
 
@@ -603,53 +603,54 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                 : `${documentName.replace(/\.[^/.]+$/, "").replace(/\s+/g, "")}_${fileIndex + 1}`;
             const nowIso = new Date().toISOString();
             
-            const segmentMappings = file.segments.map((segment, index) => {
-                const cellIndex = index + 1;
-                const attachmentId = `audio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}-seg${cellIndex}`;
-                const fileName = `${attachmentId}.wav`;
-                return {
-                    segmentId: segment.id,
-                    cellId: `${docId} 1:${cellIndex}`,
-                    attachmentId,
-                    fileName,
-                };
-            });
-
             const sourceCells: ProcessedCell[] = [];
             const codexCells: ProcessedCell[] = [];
+            const segmentMappings: Array<{ segmentId: string; cellId: string; attachmentId: string; fileName: string }> = [];
 
             file.segments.forEach((segment, index) => {
-                const mapping = segmentMappings[index];
-                const cellId = mapping.cellId;
-                const attachmentId = mapping.attachmentId;
-                const fileName = mapping.fileName;
+                const attachmentId = `audio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}-seg${index + 1}`;
+                const fileName = `${attachmentId}.wav`;
                 const url = `.project/attachments/files/${docId}/${fileName}`;
 
-                sourceCells.push(createProcessedCell(cellId, "", {
-                    type: "text" as CodexCellTypes,
-                    id: cellId,
-                    data: { startTime: segment.startSec, endTime: segment.endSec },
-                    edits: [],
-                    attachments: {
-                        [attachmentId]: {
-                            url,
-                            type: "audio",
-                            createdAt: Date.now(),
-                            updatedAt: Date.now(),
-                            isDeleted: false,
-                        },
-                    },
-                    selectedAudioId: attachmentId,
-                    selectionTimestamp: Date.now(),
-                }));
+                // Create cell metadata with UUID, globalReferences, and chapterNumber
+                const { cellId, metadata } = createAudioCellMetadata({
+                    startTime: segment.startSec,
+                    endTime: segment.endSec,
+                    segmentIndex: index,
+                    attachmentId,
+                    fileName,
+                    url,
+                    documentId: docId,
+                    cellLabel: String(index + 1),
+                });
 
-                codexCells.push(createProcessedCell(cellId, "", {
-                    type: "text" as CodexCellTypes,
+                // Store mapping for segment tracking
+                segmentMappings.push({
+                    segmentId: segment.id,
+                    cellId,
+                    attachmentId,
+                    fileName,
+                });
+
+                sourceCells.push({
                     id: cellId,
-                    data: { startTime: segment.startSec, endTime: segment.endSec },
-                    edits: [],
-                    attachments: {},
-                }));
+                    content: "", // Empty for audio cells
+                    images: [],
+                    metadata: metadata,
+                });
+
+                // Codex cells have same metadata but empty attachments
+                codexCells.push({
+                    id: cellId,
+                    content: "", // Empty for audio cells
+                    images: [],
+                    metadata: {
+                        ...metadata,
+                        attachments: {},
+                        selectedAudioId: undefined,
+                        selectionTimestamp: undefined,
+                    },
+                });
             });
 
             const notebookPair: NotebookPair = {

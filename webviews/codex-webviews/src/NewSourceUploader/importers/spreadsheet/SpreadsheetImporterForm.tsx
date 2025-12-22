@@ -42,6 +42,7 @@ import { parseSpreadsheetFile, validateSpreadsheetFile } from "./parser";
 import { ParsedSpreadsheet, ColumnType, ColumnTypeSelection } from "./types";
 import { AlignmentPreview } from "../../components/AlignmentPreview";
 import { addMilestoneCellsToNotebookPair } from "../../utils/workflowHelpers";
+import { createSpreadsheetCellMetadata } from "./cellMetadata";
 
 export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props) => {
     const { onComplete, onCancel, wizardContext, onTranslationComplete, alignContent } = props;
@@ -291,22 +292,25 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                 const sourceCells = parsedData.rows
                     .filter((row) => row[parseInt(sourceColumnIndex!)]?.trim())
                     .map((row, index) => {
-                        const id = idColumnIndex
-                            ? row[parseInt(idColumnIndex)]?.trim() ||
-                              createCellId(parsedData.filename, index)
-                            : createCellId(parsedData.filename, index);
+                        // Get ID from spreadsheet ID column if available, otherwise will generate UUID in metadata
+                        const providedId = idColumnIndex
+                            ? row[parseInt(idColumnIndex)]?.trim() || undefined
+                            : undefined;
+
+                        // Create cell metadata (generates UUID if no ID provided)
+                        const { cellId, metadata: cellMetadata } = createSpreadsheetCellMetadata({
+                            cellId: providedId || '', // Will generate UUID if empty
+                            originalContent: row[parseInt(sourceColumnIndex!)],
+                            rowIndex: index,
+                            originalRow: row,
+                            fileName: selectedFile!.name,
+                        });
 
                         return {
-                            id,
+                            id: cellId,
                             content: row[parseInt(sourceColumnIndex!)],
                             images: [],
-                            metadata: {
-                                id,
-                                data: {
-                                    rowIndex: index,
-                                    originalRow: row,
-                                },
-                            },
+                            metadata: cellMetadata,
                         };
                     });
 
@@ -492,23 +496,50 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                         const sourceText = row[parseInt(sourceColumnIndex!)]?.trim();
                         if (!sourceText) continue;
 
-                        const id = idColumnIndex
-                            ? row[parseInt(idColumnIndex)]?.trim() ||
-                              createCellId(parsedData.filename, i)
-                            : createCellId(parsedData.filename, i);
+                        // Find the corresponding cell by rowIndex (since we now use UUIDs or spreadsheet IDs)
+                        const correspondingCell = sourceCells.find(
+                            (cell) => cell.metadata?.data?.rowIndex === i
+                        );
+                        
+                        if (!correspondingCell) {
+                            debugLog(`Skipping attachment for row ${i} - no corresponding cell found`);
+                            continue;
+                        }
+                        
+                        const id = correspondingCell.id;
 
                         let firstAttachmentId: string | null = null;
                         for (const u of urls) {
+                            // Validate that the URL appears to be an audio file before processing
+                            const normalizedUrl = u.trim().replace(/^@+/, "");
+                            const isAudioUrl = isAudioByExt(normalizedUrl) || 
+                                normalizedUrl.startsWith("data:audio/") ||
+                                /\.(mp3|wav|m4a|aac|ogg|webm|flac)(\?|#|$)/i.test(normalizedUrl);
+                            
+                            if (!isAudioUrl) {
+                                debugLog(`Skipping non-audio URL: ${normalizedUrl}`);
+                                continue;
+                            }
+
                             const attachmentId = `audio-${Date.now()}-${Math.random()
                                 .toString(36)
                                 .substr(2, 9)}`;
                             if (!firstAttachmentId) firstAttachmentId = attachmentId;
                             let fileName = fileNameFromUrl(u, attachmentId, row as any);
+                            
                             try {
                                 const { dataUrl, mime } = await fetchAsDataUrl(u);
+                                
+                                // Double-check that the fetched content is actually audio
+                                if (!mime.startsWith("audio/") && !isAudioByExt(fileName)) {
+                                    debugLog(`Skipping non-audio content: ${u} (mime: ${mime})`);
+                                    continue;
+                                }
+                                
                                 if (!/\.[a-z0-9]+$/i.test(fileName)) {
                                     fileName = `${attachmentId}.${mime.split("/").pop() || "mp3"}`;
                                 }
+                                
                                 allAttachments.push({
                                     cellId: id,
                                     attachmentId,
@@ -518,43 +549,70 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                                     startTime: 0,
                                     endTime: Number.NaN,
                                 } as any);
+
+                                const urlPath = `.project/attachments/files/${docId}/${fileName}`;
+                                const cell = notebookPair.source.cells.find(
+                                    (c) => c.metadata?.id === id
+                                );
+                                if (cell) {
+                                    (cell.metadata as any).attachments = {
+                                        ...((cell.metadata as any).attachments || {}),
+                                        [attachmentId]: {
+                                            url: urlPath,
+                                            type: "audio",
+                                            createdAt: Date.now(),
+                                            updatedAt: Date.now(),
+                                            isDeleted: false,
+                                            startTime: 0,
+                                            endTime: Number.NaN,
+                                        },
+                                    };
+                                    (cell.metadata as any).selectedAudioId =
+                                        (cell.metadata as any).selectedAudioId || firstAttachmentId;
+                                    (cell.metadata as any).selectionTimestamp = Date.now();
+                                }
                             } catch (e: any) {
-                                // Fallback: let the extension download the remote file (avoids webview CORS)
-                                // Reapply the same Drive conversion here to store an effective URL pointer
+                                // Only create fallback for audio URLs that failed to fetch
+                                // Check if it's likely an audio file before creating fallback
                                 const raw = u.trim().replace(/^@+/, "");
                                 const driveDirect = toGoogleDriveDirect(raw);
                                 const effectiveUrl = driveDirect || raw;
-                                debugLog(`FALLBACK remote download pointer for ${effectiveUrl}`);
-                                allAttachments.push({
-                                    cellId: id,
-                                    attachmentId,
-                                    fileName,
-                                    remoteUrl: effectiveUrl,
-                                    startTime: 0,
-                                    endTime: Number.NaN,
-                                } as any);
-                            }
-
-                            const urlPath = `.project/attachments/files/${docId}/${fileName}`;
-                            const cell = notebookPair.source.cells.find(
-                                (c) => c.metadata?.id === id
-                            );
-                            if (cell) {
-                                (cell.metadata as any).attachments = {
-                                    ...((cell.metadata as any).attachments || {}),
-                                    [attachmentId]: {
-                                        url: urlPath,
-                                        type: "audio",
-                                        createdAt: Date.now(),
-                                        updatedAt: Date.now(),
-                                        isDeleted: false,
+                                
+                                // Only create fallback if URL looks like audio
+                                if (isAudioByExt(effectiveUrl) || effectiveUrl.startsWith("data:audio/")) {
+                                    debugLog(`FALLBACK remote download pointer for audio URL: ${effectiveUrl}`);
+                                    allAttachments.push({
+                                        cellId: id,
+                                        attachmentId,
+                                        fileName: fileNameFromUrl(effectiveUrl, attachmentId, row as any),
+                                        remoteUrl: effectiveUrl,
                                         startTime: 0,
                                         endTime: Number.NaN,
-                                    },
-                                };
-                                (cell.metadata as any).selectedAudioId =
-                                    (cell.metadata as any).selectedAudioId || firstAttachmentId;
-                                (cell.metadata as any).selectionTimestamp = Date.now();
+                                    } as any);
+                                    
+                                    const cell = notebookPair.source.cells.find(
+                                        (c) => c.metadata?.id === id
+                                    );
+                                    if (cell) {
+                                        (cell.metadata as any).attachments = {
+                                            ...((cell.metadata as any).attachments || {}),
+                                            [attachmentId]: {
+                                                url: effectiveUrl,
+                                                type: "audio",
+                                                createdAt: Date.now(),
+                                                updatedAt: Date.now(),
+                                                isDeleted: false,
+                                                startTime: 0,
+                                                endTime: Number.NaN,
+                                            },
+                                        };
+                                        (cell.metadata as any).selectedAudioId =
+                                            (cell.metadata as any).selectedAudioId || firstAttachmentId;
+                                        (cell.metadata as any).selectionTimestamp = Date.now();
+                                    }
+                                } else {
+                                    debugLog(`Skipping non-audio URL that failed to fetch: ${effectiveUrl}`);
+                                }
                             }
                         }
                     }
