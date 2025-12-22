@@ -2195,6 +2195,19 @@ export class CodexCellDocument implements vscode.CustomDocument {
         return this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
     }
 
+    /**
+     * Gets a cell by its index position in the cells array.
+     * @param index The 0-based index of the cell in the cells array
+     * @returns The cell at the specified index, or undefined if index is out of bounds
+     */
+    public getCellByIndex(index: number): CustomNotebookCellData | undefined {
+        const cells = this._documentData.cells || [];
+        if (index < 0 || index >= cells.length) {
+            return undefined;
+        }
+        return cells[index];
+    }
+
     public updateCellData(cellId: string, newData: any): void {
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
             (cell) => cell.metadata?.id === cellId

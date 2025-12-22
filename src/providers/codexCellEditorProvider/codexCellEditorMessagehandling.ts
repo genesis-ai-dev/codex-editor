@@ -1010,36 +1010,27 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             return;
         }
 
-        // Find the milestone cell by iterating through all cells and matching the milestone index
-        // We need to find the cell that matches the milestone's cellIndex position
-        const allCellIds = document.getAllCellIds();
-        let milestoneCellId: string | null = null;
-        let milestoneCellCount = 0;
+        // Use the cellIndex directly from milestoneInfo for O(1) access
+        const milestoneCell = document.getCellByIndex(milestoneInfo.cellIndex);
 
-        // Iterate through cells to find the one at the milestone's cellIndex
-        for (const cellId of allCellIds) {
-            const cell = document.getCell(cellId);
-            if (!cell) continue;
-
-            // Check if this is a milestone cell
-            if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
-                // Skip deleted milestone cells
-                if (cell.metadata?.data?.deleted === true) {
-                    continue;
-                }
-                // Check if this is the milestone we're looking for
-                if (milestoneCellCount === typedEvent.content.milestoneIndex) {
-                    milestoneCellId = cellId;
-                    break;
-                }
-                milestoneCellCount++;
-            }
-        }
-
-        if (!milestoneCellId) {
-            console.error("Milestone cell not found at index", typedEvent.content.milestoneIndex);
+        if (!milestoneCell || !milestoneCell.metadata?.id) {
+            console.error("Milestone cell not found at index", milestoneInfo.cellIndex);
             return;
         }
+
+        // Verify it's actually a milestone cell (safety check)
+        if (milestoneCell.metadata?.type !== CodexCellTypes.MILESTONE) {
+            console.error("Cell at index is not a milestone cell", milestoneInfo.cellIndex);
+            return;
+        }
+
+        // Skip deleted milestone cells
+        if (milestoneCell.metadata?.data?.deleted === true) {
+            console.error("Milestone cell is deleted", milestoneInfo.cellIndex);
+            return;
+        }
+
+        const milestoneCellId = milestoneCell.metadata.id;
 
         // Ensure author is set correctly before creating edit
         await document.refreshAuthor();
