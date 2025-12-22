@@ -905,16 +905,18 @@ ChapterNavigationHeaderProps) {
                         )}
                     </h1>
                 </div>
-                <div className="flex items-center justify-center -ml-2">
-                    <VSCodeButton
-                        aria-label="Edit Milestone"
-                        appearance="icon"
-                        title="Edit Milestone"
-                        onClick={handleEditMilestoneModalOpen}
-                    >
-                        <i className="codicon codicon-edit"></i>
-                    </VSCodeButton>
-                </div>
+                {!isSourceText && (
+                    <div className="flex items-center justify-center -ml-2">
+                        <VSCodeButton
+                            aria-label="Edit Milestone"
+                            appearance="icon"
+                            title="Edit Milestone"
+                            onClick={handleEditMilestoneModalOpen}
+                        >
+                            <i className="codicon codicon-edit"></i>
+                        </VSCodeButton>
+                    </div>
+                )}
 
                 {!shouldHideNavButtons && (
                     <Button

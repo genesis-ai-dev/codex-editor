@@ -30,6 +30,7 @@ import { getUnresolvedCommentsCountForCell } from "../../utils/commentsUtils";
 import { toPosixPath } from "../../utils/pathUtils";
 import { revalidateCellMissingFlags } from "../../utils/audioMissingUtils";
 import { mergeAudioFiles } from "../../utils/audioMerger";
+import { getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
 // Comment out problematic imports
 // import { getAddWordToSpellcheckApi } from "../../extension";
 // import { getSimilarCellIds } from "@/utils/semanticSearch";
@@ -1007,6 +1008,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         if (!milestoneInfo) {
             console.error("Milestone not found at index", typedEvent.content.milestoneIndex);
+            vscode.window.showErrorMessage(`Failed to update milestone: milestone not found at index ${typedEvent.content.milestoneIndex}`);
             return;
         }
 
@@ -1015,43 +1017,188 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         if (!milestoneCell || !milestoneCell.metadata?.id) {
             console.error("Milestone cell not found at index", milestoneInfo.cellIndex);
+            vscode.window.showErrorMessage(`Failed to update milestone: cell not found at index ${milestoneInfo.cellIndex}`);
             return;
         }
 
         // Verify it's actually a milestone cell (safety check)
         if (milestoneCell.metadata?.type !== CodexCellTypes.MILESTONE) {
             console.error("Cell at index is not a milestone cell", milestoneInfo.cellIndex);
+            vscode.window.showErrorMessage(`Failed to update milestone: cell at index ${milestoneInfo.cellIndex} is not a milestone cell`);
             return;
         }
 
         // Skip deleted milestone cells
         if (milestoneCell.metadata?.data?.deleted === true) {
             console.error("Milestone cell is deleted", milestoneInfo.cellIndex);
+            vscode.window.showErrorMessage("Failed to update milestone: milestone cell has been deleted");
             return;
         }
 
         const milestoneCellId = milestoneCell.metadata.id;
-
-        // Ensure author is set correctly before creating edit
-        await document.refreshAuthor();
-
-        // Update the milestone cell value
-        await document.updateCellContent(
-            milestoneCellId,
-            typedEvent.content.newValue,
-            EditType.USER_EDIT,
-            true, // shouldUpdateValue
-            false, // retainValidations
-            false // skipAutoValidation
-        );
-
-        // Note: The custom document change event is automatically fired by updateCellContent
-        // through the document's _onDidChangeForVsCodeAndWebview event, which the provider
-        // listens to and fires _onDidChangeCustomDocument. No need to fire it explicitly here.
-
-        // Save the document using provider's saveCustomDocument for proper VS Code integration
         const cancellationToken = new vscode.CancellationTokenSource().token;
-        await provider.saveCustomDocument(document, cancellationToken);
+        let codexSaveSucceeded = false;
+        let sourceUpdateSucceeded = false;
+
+        try {
+            // Ensure author is set correctly before creating edit
+            await document.refreshAuthor();
+
+            // Update the milestone cell value in codex file
+            await document.updateCellContent(
+                milestoneCellId,
+                typedEvent.content.newValue,
+                EditType.USER_EDIT,
+                true, // shouldUpdateValue
+                false, // retainValidations
+                false // skipAutoValidation
+            );
+
+            // Note: The custom document change event is automatically fired by updateCellContent
+            // through the document's _onDidChangeForVsCodeAndWebview event, which the provider
+            // listens to and fires _onDidChangeCustomDocument. No need to fire it explicitly here.
+
+            // Save the codex document using provider's saveCustomDocument for proper VS Code integration
+            try {
+                await provider.saveCustomDocument(document, cancellationToken);
+                codexSaveSucceeded = true;
+                console.log(`[updateMilestoneValue] Successfully updated and saved milestone in codex file: ${document.uri.fsPath}`);
+            } catch (saveError) {
+                console.error(`[updateMilestoneValue] Failed to save codex file ${document.uri.fsPath}:`, saveError);
+                vscode.window.showErrorMessage(
+                    `Failed to save milestone update to codex file: ${saveError instanceof Error ? saveError.message : String(saveError)}`
+                );
+                return; // Don't proceed with source file update if codex save failed
+            }
+
+            // Also update the corresponding source file to keep milestones in sync
+            // Since the UI only shows the edit button in target files, we know document is always target here
+            const sourceUri = getCorrespondingSourceUri(document.uri);
+            if (!sourceUri) {
+                console.warn(`[updateMilestoneValue] Could not find corresponding source file for ${document.uri.fsPath}`);
+                vscode.window.showWarningMessage(
+                    `Milestone updated in codex file, but could not find corresponding source file.`
+                );
+                // Refresh webview even if source file not found - codex update succeeded
+                provider.refreshWebview(webviewPanel, document);
+                return;
+            }
+
+            // Check if source file exists before attempting to open it
+            try {
+                await vscode.workspace.fs.stat(sourceUri);
+            } catch (statError) {
+                console.warn(`[updateMilestoneValue] Source file does not exist: ${sourceUri.fsPath}`);
+                vscode.window.showWarningMessage(
+                    `Milestone updated in codex file, but source file not found at ${sourceUri.fsPath}`
+                );
+                // Refresh webview even if source file doesn't exist - codex update succeeded
+                provider.refreshWebview(webviewPanel, document);
+                return;
+            }
+
+            try {
+                // Open the source file as a CodexCellDocument
+                const sourceDocument = await provider.openCustomDocument(
+                    sourceUri,
+                    {},
+                    cancellationToken
+                );
+
+                // Build milestone index for source document to find milestone at same index
+                const sourceMilestoneIndex = sourceDocument.buildMilestoneIndex();
+                const sourceMilestoneInfo = sourceMilestoneIndex.milestones[typedEvent.content.milestoneIndex];
+
+                if (!sourceMilestoneInfo) {
+                    console.warn(`[updateMilestoneValue] Milestone at index ${typedEvent.content.milestoneIndex} not found in source file ${sourceUri.fsPath}`);
+                    vscode.window.showWarningMessage(
+                        `Milestone updated in codex file, but milestone at index ${typedEvent.content.milestoneIndex} not found in source file.`
+                    );
+                    // Refresh webview even if milestone not found - codex update succeeded
+                    provider.refreshWebview(webviewPanel, document);
+                    return;
+                }
+
+                // Get the milestone cell from source document using the cellIndex from milestoneInfo
+                const sourceMilestoneCell = sourceDocument.getCellByIndex(sourceMilestoneInfo.cellIndex);
+                if (!sourceMilestoneCell || !sourceMilestoneCell.metadata?.id) {
+                    console.warn(`[updateMilestoneValue] Milestone cell not found at index ${sourceMilestoneInfo.cellIndex} in source file ${sourceUri.fsPath}`);
+                    vscode.window.showWarningMessage(
+                        `Milestone updated in codex file, but milestone cell not found in source file.`
+                    );
+                    // Refresh webview even if milestone cell not found - codex update succeeded
+                    provider.refreshWebview(webviewPanel, document);
+                    return;
+                }
+
+                // Verify it's actually a milestone cell (safety check)
+                if (sourceMilestoneCell.metadata?.type !== CodexCellTypes.MILESTONE) {
+                    console.warn(`[updateMilestoneValue] Cell at index ${sourceMilestoneInfo.cellIndex} in source file ${sourceUri.fsPath} is not a milestone cell`);
+                    vscode.window.showWarningMessage(
+                        `Milestone updated in codex file, but cell in source file is not a milestone cell.`
+                    );
+                    // Refresh webview even if cell type mismatch - codex update succeeded
+                    provider.refreshWebview(webviewPanel, document);
+                    return;
+                }
+
+                const sourceMilestoneCellId = sourceMilestoneCell.metadata.id;
+
+                // Ensure author is set correctly before creating edit
+                await sourceDocument.refreshAuthor();
+
+                // Update the milestone cell value in source file using the source milestone cell ID
+                await sourceDocument.updateCellContent(
+                    sourceMilestoneCellId,
+                    typedEvent.content.newValue,
+                    EditType.USER_EDIT,
+                    true, // shouldUpdateValue
+                    false, // retainValidations
+                    false // skipAutoValidation
+                );
+
+                // Save the source document
+                try {
+                    await provider.saveCustomDocument(sourceDocument, cancellationToken);
+                    sourceUpdateSucceeded = true;
+                    console.log(`[updateMilestoneValue] Successfully updated and saved milestone in source file: ${sourceUri.fsPath}`);
+
+                    // Refresh the source webview panel if it's open
+                    const sourcePanel = provider.getWebviewPanels().get(sourceUri.toString());
+                    if (sourcePanel) {
+                        provider.refreshWebview(sourcePanel, sourceDocument);
+                    }
+                } catch (sourceSaveError) {
+                    console.error(`[updateMilestoneValue] Failed to save source file ${sourceUri.fsPath}:`, sourceSaveError);
+                    vscode.window.showWarningMessage(
+                        `Milestone updated in codex file, but failed to save source file: ${sourceSaveError instanceof Error ? sourceSaveError.message : String(sourceSaveError)}`
+                    );
+                    // Refresh webview even if source save failed - codex update succeeded
+                    provider.refreshWebview(webviewPanel, document);
+                    return;
+                }
+
+                // Both updates succeeded
+                if (codexSaveSucceeded && sourceUpdateSucceeded) {
+                    vscode.window.showInformationMessage(
+                        `Milestone "${typedEvent.content.newValue}" updated successfully in both codex and source files.`
+                    );
+                }
+            } catch (sourceError) {
+                // Log error but don't fail - milestone update in target file should still succeed
+                console.error(`[updateMilestoneValue] Error updating milestone in source file ${sourceUri.fsPath}:`, sourceError);
+                vscode.window.showWarningMessage(
+                    `Milestone updated in codex file, but error updating source file: ${sourceError instanceof Error ? sourceError.message : String(sourceError)}`
+                );
+            }
+        } catch (error) {
+            // Critical error - codex update failed
+            console.error(`[updateMilestoneValue] Critical error updating milestone:`, error);
+            vscode.window.showErrorMessage(
+                `Failed to update milestone: ${error instanceof Error ? error.message : String(error)}`
+            );
+            return;
+        }
 
         // Refresh the webview to show the updated milestone
         provider.refreshWebview(webviewPanel, document);

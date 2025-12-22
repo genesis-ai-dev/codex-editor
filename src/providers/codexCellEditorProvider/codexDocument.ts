@@ -551,8 +551,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
             let logicalLinePosition: number | null = null;
             const cellIndex = this._documentData.cells.findIndex(cell => cell.metadata?.id === cellId);
 
+            let currentCell: any = null;
             if (cellIndex >= 0) {
-                const currentCell = this._documentData.cells[cellIndex];
+                currentCell = this._documentData.cells[cellIndex];
                 const isCurrentCellParatext = currentCell.metadata?.type === "paratext";
 
                 // Only non-paratext cells get line positions
@@ -577,6 +578,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // Sanitize content for search while preserving raw content with HTML
             const sanitizedContent = this.sanitizeContent(content);
 
+            // Merge cell metadata with edit information
+            // This ensures the database receives full cell metadata (including type) for proper indexing
+            const fullMetadata = currentCell?.metadata
+                ? { ...currentCell.metadata, editType, lastUpdated: Date.now() }
+                : { editType, lastUpdated: Date.now() };
+
             // IMMEDIATE AI KNOWLEDGE UPDATE with FTS synchronization
             const result = await this._indexManager.upsertCellWithFTSSync(
                 cellId,
@@ -584,7 +591,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 this.getContentType(),
                 sanitizedContent,  // Sanitized content for search
                 logicalLinePosition ?? undefined, // Convert null to undefined for method signature compatibility
-                { editType, lastUpdated: Date.now() },
+                fullMetadata,  // Pass full cell metadata including type (e.g., MILESTONE)
                 content           // Raw content with HTML tags
             );
 

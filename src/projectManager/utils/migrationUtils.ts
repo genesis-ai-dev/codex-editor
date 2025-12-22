@@ -9,6 +9,7 @@ import type { ValidationEntry } from "../../../types";
 import { getAuthApi } from "../../extension";
 import { extractParentCellIdFromParatext } from "../../providers/codexCellEditorProvider/utils/cellUtils";
 import { generateCellIdFromHash, isUuidFormat } from "../../utils/uuidUtils";
+import { getCorrespondingSourceUri, getCorrespondingCodexUri } from "../../utils/codexNotebookUtils";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 
 // FIXME: move notebook format migration here
@@ -1718,9 +1719,12 @@ function getLocalizedBookName(bookAbbr: string): string {
 /**
  * Creates a milestone cell with book name and chapter number derived from the cell below it.
  * Format: "BookName ChapterNumber" (e.g., "Isaiah 1")
+ * @param cell - The cell to derive chapter information from
+ * @param milestoneIndex - The index of the milestone (1-indexed)
+ * @param uuid - Optional UUID to use for the milestone cell. If not provided, generates a new one.
  */
-async function createMilestoneCell(cell: any, milestoneIndex: number): Promise<any> {
-    const uuid = randomUUID();
+async function createMilestoneCell(cell: any, milestoneIndex: number, uuid?: string): Promise<any> {
+    const cellUuid = uuid || randomUUID();
     const chapterNumber = extractChapterFromCell(cell, milestoneIndex);
     const currentTimestamp = Date.now();
     const author = await getCurrentUserName();
@@ -1747,99 +1751,248 @@ async function createMilestoneCell(cell: any, milestoneIndex: number): Promise<a
         languageId: "html",
         value: milestoneValue,
         metadata: {
-            id: uuid,
+            id: cellUuid,
             type: CodexCellTypes.MILESTONE,
             edits: [initialEdit]
         }
     };
 }
 
+
 /**
- * Migrates milestone cells for a single notebook file.
- * Inserts milestone cells at the start of the file and before each new chapter.
+ * Migrates milestone cells for a source/codex file pair together.
+ * Ensures milestone cells share the same IDs between source and codex files.
+ * Inserts milestone cells at the start of each file and before each new chapter.
+ * Handles orphaned files (when one file doesn't exist) by processing the existing file.
+ * @param sourceUri - URI of the source file (null if file doesn't exist)
+ * @param codexUri - URI of the codex file (null if file doesn't exist)
+ * @returns Object indicating which files were migrated
  */
-async function migrateMilestoneCellsForFile(fileUri: vscode.Uri): Promise<boolean> {
+async function migrateMilestoneCellsForFilePair(
+    sourceUri: vscode.Uri | null,
+    codexUri: vscode.Uri | null
+): Promise<{ sourceMigrated: boolean; codexMigrated: boolean; }> {
+    const result = { sourceMigrated: false, codexMigrated: false };
+
     try {
-        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        // Helper function to safely read a file
+        const safeReadFile = async (uri: vscode.Uri): Promise<Uint8Array | null> => {
+            try {
+                return await vscode.workspace.fs.readFile(uri);
+            } catch (error: unknown) {
+                if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
+                    // File doesn't exist - this is expected for orphaned files
+                    return null;
+                }
+                // Log unexpected errors
+                console.error(`Error reading file ${uri.fsPath}:`, error);
+                return null;
+            }
+        };
+
+        // Read both files (if they exist)
+        const [sourceContent, codexContent] = await Promise.all([
+            sourceUri ? safeReadFile(sourceUri) : Promise.resolve(null),
+            codexUri ? safeReadFile(codexUri) : Promise.resolve(null)
+        ]);
+
         const serializer = new CodexContentSerializer();
-        const notebookData: any = await serializer.deserializeNotebook(
-            fileContent,
-            new vscode.CancellationTokenSource().token
-        );
+        const token = new vscode.CancellationTokenSource().token;
 
-        const cells: any[] = notebookData.cells || [];
-        if (cells.length === 0) return false;
+        // Deserialize both notebooks
+        const sourceNotebookData: any = sourceContent
+            ? await serializer.deserializeNotebook(sourceContent, token)
+            : null;
+        const codexNotebookData: any = codexContent
+            ? await serializer.deserializeNotebook(codexContent, token)
+            : null;
 
-        // Check if file already has milestone cells (idempotent check)
-        const hasMilestoneCells = cells.some(
+        const sourceCells: any[] = sourceNotebookData?.cells || [];
+        const codexCells: any[] = codexNotebookData?.cells || [];
+
+        // Check if either file already has milestone cells (idempotent check)
+        const sourceHasMilestones = sourceCells.some(
             (cell) => cell.metadata?.type === CodexCellTypes.MILESTONE
         );
-        if (hasMilestoneCells) {
-            return false; // Already migrated
+        const codexHasMilestones = codexCells.some(
+            (cell) => cell.metadata?.type === CodexCellTypes.MILESTONE
+        );
+
+        if (sourceHasMilestones && codexHasMilestones) {
+            return result; // Already migrated
         }
 
-        const newCells: any[] = [];
-        const seenChapters = new Set<string>();
-        let firstCell: any | null = null;
+        // Use source cells as the primary reference for determining chapters
+        // If source file doesn't exist, use codex cells
+        const primaryCells = sourceCells.length > 0 ? sourceCells : codexCells;
+        if (primaryCells.length === 0) {
+            return result;
+        }
 
-        // First pass: find the first cell (for first milestone)
-        for (const cell of cells) {
+        // Find first cell for first milestone
+        let firstCell: any | null = null;
+        for (const cell of primaryCells) {
             if (cell.metadata?.id) {
                 firstCell = cell;
                 break;
             }
         }
 
-        // If no cells found, skip this file
         if (!firstCell) {
-            return false;
+            return result;
         }
+
+        // Map to store UUIDs for each chapter to ensure consistency across source and codex
+        const chapterUuids = new Map<string, string>();
 
         // Track milestone index (1-indexed)
         let milestoneIndex = 1;
 
-        // Insert first milestone cell at the beginning
-        newCells.push(await createMilestoneCell(firstCell, milestoneIndex));
+        // Track seen chapters to avoid duplicates
+        const seenChapters = new Set<string>();
+
+        // First, scan primary cells to determine all chapters and generate UUIDs for each
+        // Also track milestone index for each chapter
+        const chapterMilestoneIndex = new Map<string, number>();
+
+        // Handle first milestone
+        const firstCellId = firstCell.metadata?.id;
+        const firstChapter = firstCellId ? extractChapterFromCellId(firstCellId) : null;
+        const firstMilestoneUuid = randomUUID();
+        if (firstChapter) {
+            chapterUuids.set(firstChapter, firstMilestoneUuid);
+            chapterMilestoneIndex.set(firstChapter, milestoneIndex);
+            seenChapters.add(firstChapter);
+        } else {
+            // Use milestone index as key if no chapter found
+            chapterUuids.set(`milestone-${milestoneIndex}`, firstMilestoneUuid);
+            chapterMilestoneIndex.set(`milestone-${milestoneIndex}`, milestoneIndex);
+        }
         milestoneIndex++;
 
-        // Track the chapter of the first cell to avoid duplicate milestone
-        const firstCellId = firstCell.metadata?.id;
-        if (firstCellId) {
-            const chapter = extractChapterFromCellId(firstCellId);
-            if (chapter) {
-                seenChapters.add(chapter);
-            }
-        }
-
-        // Process all cells and insert milestone cells before new chapters
-        for (const cell of cells) {
-            const cellId = cell.metadata?.id;
+        // Scan remaining primary cells to find other chapters
+        for (const primaryCell of primaryCells) {
+            const cellId = primaryCell.metadata?.id;
             if (cellId) {
                 const chapter = extractChapterFromCellId(cellId);
                 if (chapter && !seenChapters.has(chapter)) {
-                    // Insert a milestone cell before this new chapter
-                    newCells.push(await createMilestoneCell(cell, milestoneIndex));
-                    milestoneIndex++;
+                    const chapterUuid = randomUUID();
+                    chapterUuids.set(chapter, chapterUuid);
+                    chapterMilestoneIndex.set(chapter, milestoneIndex);
                     seenChapters.add(chapter);
+                    milestoneIndex++;
                 }
             }
-            newCells.push(cell);
         }
 
-        // Update notebook data with new cells
-        notebookData.cells = newCells;
+        // Build new cell arrays with milestone cells
+        const newSourceCells: any[] = [];
+        const newCodexCells: any[] = [];
 
-        // Serialize and save
-        const updatedContent = await serializer.serializeNotebook(
-            notebookData,
-            new vscode.CancellationTokenSource().token
-        );
-        await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+        // Insert first milestone cell at the beginning (using same UUID for both)
+        if (!sourceHasMilestones && sourceNotebookData) {
+            const sourceFirstCell = sourceCells.find(c => c.metadata?.id) || sourceCells[0] || firstCell;
+            const firstMilestoneIdx = firstChapter
+                ? chapterMilestoneIndex.get(firstChapter)
+                : chapterMilestoneIndex.get(`milestone-1`);
+            newSourceCells.push(await createMilestoneCell(
+                sourceFirstCell,
+                firstMilestoneIdx || 1,
+                firstMilestoneUuid
+            ));
+        }
+        if (!codexHasMilestones && codexNotebookData) {
+            const codexFirstCell = codexCells.find(c => c.metadata?.id) || codexCells[0] || firstCell;
+            const firstMilestoneIdx = firstChapter
+                ? chapterMilestoneIndex.get(firstChapter)
+                : chapterMilestoneIndex.get(`milestone-1`);
+            newCodexCells.push(await createMilestoneCell(
+                codexFirstCell,
+                firstMilestoneIdx || 1,
+                firstMilestoneUuid
+            ));
+        }
 
-        return true;
+        // Process source cells and insert milestones (skip first milestone as it's already added)
+        if (!sourceHasMilestones && sourceNotebookData) {
+            const sourceSeenChapters = new Set<string>();
+            // Mark first chapter as seen since we already added its milestone
+            if (firstChapter) {
+                sourceSeenChapters.add(firstChapter);
+            }
+
+            for (const cell of sourceCells) {
+                const cellId = cell.metadata?.id;
+                if (cellId) {
+                    const chapter = extractChapterFromCellId(cellId);
+                    if (chapter && !sourceSeenChapters.has(chapter)) {
+                        // Insert milestone before this chapter
+                        const milestoneUuid = chapterUuids.get(chapter);
+                        const milestoneIdx = chapterMilestoneIndex.get(chapter);
+                        if (milestoneUuid && milestoneIdx !== undefined) {
+                            newSourceCells.push(await createMilestoneCell(cell, milestoneIdx, milestoneUuid));
+                        }
+                        sourceSeenChapters.add(chapter);
+                    }
+                }
+                newSourceCells.push(cell);
+            }
+        } else if (sourceNotebookData) {
+            // Source already has milestones, just copy all cells
+            newSourceCells.push(...sourceCells);
+        }
+
+        // Process codex cells and insert milestones using the same UUIDs (skip first milestone as it's already added)
+        if (!codexHasMilestones && codexNotebookData) {
+            const codexSeenChapters = new Set<string>();
+            // Mark first chapter as seen since we already added its milestone
+            if (firstChapter) {
+                codexSeenChapters.add(firstChapter);
+            }
+
+            for (const cell of codexCells) {
+                const cellId = cell.metadata?.id;
+                if (cellId) {
+                    const chapter = extractChapterFromCellId(cellId);
+                    if (chapter && !codexSeenChapters.has(chapter)) {
+                        // Insert milestone before this chapter using the same UUID and index as source
+                        const milestoneUuid = chapterUuids.get(chapter);
+                        const milestoneIdx = chapterMilestoneIndex.get(chapter);
+                        if (milestoneUuid && milestoneIdx !== undefined) {
+                            newCodexCells.push(await createMilestoneCell(cell, milestoneIdx, milestoneUuid));
+                        }
+                        codexSeenChapters.add(chapter);
+                    }
+                }
+                newCodexCells.push(cell);
+            }
+        } else if (codexNotebookData) {
+            // Codex already has milestones, just copy all cells
+            newCodexCells.push(...codexCells);
+        }
+
+        // If source file exists and was modified, save it
+        if (!sourceHasMilestones && sourceNotebookData && newSourceCells.length > 0 && sourceUri) {
+            sourceNotebookData.cells = newSourceCells;
+            const updatedSourceContent = await serializer.serializeNotebook(sourceNotebookData, token);
+            await vscode.workspace.fs.writeFile(sourceUri, updatedSourceContent);
+            result.sourceMigrated = true;
+        }
+
+        // If codex file exists and was modified, save it
+        if (!codexHasMilestones && codexNotebookData && newCodexCells.length > 0 && codexUri) {
+            codexNotebookData.cells = newCodexCells;
+            const updatedCodexContent = await serializer.serializeNotebook(codexNotebookData, token);
+            await vscode.workspace.fs.writeFile(codexUri, updatedCodexContent);
+            result.codexMigrated = true;
+        }
+
+        return result;
     } catch (error) {
-        console.error(`Error migrating milestone cells for ${fileUri.fsPath}:`, error);
-        return false;
+        const sourcePath = sourceUri?.fsPath || "none";
+        const codexPath = codexUri?.fsPath || "none";
+        console.error(`Error migrating milestone cells for file pair ${sourcePath} / ${codexPath}:`, error);
+        return result;
     }
 }
 
@@ -1887,9 +2040,7 @@ export const migration_addMilestoneCells = async (context?: vscode.ExtensionCont
             new vscode.RelativePattern(workspaceFolder, "**/*.source")
         );
 
-        const allFiles = [...codexFiles, ...sourceFiles];
-
-        if (allFiles.length === 0) {
+        if (codexFiles.length === 0 && sourceFiles.length === 0) {
             console.log("No codex or source files found, skipping milestone cells migration");
             // Mark migration as completed even when no files exist to prevent re-running
             try {
@@ -1901,10 +2052,37 @@ export const migration_addMilestoneCells = async (context?: vscode.ExtensionCont
             return;
         }
 
+        // Create a map to match source and codex files by basename
+        const sourceFileMap = new Map<string, vscode.Uri>();
+        const codexFileMap = new Map<string, vscode.Uri>();
+        const processedPairs = new Set<string>();
+
+        // Index source files by basename
+        for (const sourceFile of sourceFiles) {
+            const basename = path.basename(sourceFile.fsPath, ".source");
+            sourceFileMap.set(basename, sourceFile);
+        }
+
+        // Index codex files by basename
+        for (const codexFile of codexFiles) {
+            const basename = path.basename(codexFile.fsPath, ".codex");
+            codexFileMap.set(basename, codexFile);
+        }
+
+        // Collect file pairs and orphaned files
+        const filePairs: Array<{ sourceUri: vscode.Uri | null; codexUri: vscode.Uri | null; basename: string; }> = [];
+        const allBasenames = new Set([...sourceFileMap.keys(), ...codexFileMap.keys()]);
+
+        for (const basename of allBasenames) {
+            const sourceUri = sourceFileMap.get(basename) || null;
+            const codexUri = codexFileMap.get(basename) || null;
+            filePairs.push({ sourceUri, codexUri, basename });
+        }
+
         let processedFiles = 0;
         let migratedFiles = 0;
 
-        // Process files with progress
+        // Process file pairs with progress
         await vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
@@ -1912,21 +2090,23 @@ export const migration_addMilestoneCells = async (context?: vscode.ExtensionCont
                 cancellable: false
             },
             async (progress) => {
-                for (let i = 0; i < allFiles.length; i++) {
-                    const file = allFiles[i];
+                for (let i = 0; i < filePairs.length; i++) {
+                    const { sourceUri, codexUri, basename } = filePairs[i];
                     progress.report({
-                        message: `Processing ${path.basename(file.fsPath)}`,
-                        increment: (100 / allFiles.length)
+                        message: `Processing ${basename}`,
+                        increment: (100 / filePairs.length)
                     });
 
                     try {
-                        const wasMigrated = await migrateMilestoneCellsForFile(file);
-                        processedFiles++;
-                        if (wasMigrated) {
+                        // Always use pair-based migration to ensure consistent UUIDs
+                        // This handles both paired files and orphaned files
+                        const result = await migrateMilestoneCellsForFilePair(sourceUri, codexUri);
+                        processedFiles += (result.sourceMigrated ? 1 : 0) + (result.codexMigrated ? 1 : 0);
+                        if (result.sourceMigrated || result.codexMigrated) {
                             migratedFiles++;
                         }
                     } catch (error) {
-                        console.error(`Error processing ${file.fsPath}:`, error);
+                        console.error(`Error processing ${basename}:`, error);
                     }
                 }
             }
