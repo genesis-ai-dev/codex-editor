@@ -192,7 +192,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     public isCorrectionEditorMode: boolean = false;
 
     // Track current milestone/subsection per document to preserve position during updates
-    public currentMilestoneSubsectionMap: Map<string, { milestoneIndex: number; subsectionIndex: number }> = new Map();
+    public currentMilestoneSubsectionMap: Map<string, { milestoneIndex: number; subsectionIndex: number; }> = new Map();
 
     public static getInstance(): CodexCellEditorProvider | undefined {
         return CodexCellEditorProvider.instance;
@@ -2283,25 +2283,59 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const milestoneProgress = document.calculateMilestoneProgress(validationCount, validationCountAudio);
         milestoneIndex.milestoneProgress = milestoneProgress;
 
-        // Get cached chapter and map it to milestone index
-        const cachedChapter = this.getCachedChapter(document.uri.toString());
+        // Check currentMilestoneSubsectionMap first to preserve position after edits
+        const docUri = document.uri.toString();
+        const currentPosition = this.currentMilestoneSubsectionMap.get(docUri);
         let initialMilestoneIndex = 0;
-        const initialSubsectionIndex = this.getCachedSubsection(document.uri.toString());
+        let initialSubsectionIndex = 0;
 
-        // If we have milestones and a cached chapter, try to find the matching milestone
-        if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
-            // Find milestone that matches the cached chapter number
-            const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
-                const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
-                return chapterNum !== null && chapterNum === cachedChapter;
-            });
-            if (milestoneIdx !== -1) {
-                initialMilestoneIndex = milestoneIdx;
+        if (currentPosition && milestoneIndex.milestones.length > 0) {
+            // Use milestone index from map if it's valid
+            if (currentPosition.milestoneIndex >= 0 && currentPosition.milestoneIndex < milestoneIndex.milestones.length) {
+                initialMilestoneIndex = currentPosition.milestoneIndex;
+                initialSubsectionIndex = currentPosition.subsectionIndex;
             } else {
-                // Fallback: try using chapter number as index (1-indexed to 0-indexed)
-                const fallbackIdx = cachedChapter - 1;
-                if (fallbackIdx >= 0 && fallbackIdx < milestoneIndex.milestones.length) {
-                    initialMilestoneIndex = fallbackIdx;
+                // Invalid milestone index in map, fall back to cached chapter logic
+                const cachedChapter = this.getCachedChapter(docUri);
+                initialSubsectionIndex = this.getCachedSubsection(docUri);
+
+                if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
+                    // Find milestone that matches the cached chapter number
+                    const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
+                        const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
+                        return chapterNum !== null && chapterNum === cachedChapter;
+                    });
+                    if (milestoneIdx !== -1) {
+                        initialMilestoneIndex = milestoneIdx;
+                    } else {
+                        // Fallback: try using chapter number as index (1-indexed to 0-indexed)
+                        const fallbackIdx = cachedChapter - 1;
+                        if (fallbackIdx >= 0 && fallbackIdx < milestoneIndex.milestones.length) {
+                            initialMilestoneIndex = fallbackIdx;
+                        }
+                    }
+                }
+            }
+        } else {
+            // No entry in map, fall back to cached chapter logic
+            const cachedChapter = this.getCachedChapter(docUri);
+            initialSubsectionIndex = this.getCachedSubsection(docUri);
+
+            // If we have milestones and a cached chapter, try to find the matching milestone
+            if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
+                // Find milestone that matches the cached chapter number
+                const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
+                    const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
+                    return chapterNum !== null && chapterNum === cachedChapter;
+                });
+                if (milestoneIdx !== -1) {
+                    initialMilestoneIndex = milestoneIdx;
+                } else {
+                    // Fallback: try using chapter number as index (1-indexed to 0-indexed)
+                    const fallbackIdx = cachedChapter - 1;
+                    if (fallbackIdx >= 0 && fallbackIdx < milestoneIndex.milestones.length) {
+                        initialMilestoneIndex = fallbackIdx;
+                    }
                 }
             }
         }

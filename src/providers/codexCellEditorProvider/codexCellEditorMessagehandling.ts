@@ -1040,6 +1040,18 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         let codexSaveSucceeded = false;
         let sourceUpdateSucceeded = false;
 
+        // Preserve current milestone index and subsection before refreshing webview
+        // Get current subsection from map if available, otherwise use cached subsection
+        const docUri = document.uri.toString();
+        const currentPosition = provider.currentMilestoneSubsectionMap.get(docUri);
+        const subsectionIndex = currentPosition?.subsectionIndex ?? provider.getCachedSubsection(docUri);
+
+        // Save milestone index to preserve position after refresh
+        provider.currentMilestoneSubsectionMap.set(docUri, {
+            milestoneIndex: typedEvent.content.milestoneIndex,
+            subsectionIndex: subsectionIndex,
+        });
+
         try {
             // Ensure author is set correctly before creating edit
             await document.refreshAuthor();
@@ -1166,6 +1178,14 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     // Refresh the source webview panel if it's open
                     const sourcePanel = provider.getWebviewPanels().get(sourceUri.toString());
                     if (sourcePanel) {
+                        // Preserve milestone index for source document as well
+                        const sourceDocUri = sourceDocument.uri.toString();
+                        const sourceCurrentPosition = provider.currentMilestoneSubsectionMap.get(sourceDocUri);
+                        const sourceSubsectionIndex = sourceCurrentPosition?.subsectionIndex ?? provider.getCachedSubsection(sourceDocUri);
+                        provider.currentMilestoneSubsectionMap.set(sourceDocUri, {
+                            milestoneIndex: typedEvent.content.milestoneIndex,
+                            subsectionIndex: sourceSubsectionIndex,
+                        });
                         provider.refreshWebview(sourcePanel, sourceDocument);
                     }
                 } catch (sourceSaveError) {
@@ -1181,7 +1201,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 // Both updates succeeded
                 if (codexSaveSucceeded && sourceUpdateSucceeded) {
                     vscode.window.showInformationMessage(
-                        `Milestone "${typedEvent.content.newValue}" updated successfully in both codex and source files.`
+                        `Milestone "${typedEvent.content.newValue}" updated successfully.`
                     );
                 }
             } catch (sourceError) {
