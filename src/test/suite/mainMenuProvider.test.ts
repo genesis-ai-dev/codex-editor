@@ -226,7 +226,7 @@ suite("MainMenuProvider - Project Name Change Tests", () => {
             .stub(MetadataManager, "safeUpdateMetadata")
             .rejects(new Error("File system error"));
 
-        const showErrorStub = sandbox.stub(vscode.window, "showErrorMessage");
+        const showErrorStub = sandbox.stub(vscode.window, "showErrorMessage").resolves(undefined);
 
         await provider["handleChangeProjectName"]("New Project Name");
 

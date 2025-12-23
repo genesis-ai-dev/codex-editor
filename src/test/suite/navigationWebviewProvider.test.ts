@@ -4,6 +4,7 @@ import * as path from "path";
 import { NavigationWebviewProvider } from "../../providers/navigationWebview/navigationWebviewProvider";
 import { CodexContentSerializer } from "../../serializer";
 import { createMockExtensionContext, deleteIfExists } from "../testUtils";
+import { CodexCellEditorProvider } from "../../providers/codexCellEditorProvider/codexCellEditorProvider";
 import sinon from "sinon";
 
 suite("NavigationWebviewProvider Test Suite", () => {
@@ -441,6 +442,246 @@ suite("NavigationWebviewProvider Test Suite", () => {
             showErrorMessageStub.restore();
             showInformationMessageStub.restore();
             withProgressStub.restore();
+        }
+    });
+
+    test("deleteFile closes open webview panels for codex file", async () => {
+        // Skip if no workspace folder
+        if (!vscode.workspace.workspaceFolders?.[0]) {
+            return;
+        }
+
+        // Create a codex file
+        const codexUri = await createCodexFileWithMetadata("TEST", {});
+        const normalizedPath = codexUri.fsPath.replace(/\\/g, "/");
+
+        // Create mock webview panels
+        const codexPanelDisposed = sinon.spy();
+        const mockCodexPanel = {
+            dispose: codexPanelDisposed,
+            webview: {
+                html: "",
+                options: { enableScripts: true },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: "https://example.com",
+                onDidReceiveMessage: () => ({ dispose: () => { } }),
+                postMessage: () => Promise.resolve(),
+            },
+            onDidDispose: () => ({ dispose: () => { } }),
+            onDidChangeViewState: () => ({ dispose: () => { } }),
+        } as any as vscode.WebviewPanel;
+
+        // Mock CodexCellEditorProvider instance
+        const mockProvider = {
+            getWebviewPanels: () => {
+                const panels = new Map<string, vscode.WebviewPanel>();
+                panels.set(codexUri.toString(), mockCodexPanel);
+                return panels;
+            },
+        } as any;
+
+        const getInstanceStub = sinon.stub(CodexCellEditorProvider, "getInstance").returns(mockProvider);
+
+        // Mock UI methods
+        const showWarningMessageStub = sinon.stub(vscode.window, "showWarningMessage").resolves("Delete" as any);
+        const showInformationMessageStub = sinon.stub(vscode.window, "showInformationMessage");
+        const showErrorMessageStub = sinon.stub(vscode.window, "showErrorMessage");
+
+        // Stub buildInitialData to prevent it from trying to read deleted files
+        const buildInitialDataStub = sinon.stub(provider as any, "buildInitialData").resolves();
+
+        try {
+            // Call deleteFile handler
+            await (provider as any).handleMessage({
+                command: "deleteFile",
+                uri: normalizedPath,
+                label: "TEST",
+                type: "codexDocument",
+            });
+
+            // Verify the panel was disposed
+            assert.ok(codexPanelDisposed.called, "Codex webview panel should be disposed when deleting file");
+        } finally {
+            getInstanceStub.restore();
+            showWarningMessageStub.restore();
+            showInformationMessageStub.restore();
+            showErrorMessageStub.restore();
+            buildInitialDataStub.restore();
+        }
+    });
+
+    test("deleteFile closes open webview panels for both codex and source files", async () => {
+        // Skip if no workspace folder
+        if (!vscode.workspace.workspaceFolders?.[0]) {
+            return;
+        }
+
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            return;
+        }
+
+        // Create a codex file
+        const codexUri = await createCodexFileWithMetadata("TEST2", {});
+        const normalizedPath = codexUri.fsPath.replace(/\\/g, "/");
+
+        // Create source file URI
+        const baseFileName = path.basename(normalizedPath);
+        const sourceFileName = baseFileName.replace(".codex", ".source");
+        const sourceUri = vscode.Uri.joinPath(
+            workspaceFolder.uri,
+            ".project",
+            "sourceTexts",
+            sourceFileName
+        );
+
+        // Create source file directory if it doesn't exist
+        try {
+            await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts"));
+        } catch {
+            // Directory might already exist
+        }
+
+        // Create source file
+        await vscode.workspace.fs.writeFile(sourceUri, Buffer.from("test source content", "utf8"));
+        tempCodexFiles.push(sourceUri); // Add to cleanup list
+
+        // Create mock webview panels
+        const codexPanelDisposed = sinon.spy();
+        const sourcePanelDisposed = sinon.spy();
+
+        const mockCodexPanel = {
+            dispose: codexPanelDisposed,
+            webview: {
+                html: "",
+                options: { enableScripts: true },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: "https://example.com",
+                onDidReceiveMessage: () => ({ dispose: () => { } }),
+                postMessage: () => Promise.resolve(),
+            },
+            onDidDispose: () => ({ dispose: () => { } }),
+            onDidChangeViewState: () => ({ dispose: () => { } }),
+        } as any as vscode.WebviewPanel;
+
+        const mockSourcePanel = {
+            dispose: sourcePanelDisposed,
+            webview: {
+                html: "",
+                options: { enableScripts: true },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: "https://example.com",
+                onDidReceiveMessage: () => ({ dispose: () => { } }),
+                postMessage: () => Promise.resolve(),
+            },
+            onDidDispose: () => ({ dispose: () => { } }),
+            onDidChangeViewState: () => ({ dispose: () => { } }),
+        } as any as vscode.WebviewPanel;
+
+        // Mock CodexCellEditorProvider instance
+        const mockProvider = {
+            getWebviewPanels: () => {
+                const panels = new Map<string, vscode.WebviewPanel>();
+                panels.set(codexUri.toString(), mockCodexPanel);
+                panels.set(sourceUri.toString(), mockSourcePanel);
+                return panels;
+            },
+        } as any;
+
+        const getInstanceStub = sinon.stub(CodexCellEditorProvider, "getInstance").returns(mockProvider);
+
+        // Mock UI methods
+        const showWarningMessageStub = sinon.stub(vscode.window, "showWarningMessage").resolves("Delete" as any);
+        const showInformationMessageStub = sinon.stub(vscode.window, "showInformationMessage");
+        const showErrorMessageStub = sinon.stub(vscode.window, "showErrorMessage");
+
+        // Stub buildInitialData to prevent it from trying to read deleted files
+        const buildInitialDataStub = sinon.stub(provider as any, "buildInitialData").resolves();
+
+        try {
+            // Call deleteFile handler
+            await (provider as any).handleMessage({
+                command: "deleteFile",
+                uri: normalizedPath,
+                label: "TEST2",
+                type: "codexDocument",
+            });
+
+            // Verify both panels were disposed
+            assert.ok(codexPanelDisposed.called, "Codex webview panel should be disposed when deleting file");
+            assert.ok(sourcePanelDisposed.called, "Source webview panel should be disposed when deleting codex document");
+        } finally {
+            getInstanceStub.restore();
+            showWarningMessageStub.restore();
+            showInformationMessageStub.restore();
+            showErrorMessageStub.restore();
+            buildInitialDataStub.restore();
+        }
+    });
+
+    test("deleteFile handles missing webview panels gracefully", async () => {
+        // Skip if no workspace folder
+        if (!vscode.workspace.workspaceFolders?.[0]) {
+            return;
+        }
+
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            return;
+        }
+
+        // Create a codex file
+        const codexUri = await createCodexFileWithMetadata("TEST3", {});
+        const normalizedPath = codexUri.fsPath.replace(/\\/g, "/");
+
+        // Create source file URI (but don't create the file - it should handle missing file gracefully)
+        const baseFileName = path.basename(normalizedPath);
+        const sourceFileName = baseFileName.replace(".codex", ".source");
+        const sourceUri = vscode.Uri.joinPath(
+            workspaceFolder.uri,
+            ".project",
+            "sourceTexts",
+            sourceFileName
+        );
+
+        // Mock CodexCellEditorProvider instance with empty panels map
+        const mockProvider = {
+            getWebviewPanels: () => {
+                return new Map<string, vscode.WebviewPanel>();
+            },
+        } as any;
+
+        const getInstanceStub = sinon.stub(CodexCellEditorProvider, "getInstance").returns(mockProvider);
+
+        // Mock UI methods
+        const showWarningMessageStub = sinon.stub(vscode.window, "showWarningMessage").resolves("Delete" as any);
+        const showInformationMessageStub = sinon.stub(vscode.window, "showInformationMessage");
+        const showErrorMessageStub = sinon.stub(vscode.window, "showErrorMessage");
+
+        // Stub buildInitialData to prevent it from trying to read deleted files
+        const buildInitialDataStub = sinon.stub(provider as any, "buildInitialData").resolves();
+
+        // Stub console.error to suppress expected error logs about missing source file
+        const consoleErrorStub = sinon.stub(console, "error");
+
+        try {
+            // Call deleteFile handler - should not throw even if no panels exist or source file doesn't exist
+            await (provider as any).handleMessage({
+                command: "deleteFile",
+                uri: normalizedPath,
+                label: "TEST3",
+                type: "codexDocument",
+            });
+
+            // Test passes if no error is thrown
+            assert.ok(true, "deleteFile should handle missing webview panels gracefully");
+        } finally {
+            getInstanceStub.restore();
+            showWarningMessageStub.restore();
+            showInformationMessageStub.restore();
+            showErrorMessageStub.restore();
+            buildInitialDataStub.restore();
+            consoleErrorStub.restore();
         }
     });
 });
