@@ -690,6 +690,19 @@ export class SyncManager {
                 // Don't fail sync completion due to audio refresh errors
             }
 
+            // Close webviews for files deleted during sync
+            try {
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                if (workspaceFolder && syncResult.deletedFiles.length > 0) {
+                    const { closeWebviewsForDeletedFiles } = await import("../utils/webviewUtils");
+                    await closeWebviewsForDeletedFiles(syncResult.deletedFiles, workspaceFolder);
+                    debug(`[SyncManager] Closed webviews for ${syncResult.deletedFiles.length} deleted file(s)`);
+                }
+            } catch (error) {
+                console.error("[SyncManager] Error closing webviews for deleted files:", error);
+                // Don't fail sync completion due to webview cleanup errors
+            }
+
             // Post-sync cleanup for media files (stream-only mode)
             try {
                 const workspaceFolder = vscode.workspace.workspaceFolders?.[0];

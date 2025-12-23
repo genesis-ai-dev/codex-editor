@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
+import { CodexCellEditorProvider } from '../providers/codexCellEditorProvider/codexCellEditorProvider';
 
 /**
  * Utility functions for safe webview operations that handle disposal gracefully
@@ -240,5 +242,98 @@ export function safePostMessageToView(
             console.debug("Webview view disposed while sending message, skipping");
         }
         return false;
+    }
+}
+
+/**
+ * Check if a file exists at the given URI
+ * @param uri The URI to check
+ * @returns true if the file exists, false otherwise
+ */
+export async function fileExists(uri: vscode.Uri): Promise<boolean> {
+    try {
+        await vscode.workspace.fs.stat(uri);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Close webviews for deleted files and their corresponding pairs
+ * If a .codex file is deleted, also closes its .source webview
+ * If a .source file is deleted, also closes its .codex webview
+ * @param deletedFilePaths Array of relative file paths (e.g., ".project/targetTexts/file.codex")
+ * @param workspaceFolder The workspace folder to resolve paths against
+ */
+export async function closeWebviewsForDeletedFiles(
+    deletedFilePaths: string[],
+    workspaceFolder: vscode.WorkspaceFolder
+): Promise<void> {
+    const codexEditorProvider = CodexCellEditorProvider.getInstance();
+    if (!codexEditorProvider) {
+        return;
+    }
+
+    const webviewPanels = codexEditorProvider.getWebviewPanels();
+
+    // Helper function to find and close a panel by URI
+    const closePanelByUri = (uri: vscode.Uri) => {
+        // Try to find the panel by URI string match first
+        let panelToClose = webviewPanels.get(uri.toString());
+        // If not found, try matching by fsPath (handles URI format differences)
+        if (!panelToClose) {
+            for (const [panelUri, panel] of webviewPanels.entries()) {
+                const panelUriObj = vscode.Uri.parse(panelUri);
+                if (panelUriObj.fsPath === uri.fsPath) {
+                    panelToClose = panel;
+                    break;
+                }
+            }
+        }
+        if (panelToClose) {
+            panelToClose.dispose();
+        }
+    };
+
+    // Process each deleted file
+    for (const deletedPath of deletedFilePaths) {
+        // Normalize path (replace backslashes, remove leading slashes) and split into segments
+        const normalizedPath = deletedPath.replace(/\\/g, "/").replace(/^\/+/, "");
+        const pathSegments = normalizedPath.split("/").filter(Boolean);
+
+        // Convert relative path to absolute URI
+        const deletedUri = vscode.Uri.joinPath(workspaceFolder.uri, ...pathSegments);
+
+        // Close the webview for the deleted file itself
+        closePanelByUri(deletedUri);
+
+        // Determine if this is a codex or source file and find its pair
+        const fileName = path.basename(normalizedPath);
+        const isCodexFile = fileName.endsWith('.codex');
+        const isSourceFile = fileName.endsWith('.source');
+
+        if (isCodexFile) {
+            // If a .codex file is deleted, also close its corresponding .source webview
+            const baseFileName = fileName.replace('.codex', '.source');
+            const sourceUri = vscode.Uri.joinPath(
+                workspaceFolder.uri,
+                '.project',
+                'sourceTexts',
+                baseFileName
+            );
+            closePanelByUri(sourceUri);
+        } else if (isSourceFile) {
+            // If a .source file is deleted, also close its corresponding .codex webview
+            const baseFileName = fileName.replace('.source', '.codex');
+            // Source files are in .project/sourceTexts/, codex files are in .project/targetTexts/
+            const codexUri = vscode.Uri.joinPath(
+                workspaceFolder.uri,
+                '.project',
+                'targetTexts',
+                baseFileName
+            );
+            closePanelByUri(codexUri);
+        }
     }
 } 
