@@ -105,6 +105,9 @@ suite('SyncManager VS Code Version Warning Tests', () => {
     });
 
     setup(async () => {
+        // Restore any existing stubs first to avoid double-wrapping errors
+        sinon.restore();
+
         // Create mock auth API that passes all checks
         mockAuthApi = {
             getAuthStatus: () => ({ isAuthenticated: true }),
@@ -147,8 +150,21 @@ suite('SyncManager VS Code Version Warning Tests', () => {
         if (getAuthApiStub) {
             getAuthApiStub.restore();
         }
-        showInformationMessageStub.restore();
-        openExternalStub.restore();
+        // Restore VS Code API stubs if they exist
+        try {
+            if (showInformationMessageStub && typeof showInformationMessageStub.restore === 'function') {
+                showInformationMessageStub.restore();
+            }
+        } catch {
+            // Already restored or not a stub
+        }
+        try {
+            if (openExternalStub && typeof openExternalStub.restore === 'function') {
+                openExternalStub.restore();
+            }
+        } catch {
+            // Already restored or not a stub
+        }
         sinon.restore();
     });
 

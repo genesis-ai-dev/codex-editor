@@ -486,6 +486,16 @@ export class SyncManager {
         }
 
         try {
+            if (typeof (authApi as any).getAuthStatus !== "function") {
+                this.isSyncInProgress = false;
+                debug("Auth API missing getAuthStatus, cannot sync");
+                if (showInfoOnConnectionIssues) {
+                    this.showConnectionIssueMessage(
+                        "Unable to sync: Authentication service not available"
+                    );
+                }
+                return;
+            }
             const authStatus = authApi.getAuthStatus();
             if (!authStatus.isAuthenticated) {
                 this.isSyncInProgress = false;

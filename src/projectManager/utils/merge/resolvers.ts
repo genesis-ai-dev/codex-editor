@@ -242,9 +242,20 @@ function areCommentsDuplicate(comment1: NotebookComment, comment2: NotebookComme
 /**
  * Resolves merge conflicts for a specific file based on its determined strategy
  */
+export type ResolveConflictOptions = {
+    /**
+     * When true (default), re-read the on-disk file to refresh conflict.ours before merging.
+     * This is useful for sync, so recent user edits aren't lost.
+     *
+     * When false, uses the provided conflict.ours as-is (required for heal, where ours is a snapshot).
+     */
+    refreshOursFromDisk?: boolean;
+};
+
 export async function resolveConflictFile(
     conflict: ConflictFile,
-    workspaceDir: string
+    workspaceDir: string,
+    options?: ResolveConflictOptions
 ): Promise<string | undefined> {
     try {
         // No need to read files, we already have the content
@@ -252,14 +263,21 @@ export async function resolveConflictFile(
         debugLog("Strategy:", strategy);
         let resolvedContent: string;
 
-        // Ensure we have fresh content by re-reading the file
-        const filePath = vscode.Uri.joinPath(vscode.Uri.file(workspaceDir), conflict.filepath);
-        try {
-            // Note: this is to ensure we have the latest content so recent user edits are not lost
-            const latestFileContent = await vscode.workspace.fs.readFile(filePath);
-            conflict.ours = Buffer.from(latestFileContent).toString('utf8');
-        } catch (error) {
-            debugLog(`Could not read fresh content for ${conflict.filepath}, using existing content:`, error);
+        const refreshOursFromDisk = options?.refreshOursFromDisk !== false;
+        if (refreshOursFromDisk) {
+            // Ensure we have fresh content by re-reading the file
+            const normalizedFilepath = conflict.filepath.replace(/\\/g, "/").replace(/^\/+/, "");
+            const filePath = vscode.Uri.joinPath(
+                vscode.Uri.file(workspaceDir),
+                ...normalizedFilepath.split("/")
+            );
+            try {
+                // Note: this is to ensure we have the latest content so recent user edits are not lost
+                const latestFileContent = await vscode.workspace.fs.readFile(filePath);
+                conflict.ours = Buffer.from(latestFileContent).toString('utf8');
+            } catch (error) {
+                debugLog(`Could not read fresh content for ${conflict.filepath}, using existing content:`, error);
+            }
         }
 
         switch (strategy) {
@@ -2204,7 +2222,8 @@ export type ResolvedFile = {
  */
 export async function resolveConflictFiles(
     conflicts: ConflictFile[],
-    workspaceDir: string
+    workspaceDir: string,
+    options?: ResolveConflictOptions
 ): Promise<ResolvedFile[]> {
     debugLog("Starting conflict resolution with:", { conflicts, workspaceDir });
 
@@ -2231,6 +2250,29 @@ export async function resolveConflictFiles(
             const totalConflicts = conflicts.length;
             let processedConflicts = 0;
 
+            // Ensure all parent directories exist before resolving/writing files.
+            // This is critical for heal, where locally-created directories may not exist in a fresh clone.
+            try {
+                const uniqueDirs = new Set<string>();
+                for (const conflict of conflicts) {
+                    if (!conflict || conflict.isDeleted) continue;
+                    const rel = conflict.filepath.replace(/\\/g, "/").replace(/^\/+/, "");
+                    const dir = path.posix.dirname(rel);
+                    if (dir && dir !== ".") uniqueDirs.add(dir);
+                }
+
+                const sortedDirs = Array.from(uniqueDirs).sort(
+                    (a, b) => a.split("/").length - b.split("/").length
+                );
+                for (const dir of sortedDirs) {
+                    const dirUri = vscode.Uri.joinPath(vscode.Uri.file(workspaceDir), ...dir.split("/"));
+                    await vscode.workspace.fs.createDirectory(dirUri);
+                }
+            } catch (e) {
+                console.error("Error creating parent directories for conflicts:", e);
+                // Continue; individual writes will still attempt and report errors.
+            }
+
             for (const conflict of conflicts) {
                 console.log("conflict", { conflict });
                 // Validate conflict object structure
@@ -2244,9 +2286,10 @@ export async function resolveConflictFiles(
                     continue;
                 }
 
+                const normalizedFilepath = conflict.filepath.replace(/\\/g, "/").replace(/^\/+/, "");
                 const filePath = vscode.Uri.joinPath(
                     vscode.Uri.file(workspaceDir),
-                    conflict.filepath
+                    ...normalizedFilepath.split("/")
                 );
 
                 // Handle deleted file
@@ -2304,7 +2347,7 @@ export async function resolveConflictFiles(
                     continue;
                 }
 
-                const resolvedFile = await resolveConflictFile(conflict, workspaceDir);
+                const resolvedFile = await resolveConflictFile(conflict, workspaceDir, options);
                 if (resolvedFile) {
                     resolvedFiles.push({
                         filepath: resolvedFile,
