@@ -13,6 +13,7 @@ import { addMetadataEdit } from "../../utils/editMapUtils";
 import { getAuthApi } from "../../extension";
 import { CustomNotebookMetadata } from "../../../types";
 import { getCorrespondingSourceUri, findCodexFilesByBookAbbr } from "../../utils/codexNotebookUtils";
+import { CodexCellEditorProvider } from "../codexCellEditorProvider/codexCellEditorProvider";
 
 interface CodexMetadata {
     id: string;
@@ -213,6 +214,50 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                         const normalizedPath = message.uri.replace(/\\/g, "/");
                         const codexUri = vscode.Uri.file(normalizedPath);
 
+                        // Close any open webview panels for this file and its corresponding source file
+                        const codexEditorProvider = CodexCellEditorProvider.getInstance();
+                        if (codexEditorProvider) {
+                            const webviewPanels = codexEditorProvider.getWebviewPanels();
+
+                            // Helper function to find and close a panel by URI
+                            const closePanelByUri = (uri: vscode.Uri) => {
+                                // Try to find the panel by URI string match first
+                                let panelToClose = webviewPanels.get(uri.toString());
+                                // If not found, try matching by fsPath (handles URI format differences)
+                                if (!panelToClose) {
+                                    for (const [panelUri, panel] of webviewPanels.entries()) {
+                                        const panelUriObj = vscode.Uri.parse(panelUri);
+                                        if (panelUriObj.fsPath === uri.fsPath) {
+                                            panelToClose = panel;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (panelToClose) {
+                                    panelToClose.dispose();
+                                }
+                            };
+
+                            // Close the codex file webview
+                            closePanelByUri(codexUri);
+
+                            // For codex documents, also close the corresponding source file webview
+                            if (message.type === "codexDocument") {
+                                const workspaceFolderUri = vscode.workspace.workspaceFolders?.[0].uri;
+                                if (workspaceFolderUri) {
+                                    const baseFileName = path.basename(normalizedPath);
+                                    const sourceFileName = baseFileName.replace(".codex", ".source");
+                                    const sourceUri = vscode.Uri.joinPath(
+                                        workspaceFolderUri,
+                                        ".project",
+                                        "sourceTexts",
+                                        sourceFileName
+                                    );
+                                    closePanelByUri(sourceUri);
+                                }
+                            }
+                        }
+
                         // Delete the codex file
                         try {
                             await vscode.workspace.fs.delete(codexUri);
@@ -236,8 +281,19 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                                         sourceFileName
                                     );
 
-                                    await vscode.workspace.fs.delete(sourceUri);
-                                    deletedFiles.push(`${message.label}.source`);
+                                    // Try to delete source file, but handle missing file gracefully
+                                    try {
+                                        await vscode.workspace.fs.delete(sourceUri);
+                                        deletedFiles.push(`${message.label}.source`);
+                                    } catch (deleteError: any) {
+                                        // File doesn't exist (FileNotFound/ENOENT), which is fine - just skip deletion
+                                        // Only log error if it's not a "file not found" error
+                                        if (deleteError.code !== "FileNotFound" && deleteError.code !== "ENOENT") {
+                                            console.error("Error deleting source file:", deleteError);
+                                            errors.push(`Failed to delete source file: ${deleteError}`);
+                                        }
+                                        // Otherwise, silently ignore missing source files
+                                    }
                                 }
                             } catch (error) {
                                 console.error("Error deleting source file:", error);
@@ -532,8 +588,12 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 sortOrder,
                 fileDisplayName: metadata?.fileDisplayName,
             };
-        } catch (error) {
-            console.warn(`Failed to read metadata for ${uri.fsPath}:`, error);
+        } catch (error: any) {
+            // Don't log warnings for files that don't exist (FileNotFound/ENOENT errors)
+            // These are expected when files are deleted
+            if (error.code !== "FileNotFound" && error.code !== "ENOENT") {
+                console.warn(`Failed to read metadata for ${uri.fsPath}:`, error);
+            }
             return this.makeCodexItem(uri);
         }
     }
