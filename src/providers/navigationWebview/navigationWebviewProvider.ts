@@ -281,8 +281,19 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                                         sourceFileName
                                     );
 
-                                    await vscode.workspace.fs.delete(sourceUri);
-                                    deletedFiles.push(`${message.label}.source`);
+                                    // Try to delete source file, but handle missing file gracefully
+                                    try {
+                                        await vscode.workspace.fs.delete(sourceUri);
+                                        deletedFiles.push(`${message.label}.source`);
+                                    } catch (deleteError: any) {
+                                        // File doesn't exist (FileNotFound/ENOENT), which is fine - just skip deletion
+                                        // Only log error if it's not a "file not found" error
+                                        if (deleteError.code !== "FileNotFound" && deleteError.code !== "ENOENT") {
+                                            console.error("Error deleting source file:", deleteError);
+                                            errors.push(`Failed to delete source file: ${deleteError}`);
+                                        }
+                                        // Otherwise, silently ignore missing source files
+                                    }
                                 }
                             } catch (error) {
                                 console.error("Error deleting source file:", error);
@@ -577,8 +588,12 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 sortOrder,
                 fileDisplayName: metadata?.fileDisplayName,
             };
-        } catch (error) {
-            console.warn(`Failed to read metadata for ${uri.fsPath}:`, error);
+        } catch (error: any) {
+            // Don't log warnings for files that don't exist (FileNotFound/ENOENT errors)
+            // These are expected when files are deleted
+            if (error.code !== "FileNotFound" && error.code !== "ENOENT") {
+                console.warn(`Failed to read metadata for ${uri.fsPath}:`, error);
+            }
             return this.makeCodexItem(uri);
         }
     }
