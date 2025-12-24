@@ -693,10 +693,18 @@ export class SyncManager {
             // Close webviews for files deleted during sync
             try {
                 const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-                if (workspaceFolder && syncResult.deletedFiles.length > 0) {
-                    const { closeWebviewsForDeletedFiles } = await import("../utils/webviewUtils");
-                    await closeWebviewsForDeletedFiles(syncResult.deletedFiles, workspaceFolder);
-                    debug(`[SyncManager] Closed webviews for ${syncResult.deletedFiles.length} deleted file(s)`);
+                if (workspaceFolder) {
+                    const { closeWebviewsForDeletedFiles, closeWebviewsForNonExistentFiles } = await import("../utils/webviewUtils");
+
+                    // Close webviews for files deleted during this sync
+                    if (syncResult.deletedFiles.length > 0) {
+                        await closeWebviewsForDeletedFiles(syncResult.deletedFiles, workspaceFolder);
+                        debug(`[SyncManager] Closed webviews for ${syncResult.deletedFiles.length} deleted file(s)`);
+                    }
+
+                    // Always check for stale webviews (files that don't exist anymore)
+                    // This handles cases where webviews were restored but files were deleted before sync
+                    await closeWebviewsForNonExistentFiles(workspaceFolder);
                 }
             } catch (error) {
                 console.error("[SyncManager] Error closing webviews for deleted files:", error);

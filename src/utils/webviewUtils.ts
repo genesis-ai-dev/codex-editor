@@ -336,4 +336,88 @@ export async function closeWebviewsForDeletedFiles(
             closePanelByUri(codexUri);
         }
     }
+}
+
+/**
+ * Close webviews for files that no longer exist on disk
+ * This handles cases where webviews were restored from a previous session
+ * but the files were deleted (e.g., by another client or in a previous session)
+ * @param workspaceFolder The workspace folder to resolve paths against
+ */
+export async function closeWebviewsForNonExistentFiles(
+    workspaceFolder: vscode.WorkspaceFolder
+): Promise<void> {
+    const codexEditorProvider = CodexCellEditorProvider.getInstance();
+    if (!codexEditorProvider) {
+        return;
+    }
+
+    const webviewPanels = codexEditorProvider.getWebviewPanels();
+    const panelsToClose: vscode.WebviewPanel[] = [];
+
+    // Check each open webview panel
+    for (const [panelUriStr, panel] of webviewPanels.entries()) {
+        try {
+            const panelUri = vscode.Uri.parse(panelUriStr);
+            // Check if the file still exists
+            if (!(await fileExists(panelUri))) {
+                panelsToClose.push(panel);
+
+                // Also check for paired files (.codex <-> .source)
+                const fileName = path.basename(panelUri.fsPath);
+                const isCodexFile = fileName.endsWith('.codex');
+                const isSourceFile = fileName.endsWith('.source');
+
+                if (isCodexFile) {
+                    // Check if corresponding .source file exists and close its webview if it doesn't
+                    const baseFileName = fileName.replace('.codex', '.source');
+                    const sourceUri = vscode.Uri.joinPath(
+                        workspaceFolder.uri,
+                        '.project',
+                        'sourceTexts',
+                        baseFileName
+                    );
+                    const sourcePanel = webviewPanels.get(sourceUri.toString());
+                    if (sourcePanel && !(await fileExists(sourceUri))) {
+                        // Avoid adding the same panel twice
+                        if (!panelsToClose.includes(sourcePanel)) {
+                            panelsToClose.push(sourcePanel);
+                        }
+                    }
+                } else if (isSourceFile) {
+                    // Check if corresponding .codex file exists and close its webview if it doesn't
+                    const baseFileName = fileName.replace('.source', '.codex');
+                    const codexUri = vscode.Uri.joinPath(
+                        workspaceFolder.uri,
+                        '.project',
+                        'targetTexts',
+                        baseFileName
+                    );
+                    const codexPanel = webviewPanels.get(codexUri.toString());
+                    if (codexPanel && !(await fileExists(codexUri))) {
+                        // Avoid adding the same panel twice
+                        if (!panelsToClose.includes(codexPanel)) {
+                            panelsToClose.push(codexPanel);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            // Skip invalid URIs
+            console.warn(`[webviewUtils] Error checking webview panel ${panelUriStr}:`, error);
+        }
+    }
+
+    // Close all panels that point to non-existent files
+    for (const panel of panelsToClose) {
+        try {
+            panel.dispose();
+        } catch (error) {
+            console.warn(`[webviewUtils] Error disposing webview panel:`, error);
+        }
+    }
+
+    if (panelsToClose.length > 0) {
+        console.debug(`[webviewUtils] Closed ${panelsToClose.length} webview(s) for non-existent files`);
+    }
 } 
