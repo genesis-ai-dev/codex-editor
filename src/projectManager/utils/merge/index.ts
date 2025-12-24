@@ -125,6 +125,45 @@ export async function stageAndCommitAllAndSync(
             return syncResult;
         }
 
+        // Optional diagnostics from Frontier to help detect “remote changes not applied” scenarios.
+        // This is intentionally non-destructive: we only warn/log so issues can be triaged.
+        try {
+            const conflictsArr = Array.isArray((conflictsResponse as any)?.conflicts)
+                ? ((conflictsResponse as any).conflicts as Array<{ filepath?: string }>)
+                : [];
+            const conflictPaths = new Set(
+                conflictsArr.map((c) => c?.filepath).filter((p): p is string => typeof p === "string")
+            );
+
+            const remoteChanged = (conflictsResponse as any)?.remoteChangedFilePaths;
+            const allChanged = (conflictsResponse as any)?.allChangedFilePaths;
+            const changedList: unknown =
+                Array.isArray(remoteChanged) ? remoteChanged : Array.isArray(allChanged) ? allChanged : [];
+
+            if (Array.isArray(changedList) && changedList.length > 0) {
+                const changedPaths = changedList.filter(
+                    (p): p is string => typeof p === "string" && p.length > 0
+                );
+                const remoteCodex = changedPaths.filter(
+                    (p) => p.startsWith("files/target/") && p.endsWith(".codex")
+                );
+
+                const missingFromConflicts = remoteCodex.filter((p) => !conflictPaths.has(p));
+                if (missingFromConflicts.length > 0) {
+                    console.warn(
+                        "[Sync] Frontier reported remote `.codex` changes not present in conflict list:",
+                        missingFromConflicts
+                    );
+                    // Avoid modal spam; one-time lightweight warning.
+                    vscode.window.showWarningMessage(
+                        `Sync warning: ${missingFromConflicts.length} remote .codex change(s) were not included for merge. Some remote edits may be missing.`
+                    );
+                }
+            }
+        } catch (e) {
+            // Never fail sync due to diagnostics
+        }
+
         // Capture uploaded LFS files from the sync operation
         if ((conflictsResponse as any)?.uploadedLfsFiles) {
             syncResult.uploadedLfsFiles = (conflictsResponse as any).uploadedLfsFiles;

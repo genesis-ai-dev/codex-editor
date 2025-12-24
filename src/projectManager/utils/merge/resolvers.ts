@@ -2316,13 +2316,45 @@ export async function resolveConflictFiles(
                 if (conflict.isNew) {
                     debugLog(`Creating new file: ${conflict.filepath}`);
                     try {
-                        // Use non-empty content (prefer ours, fallback to theirs)
-                        const content = conflict.ours || conflict.theirs;
-                        await vscode.workspace.fs.writeFile(filePath, Buffer.from(content));
-                        resolvedFiles.push({
-                            filepath: conflict.filepath,
-                            resolution: "created",
-                        });
+                        // IMPORTANT:
+                        // `isNew` can mean "added on either side", including the case where BOTH sides
+                        // created the same path after diverging (merge base missing the file).
+                        // In that scenario, simply preferring `ours` will overwrite remote content.
+                        const hasBothSides =
+                            typeof conflict.ours === "string" &&
+                            conflict.ours.length > 0 &&
+                            typeof conflict.theirs === "string" &&
+                            conflict.theirs.length > 0;
+
+                        const differs = hasBothSides && conflict.ours !== conflict.theirs;
+
+                        if (differs) {
+                            // Attempt a real merge using the normal resolver/strategy logic.
+                            // If the file already exists on disk, this is effectively a "modified" resolution.
+                            // If it doesn't, the resolver will still write the merged content.
+                            let existedOnDisk = true;
+                            try {
+                                await vscode.workspace.fs.stat(filePath);
+                            } catch {
+                                existedOnDisk = false;
+                            }
+
+                            const resolvedPath = await resolveConflictFile(conflict, workspaceDir);
+                            if (resolvedPath) {
+                                resolvedFiles.push({
+                                    filepath: resolvedPath,
+                                    resolution: existedOnDisk ? "modified" : "created",
+                                });
+                            }
+                        } else {
+                            // Use non-empty content (prefer ours, fallback to theirs)
+                            const content = conflict.ours || conflict.theirs;
+                            await vscode.workspace.fs.writeFile(filePath, Buffer.from(content));
+                            resolvedFiles.push({
+                                filepath: conflict.filepath,
+                                resolution: "created",
+                            });
+                        }
                     } catch (e) {
                         console.error(`Error creating new file ${conflict.filepath}:`, e);
                     }
