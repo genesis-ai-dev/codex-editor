@@ -1459,6 +1459,19 @@ const CodexCellEditor: React.FC = () => {
             loadedPagesRef.current.add(pageKey);
             setCachedCells(pageKey, cells);
             setIsLoadingCells(false);
+
+            // If we're currently saving, this content update likely means the save completed
+            if (isSaving) {
+                debug("editor", "Content updated during save - save completed (handleCellPage)");
+                if (saveTimeoutRef.current) {
+                    clearTimeout(saveTimeoutRef.current);
+                    saveTimeoutRef.current = null;
+                }
+                setIsSaving(false);
+                setSaveError(false);
+                setSaveRetryCount(0);
+                handleCloseEditor();
+            }
         },
     });
 
