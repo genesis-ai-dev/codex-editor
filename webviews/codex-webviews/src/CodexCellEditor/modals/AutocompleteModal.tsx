@@ -14,10 +14,10 @@ interface AutocompleteModalProps {
         includeNotValidatedByCurrentUser: boolean,
         includeFullyValidatedByOthers: boolean
     ) => void;
-    totalUntranslatedCells: number;
-    totalCellsToAutocomplete: number;
-    totalCellsWithCurrentUserOption: number;
-    totalFullyValidatedByOthers?: number;
+    untranslatedCellIds: string[];
+    cellsToAutocompleteIds: string[];
+    cellsWithCurrentUserOptionIds: string[];
+    fullyValidatedByOthersIds?: string[];
     defaultValue?: number;
 }
 
@@ -25,10 +25,10 @@ export function AutocompleteModal({
     isOpen,
     onClose,
     onConfirm,
-    totalUntranslatedCells,
-    totalCellsToAutocomplete,
-    totalCellsWithCurrentUserOption,
-    totalFullyValidatedByOthers = 0,
+    untranslatedCellIds,
+    cellsToAutocompleteIds,
+    cellsWithCurrentUserOptionIds,
+    fullyValidatedByOthersIds = [],
     defaultValue = 5,
 }: AutocompleteModalProps) {
     // Individual states for each cell type
@@ -41,12 +41,14 @@ export function AutocompleteModal({
 
     // Calculate effective total cells based on selected options
     const calculateEffectiveTotalCells = () => {
-        let total = 0;
-        if (includeEmptyCells) total += totalUntranslatedCells;
-        if (includeNotValidatedByAnyUser) total += totalCellsToAutocomplete;
-        if (includeNotValidatedByCurrentUser) total += totalCellsWithCurrentUserOption;
-        if (includeFullyValidatedByOthers) total += totalFullyValidatedByOthers;
-        return total;
+        const uniqueIds = new Set<string>();
+        if (includeEmptyCells) untranslatedCellIds.forEach((id) => uniqueIds.add(id));
+        if (includeNotValidatedByAnyUser) cellsToAutocompleteIds.forEach((id) => uniqueIds.add(id));
+        if (includeNotValidatedByCurrentUser)
+            cellsWithCurrentUserOptionIds.forEach((id) => uniqueIds.add(id));
+        if (includeFullyValidatedByOthers)
+            fullyValidatedByOthersIds.forEach((id) => uniqueIds.add(id));
+        return uniqueIds.size;
     };
 
     const effectiveTotalCells = calculateEffectiveTotalCells();
@@ -87,33 +89,51 @@ export function AutocompleteModal({
                 <div className="mb-6">
                     <h3 className="font-semibold mb-3 text-foreground">Cell types to include:</h3>
                     <div className="space-y-2">
-                        <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-muted">
+                        <label
+                            className={`flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-muted ${
+                                untranslatedCellIds.length === 0 ? "opacity-50 pointer-events-none" : ""
+                            }`}
+                        >
                             <input
                                 type="checkbox"
                                 checked={includeEmptyCells}
                                 onChange={(e) => setIncludeEmptyCells(e.target.checked)}
                                 className="w-4 h-4"
+                                disabled={untranslatedCellIds.length === 0}
                             />
                             <div className="flex-1 flex items-center justify-between">
                                 <span className="text-sm">Empty cells (no content)</span>
-                                <VSCodeTag>{totalUntranslatedCells} cells</VSCodeTag>
+                                <VSCodeTag>{untranslatedCellIds.length} cells</VSCodeTag>
                             </div>
                         </label>
 
-                        <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-muted">
+                        <label
+                            className={`flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-muted ${
+                                cellsToAutocompleteIds.length === 0
+                                    ? "opacity-50 pointer-events-none"
+                                    : ""
+                            }`}
+                        >
                             <input
                                 type="checkbox"
                                 checked={includeNotValidatedByAnyUser}
                                 onChange={(e) => setIncludeNotValidatedByAnyUser(e.target.checked)}
                                 className="w-4 h-4"
+                                disabled={cellsToAutocompleteIds.length === 0}
                             />
                             <div className="flex-1 flex items-center justify-between">
                                 <span className="text-sm">Not validated by any user</span>
-                                <VSCodeTag>{totalCellsToAutocomplete} cells</VSCodeTag>
+                                <VSCodeTag>{cellsToAutocompleteIds.length} cells</VSCodeTag>
                             </div>
                         </label>
 
-                        <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-muted">
+                        <label
+                            className={`flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-muted ${
+                                cellsWithCurrentUserOptionIds.length === 0
+                                    ? "opacity-50 pointer-events-none"
+                                    : ""
+                            }`}
+                        >
                             <input
                                 type="checkbox"
                                 checked={includeNotValidatedByCurrentUser}
@@ -121,23 +141,31 @@ export function AutocompleteModal({
                                     setIncludeNotValidatedByCurrentUser(e.target.checked)
                                 }
                                 className="w-4 h-4"
+                                disabled={cellsWithCurrentUserOptionIds.length === 0}
                             />
                             <div className="flex-1 flex items-center justify-between">
                                 <span className="text-sm">Not validated by you</span>
-                                <VSCodeTag>{totalCellsWithCurrentUserOption} cells</VSCodeTag>
+                                <VSCodeTag>{cellsWithCurrentUserOptionIds.length} cells</VSCodeTag>
                             </div>
                         </label>
 
-                        <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-muted">
+                        <label
+                            className={`flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-muted ${
+                                fullyValidatedByOthersIds.length === 0
+                                    ? "opacity-50 pointer-events-none"
+                                    : ""
+                            }`}
+                        >
                             <input
                                 type="checkbox"
                                 checked={includeFullyValidatedByOthers}
                                 onChange={(e) => setIncludeFullyValidatedByOthers(e.target.checked)}
                                 className="w-4 h-4"
+                                disabled={fullyValidatedByOthersIds.length === 0}
                             />
                             <div className="flex-1 flex items-center justify-between">
                                 <span className="text-sm">Fully validated by others</span>
-                                <VSCodeTag>{totalFullyValidatedByOthers} cells</VSCodeTag>
+                                <VSCodeTag>{fullyValidatedByOthersIds.length} cells</VSCodeTag>
                             </div>
                         </label>
                     </div>
