@@ -5,7 +5,7 @@ import { promisify } from "util";
 import { exec } from "child_process";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { createNoteBookPair } from "./codexFIleCreateUtils";
-import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteResponseMessage, WriteNotebooksWithAttachmentsMessage, SelectAudioFileMessage, ReprocessAudioFileMessage, RequestAudioSegmentMessage, FinalizeAudioImportMessage, UpdateAudioSegmentsMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
+import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteResponseMessage, WriteNotebooksWithAttachmentsMessage, SelectAudioFileMessage, ReprocessAudioFileMessage, RequestAudioSegmentMessage, FinalizeAudioImportMessage, UpdateAudioSegmentsMessage, SaveFileMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
 import {
     handleSelectAudioFile,
     handleReprocessAudioFile,
@@ -317,8 +317,12 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         message as FinalizeAudioImportMessage,
                         token,
                         webviewPanel,
-                        (msg, tok, pan) => this.handleWriteNotebooks(msg as WriteNotebooksMessage, tok, pan)
+                        async (msg, tok, pan) => {
+                            await this.handleWriteNotebooks(msg as WriteNotebooksMessage, tok, pan);
+                        }
                     );
+                } else if (message.command === "saveFile") {
+                    await this.handleSaveFile(message as SaveFileMessage, webviewPanel);
                 }
             } catch (error) {
                 console.error("Error handling message:", error);
@@ -1324,6 +1328,76 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 requestId: requestId,
                 success: false,
                 error: error instanceof Error ? error.message : "Unknown error occurred"
+            });
+        }
+    }
+
+    /**
+     * Handle saveFile command from webview - saves a file using VS Code's save dialog
+     */
+    private async handleSaveFile(message: SaveFileMessage, webviewPanel: vscode.WebviewPanel): Promise<void> {
+        try {
+            const { fileName, dataBase64, mime } = message;
+
+            // Extract base64 data (handle data: URL format)
+            let base64Data = dataBase64;
+            if (base64Data.includes(',')) {
+                // Remove data: URL prefix if present
+                base64Data = base64Data.split(',')[1];
+            }
+
+            // Convert base64 to Buffer
+            const buffer = Buffer.from(base64Data, 'base64');
+
+            if (buffer.length === 0) {
+                throw new Error('File data is empty');
+            }
+
+            // Show save dialog
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            const defaultUri = workspaceFolder
+                ? vscode.Uri.joinPath(workspaceFolder.uri, fileName)
+                : undefined;
+
+            const saveUri = await vscode.window.showSaveDialog({
+                defaultUri,
+                saveLabel: 'Save',
+                filters: mime
+                    ? {
+                        'All Files': ['*'],
+                        [mime]: [fileName.split('.').pop() || '*']
+                    }
+                    : undefined
+            });
+
+            if (!saveUri) {
+                // User cancelled
+                webviewPanel.webview.postMessage({
+                    command: "notification",
+                    type: "info",
+                    message: "File save cancelled"
+                });
+                return;
+            }
+
+            // Write file
+            await vscode.workspace.fs.writeFile(saveUri, buffer);
+
+            // Send success notification
+            webviewPanel.webview.postMessage({
+                command: "notification",
+                type: "success",
+                message: `File saved successfully: ${path.basename(saveUri.fsPath)}`
+            });
+
+            console.log(`[NEW SOURCE UPLOADER] File saved: ${saveUri.fsPath} (${buffer.length} bytes)`);
+
+        } catch (error) {
+            console.error("[NEW SOURCE UPLOADER] Error saving file:", error);
+            webviewPanel.webview.postMessage({
+                command: "notification",
+                type: "error",
+                message: error instanceof Error ? error.message : "Failed to save file"
             });
         }
     }
