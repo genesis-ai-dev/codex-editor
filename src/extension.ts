@@ -50,6 +50,7 @@ import { openBookNameEditor } from "./bookNameSettings/bookNameSettings";
 import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
 import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/codexCellEditorProvider";
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
+import { fileExists } from "./utils/webviewUtils";
 import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 import { migrateAudioAttachments } from "./utils/audioAttachmentsMigrationUtils";
@@ -219,15 +220,21 @@ async function restoreTabLayout(context: vscode.ExtensionContext) {
             } else {
                 nonCodexOps.push(async () => {
                     try {
+                        const uri = vscode.Uri.parse(uriStr);
+                        // Check if file exists before trying to open
+                        if (!(await fileExists(uri))) {
+                            return; // Skip missing files
+                        }
+                        
                         if (viewType && viewType !== "default") {
                             await vscode.commands.executeCommand(
                                 "vscode.openWith",
-                                vscode.Uri.parse(uriStr),
+                                uri,
                                 viewType,
                                 { viewColumn: groupIndex + 1 }
                             );
                         } else {
-                            const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(uriStr));
+                            const doc = await vscode.workspace.openTextDocument(uri);
                             await vscode.window.showTextDocument(doc, groupIndex + 1);
                         }
                     } catch {
@@ -257,9 +264,16 @@ async function restoreTabLayout(context: vscode.ExtensionContext) {
     const provider = CodexCellEditorProvider.getInstance();
     for (const tab of codexTabs) {
         try {
+            const uri = vscode.Uri.parse(tab.uri);
+            
+            // Check if file exists before trying to open
+            if (!(await fileExists(uri))) {
+                continue; // Skip missing files
+            }
+            
             await vscode.commands.executeCommand(
                 "vscode.openWith",
-                vscode.Uri.parse(tab.uri),
+                uri,
                 tab.viewType,
                 { viewColumn: tab.groupIndex + 1 }
             );
