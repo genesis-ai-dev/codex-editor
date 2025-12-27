@@ -1969,4 +1969,10 @@ type EditorReceiveMessages =
             selectedAudioId: string;
             validatedBy: ValidationEntry[];
         };
+    }
+    | {
+        type: "audioAttachmentsChanged";
+        content: {
+            cellId: string;
+        };
     };

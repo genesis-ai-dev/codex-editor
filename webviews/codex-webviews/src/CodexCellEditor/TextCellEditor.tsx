@@ -1787,6 +1787,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
         [cellMarkers, audioBlob, showAudioHistory]
     );
 
+    // Listen for audio attachment changes and refresh history
+    useMessageHandler(
+        "textCellEditor-audioAttachmentsChanged",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (
+                message.type === "audioAttachmentsChanged" &&
+                message.content.cellId === cellMarkers[0]
+            ) {
+                // Refresh audio history when attachments change (e.g., after sync)
+                window.vscodeApi.postMessage({
+                    command: "getAudioHistory",
+                    content: { cellId: cellMarkers[0] },
+                } as EditorPostMessages);
+            }
+        },
+        [cellMarkers]
+    );
+
     // Clean up media recorder and stream on unmount
     useEffect(() => {
         return () => {
