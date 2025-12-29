@@ -615,7 +615,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         const fs = await import("fs");
                         const remotes = await git.listRemotes({ fs, dir: ws.uri.fsPath });
                         const origin = remotes.find((r) => r.remote === "origin");
-                        
+
                         if (origin?.url) {
                             const projectId = extractProjectIdFromUrl(origin.url);
                             if (projectId) {
@@ -3790,6 +3790,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             const existingCell = document.getCellContent(cellId);
             if (!existingCell) {
                 console.warn(`Cell ${cellId} not found in document ${uri}`);
+                return false;
+            }
+
+            // Block updates to locked cells
+            if (existingCell.metadata?.isLocked) {
+                console.warn(`Attempted to update locked cell ${cellId} via updateCellContentDirect. Operation blocked.`);
                 return false;
             }
 

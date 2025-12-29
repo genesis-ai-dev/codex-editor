@@ -792,23 +792,25 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             setShowSparkleButton(false);
         };
 
-        const handleToggleCellLock = () => {
-            const cellId = cellIds[0];
-            const newIsLocked = !(cell.metadata?.isLocked ?? false);
-            vscode.postMessage({
-                command: "updateCellIsLocked",
-                content: {
-                    cellId,
-                    isLocked: newIsLocked,
-                },
-            } as EditorPostMessages);
+        // TEMPORARILY DISABLED: Lock/unlock functionality hidden from all users
+        // Users can still see the lock icon when a cell is locked, but cannot toggle it
+        // const handleToggleCellLock = () => {
+        //     const cellId = cellIds[0];
+        //     const newIsLocked = !(cell.metadata?.isLocked ?? false);
+        //     vscode.postMessage({
+        //         command: "updateCellIsLocked",
+        //         content: {
+        //             cellId,
+        //             isLocked: newIsLocked,
+        //         },
+        //     } as EditorPostMessages);
 
-            // Trigger glow animation
-            setIsLockButtonGlowing(true);
-            setTimeout(() => {
-                setIsLockButtonGlowing(false);
-            }, 500);
-        };
+        //     // Trigger glow animation
+        //     setIsLockButtonGlowing(true);
+        //     setTimeout(() => {
+        //         setIsLockButtonGlowing(false);
+        //     }, 500);
+        // };
 
         const handleCellContentClick = () => {
             hideTooltip();
@@ -1333,8 +1335,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                             <MessageCircle className="w-4 h-4" />
                         </Button>
                     )}
-                    {/* Show lock icon to all users when cell is locked, but only allow toggling for access level >= 40 */}
-                    {(cell.metadata?.isLocked ?? false) ||
+                    {/* TEMPORARILY DISABLED: Lock/unlock button functionality hidden from all users */}
+                    {/* Users can still see the lock icon when a cell is locked, but cannot toggle it */}
+                    {/* {(cell.metadata?.isLocked ?? false) ||
                     (userAccessLevel !== undefined && userAccessLevel >= 40) ? (
                         <Button
                             title={
@@ -1366,6 +1369,18 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 <i className="codicon codicon-lock" style={{ fontSize: "1.2em" }} />
                             )}
                         </Button>
+                    ) : null} */}
+
+                    {/* Show lock icon (non-interactive) when cell is locked */}
+                    {cell.metadata?.isLocked ?? false ? (
+                        <div
+                            title="Cell is locked"
+                            className={`p-1 h-[18px] flex items-center ${
+                                isLockButtonFlashing ? "lock-button-flashing" : ""
+                            }`}
+                        >
+                            <i className="codicon codicon-lock" style={{ fontSize: "1.2em" }} />
+                        </div>
                     ) : null}
                 </div>
             </div>

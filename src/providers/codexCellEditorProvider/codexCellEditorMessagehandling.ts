@@ -634,7 +634,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             return;
         }
 
-        const oldContent = document.getCellContent(typedEvent.content.cellMarkers[0]);
+        const cellId = typedEvent.content.cellMarkers[0];
+        const oldContent = document.getCellContent(cellId);
+
+        // Block saveHtml operations on locked cells
+        if (oldContent?.metadata?.isLocked) {
+            console.warn(`Attempted to save locked cell ${cellId}. Operation blocked.`);
+            // return; 
+        }
+
         const oldText = oldContent?.cellContent || "";
         const newText = typedEvent.content.cellContent || "";
         const isSourceText = document.uri.toString().includes(".source");
@@ -655,12 +663,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         const finalContent = typedEvent.content.cellContent === "<span></span>" ? "" : typedEvent.content.cellContent;
 
-        const cellId = typedEvent.content.cellMarkers[0];
-
         // For source file transcriptions, wait for index update to complete
         // so that the source content is immediately available for translation
         if (isSourceText && isTranscription) {
-            document.updateCellContent(
+            await document.updateCellContent(
                 cellId,
                 finalContent,
                 EditType.USER_EDIT
@@ -668,11 +674,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // Wait for the index to be updated and verify it's available
             await document.ensureCellIndexed(cellId, 3000);
         } else {
-            document.updateCellContent(
+            console.log("trace 678 ensureCellIndexed", cellId);
+            await document.updateCellContent(
                 cellId,
                 finalContent,
                 EditType.USER_EDIT
             );
+            console.log("trace 681 ensureCellIndexed", cellId);
         }
     },
 

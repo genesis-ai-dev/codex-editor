@@ -570,6 +570,272 @@ suite("CodexCellEditorProvider Test Suite", () => {
         });
     });
 
+    suite("Locked cell update protection", () => {
+        test("saveHtml message handler blocks updates to locked cells", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+            const originalValue = codexSubtitleContent.cells[0].value;
+
+            // Lock the cell
+            document.updateCellIsLocked(cellId, true);
+
+            // Save the document to persist the lock state
+            await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+
+            // Create a webview panel to receive messages
+            const webviewPanel = vscode.window.createWebviewPanel(
+                "codexCellEditor",
+                "Test",
+                vscode.ViewColumn.One,
+                { enableScripts: true }
+            );
+
+            await provider.resolveCustomEditor(
+                document,
+                webviewPanel,
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Call handleMessages directly with saveHtml command for locked cell
+            await handleMessages(
+                {
+                    command: "saveHtml",
+                    content: {
+                        cellMarkers: [cellId],
+                        cellContent: "Attempted save",
+                        uri: tempUri.toString(),
+                    },
+                },
+                webviewPanel,
+                document,
+                () => { }, // updateWebview callback
+                provider
+            );
+
+            // Verify the cell content was NOT updated
+            const updatedContent = await document.getText();
+            const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
+            assert.strictEqual(
+                cell.value,
+                originalValue,
+                "Locked cell content should not be updated via saveHtml message handler"
+            );
+
+            document.dispose();
+            webviewPanel.dispose();
+        });
+
+        test("updateCellContent allows LLM previews on locked cells", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+            const originalValue = codexSubtitleContent.cells[0].value;
+
+            // Lock the cell
+            document.updateCellIsLocked(cellId, true);
+
+            // Attempt LLM preview (shouldUpdateValue=false) - should be allowed
+            await document.updateCellContent(cellId, "LLM preview", EditType.LLM_GENERATION, false);
+
+            // Verify the cell value was NOT updated (preview doesn't change value)
+            const updatedContent = await document.getText();
+            const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
+            assert.strictEqual(
+                cell.value,
+                originalValue,
+                "LLM preview should not update locked cell value"
+            );
+
+            document.dispose();
+        });
+
+        test("updateCellLabel blocks updates to locked cells", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+            const originalLabel = (codexSubtitleContent.cells[0].metadata as any).cellLabel;
+
+            // Lock the cell
+            document.updateCellIsLocked(cellId, true);
+
+            // Attempt to update the label
+            document.updateCellLabel(cellId, "New Label");
+
+            // Verify the label was NOT updated
+            const updatedContent = await document.getText();
+            const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
+            assert.strictEqual(
+                (cell.metadata as any).cellLabel,
+                originalLabel,
+                "Locked cell label should not be updated"
+            );
+
+            document.dispose();
+        });
+
+        test("updateCellTimestamps blocks updates to locked cells", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+            const originalStartTime = codexSubtitleContent.cells[0].metadata.data?.startTime;
+
+            // Lock the cell
+            document.updateCellIsLocked(cellId, true);
+
+            // Attempt to update timestamps
+            document.updateCellTimestamps(cellId, { startTime: 100, endTime: 200 });
+
+            // Verify timestamps were NOT updated
+            const updatedContent = await document.getText();
+            const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
+            assert.strictEqual(
+                cell.metadata.data?.startTime,
+                originalStartTime,
+                "Locked cell timestamps should not be updated"
+            );
+
+            document.dispose();
+        });
+
+        test("updateCellData blocks updates to locked cells", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+            const originalData = JSON.parse(JSON.stringify(codexSubtitleContent.cells[0].metadata.data || {}));
+
+            // Lock the cell
+            document.updateCellIsLocked(cellId, true);
+
+            // Attempt to update cell data
+            document.updateCellData(cellId, { testField: "testValue" });
+
+            // Verify data was NOT updated
+            const updatedContent = await document.getText();
+            const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
+            assert.deepStrictEqual(
+                cell.metadata.data,
+                originalData,
+                "Locked cell data should not be updated"
+            );
+
+            document.dispose();
+        });
+
+        test("updateCellAttachment blocks updates to locked cells", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+            const originalAttachments = JSON.parse(JSON.stringify((codexSubtitleContent.cells[0].metadata as any).attachments || {}));
+
+            // Lock the cell
+            document.updateCellIsLocked(cellId, true);
+
+            // Attempt to update attachment
+            document.updateCellAttachment(cellId, "attachment-1", {
+                url: "test-url",
+                type: "audio",
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                isDeleted: false,
+            });
+
+            // Verify attachments were NOT updated
+            const updatedContent = await document.getText();
+            const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
+            assert.deepStrictEqual(
+                (cell.metadata as any).attachments || {},
+                originalAttachments,
+                "Locked cell attachments should not be updated"
+            );
+
+            document.dispose();
+        });
+
+        test("updateCellContentDirect blocks updates to locked cells", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+            const originalValue = codexSubtitleContent.cells[0].value;
+
+            // Lock the cell
+            document.updateCellIsLocked(cellId, true);
+
+            // Save the document to persist the lock state
+            await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+
+            // Attempt to update via updateCellContentDirect
+            const result = await provider.updateCellContentDirect(
+                tempUri.toString(),
+                cellId,
+                "Attempted direct update",
+                false
+            );
+
+            // Verify the method returned false (blocked)
+            assert.strictEqual(result, false, "updateCellContentDirect should return false for locked cells");
+
+            // Verify the cell content was NOT updated
+            const updatedContent = await document.getText();
+            const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
+            assert.strictEqual(
+                cell.value,
+                originalValue,
+                "Locked cell content should not be updated via updateCellContentDirect"
+            );
+
+            document.dispose();
+        });
+
+
+        test("unlocked cells allow normal updates", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+
+            // Ensure cell is unlocked
+            document.updateCellIsLocked(cellId, false);
+
+            // Update content - should succeed
+            await document.updateCellContent(cellId, "Updated content", EditType.USER_EDIT);
+
+            // Verify the update succeeded
+            const updatedContent = await document.getText();
+            const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
+            assert.strictEqual(
+                cell.value,
+                "Updated content",
+                "Unlocked cell content should be updated"
+            );
+
+            document.dispose();
+        });
+    });
+
     test("deleteCell performs a soft delete (cell retained with deleted flag)", async () => {
         const document = await provider.openCustomDocument(
             tempUri,
