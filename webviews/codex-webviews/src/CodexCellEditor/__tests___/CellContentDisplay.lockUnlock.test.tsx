@@ -161,7 +161,7 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
         expect(unlockIcon).toBeNull();
     });
 
-    it("should render unlock icon when cell is editable", () => {
+    it("should not render lock icon when cell is editable (lock button hidden)", () => {
         const mockCell = createMockCell("cell-1", "<p>Test content</p>", false);
         const handleCellClick = vi.fn();
 
@@ -191,64 +191,23 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
             />
         );
 
-        // Verify unlock icon exists with invisible class
+        // TEMPORARILY DISABLED: Lock/unlock button is hidden from all users
+        // Verify lock/unlock icons are not present when cell is unlocked
         const unlockIcon = container.querySelector(".codicon-unlock");
-        expect(unlockIcon).toBeTruthy();
-        expect(unlockIcon?.classList.contains("invisible")).toBe(true);
-        expect(unlockIcon?.classList.contains("group-hover:visible")).toBe(true);
+        expect(unlockIcon).toBeNull();
 
         // Verify lock icon is not present
         const lockIcon = container.querySelector(".codicon-lock");
         expect(lockIcon).toBeNull();
     });
 
-    it("should send updateCellIsLocked message when lock button is clicked on editable cell", () => {
-        const mockCell = createMockCell("cell-1", "<p>Test content</p>", false);
-        const handleCellClick = vi.fn();
-
-        const { container } = render(
-            <CellContentDisplay
-                cell={mockCell}
-                vscode={mockVscode as any}
-                textDirection="ltr"
-                isSourceText={false}
-                hasDuplicateId={false}
-                alertColorCode={undefined}
-                highlightedCellId={null}
-                scrollSyncEnabled={true}
-                lineNumber="1"
-                label="Test Label"
-                lineNumbersEnabled={true}
-                isInTranslationProcess={false}
-                translationState={null as any}
-                allTranslationsComplete={false}
-                handleCellClick={handleCellClick}
-                cellDisplayMode={CELL_DISPLAY_MODES.ONE_LINE_PER_CELL}
-                audioAttachments={{}}
-                currentUsername="test-user"
-                requiredValidations={1}
-                requiredAudioValidations={1}
-                userAccessLevel={40}
-            />
-        );
-
-        // Find and click the lock button
-        const lockButton = container.querySelector('button[title="Toggle cell lock"]');
-        expect(lockButton).toBeTruthy();
-
-        fireEvent.click(lockButton!);
-
-        // Verify postMessage was called with correct parameters
-        expect(mockVscode.postMessage).toHaveBeenCalledWith({
-            command: "updateCellIsLocked",
-            content: {
-                cellId: "cell-1",
-                isLocked: true,
-            },
-        });
+    // TEMPORARILY DISABLED: Lock/unlock button functionality is hidden from all users
+    it.skip("should send updateCellIsLocked message when lock button is clicked on editable cell", () => {
+        // Test skipped - lock button is hidden from all users
     });
 
-    it("should send updateCellIsLocked message when unlock button is clicked on locked cell", () => {
+    // TEMPORARILY DISABLED: Lock/unlock button functionality is hidden from all users
+    it.skip("should send updateCellIsLocked message when unlock button is clicked on locked cell", () => {
         const mockCell = createMockCell("cell-1", "<p>Test content</p>", true);
         const handleCellClick = vi.fn();
 
@@ -447,7 +406,8 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
     });
 
     it("should show lock button visibility correctly", () => {
-        // Test editable cell - unlock icon should have invisible class
+        // TEMPORARILY DISABLED: Lock/unlock button is hidden from all users
+        // Test editable cell - no lock/unlock icons should be shown
         const editableCell = createMockCell("cell-1", "<p>Test content</p>", false);
         const { container: editableContainer } = render(
             <CellContentDisplay
@@ -476,11 +436,9 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
         );
 
         const unlockIcon = editableContainer.querySelector(".codicon-unlock");
-        expect(unlockIcon).toBeTruthy();
-        expect(unlockIcon?.classList.contains("invisible")).toBe(true);
-        expect(unlockIcon?.classList.contains("group-hover:visible")).toBe(true);
+        expect(unlockIcon).toBeNull();
 
-        // Test locked cell - lock icon should always be visible
+        // Test locked cell - lock icon should be visible (non-interactive)
         const lockedCell = createMockCell("cell-2", "<p>Test content</p>", true);
         const { container: lockedContainer } = render(
             <CellContentDisplay
@@ -510,7 +468,9 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
 
         const lockIcon = lockedContainer.querySelector(".codicon-lock");
         expect(lockIcon).toBeTruthy();
-        expect(lockIcon?.classList.contains("invisible")).toBe(false);
+        // Lock icon should be in a div, not a button
+        const lockIconParent = lockIcon?.parentElement;
+        expect(lockIconParent?.tagName.toLowerCase()).toBe("div");
     });
 
     it("should default to unlocked when isLocked is undefined", () => {
@@ -543,9 +503,12 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
             />
         );
 
-        // Verify unlock icon is shown (defaults to editable)
+        // TEMPORARILY DISABLED: Lock/unlock button is hidden from all users
+        // Verify no lock/unlock icons are shown when cell is unlocked
         const unlockIcon = container.querySelector(".codicon-unlock");
-        expect(unlockIcon).toBeTruthy();
+        expect(unlockIcon).toBeNull();
+        const lockIcon = container.querySelector(".codicon-lock");
+        expect(lockIcon).toBeNull();
 
         // // Verify cell click works (defaults to editable)
         // const cellContentWrapper = Array.from(container.querySelectorAll("div")).find(
@@ -640,7 +603,8 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
             expect(unlockIcon).toBeNull();
         });
 
-        it("should render lock button when userAccessLevel is exactly 40", () => {
+        // TEMPORARILY DISABLED: Lock/unlock button is hidden from all users regardless of access level
+        it("should not render lock button when userAccessLevel is exactly 40 (button hidden)", () => {
             const mockCell = createMockCell("cell-1", "<p>Test content</p>", false);
             const handleCellClick = vi.fn();
 
@@ -670,16 +634,17 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
                 />
             );
 
-            // Verify lock button is present
+            // Verify lock button is not present (hidden from all users)
             const lockButton = container.querySelector('button[title="Toggle cell lock"]');
-            expect(lockButton).toBeTruthy();
+            expect(lockButton).toBeNull();
 
-            // Verify unlock icon is present (cell is not locked)
+            // Verify unlock icon is not present (cell is not locked)
             const unlockIcon = container.querySelector(".codicon-unlock");
-            expect(unlockIcon).toBeTruthy();
+            expect(unlockIcon).toBeNull();
         });
 
-        it("should render lock button when userAccessLevel is greater than 40", () => {
+        // TEMPORARILY DISABLED: Lock/unlock button is hidden from all users regardless of access level
+        it("should show lock icon (non-interactive) when cell is locked, even with high access level", () => {
             const mockCell = createMockCell("cell-1", "<p>Test content</p>", true);
             const handleCellClick = vi.fn();
 
@@ -709,13 +674,16 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
                 />
             );
 
-            // Verify lock button is present
+            // Verify lock button is not present (hidden from all users)
             const lockButton = container.querySelector('button[title="Toggle cell lock"]');
-            expect(lockButton).toBeTruthy();
+            expect(lockButton).toBeNull();
 
-            // Verify lock icon is present (cell is locked)
+            // Verify lock icon is present in a div (non-interactive display)
             const lockIcon = container.querySelector(".codicon-lock");
             expect(lockIcon).toBeTruthy();
+            const lockIconParent = lockIcon?.parentElement;
+            expect(lockIconParent?.tagName.toLowerCase()).toBe("div");
+            expect(lockIconParent?.getAttribute("title")).toBe("Cell is locked");
         });
     });
 
@@ -770,20 +738,22 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
             // Verify cursor is not-allowed via inline style
             expect(buttonStyle).toMatch(/cursor:\s*not-allowed/);
 
-            // Find the lock button to verify it flashes
-            const lockButton = container.querySelector('button[title="Cell is locked"]');
-            expect(lockButton).toBeTruthy();
+            // Find the lock icon div to verify it flashes
+            const lockIcon = container.querySelector(".codicon-lock");
+            expect(lockIcon).toBeTruthy();
+            const lockIconParent = lockIcon?.parentElement;
+            expect(lockIconParent).toBeTruthy();
 
-            // Initially, lock button should not have flashing class
-            expect(lockButton?.className).not.toContain("lock-button-flashing");
+            // Initially, lock icon parent should not have flashing class
+            expect(lockIconParent?.className).not.toContain("lock-button-flashing");
 
             // Try clicking the button - it should flash the lock icon and not trigger the handler
             fireEvent.click(sparkleButton!);
             expect(handleCellTranslation).not.toHaveBeenCalled();
 
-            // Verify lock button now has flashing class
+            // Verify lock icon parent now has flashing class
             await waitFor(() => {
-                expect(lockButton?.className).toContain("lock-button-flashing");
+                expect(lockIconParent?.className).toContain("lock-button-flashing");
             });
         });
 
@@ -983,12 +953,14 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
             );
             expect(sparkleButton).toBeTruthy();
 
-            // Find the lock button
-            const lockButton = container.querySelector('button[title="Cell is locked"]');
-            expect(lockButton).toBeTruthy();
+            // Find the lock icon div
+            const lockIcon = container.querySelector(".codicon-lock");
+            expect(lockIcon).toBeTruthy();
+            const lockIconParent = lockIcon?.parentElement;
+            expect(lockIconParent).toBeTruthy();
 
-            // Initially, lock button should not have flashing class
-            expect(lockButton?.className).not.toContain("lock-button-flashing");
+            // Initially, lock icon parent should not have flashing class
+            expect(lockIconParent?.className).not.toContain("lock-button-flashing");
 
             // Click the sparkle button
             fireEvent.click(sparkleButton!);
@@ -996,9 +968,9 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
             // Verify handleCellTranslation was NOT called
             expect(handleCellTranslation).not.toHaveBeenCalled();
 
-            // Verify lock button now has flashing class (wait for state update)
+            // Verify lock icon parent now has flashing class (wait for state update)
             await waitFor(() => {
-                expect(lockButton?.className).toContain("lock-button-flashing");
+                expect(lockIconParent?.className).toContain("lock-button-flashing");
             });
         });
 
@@ -1148,11 +1120,13 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
             );
             expect(lockedSparkleButton).toBeTruthy();
 
-            const lockButton = lockedContainer.querySelector('button[title="Cell is locked"]');
-            expect(lockButton).toBeTruthy();
+            const lockIcon = lockedContainer.querySelector(".codicon-lock");
+            expect(lockIcon).toBeTruthy();
+            const lockIconParent = lockIcon?.parentElement;
+            expect(lockIconParent).toBeTruthy();
 
-            // Initially, lock button should not have flashing class
-            expect(lockButton?.className).not.toContain("lock-button-flashing");
+            // Initially, lock icon parent should not have flashing class
+            expect(lockIconParent?.className).not.toContain("lock-button-flashing");
 
             // Clear previous calls
             vi.clearAllMocks();
@@ -1163,9 +1137,9 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
             // Verify LLM suggestion was NOT called
             expect(handleCellTranslation).not.toHaveBeenCalled();
 
-            // Verify lock button now has flashing class
+            // Verify lock icon parent now has flashing class
             await waitFor(() => {
-                expect(lockButton?.className).toContain("lock-button-flashing");
+                expect(lockIconParent?.className).toContain("lock-button-flashing");
             });
         });
     });
