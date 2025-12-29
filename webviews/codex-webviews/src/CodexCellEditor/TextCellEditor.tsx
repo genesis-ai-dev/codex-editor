@@ -1603,6 +1603,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
             // Handle audio availability updates specifically for this cell
             if (message.type === "providerSendsAudioAttachments") {
+                // Clear cached audio data since selected audio might have changed
+                const { clearCachedAudio } = await import("../lib/audioCache");
+                clearCachedAudio(cellMarkers[0]);
+
                 // If we already have local audio (e.g., just recorded) or are loading, don't disrupt UI
                 if (audioBlob || isAudioLoading) {
                     return;

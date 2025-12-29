@@ -3934,78 +3934,96 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     /**
+     * Helper function to check availability of a single audio attachment.
+     * Returns the availability state based on the attachment's properties and file system.
+     */
+    private async checkAttachmentAvailability(
+        attachment: any,
+        workspaceFolder: vscode.WorkspaceFolder
+    ): Promise<"available-local" | "available-pointer" | "missing" | "deletedOnly"> {
+        if (attachment.isDeleted) {
+            return "deletedOnly";
+        }
+        if (attachment.isMissing) {
+            return "missing";
+        }
+
+        const url = String(attachment.url || "");
+        if (!url) {
+            return "missing";
+        }
+
+        try {
+            const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+            const abs = path.join(workspaceFolder.uri.fsPath, filesRel);
+            const { isPointerFile } = await import("../../utils/lfsHelpers");
+            const isPtr = await isPointerFile(abs).catch(() => false);
+            return isPtr ? "available-pointer" : "available-local";
+        } catch {
+            // If file doesn't exist, check for pointer file
+            try {
+                const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+                const filesAbs = path.join(workspaceFolder.uri.fsPath, filesRel);
+                const pointerAbs = filesAbs.includes("/.project/attachments/files/")
+                    ? filesAbs.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
+                    : filesAbs.replace(".project/attachments/files/", ".project/attachments/pointers/");
+                await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
+                return "available-pointer";
+            } catch {
+                return "missing";
+            }
+        }
+    }
+
+    /**
      * Refreshes audio attachments for all open webviews after sync operations.
      * This ensures that audio availability is updated even if file watchers didn't trigger during sync.
+     * Uses getCurrentAttachment() to respect selectedAudioId metadata.
      */
     public async refreshAudioAttachmentsAfterSync(): Promise<void> {
         debug("Refreshing audio attachments after sync for all webviews");
 
         for (const [documentUri, webviewPanel] of this.webviewPanels.entries()) {
             try {
-                // Get the document from the workspace
-                const uri = vscode.Uri.parse(documentUri);
-                const document = await vscode.workspace.openTextDocument(uri) as any;
+                // Get the CodexCellDocument instance from our documents map
+                const document = this.documents.get(documentUri);
                 if (!document || !webviewPanel) continue;
 
-                // Get all cells with audio attachments
-                const documentText = document.getText();
-                if (documentText.trim().length === 0) continue;
+                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (!ws) continue;
 
-                let notebookData: any = {};
-                try {
-                    notebookData = JSON.parse(documentText);
-                } catch {
-                    debug("Could not parse document for audio refresh:", documentUri);
-                    continue;
-                }
-
-                const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
                 const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
 
-                // Check audio availability for all cells
-                for (const cell of cells) {
-                    const cellId = cell?.metadata?.id;
-                    if (!cellId) continue;
+                // Check audio availability for all cells using getCurrentAttachment()
+                const cellIds = document.getAllCellIds();
+                for (const cellId of cellIds) {
+                    // Get the current attachment (respects selectedAudioId)
+                    const currentAttachment = document.getCurrentAttachment(cellId, "audio");
 
-                    let hasAvailable = false; let hasAvailablePointer = false;
-                    let hasMissing = false;
-                    let hasDeleted = false;
-                    const atts = cell?.metadata?.attachments || {};
+                    if (!currentAttachment) {
+                        availability[cellId] = "none";
+                        continue;
+                    }
 
-                    for (const key of Object.keys(atts)) {
-                        const att: any = atts[key];
-                        if (att && att.type === "audio") {
-                            if (att.isDeleted) hasDeleted = true;
-                            else if (att.isMissing) hasMissing = true;
-                            else {
-                                try {
-                                    const ws = vscode.workspace.getWorkspaceFolder(document.uri);
-                                    const url = String(att.url || "");
-                                    if (ws && url) {
-                                        const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
-                                        const abs = path.join(ws.uri.fsPath, filesRel);
-                                        const { isPointerFile } = await import("../../utils/lfsHelpers");
-                                        const res = await isPointerFile(abs).catch(() => false);
-                                        if (res) hasAvailablePointer = true; else hasAvailable = true;
-                                    } else {
-                                        hasAvailable = true;
-                                    }
-                                } catch {
-                                    hasAvailable = true;
+                    // Check availability only for the current attachment
+                    let state = await this.checkAttachmentAvailability(currentAttachment.attachment, ws);
+
+                    // Apply version gate if needed
+                    if (state !== "available-local") {
+                        try {
+                            const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
+                            const status = await getFrontierVersionStatus();
+                            if (!status.ok) {
+                                if (state !== "missing" && state !== "deletedOnly") {
+                                    state = "available-pointer";
                                 }
                             }
+                        } catch {
+                            // On failure to check, leave state unchanged
                         }
                     }
 
-                    availability[cellId] = hasAvailable
-                        ? "available-local"
-                        : hasAvailablePointer
-                            ? "available-pointer"
-                            : hasMissing
-                                ? "missing"
-                                : hasDeleted
-                                    ? "deletedOnly"
-                                    : "none";
+                    availability[cellId] = state;
                 }
 
                 // Send updated audio attachments to webview
