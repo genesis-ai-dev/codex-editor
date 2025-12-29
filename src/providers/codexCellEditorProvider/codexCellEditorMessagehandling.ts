@@ -640,7 +640,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         // Block saveHtml operations on locked cells
         if (oldContent?.metadata?.isLocked) {
             console.warn(`Attempted to save locked cell ${cellId}. Operation blocked.`);
-            // return; 
+            return;
         }
 
         const oldText = oldContent?.cellContent || "";
