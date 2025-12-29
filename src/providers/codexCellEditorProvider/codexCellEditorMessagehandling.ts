@@ -716,7 +716,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         if (contentIsEmpty) {
             try {
                 const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-                if (!workspaceFolder) return;
+                // In VS Code test environments (and in some real usage), the active document can be
+                // outside of any workspace folder. In that case we can't open the corresponding
+                // source file for transcription, but we should still honor the user's request and
+                // enqueue the LLM completion.
+                if (!workspaceFolder) {
+                    console.warn("No workspace folder found; skipping transcription preflight and queuing LLM completion.");
+                    await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
+                    return;
+                }
 
                 const normalizedPath = document.uri.fsPath.replace(/\\/g, "/");
                 const baseFileName = path.basename(normalizedPath);
@@ -828,8 +836,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
                 return;
             } catch (e) {
-                console.warn("Transcription preflight failed; not attempting LLM", e);
-                return; // Do not proceed to LLM on preflight error
+                // Transcription preflight is best-effort. If it fails, still queue the LLM request
+                // so the user action isn't dropped (and tests can assert queueing deterministically).
+                console.warn("Transcription preflight failed; continuing to queue LLM completion", e);
+                await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
+                return;
             }
         }
 

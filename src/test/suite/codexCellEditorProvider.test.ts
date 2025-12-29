@@ -1378,6 +1378,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
             if (command === "extension.scheduleSync") {
                 commitCommandCalled = true;
                 commitMessage = message || "";
+                // In tests, the command may not actually be registered. We only need to observe the call.
+                return undefined as any;
             }
             return originalExecuteCommand(command, message);
         };

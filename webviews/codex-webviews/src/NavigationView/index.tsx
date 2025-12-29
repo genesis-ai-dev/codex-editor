@@ -119,9 +119,13 @@ const sortItems = (a: CodexItem, b: CodexItem) => {
         if (b.label === "New Testament") return 1;
     }
 
-    // Extract any numbers from the labels for alphanumeric sorting
-    const aMatch = a.label.match(/\d+/);
-    const bMatch = b.label.match(/\d+/);
+    // For non-Biblical books, sort by fileDisplayName if available, otherwise by label
+    const aDisplayName = a.fileDisplayName || a.label;
+    const bDisplayName = b.fileDisplayName || b.label;
+
+    // Extract any numbers from the display names for alphanumeric sorting
+    const aMatch = aDisplayName.match(/\d+/);
+    const bMatch = bDisplayName.match(/\d+/);
 
     if (aMatch && bMatch) {
         const aNum = parseInt(aMatch[0]);
@@ -131,7 +135,7 @@ const sortItems = (a: CodexItem, b: CodexItem) => {
         }
     }
 
-    return a.label.localeCompare(b.label);
+    return aDisplayName.localeCompare(bDisplayName);
 };
 
 // Helper function to get proper Bible book name or format label nicely
@@ -189,6 +193,8 @@ function NavigationView() {
     const [expandedValidationTicks, setExpandedValidationTicks] = useState<Record<string, boolean>>(
         {}
     );
+
+    const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
     // Initialize Bible book map on component mount
     useEffect(() => {
@@ -394,6 +400,10 @@ function NavigationView() {
 
     const handleRefresh = () => {
         vscode.postMessage({ command: "refresh" });
+    };
+
+    const handleToggleSortOrder = () => {
+        setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
     };
 
     const handleDelete = (item: CodexItem) => {
@@ -774,12 +784,19 @@ function NavigationView() {
         return (
             <div key={item.label + item.uri}>
                 <div
+                    tabIndex={0}
                     className={`group relative cursor-pointer select-none p-0 rounded-md transition-colors hover:bg-accent ${
                         isGroup
                             ? "bg-card border border-border"
                             : "bg-transparent border border-transparent"
                     }`}
                     onClick={handleItemClick}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleItemClick(e as unknown as React.MouseEvent);
+                        }
+                    }}
                 >
                     <div className="p-3 flex flex-col gap-1.5">
                         <div className="flex items-center gap-3 w-full min-h-6">
@@ -869,7 +886,12 @@ function NavigationView() {
 
     const filteredCodexItems = filterItems(state.codexItems);
     const filteredDictionaryItems = filterItems(state.dictionaryItems);
-    const hasResults = filteredCodexItems.length > 0 || filteredDictionaryItems.length > 0;
+    const sortComparison = (a: CodexItem, b: CodexItem) => {
+        const comparison = a.label.localeCompare(b.label);
+        return sortOrder === "asc" ? comparison : -comparison;
+    };
+    filteredCodexItems.sort(sortComparison);
+    filteredDictionaryItems.sort(sortComparison);
 
     const renameTestamentAbbreviations = (fileName: string, hasBibleBookMap: boolean): string => {
         if (hasBibleBookMap) {
@@ -908,12 +930,8 @@ function NavigationView() {
     }, [state.bookNameModal.item, state.bibleBookMap]);
 
     const disableBookNameButton = useMemo(() => {
-        return (
-            !state.bookNameModal.newName.trim() ||
-            state.bookNameModal.newName.trim() === bookNameModalOriginalLabel ||
-            state.bookNameModal.newName.trim() === state.bookNameModal.item?.label
-        );
-    }, [state.bookNameModal.newName, state.bookNameModal.item?.label, bookNameModalOriginalLabel]);
+        return !state.bookNameModal.newName.trim();
+    }, [state.bookNameModal.newName]);
 
     // Separate project dictionary from other dictionaries
     const projectDictionary = filteredDictionaryItems.find((item) => item.isProjectDictionary);
@@ -943,6 +961,14 @@ function NavigationView() {
                     className="h-9 w-9 flex items-center justify-center rounded-md"
                 >
                     <i className="codicon codicon-refresh" />
+                </Button>
+                <Button
+                    variant="outline"
+                    onClick={handleToggleSortOrder}
+                    className="h-9 w-9 flex items-center justify-center rounded-md"
+                    title={`Sort ${sortOrder === "asc" ? "descending" : "ascending"}`}
+                >
+                    <i className="codicon codicon-sort-precedence" />
                 </Button>
             </div>
 

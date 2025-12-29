@@ -195,7 +195,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         window.setTimeout(() => {
             ignoreHoverRef.current = false;
         }, 200);
-        
+
         if (!isValidated) {
             handleValidate(e);
             handleRequestClose();
@@ -204,7 +204,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
 
     const handleMouseEnter = (e: React.MouseEvent) => {
         e.stopPropagation();
-        
+
         if (isDisabled) return;
 
         if (ignoreHoverRef.current) return;
@@ -212,6 +212,16 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         clearCloseTimer();
         setShowPopover(true);
         audioPopoverTracker.setActivePopover(uniqueId.current);
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+        e.stopPropagation();
+
+        if (e.key === "Enter") {
+            e.preventDefault();
+            handleMouseEnter(e as unknown as React.MouseEvent);
+            handleButtonClick(e as unknown as React.MouseEvent);
+        }
     };
 
     const handleMouseLeave = (e: React.MouseEvent) => {
@@ -268,6 +278,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                     }),
                 }}
                 onClick={handleButtonClick}
+                onKeyDown={handleKeyDown}
                 disabled={isDisabled}
                 title={isDisabled ? disabledReason || "Audio validation requires audio" : undefined}
             >

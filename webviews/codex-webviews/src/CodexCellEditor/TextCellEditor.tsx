@@ -243,6 +243,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     currentUsername,
     vscode,
     isSourceText,
+    isAuthenticated,
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);

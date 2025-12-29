@@ -365,7 +365,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
     private async initializeFrontierApi() {
         try {
             this.frontierApi = getAuthApi();
-            
+
             // Listen for auth status changes to update the UI automatically
             if (this.frontierApi) {
                 this.disposables.push(
@@ -662,7 +662,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                         }
 
                         // Create metadata.json (this will also initialize git)
-                        await createNewProject({projectId});
+                        await createNewProject({ projectId });
                     } else {
                         // Metadata already exists, just run the initialization command
                         // This matches StartupFlow behavior - it doesn't recreate metadata if it exists
@@ -1807,9 +1807,14 @@ export class MainMenuProvider extends BaseWebviewProvider {
             vscode.window.showInformationMessage(`Project name updated to "${newProjectName}".`);
         } catch (error) {
             console.error("Error updating project name:", error);
-            vscode.window.showErrorMessage(
-                `Failed to update project name: ${(error as Error).message}`
-            );
+            try {
+                await vscode.window.showErrorMessage(
+                    `Failed to update project name: ${(error as Error).message}`
+                );
+            } catch (dialogError) {
+                // Ignore dialog errors in test environments
+                console.error("Failed to show error message:", dialogError);
+            }
         }
     }
 

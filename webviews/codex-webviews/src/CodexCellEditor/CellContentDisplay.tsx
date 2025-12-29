@@ -1177,22 +1177,13 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                 setShowSparkleButton={setShowSparkleButton}
                                                 disabled={
                                                     isInTranslationProcess ||
-                                                    shouldDisableValidation(
-                                                        cell.cellContent,
-                                                        audioAttachments?.[cellIds[0]] as any
-                                                    )
+                                                    shouldDisableValidation(cell.cellContent)
                                                 }
                                                 disabledReason={(() => {
                                                     if (isInTranslationProcess) {
                                                         return "Translation in progress";
                                                     }
-                                                    const audioState = audioAttachments?.[
-                                                        cellIds[0]
-                                                    ] as any;
-                                                    return shouldDisableValidation(
-                                                        cell.cellContent,
-                                                        audioState
-                                                    )
+                                                    return shouldDisableValidation(cell.cellContent)
                                                         ? "Validation disabled: no text"
                                                         : undefined;
                                                 })()}
@@ -1280,12 +1271,20 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         />
                     )}
                     <div
+                        tabIndex={0}
                         className={`flex-1 min-w-0 min-h-[1rem] ${
                             lineNumbersEnabled ? "pr-[0.25rem]" : "px-[0.25rem]"
                         }`}
                         title={
                             !(cell.metadata?.isLocked ?? false) ? "Click to edit" : "Cell is locked"
                         }
+                        onKeyDown={(e) => {
+                            // Match click behavior for accessibility; also respects lock state
+                            if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleCellContentClick();
+                            }
+                        }}
                     >
                         {renderContent()}
 
