@@ -764,7 +764,7 @@ export class SyncManager {
                     const { GlobalProvider } = await import("../globalProvider");
                     const provider = GlobalProvider.getInstance().getProvider("codex-cell-editor") as any;
                     if (provider && typeof provider.refreshWebviewsForFiles === 'function') {
-                        provider.refreshWebviewsForFiles(affectedCodexFiles);
+                        await provider.refreshWebviewsForFiles(affectedCodexFiles);
                     } else {
                         debug("[SyncManager] Codex cell editor provider not available or missing refreshWebviewsForFiles method");
                     }

@@ -551,8 +551,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
             let logicalLinePosition: number | null = null;
             const cellIndex = this._documentData.cells.findIndex(cell => cell.metadata?.id === cellId);
 
+            let currentCell: any = null;
             if (cellIndex >= 0) {
-                const currentCell = this._documentData.cells[cellIndex];
+                currentCell = this._documentData.cells[cellIndex];
                 const isCurrentCellParatext = currentCell.metadata?.type === "paratext";
 
                 // Only non-paratext cells get line positions
@@ -577,6 +578,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // Sanitize content for search while preserving raw content with HTML
             const sanitizedContent = this.sanitizeContent(content);
 
+            // Merge cell metadata with edit information
+            // This ensures the database receives full cell metadata (including type) for proper indexing
+            const fullMetadata = currentCell?.metadata
+                ? { ...currentCell.metadata, editType, lastUpdated: Date.now() }
+                : { editType, lastUpdated: Date.now() };
+
             // IMMEDIATE AI KNOWLEDGE UPDATE with FTS synchronization
             const result = await this._indexManager.upsertCellWithFTSSync(
                 cellId,
@@ -584,7 +591,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 this.getContentType(),
                 sanitizedContent,  // Sanitized content for search
                 logicalLinePosition ?? undefined, // Convert null to undefined for method signature compatibility
-                { editType, lastUpdated: Date.now() },
+                fullMetadata,  // Pass full cell metadata including type (e.g., MILESTONE)
                 content           // Raw content with HTML tags
             );
 
@@ -1301,6 +1308,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
         percentFullyValidatedTranslations: number;
         percentAudioValidatedTranslations: number;
         percentTextValidatedTranslations: number;
+        textValidationLevels?: number[];
+        audioValidationLevels?: number[];
+        requiredTextValidations?: number;
+        requiredAudioValidations?: number;
     }> {
         const progress: Record<number, {
             percentTranslationsCompleted: number;
@@ -1308,6 +1319,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
             percentFullyValidatedTranslations: number;
             percentAudioValidatedTranslations: number;
             percentTextValidatedTranslations: number;
+            textValidationLevels?: number[];
+            audioValidationLevels?: number[];
+            requiredTextValidations?: number;
+            requiredAudioValidations?: number;
         }> = {};
 
         const cells = this._documentData.cells || [];
@@ -1363,6 +1378,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     percentFullyValidatedTranslations: 0,
                     percentAudioValidatedTranslations: 0,
                     percentTextValidatedTranslations: 0,
+                    textValidationLevels: [],
+                    audioValidationLevels: [],
+                    requiredTextValidations: minimumValidationsRequired,
+                    requiredAudioValidations: minimumAudioValidationsRequired,
                 };
                 continue;
             }
@@ -1393,6 +1412,24 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     minimumAudioValidationsRequired
                 );
 
+            // Compute per-level validation percentages for text and audio
+            const countNonDeleted = (arr: any[] | undefined) => (arr || []).filter((v: any) => !v.isDeleted).length;
+            const textValidationCounts = cellWithValidatedData.map((c) => countNonDeleted(c.validatedBy));
+            const audioValidationCounts = cellWithValidatedData.map((c) => countNonDeleted(c.audioValidatedBy));
+
+            const computeLevelPercents = (counts: number[], maxLevel: number) => {
+                const levels: number[] = [];
+                const total = totalCells > 0 ? totalCells : 1;
+                for (let k = 1; k <= Math.max(0, maxLevel); k++) {
+                    const satisfied = counts.filter((n) => n >= k).length;
+                    levels.push((satisfied / total) * 100);
+                }
+                return levels;
+            };
+
+            const textValidationLevels = computeLevelPercents(textValidationCounts, minimumValidationsRequired);
+            const audioValidationLevels = computeLevelPercents(audioValidationCounts, minimumAudioValidationsRequired);
+
             // Calculate progress percentages
             const progressPercentages = computeProgressPercents(
                 totalCells,
@@ -1403,7 +1440,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 fullyValidatedCells
             );
 
-            progress[subsectionIdx] = progressPercentages;
+            progress[subsectionIdx] = {
+                ...progressPercentages,
+                textValidationLevels,
+                audioValidationLevels,
+                requiredTextValidations: minimumValidationsRequired,
+                requiredAudioValidations: minimumAudioValidationsRequired,
+            };
         }
 
         return progress;
@@ -2157,6 +2200,19 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
     public getCell(cellId: string): CustomNotebookCellData | undefined {
         return this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
+    }
+
+    /**
+     * Gets a cell by its index position in the cells array.
+     * @param index The 0-based index of the cell in the cells array
+     * @returns The cell at the specified index, or undefined if index is out of bounds
+     */
+    public getCellByIndex(index: number): CustomNotebookCellData | undefined {
+        const cells = this._documentData.cells || [];
+        if (index < 0 || index >= cells.length) {
+            return undefined;
+        }
+        return cells[index];
     }
 
     public updateCellData(cellId: string, newData: any): void {

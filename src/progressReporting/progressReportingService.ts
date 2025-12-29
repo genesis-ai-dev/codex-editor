@@ -1,8 +1,8 @@
 import * as vscode from "vscode";
-import * as path from "path";
 import { getAuthApi } from "../extension";
 import { getNotebookMetadataManager } from "../utils/notebookMetadataManager";
 import { getSQLiteIndexManager } from "../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
+import { getBookDisplayName } from "../utils/bookNameUtils";
 
 const DEBUG_MODE = false;
 const debug = (message: string, ...args: any[]) => {
@@ -468,7 +468,7 @@ export class ProgressReportingService {
                 LEFT JOIN cells c ON f.id = c.t_file_id AND ((c.cell_type IS NULL AND (c.cell_id LIKE '%:%' OR c.cell_id LIKE '% %')) OR (c.cell_type IS NOT NULL AND c.cell_type != 'milestone'))
                 WHERE f.file_type = 'codex'
                 GROUP BY f.file_path
-                HAVING total_cells > 0
+                HAVING COUNT(*) > 0
             `);
 
             try {
@@ -481,47 +481,61 @@ export class ProgressReportingService {
 
             // MILESTONES: Will have to have this read from the milestone value.
 
-            // With UUID cell IDs, we need to extract book name from globalReferences array stored in metadata
-            // Note: This query uses JSON extraction to get book name from globalReferences
-            // For SQLite, we'll need to parse the JSON stored in metadata_data column
+            // Extract book code from file paths by joining with files table
+            // Then convert to full book name using getBookDisplayName
             const bookCompletionStmt = db.prepare(`
                 SELECT 
-                    -- Extract book name from globalReferences JSON array (first element, before first space)
-                    CASE 
-                        WHEN metadata_data LIKE '%"globalReferences"%' THEN
-                            -- Extract first globalReference value and get book name (part before space)
-                            TRIM(SUBSTR(
-                                SUBSTR(metadata_data, INSTR(metadata_data, '"globalReferences"') + 18),
-                                2,
-                                INSTR(SUBSTR(metadata_data, INSTR(metadata_data, '"globalReferences"') + 18), '"') - 2
-                            ), '[]"')
-                        WHEN cell_id LIKE '%:%' THEN SUBSTR(cell_id, 1, INSTR(cell_id, ':') - 1)
-                        WHEN cell_id LIKE '% %' THEN SUBSTR(cell_id, 1, INSTR(cell_id, ' ') - 1)
-                        ELSE cell_id
-                    END as book_name,
+                    COALESCE(
+                        REPLACE(
+                            REPLACE(
+                                REPLACE(
+                                    REPLACE(tf.file_path, 'files/target/', ''),
+                                    '.project/sourceTexts/', ''
+                                ),
+                                '.codex', ''
+                            ),
+                            '.source', ''
+                        ),
+                        REPLACE(
+                            REPLACE(
+                                REPLACE(
+                                    REPLACE(sf.file_path, 'files/target/', ''),
+                                    '.project/sourceTexts/', ''
+                                ),
+                                '.codex', ''
+                            ),
+                            '.source', ''
+                        )
+                    ) as book_code,
                     COUNT(*) as total_cells,
                     COUNT(CASE WHEN t_content IS NOT NULL AND t_content != '' THEN 1 END) as translated_cells,
                     COUNT(CASE WHEN t_is_fully_validated = 1 THEN 1 END) as validated_cells,
                     SUM(COALESCE(s_word_count, 0)) as source_words,
                     SUM(COALESCE(t_word_count, 0)) as target_words
-                FROM cells
-                WHERE cell_id IS NOT NULL AND cell_id != '' AND ((cell_type IS NULL AND (cell_id LIKE '%:%' OR cell_id LIKE '% %')) OR (cell_type IS NOT NULL AND cell_type != 'milestone'))
-                GROUP BY book_name
-                HAVING total_cells > 0
-                ORDER BY book_name
+                FROM cells c
+                LEFT JOIN files tf ON c.t_file_id = tf.id
+                LEFT JOIN files sf ON c.s_file_id = sf.id
+                WHERE c.cell_id IS NOT NULL AND c.cell_id != '' 
+                    AND ((c.cell_type IS NULL AND (c.cell_id LIKE '%:%' OR c.cell_id LIKE '% %')) 
+                         OR (c.cell_type IS NOT NULL AND c.cell_type != 'milestone'))
+                GROUP BY book_code
+                HAVING COUNT(*) > 0
+                ORDER BY book_code
             `);
 
             const bookCompletionMap: Record<string, BookCompletionData> = {};
             try {
                 while (bookCompletionStmt.step()) {
                     const row = bookCompletionStmt.getAsObject();
-                    const bookName = row.book_name as string;
+                    const bookCode = row.book_code as string;
                     const totalCells = (row.total_cells as number) || 0;
                     const translatedCells = (row.translated_cells as number) || 0;
                     const sourceWords = (row.source_words as number) || 0;
                     const targetWords = (row.target_words as number) || 0;
 
-                    if (totalCells > 0 && bookName) {
+                    if (totalCells > 0 && bookCode) {
+                        // Convert book code to full name (e.g., "GEN" -> "Genesis")
+                        const bookName = await getBookDisplayName(bookCode);
                         const completionPercentage = (translatedCells / totalCells) * 100;
                         bookCompletionMap[bookName] = {
                             completionPercentage: Math.round(completionPercentage * 100) / 100,
@@ -653,7 +667,19 @@ export class ProgressReportingService {
             debug(`📊 Validation status: ${report.validationStatus.stage} stage`);
 
         } catch (error) {
-            console.error("📊 Error collecting translation progress data:", error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorStack = error instanceof Error ? error.stack : undefined;
+
+            // Check if this is a "Statement closed" error - might be due to concurrent database access
+            if (errorMessage.includes("Statement closed") || errorMessage.includes("closed")) {
+                debug("📊 Progress collection interrupted (statement closed) - this may happen during concurrent database operations");
+                // Don't log as error if it's just a concurrency issue
+            } else {
+                console.error("📊 Error collecting translation progress data:", errorMessage);
+                if (errorStack) {
+                    console.error("📊 Error stack:", errorStack);
+                }
+            }
         }
     }
 

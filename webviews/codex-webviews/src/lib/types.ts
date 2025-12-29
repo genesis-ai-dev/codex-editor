@@ -45,6 +45,10 @@ export interface ProgressPercentages {
     percentFullyValidatedTranslations: number;
     percentAudioValidatedTranslations: number;
     percentTextValidatedTranslations: number;
+    textValidationLevels?: number[];
+    audioValidationLevels?: number[];
+    requiredTextValidations?: number;
+    requiredAudioValidations?: number;
 }
 
 export interface Subsection {
