@@ -1790,60 +1790,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
         [cellMarkers, audioBlob, showAudioHistory]
     );
 
-    // Listen for audio attachment changes and refresh history
-    useMessageHandler(
-        "textCellEditor-audioAttachmentsChanged",
-        (event: MessageEvent) => {
-            const message = event.data;
-            if (
-                message.type === "audioAttachmentsChanged" &&
-                message.content.cellId === cellMarkers[0]
-            ) {
-                // Store whether we had audio loaded before clearing
-                const hadAudio = !!audioBlob;
-
-                // Clear cached audio blob and URL to force refresh
-                if (audioBlob) {
-                    setAudioBlob(null);
-                }
-                if (audioUrl) {
-                    URL.revokeObjectURL(audioUrl);
-                    setAudioUrl(null);
-                }
-
-                // Clear session storage cache
-                try {
-                    sessionStorage.removeItem(`audio-id-${cellMarkers[0]}`);
-                } catch {
-                    /* ignore */
-                }
-
-                // Refresh audio history when attachments change (e.g., after sync)
-                window.vscodeApi.postMessage({
-                    command: "getAudioHistory",
-                    content: { cellId: cellMarkers[0] },
-                } as EditorPostMessages);
-
-                // Also refresh the current audio if we had audio loaded or if auto-download is enabled
-                const autoInit = (window as any).__autoDownloadAudioOnOpenInitialized;
-                const autoFlag = (window as any).__autoDownloadAudioOnOpen;
-                const shouldAutoDownload = autoInit ? !!autoFlag : false;
-                const stateForCell = audioAttachments?.[cellMarkers[0]];
-                const isLocal = stateForCell === "available-local";
-
-                if (hadAudio || shouldAutoDownload || isLocal) {
-                    setIsAudioLoading(true);
-                    setAudioFetchPending(true);
-                    window.vscodeApi.postMessage({
-                        command: "requestAudioForCell",
-                        content: { cellId: cellMarkers[0] },
-                    } as EditorPostMessages);
-                }
-            }
-        },
-        [cellMarkers, audioBlob, audioUrl, audioAttachments]
-    );
-
     // Clean up media recorder and stream on unmount
     useEffect(() => {
         return () => {

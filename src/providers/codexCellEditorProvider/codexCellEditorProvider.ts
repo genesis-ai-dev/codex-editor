@@ -1024,28 +1024,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                     // Still update the current webview with the full content
                     updateWebview();
-                } else if (e.edits && e.edits.length > 0 && e.edits[0].type === "updateCellAttachment") {
-                    // Check if this is an audio attachment update
-                    const edit = e.edits[0];
-                    if (edit.attachmentData && edit.attachmentData.type === "audio") {
-                        // Broadcast audio attachment change to all webviews for this document
-                        const audioAttachmentUpdate = {
-                            type: "audioAttachmentsChanged",
-                            content: {
-                                cellId: edit.cellId,
-                            },
-                        };
-
-                        // Send to all webviews that have this document open
-                        this.webviewPanels.forEach((panel, docUri) => {
-                            if (docUri === document.uri.toString()) {
-                                safePostMessageToPanel(panel, audioAttachmentUpdate);
-                            }
-                        });
-                    }
-
-                    // Still update the current webview with the full content
-                    updateWebview();
                 } else {
                     // Check if this is a paratext cell addition
                     debug("Document change event", { edits: e.edits, firstEdit: e.edits?.[0] });
