@@ -674,13 +674,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // Wait for the index to be updated and verify it's available
             await document.ensureCellIndexed(cellId, 3000);
         } else {
-            console.log("trace 678 ensureCellIndexed", cellId);
             await document.updateCellContent(
                 cellId,
                 finalContent,
                 EditType.USER_EDIT
             );
-            console.log("trace 681 ensureCellIndexed", cellId);
         }
     },
 
