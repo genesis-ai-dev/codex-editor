@@ -111,17 +111,19 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
                 }),
             };
 
-            // Mock git configuration for getCurrentUserName
-            const gitConfig: MockWorkspaceConfiguration = {
-                update: sandbox.stub().resolves(),
-                get: sandbox.stub().returns("test-author"),
+            // Mock auth API for getCurrentUserName
+            const mockAuthApi = {
+                getUserInfo: sandbox.stub().resolves({ username: "test-author", email: "test@example.com" }),
+                getAuthStatus: sandbox.stub().returns({ isAuthenticated: true }),
+                // ... other methods as needed
             };
+
+            // Stub getAuthApi to return mock auth API
+            const extensionModule = await import("../../extension");
+            sandbox.stub(extensionModule, "getAuthApi").returns(mockAuthApi as any);
 
             // Stub getConfiguration to return different configs based on section
             sandbox.stub(vscode.workspace, "getConfiguration").callsFake((section?: string) => {
-                if (section === "git") {
-                    return gitConfig as vscode.WorkspaceConfiguration;
-                }
                 if (section === "codex-project-manager") {
                     return mockConfig as vscode.WorkspaceConfiguration;
                 }
@@ -169,17 +171,19 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
                     return undefined;
                 }),
             };
-            // Mock git configuration for getCurrentUserName
-            const gitConfig: MockWorkspaceConfiguration = {
-                update: sandbox.stub().resolves(),
-                get: sandbox.stub().returns("test-author"),
+            // Mock auth API for getCurrentUserName
+            const mockAuthApi = {
+                getUserInfo: sandbox.stub().resolves({ username: "test-author", email: "test@example.com" }),
+                getAuthStatus: sandbox.stub().returns({ isAuthenticated: true }),
+                // ... other methods as needed
             };
+
+            // Stub getAuthApi to return mock auth API
+            const extensionModule = await import("../../extension");
+            sandbox.stub(extensionModule, "getAuthApi").returns(mockAuthApi as any);
 
             // Stub getConfiguration to return different configs based on section
             sandbox.stub(vscode.workspace, "getConfiguration").callsFake((section?: string) => {
-                if (section === "git") {
-                    return gitConfig as vscode.WorkspaceConfiguration;
-                }
                 if (section === "codex-project-manager") {
                     return mockConfig as vscode.WorkspaceConfiguration;
                 }
@@ -224,17 +228,19 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
                     return undefined;
                 }),
             };
-            // Mock git configuration for getCurrentUserName
-            const gitConfig: MockWorkspaceConfiguration = {
-                update: sandbox.stub().resolves(),
-                get: sandbox.stub().returns("test-author"),
+            // Mock auth API for getCurrentUserName
+            const mockAuthApi = {
+                getUserInfo: sandbox.stub().resolves({ username: "test-author", email: "test@example.com" }),
+                getAuthStatus: sandbox.stub().returns({ isAuthenticated: true }),
+                // ... other methods as needed
             };
+
+            // Stub getAuthApi to return mock auth API
+            const extensionModule = await import("../../extension");
+            sandbox.stub(extensionModule, "getAuthApi").returns(mockAuthApi as any);
 
             // Stub getConfiguration to return different configs based on section
             sandbox.stub(vscode.workspace, "getConfiguration").callsFake((section?: string) => {
-                if (section === "git") {
-                    return gitConfig as vscode.WorkspaceConfiguration;
-                }
                 if (section === "codex-project-manager") {
                     return mockConfig as vscode.WorkspaceConfiguration;
                 }
@@ -290,17 +296,19 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
                     return undefined;
                 }),
             };
-            // Mock git configuration for getCurrentUserName
-            const gitConfig: MockWorkspaceConfiguration = {
-                update: sandbox.stub().resolves(),
-                get: sandbox.stub().returns("test-author"),
+            // Mock auth API for getCurrentUserName
+            const mockAuthApi = {
+                getUserInfo: sandbox.stub().resolves({ username: "test-author", email: "test@example.com" }),
+                getAuthStatus: sandbox.stub().returns({ isAuthenticated: true }),
+                // ... other methods as needed
             };
+
+            // Stub getAuthApi to return mock auth API
+            const extensionModule = await import("../../extension");
+            sandbox.stub(extensionModule, "getAuthApi").returns(mockAuthApi as any);
 
             // Stub getConfiguration to return different configs based on section
             sandbox.stub(vscode.workspace, "getConfiguration").callsFake((section?: string) => {
-                if (section === "git") {
-                    return gitConfig as vscode.WorkspaceConfiguration;
-                }
                 if (section === "codex-project-manager") {
                     return mockConfig as vscode.WorkspaceConfiguration;
                 }
@@ -341,17 +349,19 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
                     return undefined;
                 }),
             };
-            // Mock git configuration for getCurrentUserName
-            const gitConfig: MockWorkspaceConfiguration = {
-                update: sandbox.stub().resolves(),
-                get: sandbox.stub().returns("test-author"),
+            // Mock auth API for getCurrentUserName
+            const mockAuthApi = {
+                getUserInfo: sandbox.stub().resolves({ username: "test-author", email: "test@example.com" }),
+                getAuthStatus: sandbox.stub().returns({ isAuthenticated: true }),
+                // ... other methods as needed
             };
+
+            // Stub getAuthApi to return mock auth API
+            const extensionModule = await import("../../extension");
+            sandbox.stub(extensionModule, "getAuthApi").returns(mockAuthApi as any);
 
             // Stub getConfiguration to return different configs based on section
             sandbox.stub(vscode.workspace, "getConfiguration").callsFake((section?: string) => {
-                if (section === "git") {
-                    return gitConfig as vscode.WorkspaceConfiguration;
-                }
                 if (section === "codex-project-manager") {
                     return mockConfig as vscode.WorkspaceConfiguration;
                 }
@@ -394,17 +404,19 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
                     return undefined;
                 }),
             };
-            // Mock git configuration for getCurrentUserName
-            const gitConfig: MockWorkspaceConfiguration = {
-                update: sandbox.stub().resolves(),
-                get: sandbox.stub().returns("test-author"),
+            // Mock auth API for getCurrentUserName
+            const mockAuthApi = {
+                getUserInfo: sandbox.stub().resolves({ username: "test-author", email: "test@example.com" }),
+                getAuthStatus: sandbox.stub().returns({ isAuthenticated: true }),
+                // ... other methods as needed
             };
+
+            // Stub getAuthApi to return mock auth API
+            const extensionModule = await import("../../extension");
+            sandbox.stub(extensionModule, "getAuthApi").returns(mockAuthApi as any);
 
             // Stub getConfiguration to return different configs based on section
             sandbox.stub(vscode.workspace, "getConfiguration").callsFake((section?: string) => {
-                if (section === "git") {
-                    return gitConfig as vscode.WorkspaceConfiguration;
-                }
                 if (section === "codex-project-manager") {
                     return mockConfig as vscode.WorkspaceConfiguration;
                 }
@@ -477,17 +489,19 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
                     return undefined;
                 }),
             };
-            // Mock git configuration for getCurrentUserName
-            const gitConfig: MockWorkspaceConfiguration = {
-                update: sandbox.stub().resolves(),
-                get: sandbox.stub().returns("test-author"),
+            // Mock auth API for getCurrentUserName
+            const mockAuthApi = {
+                getUserInfo: sandbox.stub().resolves({ username: "test-author", email: "test@example.com" }),
+                getAuthStatus: sandbox.stub().returns({ isAuthenticated: true }),
+                // ... other methods as needed
             };
+
+            // Stub getAuthApi to return mock auth API
+            const extensionModule = await import("../../extension");
+            sandbox.stub(extensionModule, "getAuthApi").returns(mockAuthApi as any);
 
             // Stub getConfiguration to return different configs based on section
             sandbox.stub(vscode.workspace, "getConfiguration").callsFake((section?: string) => {
-                if (section === "git") {
-                    return gitConfig as vscode.WorkspaceConfiguration;
-                }
                 if (section === "codex-project-manager") {
                     return mockConfig as vscode.WorkspaceConfiguration;
                 }
@@ -532,17 +546,19 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
                     return undefined;
                 }),
             };
-            // Mock git configuration for getCurrentUserName
-            const gitConfig: MockWorkspaceConfiguration = {
-                update: sandbox.stub().resolves(),
-                get: sandbox.stub().returns("test-author"),
+            // Mock auth API for getCurrentUserName
+            const mockAuthApi = {
+                getUserInfo: sandbox.stub().resolves({ username: "test-author", email: "test@example.com" }),
+                getAuthStatus: sandbox.stub().returns({ isAuthenticated: true }),
+                // ... other methods as needed
             };
+
+            // Stub getAuthApi to return mock auth API
+            const extensionModule = await import("../../extension");
+            sandbox.stub(extensionModule, "getAuthApi").returns(mockAuthApi as any);
 
             // Stub getConfiguration to return different configs based on section
             sandbox.stub(vscode.workspace, "getConfiguration").callsFake((section?: string) => {
-                if (section === "git") {
-                    return gitConfig as vscode.WorkspaceConfiguration;
-                }
                 if (section === "codex-project-manager") {
                     return mockConfig as vscode.WorkspaceConfiguration;
                 }

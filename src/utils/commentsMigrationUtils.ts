@@ -400,32 +400,6 @@ export class CommentsMigrator {
     }
 
     /**
-     * Gets the current user name from git config or VS Code settings
-     */
-    private static async getCurrentUser(): Promise<string> {
-        try {
-            // Try git username first
-            const gitUsername = vscode.workspace.getConfiguration("git").get<string>("username");
-            if (gitUsername) return gitUsername;
-
-            // Try VS Code authentication session
-            try {
-                const session = await vscode.authentication.getSession('github', ['user:email'], { createIfNone: false });
-                if (session && session.account) {
-                    return session.account.label;
-                }
-            } catch (e) {
-                // Auth provider might not be available
-            }
-        } catch (error) {
-            // Silent fallback
-        }
-
-        // Fallback
-        return "unknown";
-    }
-
-    /**
  * Determines if a comment was recently migrated from legacy format
  */
     private static isLegacyComment(comment: any): boolean {
