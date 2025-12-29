@@ -759,18 +759,16 @@ const CodexCellEditor: React.FC = () => {
                 vscode.postMessage({ command: "getContent" } as EditorPostMessages);
             }
 
-            // Handle current page refresh (e.g., when a paratext cell is added)
+            // Handle current page refresh (e.g., when a paratext cell is added or after sync)
             if (message.type === "refreshCurrentPage") {
-                // Refresh the current page by requesting cells for the current milestone/subsection
-                // This ensures paratext cells appear immediately after being added
+                // After sync, changes can occur in any cell range, not just the current page
+                // Clear ALL cached pages to ensure fresh data is loaded when navigating to any page
+                cellsCacheRef.current.clear();
+                loadedPagesRef.current.clear();
+
                 // Use refs to get current values without adding them to dependency array
                 const milestoneIdx = currentMilestoneIndexRef.current;
                 const subsectionIdx = currentSubsectionIndexRef.current;
-                const pageKey = `${milestoneIdx}-${subsectionIdx}`;
-
-                // Clear the cache for this page to force a fresh request
-                cellsCacheRef.current.delete(pageKey);
-                loadedPagesRef.current.delete(pageKey);
 
                 // Request fresh cells for the current page
                 if (requestCellsForMilestoneRef.current) {
