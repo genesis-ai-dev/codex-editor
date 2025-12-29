@@ -142,6 +142,15 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
             }, 100);
     };
 
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+        e.stopPropagation();
+        if (e.key === "Escape") {
+            e.preventDefault();
+            setShow(false);
+            onRequestClose && onRequestClose();
+        }
+    };
+
     if (!show || validators.length === 0) return null;
 
     return (
@@ -163,6 +172,7 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
             }}
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
+            onKeyDown={handleKeyDown}
         >
             <div className="flex items-center justify-between w-full">
                 <div className="font-extralight text-base">{title}</div>

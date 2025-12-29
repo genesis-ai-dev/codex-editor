@@ -12,6 +12,9 @@ import {
     CustomNotebookMetadata,
     ValidationEntry,
     EditMapValueType,
+    MilestoneIndex,
+    MilestoneInfo,
+    CustomCellMetaData,
 } from "../../../types";
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../utils/editMapUtils";
 import { CodexCellTypes, EditType } from "../../../types/enums";
@@ -20,6 +23,8 @@ import { randomUUID } from "crypto";
 import { CodexContentSerializer } from "../../serializer";
 import { debounce } from "lodash";
 import { getSQLiteIndexManager } from "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
+import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents } from "../../../sharedUtils";
+import { extractParentCellIdFromParatext, convertCellToQuillContent } from "./utils/cellUtils";
 
 // Define debug function locally
 const DEBUG_MODE = false;
@@ -546,8 +551,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
             let logicalLinePosition: number | null = null;
             const cellIndex = this._documentData.cells.findIndex(cell => cell.metadata?.id === cellId);
 
+            let currentCell: any = null;
             if (cellIndex >= 0) {
-                const currentCell = this._documentData.cells[cellIndex];
+                currentCell = this._documentData.cells[cellIndex];
                 const isCurrentCellParatext = currentCell.metadata?.type === "paratext";
 
                 // Only non-paratext cells get line positions
@@ -572,6 +578,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // Sanitize content for search while preserving raw content with HTML
             const sanitizedContent = this.sanitizeContent(content);
 
+            // Merge cell metadata with edit information
+            // This ensures the database receives full cell metadata (including type) for proper indexing
+            const fullMetadata = currentCell?.metadata
+                ? { ...currentCell.metadata, editType, lastUpdated: Date.now() }
+                : { editType, lastUpdated: Date.now() };
+
             // IMMEDIATE AI KNOWLEDGE UPDATE with FTS synchronization
             const result = await this._indexManager.upsertCellWithFTSSync(
                 cellId,
@@ -579,7 +591,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 this.getContentType(),
                 sanitizedContent,  // Sanitized content for search
                 logicalLinePosition ?? undefined, // Convert null to undefined for method signature compatibility
-                { editType, lastUpdated: Date.now() },
+                fullMetadata,  // Pass full cell metadata including type (e.g., MILESTONE)
                 content           // Raw content with HTML tags
             );
 
@@ -714,6 +726,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             editHistory: cell.metadata.edits || [],
             timestamps: cell.metadata.data,
             cellLabel: cell.metadata.cellLabel,
+            data: cell.metadata.data,
             attachments: cell.metadata.attachments || {},
         };
     }
@@ -924,18 +937,25 @@ export class CodexCellDocument implements vscode.CustomDocument {
             insertIndex = direction === "above" ? indexOfReferenceCell : indexOfReferenceCell + 1;
         }
 
+        // For paratext cells, ensure parentId is set in metadata so they can be associated with their parent cell
+        const cellMetadata: CustomCellMetaData = {
+            id: newCellId,
+            type: cellType,
+            cellLabel: content?.cellLabel,
+            edits: content?.editHistory || [],
+            data: data,
+        };
+
+        if (cellType === CodexCellTypes.PARATEXT && referenceCellId) {
+            cellMetadata.parentId = referenceCellId;
+        }
+
         // Add new cell at the determined position
         this._documentData.cells.splice(insertIndex, 0, {
             value: content?.cellContent || "",
             languageId: "html",
             kind: vscode.NotebookCellKind.Code,
-            metadata: {
-                id: newCellId,
-                type: cellType,
-                cellLabel: content?.cellLabel,
-                edits: content?.editHistory || [],
-                data: data,
-            },
+            metadata: cellMetadata,
         });
 
         // Record the edit
@@ -1064,6 +1084,512 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
     public getNotebookMetadata(): CustomNotebookMetadata {
         return this._documentData.metadata;
+    }
+
+    /**
+     * Builds a milestone index from the document cells.
+     * This index is used for milestone-based pagination.
+     * 
+     * @param cellsPerPage Number of cells per page for sub-pagination within milestones
+     * @returns MilestoneIndex containing milestone information and pagination settings
+     */
+    public buildMilestoneIndex(cellsPerPage: number = 50): MilestoneIndex {
+        const milestones: MilestoneInfo[] = [];
+        const cells = this._documentData.cells || [];
+
+        // Find all milestone cells and their positions (excluding deleted ones)
+        const milestoneCellIndices: { cellIndex: number; value: string; }[] = [];
+
+        for (let i = 0; i < cells.length; i++) {
+            const cell = cells[i];
+            if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
+                // Skip deleted milestone cells
+                if (cell.metadata?.data?.deleted === true) {
+                    continue;
+                }
+                milestoneCellIndices.push({
+                    cellIndex: i,
+                    value: cell.value || String(milestoneCellIndices.length + 1),
+                });
+            }
+        }
+
+        // Count total content cells (excluding milestones and paratext)
+        let totalContentCells = 0;
+        for (const cell of cells) {
+            if (cell.metadata?.type !== CodexCellTypes.MILESTONE &&
+                cell.metadata?.type !== "paratext") {
+                totalContentCells++;
+            }
+        }
+
+        // Edge case: No milestone cells found - create a virtual milestone at index 0
+        if (milestoneCellIndices.length === 0) {
+            milestones.push({
+                index: 0,
+                cellIndex: 0,
+                value: "1",
+                cellCount: totalContentCells,
+            });
+
+            return {
+                milestones,
+                totalCells: totalContentCells,
+                cellsPerPage,
+            };
+        }
+
+        // Build milestone info for each milestone
+        for (let i = 0; i < milestoneCellIndices.length; i++) {
+            const currentMilestone = milestoneCellIndices[i];
+            const nextMilestone = milestoneCellIndices[i + 1];
+
+            // Count content cells from this milestone to the next (or end of document)
+            const startIndex = currentMilestone.cellIndex;
+            const endIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
+
+            let cellCount = 0;
+            for (let j = startIndex; j < endIndex; j++) {
+                const cell = cells[j];
+                // Count only non-milestone, non-paratext cells
+                if (cell.metadata?.type !== CodexCellTypes.MILESTONE &&
+                    cell.metadata?.type !== "paratext") {
+                    cellCount++;
+                }
+            }
+
+            milestones.push({
+                index: i,
+                cellIndex: currentMilestone.cellIndex,
+                value: currentMilestone.value,
+                cellCount,
+            });
+        }
+
+        return {
+            milestones,
+            totalCells: totalContentCells,
+            cellsPerPage,
+        };
+    }
+
+    /**
+     * Calculates progress for all milestones in the document.
+     * 
+     * @param minimumValidationsRequired Minimum number of validations required for text (default: 1)
+     * @param minimumAudioValidationsRequired Minimum number of validations required for audio (default: 1)
+     * @returns Record mapping milestone number (1-based) to progress percentages
+     */
+    public calculateMilestoneProgress(
+        minimumValidationsRequired: number = 1,
+        minimumAudioValidationsRequired: number = 1
+    ): Record<number, {
+        percentTranslationsCompleted: number;
+        percentAudioTranslationsCompleted: number;
+        percentFullyValidatedTranslations: number;
+        percentAudioValidatedTranslations: number;
+        percentTextValidatedTranslations: number;
+    }> {
+        const progress: Record<number, {
+            percentTranslationsCompleted: number;
+            percentAudioTranslationsCompleted: number;
+            percentFullyValidatedTranslations: number;
+            percentAudioValidatedTranslations: number;
+            percentTextValidatedTranslations: number;
+        }> = {};
+
+        const cells = this._documentData.cells || [];
+        const milestoneIndex = this.buildMilestoneIndex();
+
+        // Calculate progress for each milestone
+        for (let i = 0; i < milestoneIndex.milestones.length; i++) {
+            const milestone = milestoneIndex.milestones[i];
+            const nextMilestone = milestoneIndex.milestones[i + 1];
+
+            // Get cell range for this milestone
+            const startIndex = milestone.cellIndex;
+            const endIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
+
+            // Collect cells for this milestone (excluding milestone, paratext, and merged cells)
+            const cellsForMilestone: QuillCellContent[] = [];
+            for (let j = startIndex; j < endIndex; j++) {
+                const cell = cells[j];
+
+                // Skip milestone cells
+                if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
+                    continue;
+                }
+
+                // Skip paratext and merged cells
+                const cellId = cell.metadata?.id;
+                if (!cellId || cellId.includes(":paratext-") || cell.metadata?.data?.merged) {
+                    continue;
+                }
+
+                // Convert to QuillCellContent format
+                const quillContent = convertCellToQuillContent(cell);
+                cellsForMilestone.push(quillContent);
+            }
+
+            const totalCells = cellsForMilestone.length;
+            if (totalCells === 0) {
+                // Milestone number is 1-based (i + 1)
+                progress[i + 1] = {
+                    percentTranslationsCompleted: 0,
+                    percentAudioTranslationsCompleted: 0,
+                    percentFullyValidatedTranslations: 0,
+                    percentAudioValidatedTranslations: 0,
+                    percentTextValidatedTranslations: 0,
+                };
+                continue;
+            }
+
+            // Count cells with content (translated)
+            const cellsWithValues = cellsForMilestone.filter(
+                (cell) =>
+                    cell.cellContent &&
+                    cell.cellContent.trim().length > 0 &&
+                    cell.cellContent !== "<span></span>"
+            ).length;
+
+            // Count cells with audio
+            const cellsWithAudioValues = cellsForMilestone.filter((cell) =>
+                cellHasAudioUsingAttachments(
+                    cell.attachments,
+                    cell.metadata?.selectedAudioId
+                )
+            ).length;
+
+            // Calculate validation data
+            const cellWithValidatedData = cellsForMilestone.map((cell) => getCellValueData(cell));
+
+            const { validatedCells, audioValidatedCells, fullyValidatedCells } =
+                computeValidationStats(
+                    cellWithValidatedData,
+                    minimumValidationsRequired,
+                    minimumAudioValidationsRequired
+                );
+
+            // Calculate progress percentages
+            const progressPercentages = computeProgressPercents(
+                totalCells,
+                cellsWithValues,
+                cellsWithAudioValues,
+                validatedCells,
+                audioValidatedCells,
+                fullyValidatedCells
+            );
+
+            // Milestone number is 1-based (i + 1)
+            progress[i + 1] = progressPercentages;
+        }
+
+        return progress;
+    }
+
+    /**
+     * Calculates progress for all subsections (pages) within a milestone.
+     * This is efficient as it only processes the cells needed for each subsection.
+     * 
+     * @param milestoneIndex The index of the milestone (0-based)
+     * @param cellsPerPage Number of cells per page
+     * @param minimumValidationsRequired Minimum validations required for text
+     * @param minimumAudioValidationsRequired Minimum validations required for audio
+     * @returns Record mapping subsection index (0-based) to progress percentages
+     */
+    public calculateSubsectionProgress(
+        milestoneIndex: number,
+        cellsPerPage: number = 50,
+        minimumValidationsRequired: number = 1,
+        minimumAudioValidationsRequired: number = 1
+    ): Record<number, {
+        percentTranslationsCompleted: number;
+        percentAudioTranslationsCompleted: number;
+        percentFullyValidatedTranslations: number;
+        percentAudioValidatedTranslations: number;
+        percentTextValidatedTranslations: number;
+        textValidationLevels?: number[];
+        audioValidationLevels?: number[];
+        requiredTextValidations?: number;
+        requiredAudioValidations?: number;
+    }> {
+        const progress: Record<number, {
+            percentTranslationsCompleted: number;
+            percentAudioTranslationsCompleted: number;
+            percentFullyValidatedTranslations: number;
+            percentAudioValidatedTranslations: number;
+            percentTextValidatedTranslations: number;
+            textValidationLevels?: number[];
+            audioValidationLevels?: number[];
+            requiredTextValidations?: number;
+            requiredAudioValidations?: number;
+        }> = {};
+
+        const cells = this._documentData.cells || [];
+        const milestoneInfo = this.buildMilestoneIndex(cellsPerPage);
+
+        // Validate milestone index
+        if (milestoneIndex < 0 || milestoneIndex >= milestoneInfo.milestones.length) {
+            return progress;
+        }
+
+        const milestone = milestoneInfo.milestones[milestoneIndex];
+        const nextMilestone = milestoneInfo.milestones[milestoneIndex + 1];
+
+        // Get cell range for this milestone
+        const startCellIndex = milestone.cellIndex;
+        const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
+
+        // Collect content cells for this milestone (excluding milestone, paratext, and merged cells)
+        const contentCells: QuillCellContent[] = [];
+        for (let i = startCellIndex; i < endCellIndex; i++) {
+            const cell = cells[i];
+
+            // Skip milestone cells
+            if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
+                continue;
+            }
+
+            // Skip paratext and merged cells
+            const cellId = cell.metadata?.id;
+            if (!cellId || cellId.includes(":paratext-") || cell.metadata?.data?.merged) {
+                continue;
+            }
+
+            // Convert to QuillCellContent format
+            const quillContent = convertCellToQuillContent(cell);
+            contentCells.push(quillContent);
+        }
+
+        // Calculate number of subsections
+        const totalSubsections = Math.ceil(contentCells.length / cellsPerPage);
+
+        // Calculate progress for each subsection
+        for (let subsectionIdx = 0; subsectionIdx < totalSubsections; subsectionIdx++) {
+            const startContentIndex = subsectionIdx * cellsPerPage;
+            const endContentIndex = Math.min(startContentIndex + cellsPerPage, contentCells.length);
+            const subsectionCells = contentCells.slice(startContentIndex, endContentIndex);
+
+            const totalCells = subsectionCells.length;
+            if (totalCells === 0) {
+                progress[subsectionIdx] = {
+                    percentTranslationsCompleted: 0,
+                    percentAudioTranslationsCompleted: 0,
+                    percentFullyValidatedTranslations: 0,
+                    percentAudioValidatedTranslations: 0,
+                    percentTextValidatedTranslations: 0,
+                    textValidationLevels: [],
+                    audioValidationLevels: [],
+                    requiredTextValidations: minimumValidationsRequired,
+                    requiredAudioValidations: minimumAudioValidationsRequired,
+                };
+                continue;
+            }
+
+            // Count cells with content (translated)
+            const cellsWithValues = subsectionCells.filter(
+                (cell) =>
+                    cell.cellContent &&
+                    cell.cellContent.trim().length > 0 &&
+                    cell.cellContent !== "<span></span>"
+            ).length;
+
+            // Count cells with audio
+            const cellsWithAudioValues = subsectionCells.filter((cell) =>
+                cellHasAudioUsingAttachments(
+                    cell.attachments,
+                    cell.metadata?.selectedAudioId
+                )
+            ).length;
+
+            // Calculate validation data
+            const cellWithValidatedData = subsectionCells.map((cell) => getCellValueData(cell));
+
+            const { validatedCells, audioValidatedCells, fullyValidatedCells } =
+                computeValidationStats(
+                    cellWithValidatedData,
+                    minimumValidationsRequired,
+                    minimumAudioValidationsRequired
+                );
+
+            // Compute per-level validation percentages for text and audio
+            const countNonDeleted = (arr: any[] | undefined) => (arr || []).filter((v: any) => !v.isDeleted).length;
+            const textValidationCounts = cellWithValidatedData.map((c) => countNonDeleted(c.validatedBy));
+            const audioValidationCounts = cellWithValidatedData.map((c) => countNonDeleted(c.audioValidatedBy));
+
+            const computeLevelPercents = (counts: number[], maxLevel: number) => {
+                const levels: number[] = [];
+                const total = totalCells > 0 ? totalCells : 1;
+                for (let k = 1; k <= Math.max(0, maxLevel); k++) {
+                    const satisfied = counts.filter((n) => n >= k).length;
+                    levels.push((satisfied / total) * 100);
+                }
+                return levels;
+            };
+
+            const textValidationLevels = computeLevelPercents(textValidationCounts, minimumValidationsRequired);
+            const audioValidationLevels = computeLevelPercents(audioValidationCounts, minimumAudioValidationsRequired);
+
+            // Calculate progress percentages
+            const progressPercentages = computeProgressPercents(
+                totalCells,
+                cellsWithValues,
+                cellsWithAudioValues,
+                validatedCells,
+                audioValidatedCells,
+                fullyValidatedCells
+            );
+
+            progress[subsectionIdx] = {
+                ...progressPercentages,
+                textValidationLevels,
+                audioValidationLevels,
+                requiredTextValidations: minimumValidationsRequired,
+                requiredAudioValidations: minimumAudioValidationsRequired,
+            };
+        }
+
+        return progress;
+    }
+
+    /**
+     * Gets cells for a specific milestone and optional subsection.
+     * Used for lazy loading cells on-demand.
+     * 
+     * This method ensures that paratext cells appear on the same page as their
+     * associated content cell, whether the paratext is above or below the content cell.
+     * 
+     * @param milestoneIndex The index of the milestone (0-based)
+     * @param subsectionIndex Optional subsection index for sub-pagination within milestone
+     * @param cellsPerPage Number of cells per page
+     * @returns Array of cells for the requested milestone/subsection
+     */
+    public getCellsForMilestone(
+        milestoneIndex: number,
+        subsectionIndex: number = 0,
+        cellsPerPage: number = 50
+    ): QuillCellContent[] {
+        const cells = this._documentData.cells || [];
+        const milestoneInfo = this.buildMilestoneIndex(cellsPerPage);
+
+        // Validate milestone index
+        if (milestoneIndex < 0 || milestoneIndex >= milestoneInfo.milestones.length) {
+            console.warn(`Invalid milestone index: ${milestoneIndex}`);
+            return [];
+        }
+
+        const milestone = milestoneInfo.milestones[milestoneIndex];
+        const nextMilestone = milestoneInfo.milestones[milestoneIndex + 1];
+
+        // Get all cells in this milestone section
+        const startCellIndex = milestone.cellIndex;
+        const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
+
+        // Convert all cells in milestone range to QuillCellContent format
+        // and separate into content cells and paratext cells
+        const allCellsInMilestone: QuillCellContent[] = [];
+        const paratextCells: QuillCellContent[] = [];
+        const contentCells: QuillCellContent[] = [];
+
+        for (let i = startCellIndex; i < endCellIndex; i++) {
+            const cell = cells[i];
+
+            // Skip milestone cells - they're not displayed
+            if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
+                continue;
+            }
+
+            const quillContent = convertCellToQuillContent(cell);
+            allCellsInMilestone.push(quillContent);
+
+            // Separate paratext cells from content cells
+            if (cell.metadata?.type === CodexCellTypes.PARATEXT) {
+                paratextCells.push(quillContent);
+            } else {
+                contentCells.push(quillContent);
+            }
+        }
+
+        // Calculate which content cells belong to the current page
+        const totalSubsections = Math.ceil(contentCells.length / cellsPerPage);
+        const validSubsectionIndex = Math.min(
+            Math.max(0, subsectionIndex),
+            Math.max(0, totalSubsections - 1)
+        );
+
+        const startContentIndex = validSubsectionIndex * cellsPerPage;
+        const endContentIndex = Math.min(startContentIndex + cellsPerPage, contentCells.length);
+
+        // Get content cells for this page
+        const contentCellsForPage = contentCells.slice(startContentIndex, endContentIndex);
+        const contentCellIdsForPage = new Set(
+            contentCellsForPage.map(cell => cell.cellMarkers[0])
+        );
+
+        // Build a map of parent cell ID -> paratext cells
+        const paratextCellsByParent = new Map<string, QuillCellContent[]>();
+        for (const paratextCell of paratextCells) {
+            // Check metadata.parentId first (where parentId is stored for paratext cells)
+            const cellMetadata = paratextCell.metadata || {};
+            let parentId = cellMetadata.parentId as string | undefined;
+
+            if (!parentId) {
+                // Fall back to checking data.parentId (for backward compatibility with old data)
+                const cellData = paratextCell.data;
+                parentId = cellData?.parentId as string | undefined;
+            }
+
+            if (!parentId) {
+                // Legacy: try to extract from ID format (for backward compatibility during migration)
+                const extractedParentId = extractParentCellIdFromParatext(paratextCell.cellMarkers[0], cellMetadata);
+                parentId = extractedParentId || undefined;
+            }
+
+            if (parentId) {
+                if (!paratextCellsByParent.has(parentId)) {
+                    paratextCellsByParent.set(parentId, []);
+                }
+                paratextCellsByParent.get(parentId)!.push(paratextCell);
+            }
+        }
+
+        // Build a set of all cell IDs that should be included in the result
+        // This includes content cells on the current page and their associated paratext cells
+        const cellsToInclude = new Set<string>(contentCellIdsForPage);
+
+        // Add paratext cells associated with content cells on the current page
+        for (const contentCellId of contentCellIdsForPage) {
+            const associatedParatextCells = paratextCellsByParent.get(contentCellId) || [];
+            for (const paratextCell of associatedParatextCells) {
+                cellsToInclude.add(paratextCell.cellMarkers[0]);
+            }
+        }
+
+        // Filter allCellsInMilestone to only include cells that should be on this page
+        // This maintains the original order while ensuring paratext cells appear with their content cells
+        const result = allCellsInMilestone.filter(cell =>
+            cellsToInclude.has(cell.cellMarkers[0])
+        );
+
+        return result;
+    }
+
+    /**
+     * Gets the total number of subsections for a milestone.
+     * 
+     * @param milestoneIndex The index of the milestone (0-based)
+     * @param cellsPerPage Number of cells per page
+     * @returns Number of subsections (pages) for this milestone
+     */
+    public getSubsectionCountForMilestone(milestoneIndex: number, cellsPerPage: number = 50): number {
+        const milestoneInfo = this.buildMilestoneIndex(cellsPerPage);
+
+        if (milestoneIndex < 0 || milestoneIndex >= milestoneInfo.milestones.length) {
+            return 0;
+        }
+
+        const milestone = milestoneInfo.milestones[milestoneIndex];
+        return Math.ceil(milestone.cellCount / cellsPerPage) || 1;
     }
 
     public updateCellLabel(cellId: string, newLabel: string) {
@@ -1674,6 +2200,19 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
     public getCell(cellId: string): CustomNotebookCellData | undefined {
         return this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
+    }
+
+    /**
+     * Gets a cell by its index position in the cells array.
+     * @param index The 0-based index of the cell in the cells array
+     * @returns The cell at the specified index, or undefined if index is out of bounds
+     */
+    public getCellByIndex(index: number): CustomNotebookCellData | undefined {
+        const cells = this._documentData.cells || [];
+        if (index < 0 || index >= cells.length) {
+            return undefined;
+        }
+        return cells[index];
     }
 
     public updateCellData(cellId: string, newData: any): void {

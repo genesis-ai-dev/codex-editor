@@ -3,6 +3,7 @@ import {
     EditorPostMessages,
     QuillCellContent,
     SpellCheckResponse,
+    MilestoneIndex,
 } from "../../../../types";
 import React, { useMemo, useCallback, useState, useEffect, useRef, useContext } from "react";
 import CellEditor from "./TextCellEditor";
@@ -64,6 +65,11 @@ export interface CellListProps {
     isAudioOnly?: boolean;
     showInlineBacktranslations?: boolean;
     backtranslationsMap?: Map<string, any>;
+    // Milestone-based pagination props for global line numbering
+    milestoneIndex?: MilestoneIndex | null;
+    currentMilestoneIndex?: number;
+    currentSubsectionIndex?: number;
+    cellsPerPage?: number;
 }
 
 const DEBUG_ENABLED = false;
@@ -109,6 +115,10 @@ const CellList: React.FC<CellListProps> = ({
     showInlineBacktranslations = false,
     backtranslationsMap = new Map(),
     isAuthenticated = false,
+    milestoneIndex = null,
+    currentMilestoneIndex = 0,
+    currentSubsectionIndex = 0,
+    cellsPerPage = 50,
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -121,14 +131,21 @@ const CellList: React.FC<CellListProps> = ({
 
     // Filter out merged cells if we're in correction editor mode for source text
     const filteredTranslationUnits = useMemo(() => {
+        let filtered = translationUnits;
+
+        // Filter out merged cells if we're in correction editor mode for source text
         if (isSourceText && isCorrectionEditorMode) {
-            return translationUnits.filter((unit) => {
+            filtered = filtered.filter((unit) => {
                 // Check if cell has merged metadata in the data property
                 const cellData = unit.data as any;
                 return !cellData?.merged;
             });
         }
-        return translationUnits;
+
+        // Filter out milestone cells from the view (they remain in JSON)
+        filtered = filtered.filter((unit) => unit.cellType !== CodexCellTypes.MILESTONE);
+
+        return filtered;
     }, [translationUnits, isSourceText, isCorrectionEditorMode]);
     // Use filtered units for all operations
     const workingTranslationUnits = filteredTranslationUnits;
@@ -168,7 +185,8 @@ const CellList: React.FC<CellListProps> = ({
                 // Only count footnotes if the cell is in the same chapter
                 if (
                     cellChapterId === currentChapterId &&
-                    cell.cellType !== CodexCellTypes.PARATEXT
+                    cell.cellType !== CodexCellTypes.PARATEXT &&
+                    cell.cellType !== CodexCellTypes.MILESTONE
                 ) {
                     // Extract footnotes from this cell's content
                     const tempDiv = document.createElement("div");
@@ -401,46 +419,90 @@ const CellList: React.FC<CellListProps> = ({
         }
     }, [cellsInAutocompleteQueue, currentProcessingCellId]);
 
-    // Helper function to generate appropriate cell label using chapter-based verse numbers
+    // Helper function to get cell identifier (prefer globalReferences, fallback to cellMarkers)
+    const getCellIdentifier = useCallback((cell: QuillCellContent): string => {
+        // Prefer globalReferences (new format after migration)
+        const globalRefs = cell.data?.globalReferences;
+        if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+            return globalRefs[0];
+        }
+        // Fallback to cellMarkers for backward compatibility
+        return cell.cellMarkers[0] || "";
+    }, []);
+
+    // Helper function to check if a cell is a child cell
+    const isChildCell = useCallback(
+        (cell: QuillCellContent): boolean => {
+            // Check if this is a child cell by checking metadata.parentId (new UUID format)
+            if (cell.data?.parentId !== undefined) {
+                return true;
+            }
+            // Legacy: also check ID format for backward compatibility during migration
+            const cellId = getCellIdentifier(cell);
+            return Boolean(cellId && cellId.split(":").length > 2);
+        },
+        [getCellIdentifier]
+    );
+
+    // Calculate offset for current page based on milestone/subsection indices
+    const calculateLineNumberOffset = useCallback((): number => {
+        if (!milestoneIndex || milestoneIndex.milestones.length === 0) {
+            return 0;
+        }
+
+        let offset = 0;
+
+        // Add cells from all previous milestones
+        for (let i = 0; i < currentMilestoneIndex && i < milestoneIndex.milestones.length; i++) {
+            offset += milestoneIndex.milestones[i].cellCount;
+        }
+
+        // Add cells from previous subsections in current milestone
+        if (
+            currentSubsectionIndex > 0 &&
+            currentMilestoneIndex < milestoneIndex.milestones.length
+        ) {
+            const currentMilestone = milestoneIndex.milestones[currentMilestoneIndex];
+            const effectiveCellsPerPage = milestoneIndex.cellsPerPage || cellsPerPage;
+            // Calculate how many cells are in previous subsections
+            offset += currentSubsectionIndex * effectiveCellsPerPage;
+        }
+
+        return offset;
+    }, [milestoneIndex, currentMilestoneIndex, currentSubsectionIndex, cellsPerPage]);
+
     // Helper function to get the chapter-based verse number (skipping paratext cells)
+    // Now uses globalReferences and includes offset for pagination
     const getChapterBasedVerseNumber = useCallback(
         (cell: QuillCellContent, allCells: QuillCellContent[]): number => {
+            const cellIdentifier = getCellIdentifier(cell);
+            if (!cellIdentifier) return 1; // Fallback if no identifier
+
             const cellIndex = allCells.findIndex(
-                (unit) => unit.cellMarkers[0] === cell.cellMarkers[0]
+                (unit) => getCellIdentifier(unit) === cellIdentifier
             );
 
             if (cellIndex === -1) return 1; // Fallback if not found
 
-            // FIXME: THIS BROKE LINE NUMBERS WHEN UPLOADING SUBTITLES. NEED TO FIX.
-            // // Extract chapter information from the current cell
-            // const currentCellMarker = cell.cellMarkers[0];
-            // const currentCellParts = currentCellMarker.split(":");
-            // if (currentCellParts.length < 2) return 1; // Invalid cell marker format
-
-            // const currentChapterId = currentCellParts[0]; // e.g., "GEN 1"
-            // const currentVerseNumber = parseInt(currentCellParts[1]); // e.g., 1 from "GEN 1:1"
-
-            // if (isNaN(currentVerseNumber)) return 1; // Invalid verse number
-
-            // Count non-paratext, non-child cells within the same chapter up to and including this one
-            // Child cells have more than 2 segments in their ID (e.g., "1TH 1:6:1740475700855-sbcr37orm")
+            // Count non-paratext, non-milestone, non-child cells up to and including this one
             let visibleCellCount = 0;
             for (let i = 0; i <= cellIndex; i++) {
-                const cellIdParts = allCells[i].cellMarkers[0].split(":");
+                const unit = allCells[i];
                 if (
-                    allCells[i].cellType !== CodexCellTypes.PARATEXT &&
-                    cellIdParts.length === 2 && // Skip child cells (which have > 2 parts)
-                    !allCells[i]
-                        .merged /* && FIXME: THIS BROKE LINE NUMBERS WHEN UPLOADING SUBTITLES. NEED TO FIX.
-                    cellIdParts[0] === currentChapterId // Only count cells from the same chapter */
+                    unit.cellType !== CodexCellTypes.PARATEXT &&
+                    unit.cellType !== CodexCellTypes.MILESTONE &&
+                    !isChildCell(unit) &&
+                    !unit.merged
                 ) {
                     visibleCellCount++;
                 }
             }
 
-            return visibleCellCount;
+            // Add offset for pagination (cells from previous milestones/subsections)
+            const offset = calculateLineNumberOffset();
+            return visibleCellCount + offset;
         },
-        []
+        [getCellIdentifier, isChildCell, calculateLineNumberOffset]
     );
 
     const generateCellLabel = useCallback(
@@ -458,55 +520,84 @@ const CellList: React.FC<CellListProps> = ({
                 return "";
             }
 
+            // Don't show line number for milestone cells
+            if (cell.cellType === CodexCellTypes.MILESTONE) {
+                return "";
+            }
+
             // Check if this is a child cell
-            const cellId = cell.cellMarkers[0];
-            const cellIdParts = cellId.split(":");
+            if (isChildCell(cell)) {
+                // Get the parent cell ID
+                const parentId = cell.data?.parentId;
+                const cellIdentifier = getCellIdentifier(cell);
 
-            // Child cells have more than 2 segments in their ID (e.g., "1TH 1:6:1740475700855-sbcr37orm")
-            if (cellIdParts.length > 2) {
-                // Get the parent cell ID (e.g., "1TH 1:6")
-                const parentCellId = cellIdParts.slice(0, 2).join(":");
+                let parentCellId: string | undefined;
 
-                // Find the parent cell in the full document
-                const parentCell = fullDocumentTranslationUnits.find(
-                    (unit: QuillCellContent) => unit.cellMarkers[0] === parentCellId
-                );
+                // Try to get parent ID from metadata first (new UUID format)
+                if (parentId) {
+                    parentCellId = parentId;
+                } else {
+                    // Legacy: extract parent ID from cell identifier format
+                    const cellIdParts = cellIdentifier.split(":");
+                    if (cellIdParts.length > 2) {
+                        parentCellId = cellIdParts.slice(0, 2).join(":");
+                    }
+                }
 
-                if (parentCell) {
-                    // Get parent's label using chapter-based verse numbers
-                    const parentLabel =
-                        parentCell.cellLabel ||
-                        (parentCell.cellType !== CodexCellTypes.PARATEXT
-                            ? getChapterBasedVerseNumber(parentCell, fullDocumentTranslationUnits)
-                            : "");
-
-                    // Find all siblings (cells with the same parent)
-                    const siblings = fullDocumentTranslationUnits.filter(
+                if (parentCellId) {
+                    // Find the parent cell in the full document using globalReferences or cellMarkers
+                    const parentCell = fullDocumentTranslationUnits.find(
                         (unit: QuillCellContent) => {
-                            const unitId = unit.cellMarkers[0];
-                            const unitIdParts = unitId.split(":");
-                            return (
-                                unitIdParts.length > 2 &&
-                                unitIdParts.slice(0, 2).join(":") === parentCellId
-                            );
+                            const unitId = getCellIdentifier(unit);
+                            return unitId === parentCellId || unit.cellMarkers[0] === parentCellId;
                         }
                     );
 
-                    // Find this cell's index among its siblings
-                    const childIndex =
-                        siblings.findIndex(
-                            (sibling: QuillCellContent) => sibling.cellMarkers[0] === cellId
-                        ) + 1;
+                    if (parentCell) {
+                        // Get parent's label using chapter-based verse numbers
+                        const parentLabel =
+                            parentCell.cellLabel ||
+                            (parentCell.cellType !== CodexCellTypes.PARATEXT
+                                ? getChapterBasedVerseNumber(
+                                      parentCell,
+                                      fullDocumentTranslationUnits
+                                  )
+                                : "");
 
-                    // Return label in format "parentLabel.childIndex"
-                    return `${parentLabel}.${childIndex}`;
+                        // Find all siblings (cells with the same parent)
+                        const siblings = fullDocumentTranslationUnits.filter(
+                            (unit: QuillCellContent) => {
+                                const unitParentId = unit.data?.parentId;
+                                if (unitParentId) {
+                                    return unitParentId === parentCellId;
+                                }
+                                // Legacy: check ID format
+                                const unitId = getCellIdentifier(unit);
+                                const unitIdParts = unitId.split(":");
+                                return (
+                                    unitIdParts.length > 2 &&
+                                    unitIdParts.slice(0, 2).join(":") === parentCellId
+                                );
+                            }
+                        );
+
+                        // Find this cell's index among its siblings
+                        const childIndex =
+                            siblings.findIndex(
+                                (sibling: QuillCellContent) =>
+                                    getCellIdentifier(sibling) === cellIdentifier
+                            ) + 1;
+
+                        // Return label in format "parentLabel.childIndex"
+                        return `${parentLabel}.${childIndex}`;
+                    }
                 }
             }
 
             // Get chapter-based verse number (skipping paratext cells)
             return getChapterBasedVerseNumber(cell, fullDocumentTranslationUnits).toString();
         },
-        [fullDocumentTranslationUnits, getChapterBasedVerseNumber]
+        [fullDocumentTranslationUnits, getChapterBasedVerseNumber, getCellIdentifier, isChildCell]
     );
 
     // Helper function to determine if cell content is effectively empty

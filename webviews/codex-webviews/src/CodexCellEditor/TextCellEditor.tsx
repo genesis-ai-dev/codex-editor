@@ -622,9 +622,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
         []
     );
 
-    const makeChild = () => {
+    const makeChild = async () => {
         const parentCellId = cellMarkers[0];
-        const newChildId = generateChildCellId(parentCellId);
+        const newChildId = await generateChildCellId(parentCellId);
 
         const startTime = cellTimestamps?.startTime;
         const endTime = cellTimestamps?.endTime;
@@ -1038,7 +1038,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                 const preferred = event.data.tab as typeof activeTab;
 
-                if (event.data.tab === "editLabel" && cellType === CodexCellTypes.PARATEXT) {
+                if (
+                    event.data.tab === "editLabel" &&
+                    (cellType === CodexCellTypes.PARATEXT || cellType === CodexCellTypes.MILESTONE)
+                ) {
                     setActiveTab("source");
                 } else {
                     setActiveTab(preferred);
@@ -1831,28 +1834,32 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             role="button"
                             aria-label="Cell id and label"
                         >
-                            {cellType !== CodexCellTypes.PARATEXT && (
-                                <div className="flex items-center gap-x-1" title="Edit cell label">
-                                    <span className="text-lg font-semibold muted-foreground">
-                                        {displayEditableLabel()}
-                                    </span>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        title="Edit label"
-                                        onClick={() => {
-                                            setActiveTab("editLabel");
-                                        }}
+                            {cellType !== CodexCellTypes.PARATEXT &&
+                                cellType !== CodexCellTypes.MILESTONE && (
+                                    <div
+                                        className="flex items-center gap-x-1"
+                                        title="Edit cell label"
                                     >
-                                        <i
-                                            className="codicon codicon-edit"
-                                            style={{
-                                                fontSize: "0.9em",
+                                        <span className="text-lg font-semibold muted-foreground">
+                                            {displayEditableLabel()}
+                                        </span>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            title="Edit label"
+                                            onClick={() => {
+                                                setActiveTab("editLabel");
                                             }}
-                                        ></i>
-                                    </Button>
-                                </div>
-                            )}
+                                        >
+                                            <i
+                                                className="codicon codicon-edit"
+                                                style={{
+                                                    fontSize: "0.9em",
+                                                }}
+                                            ></i>
+                                        </Button>
+                                    </div>
+                                )}
                             <CommentsBadge
                                 cellId={cellMarkers[0]}
                                 unresolvedCount={unresolvedCommentsCount}
@@ -2106,11 +2113,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         className="flex w-full"
                         style={{ justifyContent: "stretch", display: "flex" }}
                     >
-                        {cellType !== CodexCellTypes.PARATEXT && (
-                            <TabsTrigger value="editLabel">
-                                <Tag className="mr-2 h-4 w-4" />
-                            </TabsTrigger>
-                        )}
+                        {cellType !== CodexCellTypes.PARATEXT &&
+                            cellType !== CodexCellTypes.MILESTONE && (
+                                <TabsTrigger value="editLabel">
+                                    <Tag className="mr-2 h-4 w-4" />
+                                </TabsTrigger>
+                            )}
                         <TabsTrigger value="source">
                             <FileCode className="mr-2 h-4 w-4" />
                             {!sourceText && (
@@ -2165,27 +2173,32 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         )}
                     </TabsList>
 
-                    <TabsContent value="editLabel">
-                        <div className="space-y-6">
-                            <div className="flex items-center gap-2">
-                                <Input
-                                    type="text"
-                                    value={editableLabel}
-                                    defaultValue={cellLabel}
-                                    onChange={handleLabelChange}
-                                    placeholder="Enter label..."
-                                    className="flex-1"
-                                />
-                                <RotateCcw
-                                    className="h-4 w-4 cursor-pointer"
-                                    onClick={() => {
-                                        setIsEditorControlsExpanded(!isEditorControlsExpanded);
-                                        discardLabelChanges();
-                                    }}
-                                />
-                            </div>
-                        </div>
-                    </TabsContent>
+                    {cellType !== CodexCellTypes.PARATEXT &&
+                        cellType !== CodexCellTypes.MILESTONE && (
+                            <TabsContent value="editLabel">
+                                <div className="space-y-6">
+                                    <div className="flex items-center gap-2">
+                                        <Input
+                                            type="text"
+                                            value={editableLabel}
+                                            defaultValue={cellLabel}
+                                            onChange={handleLabelChange}
+                                            placeholder="Enter label..."
+                                            className="flex-1"
+                                        />
+                                        <RotateCcw
+                                            className="h-4 w-4 cursor-pointer"
+                                            onClick={() => {
+                                                setIsEditorControlsExpanded(
+                                                    !isEditorControlsExpanded
+                                                );
+                                                discardLabelChanges();
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            </TabsContent>
+                        )}
                     <TabsContent value="source">
                         <div className="space-y-6">
                             {/* Source Text */}

@@ -11,6 +11,7 @@ import {
     createStandardCellId,
     createProcessedCell,
     validateFileExtension,
+    addMilestoneCellsToNotebookPair,
 } from '../../utils/workflowHelpers';
 import { processImageData } from '../../utils/imageProcessor';
 import JSZip from 'jszip';
@@ -319,10 +320,14 @@ const downloadObsRepository = async (
         onProgress?.(createProgress('Creating Notebooks', 'Creating OBS notebooks...', 90));
 
         // Convert individual notebooks to NotebookPair format
-        const notebookPairs = sourceNotebooks.map((sourceNotebook, index) => ({
-            source: sourceNotebook,
-            codex: codexNotebooks[index],
-        }));
+        const notebookPairs = sourceNotebooks.map((sourceNotebook, index) => {
+            const notebookPair = {
+                source: sourceNotebook,
+                codex: codexNotebooks[index],
+            };
+            // Add milestone cells to each notebook pair
+            return addMilestoneCellsToNotebookPair(notebookPair);
+        });
 
         onProgress?.(createProgress('Complete', 'OBS repository download complete', 100));
 

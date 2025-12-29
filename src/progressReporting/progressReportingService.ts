@@ -1,8 +1,8 @@
 import * as vscode from "vscode";
-import * as path from "path";
 import { getAuthApi } from "../extension";
 import { getNotebookMetadataManager } from "../utils/notebookMetadataManager";
 import { getSQLiteIndexManager } from "../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
+import { getBookDisplayName } from "../utils/bookNameUtils";
 
 const DEBUG_MODE = false;
 const debug = (message: string, ...args: any[]) => {
@@ -366,7 +366,8 @@ export class ProgressReportingService {
 
             const db = sqliteIndex.database;
 
-            // Get basic cell statistics
+            // Get basic cell statistics (excluding milestone cells)
+            // Exclude milestone cells: those with cell_type='milestone' OR (cell_type IS NULL AND cell_id is UUID-like, i.e., no colon or space)
             const cellStatsStmt = db.prepare(`
                 SELECT 
                     COUNT(*) as total_cells,
@@ -378,6 +379,7 @@ export class ProgressReportingService {
                     SUM(COALESCE(t_word_count, 0)) as total_target_words,
                     MAX(COALESCE(t_current_edit_timestamp, 0)) as last_edit_timestamp
                 FROM cells
+                WHERE (cell_type IS NULL AND (cell_id LIKE '%:%' OR cell_id LIKE '% %')) OR (cell_type IS NOT NULL AND cell_type != 'milestone')
             `);
 
             let cellStats = {
@@ -439,7 +441,7 @@ export class ProgressReportingService {
             const debugCellFilesStmt = db.prepare(`
                 SELECT t_file_id, COUNT(*) as count
                 FROM cells
-                WHERE t_file_id IS NOT NULL
+                WHERE t_file_id IS NOT NULL AND ((cell_type IS NULL AND (cell_id LIKE '%:%' OR cell_id LIKE '% %')) OR (cell_type IS NOT NULL AND cell_type != 'milestone'))
                 GROUP BY t_file_id
                 ORDER BY t_file_id
                 LIMIT 10
@@ -463,10 +465,10 @@ export class ProgressReportingService {
                     SUM(COALESCE(c.s_word_count, 0)) as source_words,
                     SUM(COALESCE(c.t_word_count, 0)) as target_words
                 FROM files f
-                LEFT JOIN cells c ON f.id = c.t_file_id
+                LEFT JOIN cells c ON f.id = c.t_file_id AND ((c.cell_type IS NULL AND (c.cell_id LIKE '%:%' OR c.cell_id LIKE '% %')) OR (c.cell_type IS NOT NULL AND c.cell_type != 'milestone'))
                 WHERE f.file_type = 'codex'
                 GROUP BY f.file_path
-                HAVING total_cells > 0
+                HAVING COUNT(*) > 0
             `);
 
             try {
@@ -477,39 +479,63 @@ export class ProgressReportingService {
                 originalBookCompletionStmt.free();
             }
 
-            // Now try a different approach - get book completion data by extracting file info from cell IDs
-            // Since cell IDs seem to contain the file/book information
+            // MILESTONES: Will have to have this read from the milestone value.
+
+            // Extract book code from file paths by joining with files table
+            // Then convert to full book name using getBookDisplayName
             const bookCompletionStmt = db.prepare(`
                 SELECT 
-                    -- Extract book name from cell_id (everything before the first space or colon)
-                    CASE 
-                        WHEN cell_id LIKE '%:%' THEN SUBSTR(cell_id, 1, INSTR(cell_id, ':') - 1)
-                        WHEN cell_id LIKE '% %' THEN SUBSTR(cell_id, 1, INSTR(cell_id, ' ') - 1)
-                        ELSE cell_id
-                    END as book_name,
+                    COALESCE(
+                        REPLACE(
+                            REPLACE(
+                                REPLACE(
+                                    REPLACE(tf.file_path, 'files/target/', ''),
+                                    '.project/sourceTexts/', ''
+                                ),
+                                '.codex', ''
+                            ),
+                            '.source', ''
+                        ),
+                        REPLACE(
+                            REPLACE(
+                                REPLACE(
+                                    REPLACE(sf.file_path, 'files/target/', ''),
+                                    '.project/sourceTexts/', ''
+                                ),
+                                '.codex', ''
+                            ),
+                            '.source', ''
+                        )
+                    ) as book_code,
                     COUNT(*) as total_cells,
                     COUNT(CASE WHEN t_content IS NOT NULL AND t_content != '' THEN 1 END) as translated_cells,
                     COUNT(CASE WHEN t_is_fully_validated = 1 THEN 1 END) as validated_cells,
                     SUM(COALESCE(s_word_count, 0)) as source_words,
                     SUM(COALESCE(t_word_count, 0)) as target_words
-                FROM cells
-                WHERE cell_id IS NOT NULL AND cell_id != ''
-                GROUP BY book_name
-                HAVING total_cells > 0
-                ORDER BY book_name
+                FROM cells c
+                LEFT JOIN files tf ON c.t_file_id = tf.id
+                LEFT JOIN files sf ON c.s_file_id = sf.id
+                WHERE c.cell_id IS NOT NULL AND c.cell_id != '' 
+                    AND ((c.cell_type IS NULL AND (c.cell_id LIKE '%:%' OR c.cell_id LIKE '% %')) 
+                         OR (c.cell_type IS NOT NULL AND c.cell_type != 'milestone'))
+                GROUP BY book_code
+                HAVING COUNT(*) > 0
+                ORDER BY book_code
             `);
 
             const bookCompletionMap: Record<string, BookCompletionData> = {};
             try {
                 while (bookCompletionStmt.step()) {
                     const row = bookCompletionStmt.getAsObject();
-                    const bookName = row.book_name as string;
+                    const bookCode = row.book_code as string;
                     const totalCells = (row.total_cells as number) || 0;
                     const translatedCells = (row.translated_cells as number) || 0;
                     const sourceWords = (row.source_words as number) || 0;
                     const targetWords = (row.target_words as number) || 0;
 
-                    if (totalCells > 0 && bookName) {
+                    if (totalCells > 0 && bookCode) {
+                        // Convert book code to full name (e.g., "GEN" -> "Genesis")
+                        const bookName = await getBookDisplayName(bookCode);
                         const completionPercentage = (translatedCells / totalCells) * 100;
                         bookCompletionMap[bookName] = {
                             completionPercentage: Math.round(completionPercentage * 100) / 100,
@@ -535,7 +561,7 @@ export class ProgressReportingService {
                     COUNT(CASE WHEN t_current_edit_timestamp >= ? THEN 1 END) as edits_last_week,
                     AVG(CASE WHEN t_current_edit_timestamp > 0 THEN 1 ELSE 0 END) as avg_daily_edits
                 FROM cells
-                WHERE t_current_edit_timestamp > 0
+                WHERE t_current_edit_timestamp > 0 AND ((cell_type IS NULL AND (cell_id LIKE '%:%' OR cell_id LIKE '% %')) OR (cell_type IS NOT NULL AND cell_type != 'milestone'))
             `);
 
             let activityStats = {
@@ -566,13 +592,14 @@ export class ProgressReportingService {
                 averageDailyEdits: Math.round(activityStats.avg_daily_edits * 10) / 10
             };
 
-            // Calculate quality metrics
+            // Calculate quality metrics (excluding milestone cells)
             const qualityStmt = db.prepare(`
                 SELECT 
                     COUNT(CASE WHEN t_validation_count = 0 AND t_content IS NOT NULL AND t_content != '' THEN 1 END) as unvalidated_segments,
                     AVG(CASE WHEN t_validation_count > 0 THEN t_validation_count ELSE 0 END) as avg_validation_count,
                     COUNT(CASE WHEN t_is_fully_validated = 1 THEN 1 END) * 100.0 / COUNT(CASE WHEN t_content IS NOT NULL AND t_content != '' THEN 1 END) as consistency_score
                 FROM cells
+                WHERE (cell_type IS NULL AND (cell_id LIKE '%:%' OR cell_id LIKE '% %')) OR (cell_type IS NOT NULL AND cell_type != 'milestone')
             `);
 
             let qualityStats = {
@@ -640,7 +667,19 @@ export class ProgressReportingService {
             debug(`📊 Validation status: ${report.validationStatus.stage} stage`);
 
         } catch (error) {
-            console.error("📊 Error collecting translation progress data:", error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorStack = error instanceof Error ? error.stack : undefined;
+
+            // Check if this is a "Statement closed" error - might be due to concurrent database access
+            if (errorMessage.includes("Statement closed") || errorMessage.includes("closed")) {
+                debug("📊 Progress collection interrupted (statement closed) - this may happen during concurrent database operations");
+                // Don't log as error if it's just a concurrency issue
+            } else {
+                console.error("📊 Error collecting translation progress data:", errorMessage);
+                if (errorStack) {
+                    console.error("📊 Error stack:", errorStack);
+                }
+            }
         }
     }
 

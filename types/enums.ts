@@ -10,6 +10,7 @@ export enum CodexCellTypes {
     TEXT = "text",
     PARATEXT = "paratext",
     STYLE = "style",
+    MILESTONE = "milestone",
 }
 export enum StartupFlowStates {
     LOGIN_REGISTER = "loginRegister",
