@@ -4388,7 +4388,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             );
 
             // Call refreshWebviewsForFiles with the document path
-            provider.refreshWebviewsForFiles([tempUri.fsPath]);
+            await provider.refreshWebviewsForFiles([tempUri.fsPath]);
 
             // Wait a bit for async operations
             await sleep(100);
@@ -4428,7 +4428,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
             // Call refreshWebviewsForFiles with a different file path
             const otherPath = path.join(os.tmpdir(), "nonexistent.codex");
-            provider.refreshWebviewsForFiles([otherPath]);
+            await provider.refreshWebviewsForFiles([otherPath]);
 
             // Wait a bit for async operations
             await sleep(100);
@@ -4467,7 +4467,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
             // Call refreshWebviewsForFiles with mix of .codex and non-.codex files
             const txtPath = path.join(os.tmpdir(), "test.txt");
-            provider.refreshWebviewsForFiles([tempUri.fsPath, txtPath]);
+            await provider.refreshWebviewsForFiles([tempUri.fsPath, txtPath]);
 
             // Wait a bit for async operations
             await sleep(100);
@@ -4511,7 +4511,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const relativePath = vscode.workspace.asRelativePath(tempUri);
 
             // Call refreshWebviewsForFiles with workspace-relative path
-            provider.refreshWebviewsForFiles([relativePath]);
+            await provider.refreshWebviewsForFiles([relativePath]);
 
             // Wait a bit for async operations
             await sleep(100);
@@ -4527,15 +4527,15 @@ suite("CodexCellEditorProvider Test Suite", () => {
             document.dispose();
         });
 
-        test("refreshWebviewsForFiles handles empty array", () => {
+        test("refreshWebviewsForFiles handles empty array", async () => {
             // Should not throw
-            provider.refreshWebviewsForFiles([]);
+            await provider.refreshWebviewsForFiles([]);
             assert.ok(true, "Should handle empty array without error");
         });
 
-        test("refreshWebviewsForFiles handles no webviews open", () => {
+        test("refreshWebviewsForFiles handles no webviews open", async () => {
             // Should not throw when no webviews are open
-            provider.refreshWebviewsForFiles([tempUri.fsPath]);
+            await provider.refreshWebviewsForFiles([tempUri.fsPath]);
             assert.ok(true, "Should handle no open webviews without error");
         });
     });

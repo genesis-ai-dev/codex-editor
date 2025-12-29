@@ -4029,9 +4029,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     /**
      * Refresh webviews for specific files by sending refreshCurrentPage messages.
      * This is used after sync to ensure webviews show newly added cells.
+     * Forces documents to reload from disk before refreshing to ensure latest data.
      * @param filePaths Array of file paths (workspace-relative or absolute) to refresh
      */
-    public refreshWebviewsForFiles(filePaths: string[]): void {
+    public async refreshWebviewsForFiles(filePaths: string[]): Promise<void> {
         if (!filePaths || filePaths.length === 0) {
             return;
         }
@@ -4073,6 +4074,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         let refreshedCount = 0;
         for (const [docUri, panel] of this.webviewPanels.entries()) {
             if (fileUris.has(docUri)) {
+                // Force document to reload from disk before refreshing webview
+                const document = this.documents.get(docUri);
+                if (document) {
+                    try {
+                        await document.revert();
+                        debug(`Reloaded document from disk: ${docUri}`);
+                    } catch (error) {
+                        console.warn(`Failed to revert document ${docUri}:`, error);
+                        // Continue with refresh even if revert fails
+                    }
+                }
+
                 debug(`Sending refreshCurrentPage to webview for ${docUri}`);
                 safePostMessageToPanel(panel, {
                     type: "refreshCurrentPage",
