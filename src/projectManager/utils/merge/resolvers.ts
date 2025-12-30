@@ -962,6 +962,8 @@ export async function resolveCodexCustomMerge(
     });
 
     const resultCells: CustomNotebookCellData[] = [];
+    // Track cell IDs we've already processed from "our" cells to prevent duplicates
+    const processedOurCellIds = new Set<string>();
 
     // Process our cells in order
     ourCells.forEach((ourCell) => {
@@ -970,6 +972,13 @@ export async function resolveCodexCustomMerge(
             debugLog("Skipping cell without ID");
             return;
         }
+
+        // Skip if we've already processed this cell ID (deduplicate "our" cells)
+        if (processedOurCellIds.has(cellId)) {
+            debugLog(`Skipping duplicate cell ${cellId} from our cells`);
+            return;
+        }
+        processedOurCellIds.add(cellId);
 
         const theirCell = theirCellsMap.get(cellId);
         if (theirCell) {

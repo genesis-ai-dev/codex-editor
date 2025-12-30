@@ -1086,6 +1086,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
         return this._documentData.metadata;
     }
 
+    // FIXME: Make this more efficient by mapping the milestone cells and allowing the map to be
+    // reused by other methods such as findMilestoneIndexForCell and findMilestoneAndSubsectionForCell.
+
     /**
      * Builds a milestone index from the document cells.
      * This index is used for milestone-based pagination.
@@ -1171,6 +1174,105 @@ export class CodexCellDocument implements vscode.CustomDocument {
             totalCells: totalContentCells,
             cellsPerPage,
         };
+    }
+
+    /**
+     * Finds the milestone index that a given cell belongs to.
+     * @param cellId The ID of the cell to find the milestone for
+     * @returns The milestone index (0-based), or null if not found
+     */
+    public findMilestoneIndexForCell(cellId: string): number | null {
+        const cells = this._documentData.cells || [];
+
+        // Find the index of the cell in the cells array
+        const cellIndex = cells.findIndex((cell) => cell.metadata?.id === cellId);
+        if (cellIndex === -1) {
+            return null;
+        }
+
+        // Find all milestone cells and their positions
+        const milestoneCellIndices: number[] = [];
+        for (let i = 0; i < cells.length; i++) {
+            const cell = cells[i];
+            if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
+                // Skip deleted milestone cells
+                if (cell.metadata?.data?.deleted === true) {
+                    continue;
+                }
+                milestoneCellIndices.push(i);
+            }
+        }
+
+        // If no milestones found, return 0 (virtual milestone)
+        if (milestoneCellIndices.length === 0) {
+            return 0;
+        }
+
+        // Find which milestone this cell belongs to
+        // A cell belongs to the last milestone that appears before it
+        let milestoneIndex = 0;
+        for (let i = 0; i < milestoneCellIndices.length; i++) {
+            if (milestoneCellIndices[i] <= cellIndex) {
+                milestoneIndex = i;
+            } else {
+                break;
+            }
+        }
+
+        return milestoneIndex;
+    }
+
+    /**
+     * Finds the subsection index that a given cell belongs to within its milestone.
+     * @param cellId The ID of the cell to find the subsection for
+     * @param cellsPerPage Number of cells per page for sub-pagination (default: 50)
+     * @returns An object with milestoneIndex and subsectionIndex, or null if not found
+     */
+    public findMilestoneAndSubsectionForCell(cellId: string, cellsPerPage: number = 50): { milestoneIndex: number; subsectionIndex: number; } | null {
+        const cells = this._documentData.cells || [];
+
+        // Find the index of the cell in the cells array
+        const cellIndex = cells.findIndex((cell) => cell.metadata?.id === cellId);
+        if (cellIndex === -1) {
+            return null;
+        }
+
+        // Build milestone index to get milestone information
+        const milestoneInfo = this.buildMilestoneIndex(cellsPerPage);
+
+        // Find which milestone this cell belongs to
+        for (let i = 0; i < milestoneInfo.milestones.length; i++) {
+            const milestone = milestoneInfo.milestones[i];
+            const nextMilestone = milestoneInfo.milestones[i + 1];
+            const startCellIndex = milestone.cellIndex;
+            const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
+
+            if (cellIndex >= startCellIndex && cellIndex < endCellIndex) {
+                // Count content cells (excluding milestones and paratext) from the start of this milestone
+                // up to and including the clicked cell. This matches the logic in getCellsForMilestone.
+                let contentCellCount = 0;
+                for (let j = startCellIndex; j <= cellIndex; j++) {
+                    const cell = cells[j];
+                    // Skip milestone cells and paratext cells (matching getCellsForMilestone logic)
+                    if (cell.metadata?.type !== CodexCellTypes.MILESTONE &&
+                        cell.metadata?.type !== CodexCellTypes.PARATEXT) {
+                        contentCellCount++;
+                    }
+                }
+
+                // Calculate subsection index (0-based)
+                // In getCellsForMilestone: startContentIndex = validSubsectionIndex * cellsPerPage
+                // So if a cell is at position N (1-indexed), it's in subsection floor((N-1) / cellsPerPage)
+                // Since contentCellCount is 1-indexed (count of cells including this one),
+                // we subtract 1 to get 0-indexed position, then divide by cellsPerPage
+                const subsectionIndex = Math.max(0, Math.floor((contentCellCount - 1) / cellsPerPage));
+
+                return { milestoneIndex: i, subsectionIndex };
+            }
+        }
+
+        // If cell is before first milestone, return milestone 0, subsection 0
+        return { milestoneIndex: 0, subsectionIndex: 0 };
     }
 
     /**

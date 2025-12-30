@@ -319,12 +319,13 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 "cellId",
                 (value: CellIdGlobalState | undefined) => {
                     debug("[CommentsProvider] Cell ID change detected:", value);
-                    if (value?.cellId && value?.uri && this._view) {
-                        // Send reload message to webview with new cell ID
+                    if (value && this._view) {
+                        // Send reload message to webview with new cell ID and globalReferences
                         safePostMessageToView(this._view, {
                             command: "reload",
                             data: {
                                 cellId: value.cellId,
+                                globalReferences: value.globalReferences,
                                 uri: value.uri,
                             },
                         } as CommentPostMessages);
@@ -599,7 +600,8 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                                 safePostMessageToView(this._view, {
                                     command: "reload",
                                     data: {
-                                        cellId: value.cellId, // Extract just the cellId string
+                                        cellId: value.cellId,
+                                        globalReferences: value.globalReferences,
                                         uri: value.uri,
                                     },
                                 } as CommentPostMessages);
@@ -875,7 +877,10 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         if (cellId) {
             safePostMessageToView(webviewView, {
                 command: "reload",
-                data: { cellId: cellId.cellId },
+                data: {
+                    cellId: cellId.cellId,
+                    globalReferences: cellId.globalReferences,
+                },
             } as CommentPostMessages);
         }
     }

@@ -114,15 +114,23 @@ export async function getBookDisplayName(usfmCode: string): Promise<string> {
 /**
  * Determine if an importer type represents biblical content
  */
-export function isBiblicalImporterType(importerType: string): boolean {
-    const biblicalImporters = [
+export function isBiblicalImporterType(importerType: string | undefined): boolean {
+    if (!importerType) return false;
+    const normalizedType = importerType.toLowerCase().trim();
+    const bibleTypeImporters = [
         'usfm',
         'paratext',
+        'ebiblecorpus',
+        'ebible',
         'ebible-download',
-        'macula-bible',
-        'obs'
+        'maculabible',
+        'macula',
+        'biblica',
+        'obs',
+        'pdf', // PDF can contain Bible content
+        'indesign', // InDesign can contain Bible content
     ];
-    return biblicalImporters.includes(importerType);
+    return bibleTypeImporters.includes(normalizedType);
 }
 
 /**

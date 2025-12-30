@@ -555,7 +555,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         try {
             // First, update the global state to set the current cell ID
             const uri = document.uri.toString();
-            provider.updateCellIdState(typedEvent.content.cellId, uri);
+            provider.updateCellIdState(typedEvent.content.cellId, uri, document);
 
             // Open the comments view and navigate to the specific cell
             await vscode.commands.executeCommand("codex-editor-extension.focusCommentsView");
@@ -709,7 +709,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     setCurrentIdToGlobalState: ({ event, document, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "setCurrentIdToGlobalState"; }>;
         const uri = document.uri.toString();
-        provider.updateCellIdState(typedEvent.content.currentLineId, uri);
+        provider.updateCellIdState(typedEvent.content.currentLineId, uri, document);
     },
 
     llmCompletion: async ({ event, document, webviewPanel, provider }) => {
