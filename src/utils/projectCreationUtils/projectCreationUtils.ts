@@ -113,12 +113,16 @@ async function createProjectInNewFolder(projectName: string, projectId: string) 
 
     try {
         await vscode.workspace.fs.createDirectory(newFolderUri);
+        
+        // Store the projectId in a temporary file so it can be retrieved after workspace opens
+        // This allows the onboarding flow to use the correct projectId
+        const projectIdFile = vscode.Uri.joinPath(newFolderUri, '.pending-project-id');
+        await vscode.workspace.fs.writeFile(projectIdFile, Buffer.from(projectId, 'utf-8'));
+        
         await vscode.commands.executeCommand("vscode.openFolder", newFolderUri);
 
-        // Wait for workspace to open
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-
-        await createNewProject({ projectId });
+        // DO NOT call createNewProject here - let the StartupFlow handle initialization
+        // This allows the onboarding modal to appear before project is initialized
     } catch (error) {
         console.error("Error creating new project folder:", error);
         await vscode.window.showErrorMessage(

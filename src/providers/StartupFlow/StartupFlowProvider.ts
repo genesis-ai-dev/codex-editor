@@ -31,6 +31,8 @@ import * as fs from "fs";
 import git from "isomorphic-git";
 import { resolveConflictFiles } from "../../projectManager/utils/merge/resolvers";
 import { buildConflictsFromDirectories } from "../../projectManager/utils/merge/directoryConflicts";
+import { shouldShowOnboarding, setUserPreference } from "../../utils/userPreferences";
+import { createSampleContent, ProjectType } from "../../utils/sampleContent";
 
 // Add global state tracking for startup flow
 export class StartupFlowGlobalState {
@@ -1813,6 +1815,183 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     } catch (error) {
                         console.error("Error checking metadata.json:", error);
                         // If metadata.json doesn't exist yet, don't transition state
+                        this.safeSendMessage({
+                            command: "project.initializationStatus",
+                            isInitialized: false,
+                        });
+                    }
+                }
+                break;
+            }
+            case "onboarding.shouldShow": {
+                const shouldShow = await shouldShowOnboarding(this.context);
+                this.safeSendMessage({
+                    command: "onboarding.shouldShowResponse",
+                    shouldShow,
+                });
+                break;
+            }
+            case "onboarding.complete": {
+                const { projectTypes, skipOnboarding } = message;
+                
+                // Save preference if user wants to skip onboarding
+                if (skipOnboarding) {
+                    await setUserPreference(this.context, "skipOnboarding", true);
+                }
+
+                // Extract projectId from folder name or pending file
+                const workspaceFolders = vscode.workspace.workspaceFolders;
+                let projectId: string | undefined;
+
+                if (workspaceFolders && workspaceFolders[0]) {
+                    // First, try to read from .pending-project-id file
+                    try {
+                        const pendingIdFile = vscode.Uri.joinPath(workspaceFolders[0].uri, '.pending-project-id');
+                        const idData = await vscode.workspace.fs.readFile(pendingIdFile);
+                        projectId = Buffer.from(idData).toString('utf-8');
+                        debugLog("Read projectId from pending file:", projectId);
+                        
+                        // Delete the pending file after reading
+                        await vscode.workspace.fs.delete(pendingIdFile);
+                    } catch {
+                        // File doesn't exist, try extracting from folder name
+                        projectId = extractProjectIdFromFolderName(workspaceFolders[0].name);
+                        if (projectId) {
+                            debugLog("Extracted projectId from folder name:", projectId);
+                        }
+                    }
+                }
+
+                // Create project first
+                await createNewProject({ projectId });
+
+                // Wait for metadata.json to be created, then create sample content
+                if (workspaceFolders) {
+                    try {
+                        const metadataUri = vscode.Uri.joinPath(
+                            workspaceFolders[0].uri,
+                            "metadata.json"
+                        );
+                        // Wait for metadata.json to exist
+                        await vscode.workspace.fs.stat(metadataUri);
+
+                        // Create sample content based on selected project types
+                        if (projectTypes && projectTypes.length > 0) {
+                            try {
+                                debugLog("Creating sample content for project types:", projectTypes);
+                                await createSampleContent(
+                                    workspaceFolders[0].uri,
+                                    projectTypes as ProjectType[]
+                                );
+                                debugLog("Sample content created successfully");
+                                
+                                // Force refresh the file explorer to show new files
+                                await vscode.commands.executeCommand("workbench.files.action.refreshFilesExplorer");
+                                
+                                // Small delay to ensure files are visible
+                                await new Promise(resolve => setTimeout(resolve, 500));
+                                
+                                // Try to open the first sample file to make it visible
+                                const filesDir = vscode.Uri.joinPath(workspaceFolders[0].uri, "files");
+                                try {
+                                    const files = await vscode.workspace.fs.readDirectory(filesDir);
+                                    debugLog("Files in directory:", files);
+                                    
+                                    if (files.length > 0) {
+                                        // Open the first .codex file found
+                                        const firstCodexFile = files.find(([name]) => name.endsWith('.codex'));
+                                        if (firstCodexFile) {
+                                            const fileUri = vscode.Uri.joinPath(filesDir, firstCodexFile[0]);
+                                            debugLog("Opening first sample file:", fileUri.fsPath);
+                                            await vscode.commands.executeCommand('vscode.open', fileUri);
+                                        }
+                                    }
+                                } catch (openError) {
+                                    debugLog("Could not open sample file:", openError);
+                                }
+                                
+                                // Show a success message
+                                vscode.window.showInformationMessage(
+                                    `Project initialized with sample ${projectTypes.length > 1 ? 'files' : 'file'} for: ${projectTypes.join(', ')}. Check the files/ folder!`
+                                );
+                            } catch (error) {
+                                console.error("Error creating sample content:", error);
+                                vscode.window.showWarningMessage("Project initialized, but sample content creation failed. You can still use the project.");
+                                // Don't fail the whole flow if sample content creation fails
+                            }
+                        } else {
+                            debugLog("No project types selected, skipping sample content creation");
+                        }
+
+                        // Show Project Manager view first
+                        await vscode.commands.executeCommand(
+                            "codex-project-manager.showProjectOverview"
+                        );
+
+                        // Send initialization status to webview
+                        this.safeSendMessage({
+                            command: "project.initializationStatus",
+                            isInitialized: true,
+                        });
+
+                        this.stateMachine.send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
+                    } catch (error) {
+                        console.error("Error during onboarding completion:", error);
+                        this.safeSendMessage({
+                            command: "project.initializationStatus",
+                            isInitialized: false,
+                        });
+                    }
+                }
+                break;
+            }
+            case "onboarding.skip": {
+                // User skipped onboarding, just initialize project normally
+                const workspaceFolders = vscode.workspace.workspaceFolders;
+                let projectId: string | undefined;
+
+                if (workspaceFolders && workspaceFolders[0]) {
+                    // First, try to read from .pending-project-id file
+                    try {
+                        const pendingIdFile = vscode.Uri.joinPath(workspaceFolders[0].uri, '.pending-project-id');
+                        const idData = await vscode.workspace.fs.readFile(pendingIdFile);
+                        projectId = Buffer.from(idData).toString('utf-8');
+                        debugLog("Read projectId from pending file:", projectId);
+                        
+                        // Delete the pending file after reading
+                        await vscode.workspace.fs.delete(pendingIdFile);
+                    } catch {
+                        // File doesn't exist, try extracting from folder name
+                        projectId = extractProjectIdFromFolderName(workspaceFolders[0].name);
+                        if (projectId) {
+                            debugLog("Extracted projectId from folder name:", projectId);
+                        }
+                    }
+                }
+
+                await createNewProject({ projectId });
+
+                // Wait for metadata.json to be created
+                if (workspaceFolders) {
+                    try {
+                        const metadataUri = vscode.Uri.joinPath(
+                            workspaceFolders[0].uri,
+                            "metadata.json"
+                        );
+                        await vscode.workspace.fs.stat(metadataUri);
+
+                        await vscode.commands.executeCommand(
+                            "codex-project-manager.showProjectOverview"
+                        );
+
+                        this.safeSendMessage({
+                            command: "project.initializationStatus",
+                            isInitialized: true,
+                        });
+
+                        this.stateMachine.send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
+                    } catch (error) {
+                        console.error("Error checking metadata.json:", error);
                         this.safeSendMessage({
                             command: "project.initializationStatus",
                             isInitialized: false,

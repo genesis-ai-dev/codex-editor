@@ -16,6 +16,7 @@ import { InputCriticalProjectInfo } from "./components/InputCriticalProjectInfo"
 import NameProjectModal from "./components/NameProjectModal";
 import { WebviewApi } from "vscode-webview";
 import ConfirmModal from "../components/ConfirmModal";
+import OnboardingModal, { ProjectType } from "./components/OnboardingModal";
 
 enum StartupFlowStates {
     LOGIN_REGISTER = "loginRegister",
@@ -31,6 +32,8 @@ export const StartupFlowView: React.FC = () => {
     const [value, setValue] = useState<StartupFlowStates | null>(null);
     const [authState, setAuthState] = useState<AuthState | null>(null);
     const [isInitializing, setIsInitializing] = useState(false);
+    const [showOnboarding, setShowOnboarding] = useState(false);
+    const [shouldCheckOnboarding, setShouldCheckOnboarding] = useState(true);
 
     // Use ref to maintain current state value for the stable event listener
     const valueRef = useRef<StartupFlowStates | null>(null);
@@ -39,6 +42,14 @@ export const StartupFlowView: React.FC = () => {
     useEffect(() => {
         valueRef.current = value;
     }, [value]);
+
+    // Check onboarding preference when entering PROMPT_USER_TO_INITIALIZE_PROJECT state
+    useEffect(() => {
+        if (value === StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT && shouldCheckOnboarding) {
+            vscode.postMessage({ command: "onboarding.shouldShow" });
+            setShouldCheckOnboarding(false);
+        }
+    }, [value, shouldCheckOnboarding]);
 
     useEffect(() => {
         // Request metadata check to determine initial state
@@ -49,6 +60,14 @@ export const StartupFlowView: React.FC = () => {
             const message = event.data;
             console.log({ message }, "message in startup flow");
             switch (message.command) {
+                case "onboarding.shouldShowResponse": {
+                    const { shouldShow } = message;
+                    // Show onboarding if we're in the initialize project state and user hasn't skipped it
+                    if (shouldShow && valueRef.current === StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT) {
+                        setShowOnboarding(true);
+                    }
+                    break;
+                }
                 case "state.update": {
                     setValue(message.state.value);
                     setAuthState(message.state.context.authState);
@@ -57,11 +76,13 @@ export const StartupFlowView: React.FC = () => {
                 case "project.initializationStatus": {
                     const { isInitialized } = message;
                     if (isInitialized) {
-                        // Project is initialized, move to critical data state
-                        setValue(StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA);
+                        // Project is initialized - close the startup flow
+                        // The state machine will handle the transition to ALREADY_WORKING
                         setIsInitializing(false);
-                        // Request metadata check to get latest data
-                        vscode.postMessage({ command: "metadata.check" });
+                        
+                        // Close the startup flow since project is now initialized
+                        vscode.postMessage({ command: "startup.dismiss" });
+                        
                         // Show Project Manager view
                         vscode.postMessage({ command: "project.showManager" });
                     }
@@ -407,44 +428,69 @@ export const StartupFlowView: React.FC = () => {
                 />
             )}
             {value === StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT && (
-                <div
-                    style={{
-                        display: "flex",
-                        gap: "10px",
-                        width: "100%",
-                        height: "100vh",
-                        alignItems: "center",
-                        justifyContent: "center",
-                    }}
-                >
-                    <div
-                        style={{
-                            display: "flex",
-                            gap: "10px",
-                            marginBottom: "37vh",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            flexDirection: "column",
-                        }}
-                    >
-                        <i
-                            className="codicon codicon-symbol-variable"
-                            style={{ fontSize: "72px" }}
-                        ></i>
-                        <InitializeProjectButton
-                            isInitializing={isInitializing}
-                            onClick={async () => {
-                                if (!isInitializing) {
-                                    setIsInitializing(true);
-                                    vscode.postMessage({
-                                        command: "project.initialize",
-                                        waitForStateUpdate: true,
-                                    } as MessagesToStartupFlowProvider);
-                                }
+                <>
+                    {showOnboarding ? (
+                        <OnboardingModal
+                            open={showOnboarding}
+                            onComplete={async (projectTypes: ProjectType[], skipOnboarding: boolean) => {
+                                setShowOnboarding(false);
+                                setIsInitializing(true);
+                                vscode.postMessage({
+                                    command: "onboarding.complete",
+                                    projectTypes,
+                                    skipOnboarding,
+                                } as MessagesToStartupFlowProvider);
                             }}
+                            onSkip={async () => {
+                                setShowOnboarding(false);
+                                setIsInitializing(true);
+                                vscode.postMessage({
+                                    command: "onboarding.skip",
+                                } as MessagesToStartupFlowProvider);
+                            }}
+                            vscode={vscode}
                         />
-                    </div>
-                </div>
+                    ) : (
+                        <div
+                            style={{
+                                display: "flex",
+                                gap: "10px",
+                                width: "100%",
+                                height: "100vh",
+                                alignItems: "center",
+                                justifyContent: "center",
+                            }}
+                        >
+                            <div
+                                style={{
+                                    display: "flex",
+                                    gap: "10px",
+                                    marginBottom: "37vh",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    flexDirection: "column",
+                                }}
+                            >
+                                <i
+                                    className="codicon codicon-symbol-variable"
+                                    style={{ fontSize: "72px" }}
+                                ></i>
+                                <InitializeProjectButton
+                                    isInitializing={isInitializing}
+                                    onClick={async () => {
+                                        if (!isInitializing) {
+                                            setIsInitializing(true);
+                                            vscode.postMessage({
+                                                command: "project.initialize",
+                                                waitForStateUpdate: true,
+                                            } as MessagesToStartupFlowProvider);
+                                        }
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    )}
+                </>
             )}
 
             {value === StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA && (

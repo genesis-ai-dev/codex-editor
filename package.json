@@ -188,7 +188,7 @@
             {
                 "title": "Start a new Project",
                 "shortTitle": "Start a new Project",
-                "command": "codex-editor-extension.initializeNewProject"
+                "command": "codex-project-manager.openStartupFlow"
             },
             {
                 "command": "codex-editor-extension.downloadSourceBible",

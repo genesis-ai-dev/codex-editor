@@ -1057,28 +1057,11 @@ function MainMenu() {
                                             className="text-sm"
                                             style={{ color: "var(--foreground)" }}
                                         >
-                                            This workspace doesn't have a project yet. Initialize it
-                                            to get started with translation.
+                                            This workspace doesn't have a project yet. Projects are initialized
+                                            automatically when created. Use the Startup Flow to create a new project.
                                         </p>
                                     </div>
                                 </div>
-                                <Button
-                                    onClick={async () => {
-                                        if (!projectState.isInitializing) {
-                                            handleProjectAction("initializeProject");
-                                        }
-                                    }}
-                                    disabled={projectState.isInitializing}
-                                    className="button-primary h-12 px-8 font-bold text-base shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
-                                >
-                                    <i className="codicon codicon-add mr-3 h-5 w-5" />
-                                    {projectState.isInitializing
-                                        ? "Initializing Project..."
-                                        : "Initialize Project"}
-                                    {!projectState.isInitializing && (
-                                        <i className="codicon codicon-arrow-right ml-3 h-4 w-4" />
-                                    )}
-                                </Button>
                             </CardContent>
                         </Card>
                     ) : (

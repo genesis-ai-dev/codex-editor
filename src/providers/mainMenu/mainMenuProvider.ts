@@ -632,52 +632,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "publishProject":
                 await this.publishProject();
                 break;
-            case "initializeProject":
-                console.log("initializeProject");
-                this.store.setState({ isInitializing: true });
-                try {
-                    const workspaceFolders = vscode.workspace.workspaceFolders;
-                    if (!workspaceFolders || !workspaceFolders[0]) {
-                        throw new Error("No workspace folder found");
-                    }
-
-                    const workspacePath = workspaceFolders[0].uri;
-                    const metadataPath = vscode.Uri.joinPath(workspacePath, "metadata.json");
-
-                    // Check if metadata.json already exists
-                    let metadataExists = false;
-                    try {
-                        await vscode.workspace.fs.stat(metadataPath);
-                        metadataExists = true;
-                    } catch {
-                        // metadata.json doesn't exist, we'll create it
-                        metadataExists = false;
-                    }
-
-                    if (!metadataExists) {
-                        // Extract projectId from folder name if it exists
-                        const projectId = extractProjectIdFromFolderName(workspaceFolders[0].name);
-                        if (projectId) {
-                            console.log("Extracted projectId from folder name:", projectId);
-                        }
-
-                        // Create metadata.json (this will also initialize git)
-                        await createNewProject({ projectId });
-                    } else {
-                        // Metadata already exists, just run the initialization command
-                        // This matches StartupFlow behavior - it doesn't recreate metadata if it exists
-                        await vscode.commands.executeCommand("codex-project-manager.initializeNewProject");
-                    }
-
-                    // Refresh state after initialization
-                    await this.store.refreshState();
-                    await this.updateProjectOverview();
-                } catch (error) {
-                    console.error("Error during project initialization:", error);
-                    this.store.setState({ isInitializing: false });
-                    throw error;
-                }
-                break;
+            // Removed initializeProject handler - initialization is now automatic via StartupFlow
+            // Projects are initialized automatically when created through the Startup Flow
+            // case "initializeProject": ... (removed - no longer needed)
             case "syncProject": {
                 console.log("Syncing project");
                 const syncManager = SyncManager.getInstance();

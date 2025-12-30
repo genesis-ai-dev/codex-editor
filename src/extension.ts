@@ -484,21 +484,35 @@ export async function activate(context: vscode.ExtensionContext) {
             if (pendingCreate) {
                 const pendingName = context.globalState.get<string>("pendingProjectCreateName");
                 const pendingProjectId = context.globalState.get<string>("pendingProjectCreateId");
-                console.debug("[Extension] Resuming project creation for:", pendingName, "with projectId:", pendingProjectId);
+                console.debug("[Extension] Detected pending project creation for:", pendingName, "with projectId:", pendingProjectId);
 
-                // Clear flags
+                // Clear flags - we no longer auto-initialize here
+                // The StartupFlow onboarding modal will handle initialization
                 await context.globalState.update("pendingProjectCreate", undefined);
                 await context.globalState.update("pendingProjectCreateName", undefined);
                 await context.globalState.update("pendingProjectCreateId", undefined);
 
-                try {
-                    // We are in the new folder. Initialize it.
-                    const { createNewProject } = await import("./utils/projectCreationUtils/projectCreationUtils");
-                    await createNewProject({ projectName: pendingName, projectId: pendingProjectId });
-                } catch (error) {
-                    console.error("Failed to resume project creation:", error);
-                    vscode.window.showErrorMessage("Failed to create project after reload.");
+                // Write projectId to a temporary file for the onboarding flow to use
+                // (only if projectId was provided and not already written by createProjectInNewFolder)
+                if (pendingProjectId) {
+                    try {
+                        const pendingIdFile = vscode.Uri.joinPath(workspaceFolders[0].uri, '.pending-project-id');
+                        // Only write if file doesn't already exist
+                        try {
+                            await vscode.workspace.fs.stat(pendingIdFile);
+                            // File exists, don't overwrite
+                        } catch {
+                            // File doesn't exist, write it
+                            await vscode.workspace.fs.writeFile(pendingIdFile, Buffer.from(pendingProjectId, 'utf-8'));
+                        }
+                    } catch (error) {
+                        console.warn("Failed to write pending project ID file:", error);
+                    }
                 }
+
+                // DON'T call createNewProject() here - let the onboarding flow handle it
+                // The preflight check will detect no metadata and open the StartupFlow
+                console.debug("[Extension] Deferring project initialization to onboarding flow");
             }
 
             const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");

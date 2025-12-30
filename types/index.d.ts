@@ -285,7 +285,10 @@ export type MessagesToStartupFlowProvider =
     | { command: "zipProject"; projectName: string; projectPath: string; includeGit?: boolean; }
     | { command: "project.heal"; projectName: string; projectPath: string; gitOriginUrl?: string; }
     | { command: "project.setMediaStrategy"; projectPath: string; mediaStrategy: MediaFilesStrategy; }
-    | { command: "project.cleanupMediaFiles"; projectPath: string; };
+    | { command: "project.cleanupMediaFiles"; projectPath: string; }
+    | { command: "onboarding.complete"; projectTypes: string[]; skipOnboarding: boolean; }
+    | { command: "onboarding.skip"; }
+    | { command: "onboarding.shouldShow"; };
 
 export type GitLabProject = {
     id: number;
@@ -375,7 +378,8 @@ export type MessagesFromStartupFlowProvider =
     | { command: "project.cloningInProgress"; projectPath: string; gitOriginUrl?: string; cloning: boolean; }
     | { command: "project.openingInProgress"; projectPath: string; opening: boolean; }
     | { command: "project.zippingInProgress"; projectPath: string; zipType: "full" | "mini"; zipping: boolean; }
-    | { command: "project.cleaningInProgress"; projectPath: string; cleaning: boolean; };
+    | { command: "project.cleaningInProgress"; projectPath: string; cleaning: boolean; }
+    | { command: "onboarding.shouldShowResponse"; shouldShow: boolean; };
 
 type DictionaryPostMessages =
     | {
