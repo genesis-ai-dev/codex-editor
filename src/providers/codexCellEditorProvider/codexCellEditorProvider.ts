@@ -4100,17 +4100,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             try {
                 // Try URI string comparison first (fastest)
                 if (fileUriStrings.has(docUri)) {
-                //     // Force document to reload from disk before refreshing webview
-                // const document = this.documents.get(docUri);
-                // if (document) {
-                //     try {
-                //         await document.revert();
-                //         debug(`Reloaded document from disk: ${docUri}`);
-                //     } catch (error) {
-                //         console.warn(`Failed to revert document ${docUri}:`, error);
-                //         // Continue with refresh even if revert fails
-                //     }
-                // }
 
                 debug(`Sending refreshCurrentPage to webview for ${docUri} (URI match)`);
                     safePostMessageToPanel(panel, {
