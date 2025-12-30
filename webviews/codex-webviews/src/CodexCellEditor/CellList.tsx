@@ -34,7 +34,7 @@ export interface CellListProps {
     windowHeight: number;
     headerHeight: number;
     alertColorCodes: { [cellId: string]: number };
-    highlightedCellId: string | null;
+    highlightedGlobalReferences: string[];
     scrollSyncEnabled: boolean;
     translationQueue?: string[]; // Queue of cells waiting for translation
     currentProcessingCellId?: string; // Currently processing cell ID
@@ -94,7 +94,7 @@ const CellList: React.FC<CellListProps> = ({
     headerHeight,
     spellCheckResponse,
     alertColorCodes,
-    highlightedCellId,
+    highlightedGlobalReferences,
     scrollSyncEnabled,
     translationQueue = [],
     currentProcessingCellId,
@@ -746,7 +746,7 @@ const CellList: React.FC<CellListProps> = ({
                                 isSourceText={isSourceText}
                                 hasDuplicateId={hasDuplicateId}
                                 alertColorCode={alertColorCodes[cellMarkers[0]]}
-                                highlightedCellId={highlightedCellId}
+                                highlightedGlobalReferences={highlightedGlobalReferences}
                                 scrollSyncEnabled={scrollSyncEnabled}
                                 isInTranslationProcess={isCellInTranslationProcess(cellMarkers[0])}
                                 translationState={translationState}
@@ -780,7 +780,7 @@ const CellList: React.FC<CellListProps> = ({
             vscode,
             isSourceText,
             duplicateCellIds,
-            highlightedCellId,
+            highlightedGlobalReferences,
             scrollSyncEnabled,
             alertColorCodes,
             generateCellLabel,
@@ -927,7 +927,7 @@ const CellList: React.FC<CellListProps> = ({
                                 isSourceText={isSourceText}
                                 hasDuplicateId={false}
                                 alertColorCode={alertColorCodes[cellMarkers[0]]}
-                                highlightedCellId={highlightedCellId}
+                                highlightedGlobalReferences={highlightedGlobalReferences}
                                 scrollSyncEnabled={scrollSyncEnabled}
                                 isInTranslationProcess={isCellInTranslationProcess(cellMarkers[0])}
                                 translationState={getCellTranslationState(cellMarkers[0])}
@@ -984,7 +984,7 @@ const CellList: React.FC<CellListProps> = ({
         lineNumbersEnabled,
         vscode,
         alertColorCodes,
-        highlightedCellId,
+        highlightedGlobalReferences,
         scrollSyncEnabled,
         isCellInTranslationProcess,
         getCellTranslationState,

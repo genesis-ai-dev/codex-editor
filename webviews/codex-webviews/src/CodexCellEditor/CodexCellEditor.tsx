@@ -142,7 +142,7 @@ const CodexCellEditor: React.FC = () => {
     const [alertColorCodes, setAlertColorCodes] = useState<{
         [cellId: string]: number;
     }>({});
-    const [highlightedCellId, setHighlightedCellId] = useState<string | null>(null);
+    const [highlightedGlobalReferences, setHighlightedGlobalReferences] = useState<string[]>([]);
     const [isWebviewReady, setIsWebviewReady] = useState(false);
     const [scrollSyncEnabled, setScrollSyncEnabled] = useState(true);
 
@@ -704,11 +704,11 @@ const CodexCellEditor: React.FC = () => {
         (event: MessageEvent) => {
             const message = event.data;
             if (message.type === "highlightCell") {
-                // Set the highlighted cell ID (null clears the highlight)
-                setHighlightedCellId(message.cellId);
+                // Set the highlighted global references
+                setHighlightedGlobalReferences(message.globalReferences || []);
 
                 // Reset manual navigation tracking when highlight is cleared
-                if (!message.cellId) {
+                if (!message.globalReferences || message.globalReferences.length === 0) {
                     setHasManuallyNavigatedAway(false);
                     setLastHighlightedChapter(null);
                     setChapterWhenHighlighted(null);
@@ -897,9 +897,14 @@ const CodexCellEditor: React.FC = () => {
     );
 
     useEffect(() => {
-        if (highlightedCellId && scrollSyncEnabled && isSourceText) {
-            const cellId = highlightedCellId;
-            const chapter = cellId?.split(" ")[1]?.split(":")[0];
+        if (
+            highlightedGlobalReferences &&
+            highlightedGlobalReferences.length > 0 &&
+            scrollSyncEnabled &&
+            isSourceText
+        ) {
+            const firstRef = highlightedGlobalReferences[0];
+            const chapter = firstRef?.split(" ")[1]?.split(":")[0];
             const newChapterNumber = parseInt(chapter) || 1;
 
             // Check if this is a new highlight (different chapter than last highlighted)
@@ -939,8 +944,14 @@ const CodexCellEditor: React.FC = () => {
                 );
 
                 // Find the index of the highlighted cell within the chapter (excluding milestones)
+                // Check if the cell's globalReferences match any of the highlightedGlobalReferences
                 const cellIndexInChapter = cellsForTargetChapterWithoutMilestones.findIndex(
-                    (verse) => verse.cellMarkers[0] === cellId
+                    (verse) => {
+                        const cellGlobalRefs = verse.data?.globalReferences || [];
+                        return highlightedGlobalReferences.some((ref) =>
+                            cellGlobalRefs.includes(ref)
+                        );
+                    }
                 );
 
                 // Calculate which subsection this cell belongs to
@@ -966,7 +977,7 @@ const CodexCellEditor: React.FC = () => {
             }
         }
     }, [
-        highlightedCellId,
+        highlightedGlobalReferences,
         scrollSyncEnabled,
         chapterNumber,
         translationUnits,
@@ -980,13 +991,17 @@ const CodexCellEditor: React.FC = () => {
 
     // Track manual navigation away from highlighted chapter in source files
     useEffect(() => {
-        if (isSourceText && highlightedCellId && lastHighlightedChapter !== null) {
+        if (
+            isSourceText &&
+            highlightedGlobalReferences.length > 0 &&
+            lastHighlightedChapter !== null
+        ) {
             // If current chapter is different from the highlighted chapter, user navigated manually
             if (chapterNumber !== lastHighlightedChapter) {
                 setHasManuallyNavigatedAway(true);
             }
         }
-    }, [chapterNumber, isSourceText, highlightedCellId, lastHighlightedChapter]);
+    }, [chapterNumber, isSourceText, highlightedGlobalReferences, lastHighlightedChapter]);
 
     // A "temp" video URL that is used to update the video URL in the metadata modal.
     // We need to use the client-side file picker, so we need to then pass the picked
@@ -2871,7 +2886,7 @@ const CodexCellEditor: React.FC = () => {
                             windowHeight={windowHeight}
                             headerHeight={headerHeight}
                             alertColorCodes={alertColorCodes}
-                            highlightedCellId={highlightedCellId}
+                            highlightedGlobalReferences={highlightedGlobalReferences}
                             scrollSyncEnabled={scrollSyncEnabled}
                             translationQueue={translationQueue}
                             currentProcessingCellId={

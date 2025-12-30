@@ -40,7 +40,7 @@ interface CellContentDisplayProps {
     isSourceText: boolean;
     hasDuplicateId: boolean;
     alertColorCode: number | undefined;
-    highlightedCellId?: string | null;
+    highlightedGlobalReferences?: string[];
     scrollSyncEnabled: boolean;
     lineNumber: string;
     label?: string;
@@ -420,7 +420,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         isSourceText,
         hasDuplicateId,
         alertColorCode,
-        highlightedCellId,
+        highlightedGlobalReferences,
         scrollSyncEnabled,
         lineNumber,
         label,
@@ -511,31 +511,22 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         // Note: comments counts are provided by parent (`CellList`) to avoid per-cell fetches
 
         // Helper function to check if this cell should be highlighted
-        // Handles parent/child cell matching: child cells in target should highlight parent cells in source
+        // Matches using globalReferences array
         const checkShouldHighlight = useCallback((): boolean => {
-            return cellIds.some((cellId) => {
-                if (!highlightedCellId || !cellId) return false;
-
-                // Exact match
-                if (highlightedCellId === cellId) return true;
-
-                // If highlighted cell is a child (3+ parts), check if this is the parent
-                const highlightedParts = highlightedCellId.split(":");
-                const cellParts = cellId.split(":");
-
-                if (highlightedParts.length >= 3 && cellParts.length === 2) {
-                    // Compare parent portion: "BOOK CHAPTER:VERSE"
-                    const highlightedParent = highlightedParts.slice(0, 2).join(":");
-                    return highlightedParent === cellId;
-                }
-
+            if (!highlightedGlobalReferences || highlightedGlobalReferences.length === 0) {
                 return false;
-            });
-        }, [cellIds, highlightedCellId]);
+            }
+
+            // Get globalReferences from this cell
+            const cellGlobalRefs = cell.data?.globalReferences || [];
+
+            // Check if any highlighted reference matches this cell's references
+            return highlightedGlobalReferences.some((ref) => cellGlobalRefs.includes(ref));
+        }, [cell, highlightedGlobalReferences]);
 
         useEffect(() => {
-            debug("Before Scrolling to content highlightedCellId", {
-                highlightedCellId,
+            debug("Before Scrolling to content highlightedGlobalReferences", {
+                highlightedGlobalReferences,
                 cellIds,
                 isSourceText,
                 scrollSyncEnabled,
@@ -544,14 +535,20 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             const shouldHighlight = checkShouldHighlight();
 
             if (shouldHighlight && cellRef.current && isSourceText && scrollSyncEnabled) {
-                debug("Scrolling to content highlightedCellId", {
-                    highlightedCellId,
+                debug("Scrolling to content highlightedGlobalReferences", {
+                    highlightedGlobalReferences,
                     cellIds,
                     isSourceText,
                 });
                 cellRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
             }
-        }, [cellIds, checkShouldHighlight, highlightedCellId, isSourceText, scrollSyncEnabled]);
+        }, [
+            cellIds,
+            checkShouldHighlight,
+            highlightedGlobalReferences,
+            isSourceText,
+            scrollSyncEnabled,
+        ]);
 
         // Handler for stopping translation when clicked on the spinner
         const handleStopTranslation = (e: React.MouseEvent) => {

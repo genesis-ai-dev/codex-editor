@@ -24,6 +24,7 @@ import {
 import { GlobalProvider } from "../../globalProvider";
 import { initializeStateStore } from "../../stateStore";
 import { SyncManager } from "../../projectManager/syncManager";
+import { isBiblicalImporterType } from "../../utils/bookNameUtils";
 
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 import { getNonce } from "../dictionaryTable/utilities/getNonce";
@@ -44,6 +45,7 @@ import {
     isSourceFileFlexible,
     isMatchingFilePair as isMatchingFilePairUtil,
 } from "../../utils/fileTypeUtils";
+import { getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -317,7 +319,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 "cellId",
                 (value: CellIdGlobalState | undefined) => {
                     debug("Cell ID change detected:", value);
-                    if (value?.cellId && value?.uri) {
+                    if (value?.globalReferences && value.globalReferences.length > 0 && value?.uri) {
                         // Only send highlight messages to source files when a codex file is active
                         const valueIsCodexFile = this.isCodexFile(value.uri);
                         if (valueIsCodexFile) {
@@ -328,7 +330,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     debug("Sending highlight message to source file:", panelUri);
                                     safePostMessageToPanel(panel, {
                                         type: "highlightCell",
-                                        cellId: value.cellId,
+                                        globalReferences: value.globalReferences,
                                     });
                                 }
                             }
@@ -2407,32 +2409,106 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         return processVideoUrl(videoPath, webviewPanel.webview);
     }
 
-    public updateCellIdState(cellId: string, uri: string) {
+    public updateCellIdState(cellId: string, uri: string, document?: CodexCellDocument) {
         debug("Updating cell ID state:", { cellId, uri, stateStore: this.stateStore });
+
+        // Get document if not provided
+        const doc = document || this.documents.get(uri);
+        let globalReferences: string[] = [];
+
+        if (doc) {
+            const notebookData = this.getDocumentAsJson(doc);
+            const isBibleType = isBiblicalImporterType(notebookData.metadata?.importerType);
+
+            if (isBibleType) {
+                const cell = doc.getCellContent(cellId);
+                globalReferences = cell?.data?.globalReferences || [];
+            }
+        }
 
         // Handle both setting and clearing highlights
         if (uri) {
             const valueIsCodexFile = this.isCodexFile(uri);
-            if (valueIsCodexFile) {
-                // Send highlight/clear messages to source files when a codex file is active
+            if (valueIsCodexFile && doc) {
+                // Get the configuration for cellsPerPage
+                const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                const cellsPerPage = config.get("cellsPerPage", 50);
+
+                // Find the milestone and subsection index for the clicked cell in the target document
+                const targetPosition = doc.findMilestoneAndSubsectionForCell(cellId, cellsPerPage);
+
+                // Get the corresponding source URI
+                const codexUri = vscode.Uri.parse(uri);
+                const sourceUri = getCorrespondingSourceUri(codexUri);
+
+                // Send highlight/clear messages and milestone jump to source files when a codex file is active
                 for (const [panelUri, panel] of this.webviewPanels.entries()) {
                     const isSourceFile = this.isSourceText(panelUri);
                     // copy this to update target with merged cells
                     if (isSourceFile) {
-                        if (cellId) {
+                        // Check if this is the matching source file
+                        const isMatchingSource = sourceUri && panelUri === sourceUri.toString();
+
+                        if (globalReferences.length > 0) {
                             // Set highlight
-                            debug("Sending highlight message to source file:", panelUri, "cellId:", cellId);
+                            debug("Sending highlight message to source file:", panelUri, "globalReferences:", globalReferences);
                             safePostMessageToPanel(panel, {
                                 type: "highlightCell",
-                                cellId: cellId,
+                                globalReferences: globalReferences,
                             });
                         } else {
                             // Clear highlight
                             debug("Clearing highlight in source file:", panelUri);
                             safePostMessageToPanel(panel, {
                                 type: "highlightCell",
-                                cellId: null,
+                                globalReferences: [],
                             });
+                        }
+
+                        // If this is the matching source file and we found a milestone/subsection, jump to that position
+                        if (isMatchingSource && targetPosition && sourceUri) {
+                            const { milestoneIndex: targetMilestoneIndex, subsectionIndex: targetSubsectionIndex } = targetPosition;
+                            debug("Jumping source file to milestone:", panelUri, "milestoneIndex:", targetMilestoneIndex, "subsectionIndex:", targetSubsectionIndex);
+
+                            // Get the source document to fetch cells for the milestone/subsection
+                            const sourceDoc = this.documents.get(sourceUri.toString());
+                            if (sourceDoc) {
+                                // Get cells for the milestone/subsection from the source document
+                                const cells = sourceDoc.getCellsForMilestone(targetMilestoneIndex, targetSubsectionIndex, cellsPerPage);
+
+                                // Process cells (merge ranges, etc.)
+                                const processedCells = this.mergeRangesAndProcess(
+                                    cells,
+                                    this.isCorrectionEditorMode,
+                                    true // isSourceText
+                                );
+
+                                // Build source cell map for these cells
+                                const sourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
+                                for (const cell of cells) {
+                                    const cellId = cell.cellMarkers?.[0];
+                                    if (cellId && sourceDoc._sourceCellMap[cellId]) {
+                                        sourceCellMap[cellId] = sourceDoc._sourceCellMap[cellId];
+                                    }
+                                }
+
+                                // Store the current milestone/subsection for the source document
+                                this.currentMilestoneSubsectionMap.set(sourceUri.toString(), {
+                                    milestoneIndex: targetMilestoneIndex,
+                                    subsectionIndex: targetSubsectionIndex,
+                                });
+
+                                // Send the cell page to the source webview
+                                safePostMessageToPanel(panel, {
+                                    type: "providerSendsCellPage",
+                                    milestoneIndex: targetMilestoneIndex,
+                                    subsectionIndex: targetSubsectionIndex,
+                                    cells: processedCells,
+                                    sourceCellMap,
+                                });
+                            } else {
+                                debug("Source document not loaded, cannot jump to milestone");
+                            }
                         }
                     }
                 }
@@ -2447,6 +2523,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             key: "cellId",
             value: {
                 cellId,
+                globalReferences,
                 uri,
                 timestamp: new Date().toISOString(),
             },
