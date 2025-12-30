@@ -295,8 +295,8 @@ function getLocalizedBookName(bookAbbr: string): string {
 }
 
 /**
- * Creates a milestone cell with chapter number derived from the cell below it.
- * Format: chapter number as string (e.g., "1", "5", "10").
+ * Creates a milestone cell with book name and chapter number derived from the cell below it.
+ * Format: "BookName ChapterNumber" (e.g., "Isaiah 1") or just chapter number if no book name found.
  * @param cell - The cell below the milestone (first cell of the chapter)
  * @param milestoneIndex - The index of this milestone (1-indexed)
  * @param uuid - Optional UUID to use. If not provided, a new UUID will be generated.
@@ -306,7 +306,14 @@ function createMilestoneCell(cell: ProcessedCell, milestoneIndex: number, uuid?:
     const cellUuid = uuid || uuidv4();
     const chapterNumber = extractChapterFromCell(cell, milestoneIndex);
 
-    return createProcessedCell(cellUuid, chapterNumber, {
+    // Extract book name from cell
+    const bookAbbr = extractBookNameFromCell(cell);
+    const bookName = bookAbbr ? getLocalizedBookName(bookAbbr) : null;
+
+    // Combine book name and chapter number, or use just chapter number if no book name found
+    const milestoneValue = bookName ? `${bookName} ${chapterNumber}` : chapterNumber;
+
+    return createProcessedCell(cellUuid, milestoneValue, {
         type: CodexCellTypes.MILESTONE,
         id: cellUuid,
         edits: [],
