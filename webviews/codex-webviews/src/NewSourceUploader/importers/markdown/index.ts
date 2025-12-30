@@ -6,8 +6,6 @@ import {
 } from '../../types/common';
 import {
     createProgress,
-    createStandardCellId,
-    createProcessedCell,
     validateFileExtension,
     addMilestoneCellsToNotebookPair,
 } from '../../utils/workflowHelpers';
@@ -17,6 +15,7 @@ import {
     processMarkdownWithFootnotes
 } from '../../utils/markdownFootnoteExtractor';
 import { validateFootnotes } from '../../utils/footnoteUtils';
+import { createMarkdownCellMetadata } from './cellMetadata';
 
 const SUPPORTED_EXTENSIONS = ['md', 'markdown'];
 
@@ -258,29 +257,45 @@ export const parseFile = async (
         // Convert each element to a cell
         const cells = await Promise.all(
             elements.map(async (element, index) => {
-                const cellId = createStandardCellId(file.name, 1, index + 1);
-
                 // Convert markdown to HTML using marked library
                 const htmlContent = await marked.parse(element);
 
                 // Analyze the element type
                 const elementInfo = getElementType(element);
 
-                // Create cell with metadata about the element
-                const cell = createProcessedCell(cellId, htmlContent, {
-                    type: 'markdown',
+                // Create cell metadata with UUID, globalReferences, and chapterNumber
+                const { cellId, metadata } = createMarkdownCellMetadata({
+                    fileName: file.name,
                     segmentIndex: index,
                     originalMarkdown: element,
                     elementType: elementInfo.type,
-                    // Keep the heading detection for backward compatibility
-                    hasHeading: elementInfo.type === 'heading',
-                    headingText: elementInfo.headingText,
                     headingLevel: elementInfo.level,
+                    headingText: elementInfo.headingText,
+                    cellLabel: elementInfo.type === 'heading' && elementInfo.headingText
+                        ? elementInfo.headingText.substring(0, 20)
+                        : String(index + 1),
                 });
 
                 // Extract images from the converted HTML
                 const images = await extractImagesFromHtml(htmlContent);
-                cell.images = images;
+
+                // Create cell with metadata
+                const cell = {
+                    id: cellId,
+                    content: htmlContent,
+                    images,
+                    metadata: {
+                        ...metadata,
+                        // Keep existing fields for backward compatibility
+                        type: 'markdown',
+                        segmentIndex: index,
+                        originalMarkdown: element,
+                        elementType: elementInfo.type,
+                        hasHeading: elementInfo.type === 'heading',
+                        headingText: elementInfo.headingText,
+                        headingLevel: elementInfo.level,
+                    },
+                };
 
                 return cell;
             })

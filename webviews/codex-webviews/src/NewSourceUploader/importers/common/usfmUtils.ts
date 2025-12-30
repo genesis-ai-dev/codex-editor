@@ -3,10 +3,12 @@ import {
     ProcessedNotebook,
     NotebookPair,
 } from '../../types/common';
-import {
-    createProcessedCell,
-} from '../../utils/workflowHelpers';
 import { getCorpusMarkerForBook } from '../../utils/corpusUtils';
+import {
+    createVerseCellMetadata,
+    createParatextCellMetadata,
+    createHeaderCellMetadata,
+} from '../usfm/cellMetadata';
 import {
     extractUsfmFootnotes,
     convertUsfmToHtmlWithFootnotes
@@ -59,21 +61,33 @@ export const validateUsfmContent = (content: string, fileName: string): { isVali
 
     // Check for basic USFM markers
     if (!content.includes('\\id')) {
-        errors.push('USFM file must contain an \\id marker to identify the book');
+        // For files without \id, try to infer from filename or allow
+        // Some USFM files (like lectionaries) may not have \id
+        warnings.push('No \\id marker found - some USFM files (like lectionaries) may not include this');
     }
 
     if (!content.includes('\\c ')) {
-        warnings.push('No chapter markers found - this may not be a complete USFM file');
+        // Files without chapters (like lectionaries, introductions) are valid
+        warnings.push('No chapter markers found - this may be a lectionary or introduction file');
     }
 
     if (!content.includes('\\v ')) {
-        warnings.push('No verse markers found - this may not be a complete USFM file');
+        warnings.push('No verse markers found - this may be a non-verse content file');
     }
 
-    // Check for book code
+    // Check for book code - but don't require it for files without \id
     const idMatch = content.match(/\\id\s+([A-Z0-9]{3})/);
-    if (!idMatch) {
+    if (content.includes('\\id') && !idMatch) {
         errors.push('Could not find a valid 3-character book code in \\id marker');
+    }
+
+    // For files without \id or \c, check if they have any valid USFM markers
+    if (!content.includes('\\id') && !content.includes('\\c ')) {
+        // Check if file has any USFM markers at all
+        const hasAnyMarker = /\\[a-zA-Z]/.test(content);
+        if (!hasAnyMarker) {
+            errors.push('File does not appear to contain any USFM markers');
+        }
     }
 
     return { isValid: errors.length === 0, errors, warnings };
@@ -118,8 +132,9 @@ export const processUsfmContent = async (
     }
 
     // Process chapters and verses
+    // Note: Files without chapters (e.g., lectionaries) are handled by creating a virtual chapter 0
     if (!jsonOutput.chapters || jsonOutput.chapters.length === 0) {
-        throw new Error(`No chapters found in USFM file: ${fileName}`);
+        throw new Error(`No chapters or content found in USFM file: ${fileName}`);
     }
 
     jsonOutput.chapters.forEach((chapter: any) => {
@@ -135,22 +150,36 @@ export const processUsfmContent = async (
         chapter.contents.forEach((content: any) => {
             if (content.verseNumber !== undefined && content.verseText !== undefined) {
                 // This is a verse - process it for footnotes
-                const verseId = `${bookCode} ${chapterNumber}:${content.verseNumber}`;
                 const verseText = content.verseText.trim();
                 const htmlVerse = convertUsfmInlineMarkersToHtml(verseText);
 
                 // Convert USFM to HTML with footnotes if needed
                 const { html: processedText } = convertUsfmToHtmlWithFootnotes(verseText);
 
+                // Create cell metadata with UUID
+                const { cellId, metadata } = createVerseCellMetadata({
+                    bookCode,
+                    bookName,
+                    fileName,
+                    chapter: chapterNumber,
+                    verse: content.verseNumber,
+                    originalText: verseText,
+                    cellLabel: `${bookCode} ${chapterNumber}:${content.verseNumber}`, // Set cellLabel in format "GEN 1:1", "GEN 1:2", etc.
+                    hasFootnotes: processedText.includes('footnote-marker'),
+                });
+
                 usfmContent.push({
-                    id: verseId,
+                    id: cellId,
                     content: processedText.replace(verseText, htmlVerse),
                     type: 'text',
                     metadata: {
+                        ...metadata,
+                        // Keep existing fields for compatibility
                         bookCode,
                         bookName,
                         chapter: chapterNumber,
                         verse: content.verseNumber,
+                        cellLabel: `${bookCode} ${chapterNumber}:${content.verseNumber}`,
                         originalText: verseText,
                         fileName,
                         hasFootnotes: processedText.includes('footnote-marker'),
@@ -169,13 +198,25 @@ export const processUsfmContent = async (
                                 const el = node as HTMLElement;
                                 const tag = el.getAttribute('data-tag');
                                 if (tag && milestoneTags.has(tag)) {
-                                    const childId = `${verseId}:${Math.random().toString(36).slice(2, 11)}`;
                                     const innerHtml = el.innerHTML;
+                                    // Create cell metadata with UUID
+                                    const { cellId: childId, metadata: childMetadata } = createParatextCellMetadata({
+                                        bookCode,
+                                        bookName,
+                                        fileName,
+                                        chapter: chapterNumber,
+                                        originalText: innerHtml,
+                                        isChild: true,
+                                        parentId: cellId,
+                                        hasFootnotes: false,
+                                    });
                                     usfmContent.push({
                                         id: childId,
                                         content: innerHtml,
                                         type: 'text',
                                         metadata: {
+                                            ...childMetadata,
+                                            // Keep existing fields for compatibility
                                             bookCode,
                                             bookName,
                                             chapter: chapterNumber,
@@ -184,7 +225,7 @@ export const processUsfmContent = async (
                                             fileName,
                                             hasFootnotes: false,
                                             isChild: true,
-                                            parentId: verseId,
+                                            parentId: cellId,
                                         },
                                     });
                                 }
@@ -200,7 +241,6 @@ export const processUsfmContent = async (
                 seenFirstVerseInChapter = true;
             } else if (content.text && !content.marker) {
                 // This is paratext (content without specific markers)
-                const paratextId = `${bookCode} ${chapterNumber}:${Math.random().toString(36).slice(2, 10)}`;
                 const paratextContent = content.text.trim();
                 const htmlParatext = paratextContent.length > 0 ? `<p data-tag="p">${convertUsfmInlineMarkersToHtml(paratextContent)}</p>` : paratextContent;
 
@@ -219,11 +259,23 @@ export const processUsfmContent = async (
                     // ignore DOM parsing errors for style detection
                 }
 
+                // Create cell metadata with UUID
+                const { cellId: paratextId, metadata: paratextMetadata } = createParatextCellMetadata({
+                    bookCode,
+                    bookName,
+                    fileName,
+                    chapter: chapterNumber,
+                    originalText: paratextContent,
+                    hasFootnotes: processedText.includes('footnote-marker'),
+                });
+
                 usfmContent.push({
                     id: paratextId,
                     content: processedText.replace(paratextContent, htmlParatext),
                     type: cellType,
                     metadata: {
+                        ...paratextMetadata,
+                        // Keep existing fields for compatibility
                         bookCode,
                         bookName,
                         chapter: chapterNumber,
@@ -234,7 +286,6 @@ export const processUsfmContent = async (
                 });
             } else if (content.marker) {
                 // Preserve raw marker lines as paratext for round-trip fidelity
-                const paratextId = `${bookCode} ${chapterNumber}:${Math.random().toString(36).slice(2, 10)}`;
                 const markerLine = String(content.marker).trim();
                 const htmlBlock = usfmBlockToHtml(markerLine);
                 // Determine if style-only (no inner text)
@@ -249,11 +300,28 @@ export const processUsfmContent = async (
                     // ignore DOM parsing errors for style detection
                 }
 
+                // Extract marker name from marker line (e.g., "\s1" -> "s1")
+                const markerMatch = markerLine.match(/^\\([a-zA-Z]+\d*(?:-[se])?)/);
+                const marker = markerMatch ? `\\${markerMatch[1]}` : undefined;
+
+                // Create cell metadata with UUID
+                const { cellId: paratextId, metadata: paratextMetadata } = createParatextCellMetadata({
+                    bookCode,
+                    bookName,
+                    fileName,
+                    chapter: chapterNumber,
+                    originalText: markerLine, // Store full marker line including marker and text
+                    marker,
+                    hasFootnotes: false,
+                });
+
                 usfmContent.push({
                     id: paratextId,
                     content: htmlBlock,
                     type: cellType,
                     metadata: {
+                        ...paratextMetadata,
+                        // Keep existing fields for compatibility
                         bookCode,
                         bookName,
                         chapter: chapterNumber,
@@ -266,22 +334,121 @@ export const processUsfmContent = async (
         });
     });
 
+    // Process header lines as cells so they can be translated
+    // Header lines come before the first chapter
+    if (jsonOutput.headerLines && jsonOutput.headerLines.length > 0) {
+        try {
+            jsonOutput.headerLines.forEach((headerLine: string, index: number) => {
+                try {
+                    const trimmedLine = headerLine.trim();
+                    // Skip empty lines
+                    if (!trimmedLine) {
+                        return;
+                    }
+
+                    // Process header marker lines (e.g., \id, \h, \toc3, etc.)
+                    if (trimmedLine.startsWith('\\')) {
+                        // Extract marker name (e.g., "id", "h", "toc3" from "\id", "\h", "\toc3")
+                        const markerMatch = trimmedLine.match(/^\\([a-zA-Z]+\d*(?:-[se])?)/);
+                        const marker = markerMatch ? `\\${markerMatch[1]}` : `\\header${index}`;
+
+                        const htmlBlock = usfmBlockToHtml(trimmedLine);
+
+                        // Determine if style-only (no inner text)
+                        let cellType: UsfmContent['type'] = 'text';
+                        try {
+                            const parser = new DOMParser();
+                            const doc = parser.parseFromString(htmlBlock, 'text/html');
+                            const el = doc.body.firstElementChild as HTMLElement | null;
+                            const textOnly = el ? (el.textContent || '').trim() : '';
+                            if (!textOnly) cellType = 'style';
+                        } catch {
+                            // ignore DOM parsing errors for style detection
+                        }
+
+                        // Create cell metadata with UUID
+                        const { cellId: headerId, metadata: headerMetadata } = createHeaderCellMetadata({
+                            bookCode,
+                            bookName,
+                            fileName,
+                            marker,
+                            originalText: trimmedLine,
+                            index,
+                        });
+
+                        usfmContent.push({
+                            id: headerId,
+                            content: htmlBlock,
+                            type: cellType,
+                            metadata: {
+                                ...headerMetadata,
+                                // Keep existing fields for compatibility
+                                bookCode,
+                                bookName,
+                                chapter: 1, // Assign headers to chapter 1 so they appear when viewing chapter 1
+                                marker,
+                                originalText: trimmedLine,
+                                fileName,
+                                hasFootnotes: false,
+                            },
+                        });
+                    } else {
+                        // Plain text header line - assign to chapter 1 as well
+                        const htmlParatext = trimmedLine.length > 0 ? `<p data-tag="p">${convertUsfmInlineMarkersToHtml(trimmedLine)}</p>` : trimmedLine;
+
+                        // Create cell metadata with UUID
+                        const { cellId: headerId, metadata: headerMetadata } = createHeaderCellMetadata({
+                            bookCode,
+                            bookName,
+                            fileName,
+                            marker: '\\header',
+                            originalText: trimmedLine,
+                            index,
+                        });
+
+                        usfmContent.push({
+                            id: headerId,
+                            content: htmlParatext,
+                            type: 'text',
+                            metadata: {
+                                ...headerMetadata,
+                                // Keep existing fields for compatibility
+                                bookCode,
+                                bookName,
+                                chapter: 1, // Assign headers to chapter 1
+                                originalText: trimmedLine,
+                                fileName,
+                                hasFootnotes: false,
+                            },
+                        });
+                    }
+                } catch (headerError) {
+                    // Log but don't fail on individual header line errors
+                    console.warn(`Error processing header line ${index}:`, headerError);
+                }
+            });
+        } catch (headerProcessingError) {
+            // Log but don't fail on header processing errors
+            console.warn('Error processing header lines:', headerProcessingError);
+        }
+    }
+
     if (usfmContent.length === 0) {
         throw new Error(`No verses or content found in USFM file: ${fileName}`);
     }
 
-    // Convert to processed cells
+    // Convert to processed cells (metadata already includes UUID, globalReferences, chapterNumber)
     const cells = usfmContent.map((item) => {
-        return createProcessedCell(item.id, item.content, {
-            type: item.type,
-            bookCode: item.metadata.bookCode,
-            bookName: item.metadata.bookName,
-            chapter: item.metadata.chapter,
-            verse: item.metadata.verse,
-            cellLabel: item.metadata.verse !== undefined ? item.metadata.verse?.toString() : undefined,
-            originalText: item.metadata.originalText,
-            fileName: item.metadata.fileName,
-        });
+        return {
+            id: item.id,
+            content: item.content,
+            images: [],
+            metadata: {
+                ...item.metadata,
+                // Ensure type is set correctly
+                type: item.type === 'style' ? 'style' : 'text',
+            },
+        } as ProcessedCell;
     });
 
     return {

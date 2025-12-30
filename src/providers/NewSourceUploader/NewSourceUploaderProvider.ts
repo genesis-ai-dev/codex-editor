@@ -5,7 +5,7 @@ import { promisify } from "util";
 import { exec } from "child_process";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { createNoteBookPair } from "./codexFIleCreateUtils";
-import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteResponseMessage, WriteNotebooksWithAttachmentsMessage, SelectAudioFileMessage, ReprocessAudioFileMessage, RequestAudioSegmentMessage, FinalizeAudioImportMessage, UpdateAudioSegmentsMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
+import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteResponseMessage, WriteNotebooksWithAttachmentsMessage, SelectAudioFileMessage, ReprocessAudioFileMessage, RequestAudioSegmentMessage, FinalizeAudioImportMessage, UpdateAudioSegmentsMessage, SaveFileMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
 import {
     handleSelectAudioFile,
     handleReprocessAudioFile,
@@ -317,8 +317,12 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         message as FinalizeAudioImportMessage,
                         token,
                         webviewPanel,
-                        (msg, tok, pan) => this.handleWriteNotebooks(msg as WriteNotebooksMessage, tok, pan)
+                        async (msg, tok, pan) => {
+                            await this.handleWriteNotebooks(msg as WriteNotebooksMessage, tok, pan);
+                        }
                     );
+                } else if (message.command === "saveFile") {
+                    await this.handleSaveFile(message as SaveFileMessage, webviewPanel);
                 }
             } catch (error) {
                 console.error("Error handling message:", error);
@@ -367,19 +371,51 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         // happens in createNoteBookPair to preserve casing from existing files
         const trimmedCorpusMarker = corpusMarker ? corpusMarker.trim() : undefined;
 
+        // Use fileDisplayName from metadata if it exists, otherwise derive from originalName
+        // IMPORTANT: Always preserve fileDisplayName from metadata if it exists (e.g., "Hebrew Genesis", "Greek Matthew")
+        let fileDisplayName = processedNotebook.metadata?.fileDisplayName;
+
+        // Check if this is a Macula importer - if so, always preserve fileDisplayName from metadata
+        const isMaculaImporter = processedNotebook.metadata?.importerType === "macula";
+
+        // For Macula importer, if fileDisplayName is already set and starts with "Hebrew" or "Greek", preserve it
+        if (isMaculaImporter && fileDisplayName && (fileDisplayName.startsWith("Hebrew ") || fileDisplayName.startsWith("Greek "))) {
+            // Keep the existing fileDisplayName - don't override it
+        } else if (!fileDisplayName) {
         // Derive fileDisplayName from originalName without the file extension
         const originalName = processedNotebook.metadata.originalFileName;
-        let fileDisplayName = originalName && typeof originalName === "string" && originalName.trim() !== ""
+            fileDisplayName = originalName && typeof originalName === "string" && originalName.trim() !== ""
             ? path.basename(originalName.trim(), path.extname(originalName.trim()))
             : undefined;
 
         // For biblical books (NT/OT), convert USFM codes to full names during import
-        if (fileDisplayName && (trimmedCorpusMarker === "NT" || trimmedCorpusMarker === "OT")) {
+            // Also handle Macula corpus markers: "Hebrew Bible" and "Greek Bible"
+            const isNTMarker = trimmedCorpusMarker === "NT" || trimmedCorpusMarker === "greek bible";
+            const isOTMarker = trimmedCorpusMarker === "OT" || trimmedCorpusMarker === "hebrew bible";
+
+            if (fileDisplayName && (isNTMarker || isOTMarker)) {
             const usfmCode = extractUsfmCodeFromFilename(fileDisplayName);
             if (usfmCode) {
                 // Convert USFM code to full book name
                 fileDisplayName = await getBookDisplayName(usfmCode);
+                    // Add language prefix for Macula importer: "Hebrew" for OT, "Greek" for NT
+                    if (isMaculaImporter) {
+                        const languagePrefix = isNTMarker ? "Greek" : "Hebrew";
+                        fileDisplayName = `${languagePrefix} ${fileDisplayName}`;
+                    }
+                }
             }
+        } else if (isMaculaImporter && fileDisplayName && !fileDisplayName.startsWith("Hebrew ") && !fileDisplayName.startsWith("Greek ")) {
+            // For Macula importer, if fileDisplayName exists but doesn't have language prefix, add it
+            // First try to convert USFM code to full name if it's a code
+            const usfmCode = extractUsfmCodeFromFilename(fileDisplayName);
+            if (usfmCode) {
+                fileDisplayName = await getBookDisplayName(usfmCode);
+            }
+            // Add appropriate language prefix based on corpus marker
+            const isNTMarker = trimmedCorpusMarker === "NT" || trimmedCorpusMarker === "greek bible";
+            const languagePrefix = isNTMarker ? "Greek" : "Hebrew";
+            fileDisplayName = `${languagePrefix} ${fileDisplayName}`;
         }
 
         const metadata: CustomNotebookMetadata = {
@@ -1324,6 +1360,76 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 requestId: requestId,
                 success: false,
                 error: error instanceof Error ? error.message : "Unknown error occurred"
+            });
+        }
+    }
+
+    /**
+     * Handle saveFile command from webview - saves a file using VS Code's save dialog
+     */
+    private async handleSaveFile(message: SaveFileMessage, webviewPanel: vscode.WebviewPanel): Promise<void> {
+        try {
+            const { fileName, dataBase64, mime } = message;
+
+            // Extract base64 data (handle data: URL format)
+            let base64Data = dataBase64;
+            if (base64Data.includes(',')) {
+                // Remove data: URL prefix if present
+                base64Data = base64Data.split(',')[1];
+            }
+
+            // Convert base64 to Buffer
+            const buffer = Buffer.from(base64Data, 'base64');
+
+            if (buffer.length === 0) {
+                throw new Error('File data is empty');
+            }
+
+            // Show save dialog
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            const defaultUri = workspaceFolder
+                ? vscode.Uri.joinPath(workspaceFolder.uri, fileName)
+                : undefined;
+
+            const saveUri = await vscode.window.showSaveDialog({
+                defaultUri,
+                saveLabel: 'Save',
+                filters: mime
+                    ? {
+                        'All Files': ['*'],
+                        [mime]: [fileName.split('.').pop() || '*']
+                    }
+                    : undefined
+            });
+
+            if (!saveUri) {
+                // User cancelled
+                webviewPanel.webview.postMessage({
+                    command: "notification",
+                    type: "info",
+                    message: "File save cancelled"
+                });
+                return;
+            }
+
+            // Write file
+            await vscode.workspace.fs.writeFile(saveUri, buffer);
+
+            // Send success notification
+            webviewPanel.webview.postMessage({
+                command: "notification",
+                type: "success",
+                message: `File saved successfully: ${path.basename(saveUri.fsPath)}`
+            });
+
+            console.log(`[NEW SOURCE UPLOADER] File saved: ${saveUri.fsPath} (${buffer.length} bytes)`);
+
+        } catch (error) {
+            console.error("[NEW SOURCE UPLOADER] Error saving file:", error);
+            webviewPanel.webview.postMessage({
+                command: "notification",
+                type: "error",
+                message: error instanceof Error ? error.message : "Failed to save file"
             });
         }
     }

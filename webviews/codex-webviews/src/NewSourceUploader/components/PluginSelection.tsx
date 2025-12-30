@@ -37,22 +37,34 @@ const PluginCard: React.FC<{
 }> = ({ plugin, onSelect, className }) => {
     const Icon = plugin.icon;
     const isEnabled = plugin.enabled !== false;
+    const isBetaPlugin = plugin.id === "docx-roundtrip" || plugin.id === "pdf-importer" || plugin.id === "usfm-experimental" || plugin.id === "indesign-importer" || plugin.id === "biblica-importer" || plugin.id === "spreadsheet";
 
     return (
         <Card
             className={cn(
                 "cursor-pointer transition-all group relative overflow-hidden",
                 isEnabled ? "hover:shadow-lg hover:scale-[1.02]" : "opacity-50 cursor-not-allowed",
-                className
+                className,
+                isBetaPlugin ? "hover:border-yellow-500" : "hover:border-primary"
             )}
             onClick={() => isEnabled && onSelect(plugin.id)}
         >
             <CardHeader className="pb-4">
                 <div className="flex items-start justify-between mb-3">
                     <Icon className="h-10 w-10 group-hover:scale-110 transition-transform" />
-                    {!isEnabled && <Badge variant="secondary">Soon</Badge>}
+                    <div className="flex items-center gap-2">
+                        {isBetaPlugin && (
+                            <Badge variant="secondary" className="text-xs bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
+                                in BETA
+                            </Badge>
+                        )}
+                        {!isEnabled && <Badge variant="secondary">Soon</Badge>}
+                    </div>
                 </div>
-                <CardTitle className="text-xl font-medium group-hover:text-primary transition-colors">
+                <CardTitle className={cn(
+                    "text-xl font-medium transition-colors",
+                    isBetaPlugin ? "group-hover:text-yellow-500" : "group-hover:text-primary"
+                )}>
                     {plugin.name}
                 </CardTitle>
                 <CardDescription className="text-sm leading-relaxed text-muted-foreground/80">
@@ -168,7 +180,12 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
                             key={plugin.id}
                             plugin={plugin}
                             onSelect={onSelectPlugin}
-                            className="border-2 hover:border-primary shadow-sm hover:shadow-xl"
+                            className={cn(
+                                "border-2 shadow-sm hover:shadow-xl",
+                                plugin.id === "docx-roundtrip" || plugin.id === "pdf-importer" || plugin.id === "usfm-experimental" || plugin.id === "indesign-importer" || plugin.id === "biblica-importer" || plugin.id === "spreadsheet"
+                                    ? "hover:border-yellow-500" 
+                                    : "hover:border-primary"
+                            )}
                         />
                     ))}
                 </div>
@@ -204,7 +221,12 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
                             key={plugin.id}
                             plugin={plugin}
                             onSelect={onSelectPlugin}
-                            className="opacity-95 hover:opacity-100 border-muted-foreground/10 hover:border-muted-foreground/30"
+                            className={cn(
+                                "border-2 shadow-sm hover:shadow-xl opacity-95 hover:opacity-100",
+                                plugin.id === "docx-roundtrip" || plugin.id === "pdf-importer" || plugin.id === "usfm-experimental" || plugin.id === "indesign-importer" || plugin.id === "biblica-importer" || plugin.id === "spreadsheet"
+                                    ? "hover:border-yellow-500" 
+                                    : "hover:border-primary"
+                            )}
                         />
                     ))}
                 </div>

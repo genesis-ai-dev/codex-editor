@@ -144,7 +144,7 @@ describe('addMilestoneCellsToNotebookPair', () => {
 
             const milestone = result.source.cells[0];
             expect(milestone.metadata?.type).toBe(CodexCellTypes.MILESTONE);
-            expect(milestone.content).toBe('1'); // Chapter 1
+            expect(milestone.content).toBe('Genesis 1'); // Book name + Chapter 1
             expect(result.source.cells[0].id).toBe(result.codex.cells[0].id);
         });
 
@@ -162,13 +162,13 @@ describe('addMilestoneCellsToNotebookPair', () => {
 
             const result = addMilestoneCellsToNotebookPair(notebookPair);
 
-            // Should have: milestone(1), cell1, cell2, milestone(2), cell3, cell4, milestone(3), cell5
+            // Should have: milestone(Genesis 1), cell1, cell2, milestone(Genesis 2), cell3, cell4, milestone(Genesis 3), cell5
             expect(result.source.cells).toHaveLength(8);
             expect(result.codex.cells).toHaveLength(8);
 
             // First milestone (chapter 1)
             expect(result.source.cells[0].metadata?.type).toBe(CodexCellTypes.MILESTONE);
-            expect(result.source.cells[0].content).toBe('1');
+            expect(result.source.cells[0].content).toBe('Genesis 1');
 
             // Original cells
             expect(result.source.cells[1]).toEqual(cell1);
@@ -176,7 +176,7 @@ describe('addMilestoneCellsToNotebookPair', () => {
 
             // Second milestone (chapter 2)
             expect(result.source.cells[3].metadata?.type).toBe(CodexCellTypes.MILESTONE);
-            expect(result.source.cells[3].content).toBe('2');
+            expect(result.source.cells[3].content).toBe('Genesis 2');
 
             // Original cells
             expect(result.source.cells[4]).toEqual(cell3);
@@ -184,7 +184,7 @@ describe('addMilestoneCellsToNotebookPair', () => {
 
             // Third milestone (chapter 3)
             expect(result.source.cells[6].metadata?.type).toBe(CodexCellTypes.MILESTONE);
-            expect(result.source.cells[6].content).toBe('3');
+            expect(result.source.cells[6].content).toBe('Genesis 3');
 
             // Original cell
             expect(result.source.cells[7]).toEqual(cell5);
@@ -387,7 +387,7 @@ describe('addMilestoneCellsToNotebookPair', () => {
                 (c) => c.metadata?.type === CodexCellTypes.MILESTONE
             );
             expect(milestones).toHaveLength(1);
-            expect(milestones[0].content).toBe('1');
+            expect(milestones[0].content).toBe('Genesis 1');
         });
 
         it('should handle importerType with different casing', () => {
@@ -421,7 +421,7 @@ describe('addMilestoneCellsToNotebookPair', () => {
 
             const result = addMilestoneCellsToNotebookPair(notebookPair);
 
-            expect(result.source.cells[0].content).toBe('5');
+            expect(result.source.cells[0].content).toBe('Genesis 5');
         });
 
         it('should prioritize metadata.chapter over metadata.data.chapter', () => {
@@ -433,7 +433,7 @@ describe('addMilestoneCellsToNotebookPair', () => {
 
             const result = addMilestoneCellsToNotebookPair(notebookPair);
 
-            expect(result.source.cells[0].content).toBe('3');
+            expect(result.source.cells[0].content).toBe('Genesis 3');
         });
 
         it('should prioritize metadata.data.chapter over cellId extraction', () => {
@@ -444,7 +444,7 @@ describe('addMilestoneCellsToNotebookPair', () => {
 
             const result = addMilestoneCellsToNotebookPair(notebookPair);
 
-            expect(result.source.cells[0].content).toBe('7');
+            expect(result.source.cells[0].content).toBe('Genesis 7');
         });
 
         it('should use cellId extraction when metadata is not available', () => {
@@ -453,7 +453,59 @@ describe('addMilestoneCellsToNotebookPair', () => {
 
             const result = addMilestoneCellsToNotebookPair(notebookPair);
 
-            expect(result.source.cells[0].content).toBe('5');
+            expect(result.source.cells[0].content).toBe('Genesis 5');
+        });
+    });
+
+    describe('Book name extraction', () => {
+        it('should extract book name from cell ID and include in milestone value', () => {
+            const cell1 = createMockCell('GEN 1:1', 'Content');
+            const cell2 = createMockCell('EXO 1:1', 'Content');
+            const notebookPair = createMockNotebookPair(
+                [cell1, cell2],
+                [cell1, cell2],
+                'biblica'
+            );
+
+            const result = addMilestoneCellsToNotebookPair(notebookPair);
+
+            // First milestone should have "Genesis 1"
+            expect(result.source.cells[0].content).toBe('Genesis 1');
+            // Second milestone should have "Exodus 1"
+            expect(result.source.cells[2].content).toBe('Exodus 1');
+        });
+
+        it('should extract book name from globalReferences when available', () => {
+            const cell = createMockCell('cell-1', 'Content', {
+                data: {
+                    globalReferences: ['GEN 1:1'],
+                },
+            });
+            const notebookPair = createMockNotebookPair([cell], [cell], 'biblica');
+
+            const result = addMilestoneCellsToNotebookPair(notebookPair);
+
+            expect(result.source.cells[0].content).toBe('Genesis 1');
+        });
+
+        it('should use only chapter number when book name cannot be extracted', () => {
+            const cell = createMockCell('cell-1', 'Content', { chapterNumber: 3 });
+            const notebookPair = createMockNotebookPair([cell], [cell], 'biblica');
+
+            const result = addMilestoneCellsToNotebookPair(notebookPair);
+
+            // Should fall back to just chapter number when no book info available
+            expect(result.source.cells[0].content).toBe('3');
+        });
+
+        it('should handle cells with book abbreviation not in lookup', () => {
+            const cell = createMockCell('UNK 1:1', 'Content');
+            const notebookPair = createMockNotebookPair([cell], [cell], 'biblica');
+
+            const result = addMilestoneCellsToNotebookPair(notebookPair);
+
+            // Should use abbreviation itself when not found in lookup
+            expect(result.source.cells[0].content).toBe('UNK 1');
         });
     });
 });

@@ -215,6 +215,9 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                     <h1 className="text-2xl font-bold flex items-center gap-2">
                         <FileText className="h-6 w-6" />
                         Import DOCX Document
+                        <span className="text-xs font-semibold px-2 py-1 bg-amber-100 text-amber-800 rounded border border-amber-300">
+                            BETA
+                        </span>
                     </h1>
                     {isTranslationImport && selectedSource && (
                         <p className="text-muted-foreground">
@@ -250,8 +253,8 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                     <CardTitle>Select DOCX File</CardTitle>
                     <CardDescription>
                         {isTranslationImport
-                            ? "Import a DOCX translation that will be aligned with existing cells. Content will be inserted sequentially into empty cells."
-                            : "Import Microsoft Word documents with formatting, images, and structure preserved"}
+                            ? "Import a DOCX translation that will be aligned with existing cells. Content will be inserted sequentially into empty cells. (BETA)"
+                            : "Import Microsoft Word documents with formatting, images, and structure preserved (BETA)"}
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
