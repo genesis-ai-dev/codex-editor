@@ -251,6 +251,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const { sourceCellMap } = useContext(SourceCellContext);
     const cellEditorRef = useRef<HTMLDivElement>(null);
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
+    // Lock state is ONLY honored from top-level metadata.isLocked
+    const isCellLocked = !!cell.metadata?.isLocked;
     const [editorContent, setEditorContent] = useState(cellContent);
     const [isTextDirty, setIsTextDirty] = useState(false);
     const [showOfflineModal, setShowOfflineModal] = useState(false);
@@ -1096,6 +1098,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     // Audio recording functions
     const startRecording = async () => {
+        // Prevent recording if cell is locked
+        if (isCellLocked) {
+            setRecordingStatus("Cannot record: cell is locked");
+            return;
+        }
+
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             setRecordingStatus("Microphone not supported in this browser");
             return;
@@ -1473,6 +1481,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
     };
 
     const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+        // Prevent uploading if cell is locked
+        if (isCellLocked) {
+            setRecordingStatus("Cannot upload: cell is locked");
+            // Reset the input so the same file can't be selected again
+            event.target.value = "";
+            return;
+        }
+
         const file = event.target.files?.[0];
 
         if (file && (file.type.startsWith("audio/") || file.type.startsWith("video/"))) {
@@ -1557,16 +1573,19 @@ const CellEditor: React.FC<CellEditorProps> = ({
             command: "getAudioHistory",
             content: { cellId: cellMarkers[0] },
         });
-        // If requested by list view, auto-record
+        // If requested by list view, auto-record (only if cell is not locked)
         // Do not auto-open any tab. If auto-recording was requested, start in background without changing tabs.
         try {
             const autoRecord = sessionStorage.getItem(`start-audio-recording-${cellMarkers[0]}`);
-            if (autoRecord) {
+            if (autoRecord && !isCellLocked) {
                 setShowRecorder(true);
                 setTimeout(() => {
                     startRecording();
                     sessionStorage.removeItem(`start-audio-recording-${cellMarkers[0]}`);
                 }, 300);
+            } else if (autoRecord && isCellLocked) {
+                // Clear the auto-record flag if cell is locked
+                sessionStorage.removeItem(`start-audio-recording-${cellMarkers[0]}`);
             }
         } catch {
             // no-op
@@ -1849,12 +1868,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Button
-                                        onClick={() => editorHandlesRef.current?.autocomplete()}
+                                        onClick={() => {
+                                            if (cell.metadata?.isLocked) return;
+                                            editorHandlesRef.current?.autocomplete();
+                                        }}
                                         variant="ghost"
                                         size="icon"
                                         title="Autocomplete with AI"
+                                        disabled={cell.metadata?.isLocked ?? false}
+                                        className={
+                                            cell.metadata?.isLocked
+                                                ? "opacity-50 cursor-not-allowed"
+                                                : ""
+                                        }
                                     >
-                                        <Sparkles className="h-4 w-4" />
+                                        <Sparkles
+                                            className={`h-4 w-4 ${
+                                                cell.metadata?.isLocked ? "opacity-50" : ""
+                                            }`}
+                                        />
                                     </Button>
                                 </TooltipTrigger>
                                 <TooltipContent>
@@ -2642,9 +2674,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     isRecording ? stopRecording : startRecording
                                                 }
                                                 variant={isRecording ? "secondary" : "default"}
+                                                disabled={isCellLocked}
                                                 className={`h-8 px-2 text-xs ${
                                                     isRecording ? "animate-pulse" : ""
+                                                } ${
+                                                    isCellLocked
+                                                        ? "opacity-50 cursor-not-allowed"
+                                                        : ""
                                                 }`}
+                                                title={
+                                                    isCellLocked
+                                                        ? "Cannot record: cell is locked"
+                                                        : isRecording
+                                                        ? "Stop Recording"
+                                                        : "Start Recording"
+                                                }
                                             >
                                                 {isRecording ? (
                                                     <>
@@ -2662,7 +2706,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             <Button
                                                 variant="outline"
                                                 className="flex items-center justify-center h-8 px-2 text-xs"
+                                                disabled={isCellLocked}
+                                                title={
+                                                    isCellLocked
+                                                        ? "Cannot upload: cell is locked"
+                                                        : "Upload audio file"
+                                                }
                                                 onClick={() => {
+                                                    if (isCellLocked) return;
                                                     document
                                                         .getElementById("audio-file-input")
                                                         ?.click();

@@ -986,6 +986,135 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
         (window as any).AudioContext = OriginalAudioContext;
     });
 
+    it("locked cell: should disable Start Recording and not call getUserMedia", async () => {
+        sessionStorage.setItem("preferred-editor-tab", "audio");
+
+        const lockedCell = { ...mockTranslationUnits[0], metadata: { isLocked: true } as any };
+
+        const props = {
+            cellMarkers: ["cell-1"],
+            cellContent: "<p>Test content</p>",
+            editHistory: lockedCell.editHistory,
+            cellIndex: 0,
+            cellType: CodexCellTypes.TEXT,
+            spellCheckResponse: null,
+            contentBeingUpdated: {
+                cellMarkers: ["cell-1"],
+                cellContent: "<p>Test content</p>",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            textDirection: "ltr" as const,
+            cellLabel: "Test Label",
+            cellTimestamps: { startTime: 0, endTime: 5 },
+            cellIsChild: false,
+            openCellById: vi.fn(),
+            cell: lockedCell,
+            isSaving: false,
+            saveError: false,
+            saveRetryCount: 0,
+            footnoteOffset: 1,
+            audioAttachments: { "cell-1": "none" as const },
+        };
+
+        const getUserMediaSpy = vi.fn().mockResolvedValue({
+            getTracks: () => [{ stop: vi.fn() }],
+        });
+        (navigator as any).mediaDevices = { getUserMedia: getUserMediaSpy };
+
+        render(
+            <MockUnsavedChangesProvider>
+                <MockSourceCellProvider>
+                    <MockScrollToContentProvider>
+                        <CellEditor {...props} />
+                    </MockScrollToContentProvider>
+                </MockSourceCellProvider>
+            </MockUnsavedChangesProvider>
+        );
+
+        // Start Recording button should be disabled when locked
+        const startBtn = await screen.findByRole("button", { name: /Start Recording/i });
+        expect(startBtn.hasAttribute("disabled")).toBe(true);
+
+        fireEvent.click(startBtn);
+        expect(getUserMediaSpy).not.toHaveBeenCalled();
+    });
+
+    it("locked cell: audio upload should NOT post saveAudioAttachment", async () => {
+        sessionStorage.setItem("preferred-editor-tab", "audio");
+
+        const lockedCell = { ...mockTranslationUnits[0], metadata: { isLocked: true } as any };
+
+        const props = {
+            cellMarkers: ["cell-1"],
+            cellContent: "<p>Test content</p>",
+            editHistory: lockedCell.editHistory,
+            cellIndex: 0,
+            cellType: CodexCellTypes.TEXT,
+            spellCheckResponse: null,
+            contentBeingUpdated: {
+                cellMarkers: ["cell-1"],
+                cellContent: "<p>Test content</p>",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            textDirection: "ltr" as const,
+            cellLabel: "Test Label",
+            cellTimestamps: { startTime: 0, endTime: 5 },
+            cellIsChild: false,
+            openCellById: vi.fn(),
+            cell: lockedCell,
+            isSaving: false,
+            saveError: false,
+            saveRetryCount: 0,
+            footnoteOffset: 1,
+            audioAttachments: { "cell-1": "none" as const },
+        };
+
+        const { container } = render(
+            <MockUnsavedChangesProvider>
+                <MockSourceCellProvider>
+                    <MockScrollToContentProvider>
+                        <CellEditor {...props} />
+                    </MockScrollToContentProvider>
+                </MockSourceCellProvider>
+            </MockUnsavedChangesProvider>
+        );
+
+        // Clear initial messages
+        (mockVscode.postMessage as any).mockClear?.();
+
+        // Force recorder view so file input is present
+        window.dispatchEvent(
+            new MessageEvent("message", {
+                data: {
+                    type: "providerSendsAudioData",
+                    content: { cellId: "cell-1", audioData: null },
+                },
+            })
+        );
+
+        const fileInput = await waitFor(() => {
+            const el = container.querySelector(
+                'input#audio-file-input[type="file"]'
+            ) as HTMLInputElement | null;
+            expect(el).toBeTruthy();
+            return el!;
+        });
+
+        const file = new File(["abc"], "test.webm", { type: "audio/webm" });
+        fireEvent.change(fileInput, { target: { files: [file] } });
+
+        // Should not attempt to save via postMessage when locked
+        expect(mockVscode.postMessage).not.toHaveBeenCalledWith(
+            expect.objectContaining({ command: "saveAudioAttachment" })
+        );
+    });
+
     it("audio upload: non-audio file does NOT post saveAudioAttachment", async () => {
         sessionStorage.setItem("preferred-editor-tab", "audio");
 

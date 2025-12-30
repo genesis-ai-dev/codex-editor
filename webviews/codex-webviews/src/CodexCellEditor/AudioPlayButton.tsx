@@ -3,7 +3,13 @@ import { getCachedAudioDataUrl, setCachedAudioDataUrl } from "../lib/audioCache"
 import type { WebviewApi } from "vscode-webview";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 
-type AudioState = "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+type AudioState =
+    | "available"
+    | "available-local"
+    | "available-pointer"
+    | "missing"
+    | "deletedOnly"
+    | "none";
 
 interface AudioPlayButtonProps {
     cellId: string;
@@ -53,7 +59,9 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = ({
                         .then((res) => res.blob())
                         .then((blob) => {
                             const blobUrl = URL.createObjectURL(blob);
-                            try { setCachedAudioDataUrl(cellId, message.content.audioData); } catch {}
+                            try {
+                                setCachedAudioDataUrl(cellId, message.content.audioData);
+                            } catch {}
                             setAudioUrl(blobUrl);
                             setIsLoading(false);
                             if (pendingPlayRef.current) {
@@ -101,6 +109,9 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = ({
         try {
             if (state !== "available") {
                 // For missing audio, just open the editor without auto-starting recording
+                // Also don't auto-start if cell is locked (check via props if available)
+                // Note: This component doesn't have direct access to cell metadata,
+                // but the parent CellContentDisplay will handle the lock check
                 if (state !== "missing") {
                     try {
                         sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");

@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { NotebookPreview } from "@types";
+import { CodexNotebookAsJSONData, NotebookPreview } from "@types";
 import { CodexCellTypes } from "../../../types/enums";
 import { createStandardizedFilename, isBiblicalImporterType } from "../../utils/bookNameUtils";
 import { CorpusMarker, findCanonicalCorpusMarker } from "../../utils/corpusMarkerUtils";
@@ -12,7 +12,7 @@ export function checkCancellation(token?: vscode.CancellationToken): void {
     }
 }
 
-export async function writeNotebook(uri: vscode.Uri, notebook: NotebookPreview): Promise<void> {
+export async function writeNotebook(uri: vscode.Uri, notebook: CodexNotebookAsJSONData): Promise<void> {
     // Don't use createCodexNotebook since it opens the document
     // Instead, directly serialize the notebook data
     const cells = notebook.cells.map((cell) => ({
@@ -21,11 +21,11 @@ export async function writeNotebook(uri: vscode.Uri, notebook: NotebookPreview):
         value: cell.value ?? "",
         languageId: cell.languageId ?? "html",
         metadata: {
+            ...cell.metadata,
             type: cell.metadata?.type || CodexCellTypes.TEXT,
             id: cell.metadata?.id,
             data: cell.metadata?.data || {},
-            edits: cell.metadata?.edits || [],
-            ...cell.metadata,
+            edits: cell.metadata?.edits || []
         },
     }));
 
@@ -187,8 +187,8 @@ export async function createNoteBookPair({
         console.log(`[CODEX FILE CREATE] - Source: ${sourceUri.fsPath}`);
         console.log(`[CODEX FILE CREATE] - Codex: ${codexUri.fsPath}`);
 
-        await writeNotebook(sourceUri, sourceNotebook);
-        await writeNotebook(codexUri, codexNotebook);
+        await writeNotebook(sourceUri, sourceNotebook as CodexNotebookAsJSONData);
+        await writeNotebook(codexUri, codexNotebook as CodexNotebookAsJSONData);
 
         console.log(`[CODEX FILE CREATE] Successfully wrote notebook pair for "${sourceNotebook.name}"`);
 

@@ -664,7 +664,7 @@ function applyEditToCell(cell: CustomNotebookCellData, edit: EditHistory): void 
         cell.metadata = {
             id: (cell as any).id || '',
             type: CodexCellTypes.TEXT,
-            edits: []
+            edits: [],
         };
     }
 
@@ -683,6 +683,8 @@ function applyEditToCell(cell: CustomNotebookCellData, edit: EditHistory): void 
                     cell.metadata.selectedAudioId = value as string;
                 } else if (field === 'selectionTimestamp') {
                     cell.metadata.selectionTimestamp = value as number;
+                } else if (field === 'isLocked') {
+                    cell.metadata.isLocked = value as boolean;
                 }
             } else if (path.length === 3 && path[1] === 'data') {
                 // Data field edit (e.g., startTime, endTime)
@@ -1013,7 +1015,7 @@ export async function resolveCodexCustomMerge(
                 mergedCell.metadata = {
                     id: cellId,
                     type: CodexCellTypes.TEXT,
-                    edits: []
+                    edits: [],
                 };
             }
             mergedCell.metadata.edits = uniqueEdits;
