@@ -1143,4 +1143,57 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
             });
         });
     });
+
+    it("should not auto-start recording from audio button when locked via legacy metadata.data.isLocked", () => {
+        const mockCell: QuillCellContent = {
+            ...createMockCell("cell-1", "<p>Test content</p>", false),
+            // Simulate older/legacy documents where lock state is nested
+            metadata: { data: { isLocked: true } } as any,
+        };
+
+        // Ensure clean slate
+        sessionStorage.removeItem("start-audio-recording-cell-1");
+        (window as any).openCellByIdForce = vi.fn();
+        (window as any).openCellById = vi.fn();
+
+        const { container } = render(
+            <CellContentDisplay
+                cell={mockCell}
+                vscode={mockVscode as any}
+                textDirection="ltr"
+                isSourceText={false}
+                hasDuplicateId={false}
+                alertColorCode={undefined}
+                highlightedCellId={null}
+                scrollSyncEnabled={true}
+                lineNumber="1"
+                label="Test Label"
+                lineNumbersEnabled={true}
+                isInTranslationProcess={false}
+                translationState={null as any}
+                allTranslationsComplete={false}
+                handleCellClick={vi.fn()}
+                cellDisplayMode={CELL_DISPLAY_MODES.ONE_LINE_PER_CELL}
+                audioAttachments={{ "cell-1": "none" as const }}
+                currentUsername="test-user"
+                requiredValidations={1}
+                requiredAudioValidations={1}
+                userAccessLevel={50}
+            />
+        );
+
+        // "none" state renders mic icon; when locked, title is "Cell is locked"
+        const audioButton = container.querySelector(
+            'button.audio-play-button[title="Cell is locked"]'
+        );
+        expect(audioButton).toBeTruthy();
+
+        fireEvent.click(audioButton!);
+
+        // Locked cells should not set the auto-record flag
+        expect(sessionStorage.getItem("start-audio-recording-cell-1")).toBeNull();
+        // Locked cells should not open the editor for recording
+        expect((window as any).openCellByIdForce).not.toHaveBeenCalled();
+        expect((window as any).openCellById).not.toHaveBeenCalled();
+    });
 });

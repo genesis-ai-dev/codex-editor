@@ -1900,6 +1900,20 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             audioId: typedEvent.content.audioId,
             fileExtension: typedEvent.content.fileExtension
         });
+
+        // Prevent saving audio if cell is locked
+        const cellId = typedEvent.content.cellId;
+        const cell = document.getCell(cellId);
+        const isCellLocked = !!(cell?.metadata?.isLocked ?? (cell?.metadata as any)?.data?.isLocked);
+        if (isCellLocked) {
+            console.warn(`Attempted to save audio to locked cell ${cellId}. Operation blocked.`);
+            safePostMessageToPanel(webviewPanel, {
+                type: "error",
+                content: { message: `Cannot save audio: cell ${cellId} is locked` }
+            });
+            return;
+        }
+
         try {
             const documentSegment = typedEvent.content.cellId.split(' ')[0];
             const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
