@@ -862,6 +862,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
             if (command === "extension.scheduleSync") {
                 commitCommandCalled = true;
                 commitMessage = message || "";
+                // In tests, the command may not actually be registered. We only need to observe the call.
+                return undefined as any;
             }
             return originalExecuteCommand(command, message);
         };
@@ -4380,7 +4382,14 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 new vscode.CancellationTokenSource().token
             );
 
-            const { panel, lastPostedMessageRef } = createMockWebviewPanel();
+            // Track all messages sent to webview
+            const postedMessages: any[] = [];
+            const { panel } = createMockWebviewPanel();
+            // Override postMessage to track all messages
+            panel.webview.postMessage = async (message: any) => {
+                postedMessages.push(message);
+                return Promise.resolve(true);
+            };
 
             // Register webview panel with provider
             await provider.resolveCustomEditor(
@@ -4390,21 +4399,18 @@ suite("CodexCellEditorProvider Test Suite", () => {
             );
 
             // Clear any initial messages from resolveCustomEditor
-            lastPostedMessageRef.current = null;
+            postedMessages.length = 0;
 
             // Call refreshWebviewsForFiles with the document path
-            provider.refreshWebviewsForFiles([tempUri.fsPath]);
+            await provider.refreshWebviewsForFiles([tempUri.fsPath]);
 
-            // Wait a bit for async operations
-            await sleep(100);
+            // Wait for async operations to complete (revert() may trigger other messages)
+            await sleep(200);
 
             // Verify refreshCurrentPage message was sent
-            assert.ok(lastPostedMessageRef.current, "Message should have been posted");
-            assert.strictEqual(
-                lastPostedMessageRef.current.type,
-                "refreshCurrentPage",
-                "Message type should be refreshCurrentPage"
-            );
+            // Note: revert() may trigger other messages, but refreshCurrentPage should be among them
+            const refreshMessage = postedMessages.find(msg => msg.type === "refreshCurrentPage");
+            assert.ok(refreshMessage, "refreshCurrentPage message should have been posted");
 
             document.dispose();
         });
@@ -4433,7 +4439,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
             // Call refreshWebviewsForFiles with a different file path
             const otherPath = path.join(os.tmpdir(), "nonexistent.codex");
-            provider.refreshWebviewsForFiles([otherPath]);
+            await provider.refreshWebviewsForFiles([otherPath]);
 
             // Wait a bit for async operations
             await sleep(100);
@@ -4460,7 +4466,14 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 new vscode.CancellationTokenSource().token
             );
 
-            const { panel, lastPostedMessageRef } = createMockWebviewPanel();
+            // Track all messages sent to webview
+            const postedMessages: any[] = [];
+            const { panel } = createMockWebviewPanel();
+            // Override postMessage to track all messages
+            panel.webview.postMessage = async (message: any) => {
+                postedMessages.push(message);
+                return Promise.resolve(true);
+            };
 
             // Register webview panel with provider
             await provider.resolveCustomEditor(
@@ -4470,22 +4483,19 @@ suite("CodexCellEditorProvider Test Suite", () => {
             );
 
             // Clear any initial messages
-            lastPostedMessageRef.current = null;
+            postedMessages.length = 0;
 
             // Call refreshWebviewsForFiles with mix of .codex and non-.codex files
             const txtPath = path.join(os.tmpdir(), "test.txt");
-            provider.refreshWebviewsForFiles([tempUri.fsPath, txtPath]);
+            await provider.refreshWebviewsForFiles([tempUri.fsPath, txtPath]);
 
-            // Wait a bit for async operations
-            await sleep(100);
+            // Wait for async operations to complete (revert() may trigger other messages)
+            await sleep(200);
 
             // Verify refreshCurrentPage message was sent (only for .codex file)
-            assert.ok(lastPostedMessageRef.current, "Message should have been posted for .codex file");
-            assert.strictEqual(
-                lastPostedMessageRef.current.type,
-                "refreshCurrentPage",
-                "Message type should be refreshCurrentPage"
-            );
+            // Note: revert() may trigger other messages, but refreshCurrentPage should be among them
+            const refreshMessage = postedMessages.find(msg => msg.type === "refreshCurrentPage");
+            assert.ok(refreshMessage, "refreshCurrentPage message should have been posted for .codex file");
 
             document.dispose();
         });
@@ -4505,7 +4515,14 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 new vscode.CancellationTokenSource().token
             );
 
-            const { panel, lastPostedMessageRef } = createMockWebviewPanel();
+            // Track all messages sent to webview
+            const postedMessages: any[] = [];
+            const { panel } = createMockWebviewPanel();
+            // Override postMessage to track all messages
+            panel.webview.postMessage = async (message: any) => {
+                postedMessages.push(message);
+                return Promise.resolve(true);
+            };
 
             // Register webview panel with provider
             await provider.resolveCustomEditor(
@@ -4514,35 +4531,35 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 new vscode.CancellationTokenSource().token
             );
 
+            // Clear any initial messages from resolveCustomEditor
+            postedMessages.length = 0;
+
             // Get workspace-relative path
             const relativePath = vscode.workspace.asRelativePath(tempUri);
 
             // Call refreshWebviewsForFiles with workspace-relative path
-            provider.refreshWebviewsForFiles([relativePath]);
+            await provider.refreshWebviewsForFiles([relativePath]);
 
-            // Wait a bit for async operations
-            await sleep(100);
+            // Wait for async operations to complete (revert() may trigger other messages)
+            await sleep(200);
 
             // Verify refreshCurrentPage message was sent
-            assert.ok(lastPostedMessageRef.current, "Message should have been posted");
-            assert.strictEqual(
-                lastPostedMessageRef.current.type,
-                "refreshCurrentPage",
-                "Message type should be refreshCurrentPage"
-            );
+            // Note: revert() may trigger other messages, but refreshCurrentPage should be among them
+            const refreshMessage = postedMessages.find(msg => msg.type === "refreshCurrentPage");
+            assert.ok(refreshMessage, "refreshCurrentPage message should have been posted");
 
             document.dispose();
         });
 
-        test("refreshWebviewsForFiles handles empty array", () => {
+        test("refreshWebviewsForFiles handles empty array", async () => {
             // Should not throw
-            provider.refreshWebviewsForFiles([]);
+            await provider.refreshWebviewsForFiles([]);
             assert.ok(true, "Should handle empty array without error");
         });
 
-        test("refreshWebviewsForFiles handles no webviews open", () => {
+        test("refreshWebviewsForFiles handles no webviews open", async () => {
             // Should not throw when no webviews are open
-            provider.refreshWebviewsForFiles([tempUri.fsPath]);
+            await provider.refreshWebviewsForFiles([tempUri.fsPath]);
             assert.ok(true, "Should handle no open webviews without error");
         });
     });

@@ -63,9 +63,10 @@ export const enqueueValidation = (cellId: string, validate: boolean, isAudioVali
 
 // Clear the validation queue (useful for testing)
 export const clearValidationQueue = (): void => {
-    // Reject all pending promises
+    // Resolve all pending promises to avoid unhandled rejections in tests.
+    // This is only used as a test helper; production code should generally not clear in-flight work.
     validationQueue.forEach(item => {
-        item.reject(new Error('Queue cleared'));
+        item.resolve();
     });
     validationQueue.length = 0;
     isProcessingQueue = false;

@@ -21,6 +21,3 @@ CLAUDE.md
 
 # Vite build cache files
 webviews/codex-webviews/vite.config.ts.timestamp-*.mjs
-
-# Cursor rules
-.cursor/rules/code-organization-helpers.mdc

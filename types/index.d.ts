@@ -775,6 +775,13 @@ export type EditorPostMessages =
         content: {
             milestoneIndex: number;
         };
+    }
+    | {
+        command: "updateMilestoneValue";
+        content: {
+            milestoneIndex: number;
+            newValue: string;
+        };
     };
 
 // (revalidateMissingForCell added above in EditorPostMessages union)
@@ -1720,6 +1727,10 @@ type EditorReceiveMessages =
             percentFullyValidatedTranslations: number;
             percentAudioValidatedTranslations: number;
             percentTextValidatedTranslations: number;
+            textValidationLevels?: number[];
+            audioValidationLevels?: number[];
+            requiredTextValidations?: number;
+            requiredAudioValidations?: number;
         }>;
     }
     | {

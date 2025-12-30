@@ -40,10 +40,12 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     const [validationUsers, setValidationUsers] = useState<ValidationEntry[]>([]);
     const [isPendingValidation, setIsPendingValidation] = useState(false);
     const [isValidationInProgress, setIsValidationInProgress] = useState(false);
+    const [isKeyboardFocused, setIsKeyboardFocused] = useState(false);
     const buttonRef = useRef<HTMLDivElement>(null);
     const uniqueId = useRef(`validation-${cellId}-${Math.random().toString(36).substring(2, 11)}`);
     const closeTimerRef = useRef<number | null>(null);
     const ignoreHoverRef = useRef(false);
+    const wasKeyboardNavigationRef = useRef(false);
 
     const clearCloseTimer = () => {
         if (closeTimerRef.current != null) {
@@ -192,6 +194,28 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         }
     }, [showPopover]);
 
+    // Track keyboard navigation globally to detect when focus is achieved via keyboard
+    useEffect(() => {
+        const handleDocumentKeyDown = (e: KeyboardEvent) => {
+            // Track Tab, Arrow keys, and Enter as keyboard navigation
+            if (e.key === "Tab" || e.key.startsWith("Arrow") || e.key === "Enter") {
+                wasKeyboardNavigationRef.current = true;
+            }
+        };
+
+        const handleDocumentMouseDown = () => {
+            // Reset keyboard navigation flag when mouse is used
+            wasKeyboardNavigationRef.current = false;
+        };
+
+        document.addEventListener("keydown", handleDocumentKeyDown);
+        document.addEventListener("mousedown", handleDocumentMouseDown);
+        return () => {
+            document.removeEventListener("keydown", handleDocumentKeyDown);
+            document.removeEventListener("mousedown", handleDocumentMouseDown);
+        };
+    }, []);
+
     const handleValidate = (e: React.MouseEvent) => {
         e.stopPropagation();
         setIsPendingValidation(true);
@@ -218,6 +242,24 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             ignoreHoverRef.current = false;
         }, 200);
 
+        // Mark that this was a mouse click, not keyboard navigation
+        wasKeyboardNavigationRef.current = false;
+        setIsKeyboardFocused(false);
+
+        // Blur the button after mouse click to remove focus (prevents pulse from continuing)
+        // Use setTimeout to ensure blur happens after the click event completes
+        window.setTimeout(() => {
+            if (buttonRef.current) {
+                // Find the actual button element within the VSCodeButton component
+                const buttonElement = buttonRef.current.querySelector(
+                    "button"
+                ) as HTMLButtonElement;
+                if (buttonElement) {
+                    buttonElement.blur();
+                }
+            }
+        }, 0);
+
         if (!isValidated) {
             handleValidate(e);
             closePopover();
@@ -239,12 +281,31 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
         e.stopPropagation();
+        // Mark that keyboard navigation is being used
+        wasKeyboardNavigationRef.current = true;
 
         if (e.key === "Enter") {
             e.preventDefault();
             showPopoverHandler(e as unknown as React.MouseEvent);
             handleButtonClick(e as unknown as React.MouseEvent);
         }
+
+        if (e.key === "Escape") {
+            e.preventDefault();
+            hidePopoverHandler(e as unknown as React.MouseEvent);
+        }
+    };
+
+    const handleFocus = () => {
+        // If focus was achieved via keyboard, add the class for pulse animation
+        if (wasKeyboardNavigationRef.current) {
+            setIsKeyboardFocused(true);
+        }
+    };
+
+    const handleBlur = () => {
+        setIsKeyboardFocused(false);
+        wasKeyboardNavigationRef.current = false;
     };
 
     const hidePopoverHandler = (e: React.MouseEvent) => {
@@ -287,7 +348,9 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     return (
         <div
             ref={buttonRef}
-            className="validation-button-container relative inline-block"
+            className={`validation-button-container relative inline-block ${
+                isKeyboardFocused ? "keyboard-focused" : ""
+            }`}
             onMouseEnter={showPopoverHandler}
             onMouseLeave={hidePopoverHandler}
         >
@@ -303,6 +366,8 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 }}
                 onClick={handleButtonClick}
                 onKeyDown={handleKeyDown}
+                onFocus={handleFocus}
+                onBlur={handleBlur}
                 // Disable for source text, in-progress, or when externally requested (e.g., no audio/text)
                 disabled={isDisabled}
                 title={

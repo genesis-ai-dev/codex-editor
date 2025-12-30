@@ -105,11 +105,15 @@ const AudioPlayButton: React.FC<{
     // Listen for audio data messages
     useMessageHandler(
         "cellContentDisplay-audioData",
-        (event: MessageEvent) => {
+        async (event: MessageEvent) => {
             const message = event.data;
 
-            // Handle audio attachments updates - clear current url; fetch on next click
+            // Handle audio attachments updates - clear current url and cache; fetch on next click
             if (message.type === "providerSendsAudioAttachments") {
+                // Clear cached audio data since selected audio might have changed
+                const { clearCachedAudio } = await import("../lib/audioCache");
+                clearCachedAudio(cellId);
+
                 if (audioUrl && audioUrl.startsWith("blob:")) {
                     URL.revokeObjectURL(audioUrl);
                 }
@@ -1116,17 +1120,13 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                 setShowSparkleButton={setShowSparkleButton}
                                                 disabled={
                                                     isInTranslationProcess ||
-                                                    shouldDisableValidation(
-                                                        cell.cellContent
-                                                    )
+                                                    shouldDisableValidation(cell.cellContent)
                                                 }
                                                 disabledReason={(() => {
                                                     if (isInTranslationProcess) {
                                                         return "Translation in progress";
                                                     }
-                                                    return shouldDisableValidation(
-                                                        cell.cellContent
-                                                    )
+                                                    return shouldDisableValidation(cell.cellContent)
                                                         ? "Validation disabled: no text"
                                                         : undefined;
                                                 })()}

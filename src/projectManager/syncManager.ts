@@ -487,6 +487,16 @@ export class SyncManager {
         }
 
         try {
+            if (typeof (authApi as any).getAuthStatus !== "function") {
+                this.isSyncInProgress = false;
+                debug("Auth API missing getAuthStatus, cannot sync");
+                if (showInfoOnConnectionIssues) {
+                    this.showConnectionIssueMessage(
+                        "Unable to sync: Authentication service not available"
+                    );
+                }
+                return;
+            }
             const authStatus = authApi.getAuthStatus();
             if (!authStatus.isAuthenticated) {
                 this.isSyncInProgress = false;
@@ -681,6 +691,27 @@ export class SyncManager {
                 // Don't fail sync completion due to audio refresh errors
             }
 
+            // Close webviews for files deleted during sync
+            try {
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                if (workspaceFolder) {
+                    const { closeWebviewsForDeletedFiles, closeWebviewsForNonExistentFiles } = await import("../utils/webviewUtils");
+
+                    // Close webviews for files deleted during this sync
+                    if (syncResult.deletedFiles.length > 0) {
+                        await closeWebviewsForDeletedFiles(syncResult.deletedFiles, workspaceFolder);
+                        debug(`[SyncManager] Closed webviews for ${syncResult.deletedFiles.length} deleted file(s)`);
+                    }
+
+                    // Always check for stale webviews (files that don't exist anymore)
+                    // This handles cases where webviews were restored but files were deleted before sync
+                    await closeWebviewsForNonExistentFiles(workspaceFolder);
+                }
+            } catch (error) {
+                console.error("[SyncManager] Error closing webviews for deleted files:", error);
+                // Don't fail sync completion due to webview cleanup errors
+            }
+
             // Post-sync cleanup for media files (stream-only mode)
             try {
                 const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -733,7 +764,7 @@ export class SyncManager {
                     const { GlobalProvider } = await import("../globalProvider");
                     const provider = GlobalProvider.getInstance().getProvider("codex-cell-editor") as any;
                     if (provider && typeof provider.refreshWebviewsForFiles === 'function') {
-                        provider.refreshWebviewsForFiles(affectedCodexFiles);
+                        await provider.refreshWebviewsForFiles(affectedCodexFiles);
                     } else {
                         debug("[SyncManager] Codex cell editor provider not available or missing refreshWebviewsForFiles method");
                     }

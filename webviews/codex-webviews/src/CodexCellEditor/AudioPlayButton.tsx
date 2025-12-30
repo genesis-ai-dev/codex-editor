@@ -3,7 +3,13 @@ import { getCachedAudioDataUrl, setCachedAudioDataUrl } from "../lib/audioCache"
 import type { WebviewApi } from "vscode-webview";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 
-type AudioState = "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+type AudioState =
+    | "available"
+    | "available-local"
+    | "available-pointer"
+    | "missing"
+    | "deletedOnly"
+    | "none";
 
 interface AudioPlayButtonProps {
     cellId: string;
@@ -26,7 +32,7 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = ({
 
     useMessageHandler(
         "audioPlayButton",
-        (event: MessageEvent) => {
+        async (event: MessageEvent) => {
             const message = event.data;
 
             if (message.type === "providerSendsAudioAttachments") {
@@ -34,6 +40,10 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = ({
                 const attachments = message.attachments || {};
                 const newState = attachments[cellId];
                 if (typeof newState !== "undefined") {
+                    // Clear cached audio data since selected audio might have changed
+                    const { clearCachedAudio } = await import("../lib/audioCache");
+                    clearCachedAudio(cellId);
+
                     // If we previously had no audio URL and still don't, no-op; avoid churn
                     if (audioUrl && audioUrl.startsWith("blob:")) {
                         URL.revokeObjectURL(audioUrl);
@@ -53,7 +63,9 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = ({
                         .then((res) => res.blob())
                         .then((blob) => {
                             const blobUrl = URL.createObjectURL(blob);
-                            try { setCachedAudioDataUrl(cellId, message.content.audioData); } catch {}
+                            try {
+                                setCachedAudioDataUrl(cellId, message.content.audioData);
+                            } catch {}
                             setAudioUrl(blobUrl);
                             setIsLoading(false);
                             if (pendingPlayRef.current) {

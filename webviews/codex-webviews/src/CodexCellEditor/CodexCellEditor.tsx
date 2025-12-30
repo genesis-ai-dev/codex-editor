@@ -38,7 +38,7 @@ import { getVSCodeAPI } from "../shared/vscodeApi";
 import { Subsection, ProgressPercentages } from "../lib/types";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
-import { createCacheHelpers } from "./utils";
+import { createCacheHelpers, createProgressCacheHelpers } from "./utils";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -283,7 +283,14 @@ const CodexCellEditor: React.FC = () => {
     const [isLoadingCells, setIsLoadingCells] = useState(false);
 
     // Subsection progress state (milestone index -> subsection index -> progress)
-    const [subsectionProgress, setSubsectionProgress] = useState<Record<number, Record<number, ProgressPercentages>>>({});
+    const [subsectionProgress, setSubsectionProgress] = useState<
+        Record<number, Record<number, ProgressPercentages>>
+    >({});
+
+    // Cache for milestone progress (LRU cache with max size of 10)
+    const MAX_PROGRESS_CACHE_SIZE = 10;
+    const progressCacheRef = useRef<Map<number, Record<number, ProgressPercentages>>>(new Map());
+    const pendingProgressRequestsRef = useRef<Set<number>>(new Set());
 
     // Track which milestone/subsection combinations have been loaded
     const loadedPagesRef = useRef<Set<string>>(new Set());
@@ -299,6 +306,18 @@ const CodexCellEditor: React.FC = () => {
                 debug(category, message)
             ),
         []
+    );
+
+    // Progress cache helpers
+    const { getCachedProgress, setCachedProgress } = useMemo(
+        () =>
+            createProgressCacheHelpers(
+                progressCacheRef,
+                MAX_PROGRESS_CACHE_SIZE,
+                setSubsectionProgress,
+                (category, message) => debug(category, message)
+            ),
+        [setSubsectionProgress]
     );
 
     // Track the latest request to ignore stale responses
@@ -711,6 +730,7 @@ const CodexCellEditor: React.FC = () => {
             // Also listen for validation completion message
             if (message.type === "validationsApplied") {
                 setIsApplyingValidations(false);
+                // Note: Progress refresh for validationsApplied is handled in the validationProgress handler below
             }
 
             // Handle file status updates
@@ -739,18 +759,16 @@ const CodexCellEditor: React.FC = () => {
                 vscode.postMessage({ command: "getContent" } as EditorPostMessages);
             }
 
-            // Handle current page refresh (e.g., when a paratext cell is added)
+            // Handle current page refresh (e.g., when a paratext cell is added or after sync)
             if (message.type === "refreshCurrentPage") {
-                // Refresh the current page by requesting cells for the current milestone/subsection
-                // This ensures paratext cells appear immediately after being added
+                // After sync, changes can occur in any cell range, not just the current page
+                // Clear ALL cached pages to ensure fresh data is loaded when navigating to any page
+                cellsCacheRef.current.clear();
+                loadedPagesRef.current.clear();
+
                 // Use refs to get current values without adding them to dependency array
                 const milestoneIdx = currentMilestoneIndexRef.current;
                 const subsectionIdx = currentSubsectionIndexRef.current;
-                const pageKey = `${milestoneIdx}-${subsectionIdx}`;
-
-                // Clear the cache for this page to force a fresh request
-                cellsCacheRef.current.delete(pageKey);
-                loadedPagesRef.current.delete(pageKey);
 
                 // Request fresh cells for the current page
                 if (requestCellsForMilestoneRef.current) {
@@ -868,13 +886,14 @@ const CodexCellEditor: React.FC = () => {
         (event: MessageEvent) => {
             const message = event.data as EditorReceiveMessages;
             if (message?.type === "providerSendsSubsectionProgress") {
-                setSubsectionProgress((prev) => ({
-                    ...prev,
-                    [message.milestoneIndex]: message.subsectionProgress,
-                }));
+                // Remove from pending requests
+                pendingProgressRequestsRef.current.delete(message.milestoneIndex);
+
+                // Store in cache (handles LRU eviction)
+                setCachedProgress(message.milestoneIndex, message.subsectionProgress);
             }
         },
-        []
+        [setCachedProgress]
     );
 
     useEffect(() => {
@@ -1034,6 +1053,87 @@ const CodexCellEditor: React.FC = () => {
         successfulCompletions,
     ]);
 
+    // Debounce refs for progress refresh
+    const progressRefreshTimeoutRef = useRef<Map<number, NodeJS.Timeout>>(new Map());
+
+    // Helper function to invalidate progress cache and force refresh for a milestone
+    // Debounced to avoid overwhelming the system with frequent requests
+    const refreshProgressForMilestone = useCallback(
+        (milestoneIdx: number) => {
+            // Clear any existing timeout for this milestone
+            const existingTimeout = progressRefreshTimeoutRef.current.get(milestoneIdx);
+            if (existingTimeout) {
+                clearTimeout(existingTimeout);
+            }
+
+            // Set a new debounced timeout (300ms delay)
+            const timeoutId = setTimeout(() => {
+                // Remove from cache to force fresh fetch
+                if (progressCacheRef.current.has(milestoneIdx)) {
+                    progressCacheRef.current.delete(milestoneIdx);
+                    debug("progress", `Invalidated progress cache for milestone ${milestoneIdx}`);
+                }
+
+                // Remove from pending requests if present (to allow new request)
+                pendingProgressRequestsRef.current.delete(milestoneIdx);
+
+                // Request fresh progress
+                pendingProgressRequestsRef.current.add(milestoneIdx);
+                vscode.postMessage({
+                    command: "requestSubsectionProgress",
+                    content: {
+                        milestoneIndex: milestoneIdx,
+                    },
+                } as EditorPostMessages);
+
+                debug("progress", `Requested fresh progress for milestone ${milestoneIdx}`);
+
+                // Clean up timeout reference
+                progressRefreshTimeoutRef.current.delete(milestoneIdx);
+            }, 300);
+
+            // Store timeout reference
+            progressRefreshTimeoutRef.current.set(milestoneIdx, timeoutId);
+        },
+        [vscode]
+    );
+
+    // Listen for validation state updates to refresh progress
+    useMessageHandler(
+        "codexCellEditor-validationProgress",
+        (event: MessageEvent) => {
+            const message = event.data;
+
+            // Listen for batch validation completion
+            if (message.type === "validationsApplied") {
+                // Refresh progress for current milestone after batch validations are applied
+                const milestoneIdx = currentMilestoneIndexRef.current;
+                if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
+                    refreshProgressForMilestone(milestoneIdx);
+                }
+            }
+
+            // Listen for individual validation state updates to refresh progress
+            if (message.type === "providerUpdatesValidationState") {
+                // Refresh progress for current milestone after text validation completes
+                const milestoneIdx = currentMilestoneIndexRef.current;
+                if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
+                    refreshProgressForMilestone(milestoneIdx);
+                }
+            }
+
+            // Listen for audio validation state updates to refresh progress
+            if (message.type === "providerUpdatesAudioValidationState") {
+                // Refresh progress for current milestone after audio validation completes
+                const milestoneIdx = currentMilestoneIndexRef.current;
+                if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
+                    refreshProgressForMilestone(milestoneIdx);
+                }
+            }
+        },
+        [milestoneIndex, refreshProgressForMilestone]
+    );
+
     useVSCodeMessageHandler({
         setContent: (
             content: QuillCellContent[],
@@ -1108,6 +1208,12 @@ const CodexCellEditor: React.FC = () => {
                     // Important: call both state updates in sequence to ensure they happen in the same render cycle
                     setSingleCellQueueProcessingId(undefined);
                     setIsProcessingCell(false);
+
+                    // Refresh progress for current milestone after autocomplete completes
+                    const milestoneIdx = currentMilestoneIndexRef.current;
+                    if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
+                        refreshProgressForMilestone(milestoneIdx);
+                    }
                 }
             }
         },
@@ -1115,6 +1221,11 @@ const CodexCellEditor: React.FC = () => {
         // Add this for compatibility
         autocompleteChapterComplete: () => {
             debug("autocomplete", "Autocomplete chapter complete (legacy handler)");
+            // Refresh progress for current milestone after autocomplete completes
+            const milestoneIdx = currentMilestoneIndexRef.current;
+            if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
+                refreshProgressForMilestone(milestoneIdx);
+            }
         },
 
         // New handlers for provider-centric state management
@@ -1154,6 +1265,12 @@ const CodexCellEditor: React.FC = () => {
                     newSet.add(cellId);
                     return newSet;
                 });
+
+                // Refresh progress for current milestone after successful autocomplete
+                const milestoneIdx = currentMilestoneIndexRef.current;
+                if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
+                    refreshProgressForMilestone(milestoneIdx);
+                }
             } else if (cancelled) {
                 // Cell was cancelled - make sure it's not in successful completions
                 debug("translation", `Cell ${cellId} was cancelled`);
@@ -1340,6 +1457,19 @@ const CodexCellEditor: React.FC = () => {
             loadedPagesRef.current.add(pageKey);
             setCachedCells(pageKey, cells);
             setIsLoadingCells(false);
+
+            // If we're currently saving, this content update likely means the save completed
+            if (isSaving) {
+                debug("editor", "Content updated during save - save completed (handleCellPage)");
+                if (saveTimeoutRef.current) {
+                    clearTimeout(saveTimeoutRef.current);
+                    saveTimeoutRef.current = null;
+                }
+                setIsSaving(false);
+                setSaveError(false);
+                setSaveRetryCount(0);
+                handleCloseEditor();
+            }
         },
     });
 
@@ -1446,13 +1576,8 @@ const CodexCellEditor: React.FC = () => {
             const { cellCount, value } = milestone;
             const effectiveCellsPerPage = milestoneIndex.cellsPerPage || cellsPerPage;
 
-            // If content cells fit in one page, no subsections needed
-            if (cellCount <= effectiveCellsPerPage) {
-                return [];
-            }
-
             // Calculate number of pages based on content cells
-            const totalPages = Math.ceil(cellCount / effectiveCellsPerPage);
+            const totalPages = Math.ceil(cellCount / effectiveCellsPerPage) || 1;
             const subsections: Subsection[] = [];
 
             for (let i = 0; i < totalPages; i++) {
@@ -1656,15 +1781,51 @@ const CodexCellEditor: React.FC = () => {
     // Request subsection progress when milestone changes
     useEffect(() => {
         if (milestoneIndex && currentMilestoneIndex < milestoneIndex.milestones.length) {
-            // Request progress for current milestone
-            vscode.postMessage({
-                command: "requestSubsectionProgress",
-                content: {
-                    milestoneIndex: currentMilestoneIndex,
-                },
-            } as EditorPostMessages);
+            // Check cache first
+            const cached = getCachedProgress(currentMilestoneIndex);
+            if (!cached && !pendingProgressRequestsRef.current.has(currentMilestoneIndex)) {
+                // Request progress for current milestone
+                pendingProgressRequestsRef.current.add(currentMilestoneIndex);
+                vscode.postMessage({
+                    command: "requestSubsectionProgress",
+                    content: {
+                        milestoneIndex: currentMilestoneIndex,
+                    },
+                } as EditorPostMessages);
+            } else if (cached) {
+                // Ensure state is updated from cache
+                setSubsectionProgress((prev) => ({
+                    ...prev,
+                    [currentMilestoneIndex]: cached,
+                }));
+            }
         }
-    }, [currentMilestoneIndex, milestoneIndex, vscode]);
+    }, [currentMilestoneIndex, milestoneIndex, vscode, getCachedProgress]);
+
+    // Request function for milestone progress (used by accordion)
+    const requestSubsectionProgressForMilestone = useCallback(
+        (milestoneIdx: number) => {
+            // Check cache first
+            const cached = getCachedProgress(milestoneIdx);
+            if (!cached && !pendingProgressRequestsRef.current.has(milestoneIdx)) {
+                // Request progress for milestone
+                pendingProgressRequestsRef.current.add(milestoneIdx);
+                vscode.postMessage({
+                    command: "requestSubsectionProgress",
+                    content: {
+                        milestoneIndex: milestoneIdx,
+                    },
+                } as EditorPostMessages);
+            } else if (cached) {
+                // Ensure state is updated from cache
+                setSubsectionProgress((prev) => ({
+                    ...prev,
+                    [milestoneIdx]: cached,
+                }));
+            }
+        },
+        [vscode, getCachedProgress]
+    );
 
     // Cells are already paginated by the backend for milestone navigation
     // No additional slicing needed
@@ -2669,6 +2830,8 @@ const CodexCellEditor: React.FC = () => {
                             requestCellsForMilestone={requestCellsForMilestone}
                             isLoadingCells={isLoadingCells}
                             subsectionProgress={subsectionProgress[currentMilestoneIndex]}
+                            allSubsectionProgress={subsectionProgress}
+                            requestSubsectionProgress={requestSubsectionProgressForMilestone}
                         />
                     </div>
                 </div>

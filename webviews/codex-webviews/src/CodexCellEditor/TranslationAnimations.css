@@ -59,7 +59,7 @@
 /* Pulse the AudioPlayButton while hovering the audio validation button (only if enabled) */
 .cell-content-display:has(
         .audio-validation-button-container vscode-button:not([disabled]):hover,
-        .audio-validation-button-container vscode-button:not([disabled]):focus
+        .audio-validation-button-container.keyboard-focused vscode-button:not([disabled])
     )
     .audio-play-button {
     animation: pulseValidationBackground 1.2s ease-in-out infinite;
@@ -68,7 +68,7 @@
 /* Pulse the content area while hovering the text validation button (only if enabled) */
 .cell-content-display:has(
         .validation-button-container vscode-button:not([disabled]):hover,
-        .validation-button-container vscode-button:not([disabled]):focus
+        .validation-button-container.keyboard-focused vscode-button:not([disabled])
     )
     .cell-content {
     animation: pulseValidationBackground 1.2s ease-in-out infinite;

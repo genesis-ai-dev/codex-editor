@@ -755,30 +755,49 @@ export async function splitSourceFileByBook(
 ): Promise<vscode.Uri[]> {
     const content = await vscode.workspace.fs.readFile(sourceUri);
     const textContent = Buffer.from(content).toString("utf-8");
-    const lines = textContent.split("\n").filter((line) => line.trim());
+    const sourceData = JSON.parse(textContent);
 
-    // Group verses by book
-    const bookGroups = new Map<string, string[]>();
+    if (!sourceData.cells || !Array.isArray(sourceData.cells)) {
+        throw new Error("Invalid notebook format: expected cells array");
+    }
 
-    lines.forEach((line) => {
-        const match = line.match(/^([\w\s]+)\s+\d+:\d+\s+.+$/);
-        if (match) {
-            const book = match[1].trim();
-            if (!bookGroups.has(book)) {
-                bookGroups.set(book, []);
-            }
-            bookGroups.get(book)!.push(line);
+    // Group cells by book using globalReferences
+    const bookGroups = new Map<string, any[]>();
+
+    for (const cell of sourceData.cells) {
+        // Skip milestone cells - they have UUIDs as IDs, not book references
+        // If we don't skip them, it will create .source.combined files that we don't want.
+        if (
+            cell.metadata?.type === CodexCellTypes.MILESTONE ||
+            cell.metadata?.type === CodexCellTypes.STYLE ||
+            cell.metadata?.type === CodexCellTypes.PARATEXT
+        ) {
+            continue;
         }
-    });
+
+        // Try to get book name from globalReferences first (preferred method)
+        const globalRefs = cell?.metadata?.data?.globalReferences;
+        if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+            const firstRef = globalRefs[0];
+            // Extract book name: "GEN 1:1" -> "GEN" or "TheChosen-201-en-SingleSpeaker 1:jkflds" -> "TheChosen-201-en-SingleSpeaker"
+            const bookMatch = firstRef.match(/^([^\s]+)/);
+            if (bookMatch) {
+                const book = bookMatch[1];
+                if (!bookGroups.has(book)) {
+                    bookGroups.set(book, []);
+                }
+                bookGroups.get(book)!.push(cell);
+            }
+        }
+    }
 
     const createdFiles: vscode.Uri[] = [];
 
     // Create source directory if it doesn't exist
     const sourceTextDir = vscode.Uri.joinPath(
         vscode.Uri.file(workspacePath),
-        "files",
-        "source",
-        `${language}Texts`
+        ".project",
+        "sourceTexts"
     );
 
     try {
@@ -788,13 +807,19 @@ export async function splitSourceFileByBook(
     }
 
     // Create a file for each book
-    for (const [book, verses] of bookGroups) {
+    for (const [book, cells] of bookGroups) {
         const safeBookName = book.replace(/[^a-zA-Z0-9]/g, "");
         const sourceFilePath = vscode.Uri.joinPath(sourceTextDir, `${safeBookName}.source`);
 
+        // Create notebook structure with filtered cells
+        const notebookData = {
+            ...sourceData,
+            cells: cells,
+        };
+
         await vscode.workspace.fs.writeFile(
             sourceFilePath,
-            Buffer.from(verses.join("\n"), "utf-8")
+            Buffer.from(JSON.stringify(notebookData, null, 2), "utf-8")
         );
 
         createdFiles.push(sourceFilePath);
@@ -876,4 +901,3 @@ export async function migrateSourceFiles() {
 
     console.log("Source file migration completed.");
 }
-
