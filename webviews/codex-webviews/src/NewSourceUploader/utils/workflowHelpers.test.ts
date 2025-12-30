@@ -421,7 +421,7 @@ describe('addMilestoneCellsToNotebookPair', () => {
 
             const result = addMilestoneCellsToNotebookPair(notebookPair);
 
-            expect(result.source.cells[0].content).toBe('5');
+            expect(result.source.cells[0].content).toBe('Genesis 5');
         });
 
         it('should prioritize metadata.chapter over metadata.data.chapter', () => {
@@ -433,7 +433,7 @@ describe('addMilestoneCellsToNotebookPair', () => {
 
             const result = addMilestoneCellsToNotebookPair(notebookPair);
 
-            expect(result.source.cells[0].content).toBe('3');
+            expect(result.source.cells[0].content).toBe('Genesis 3');
         });
 
         it('should prioritize metadata.data.chapter over cellId extraction', () => {
@@ -444,7 +444,7 @@ describe('addMilestoneCellsToNotebookPair', () => {
 
             const result = addMilestoneCellsToNotebookPair(notebookPair);
 
-            expect(result.source.cells[0].content).toBe('7');
+            expect(result.source.cells[0].content).toBe('Genesis 7');
         });
 
         it('should use cellId extraction when metadata is not available', () => {

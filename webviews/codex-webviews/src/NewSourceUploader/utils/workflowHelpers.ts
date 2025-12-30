@@ -176,7 +176,7 @@ const getTypeComplexity = (fileType: string): number => {
 };
 
 /**
- * Extracts chapter number from a cell ID
+ * Extracts chapter number from a cell ID or reference string
  * Pattern: anything followed by space, then number, colon, number
  * e.g., "GEN 1:1", "Book Name 2:5", "filename 1:1"
  */
@@ -190,9 +190,21 @@ function extractChapterFromCellId(cellId: string): string | null {
 }
 
 /**
+ * Extracts chapter number from globalReferences if available
+ */
+function extractChapterFromGlobalReferences(cell: ProcessedCell): string | null {
+    const globalRefs = cell?.metadata?.data?.globalReferences;
+    if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+        const firstRef = globalRefs[0];
+        return extractChapterFromCellId(firstRef);
+    }
+    return null;
+}
+
+/**
  * Extracts chapter number from a cell for DETECTION purposes.
  * This is used to determine when chapters change (for inserting milestone cells).
- * Checks metadata first, then falls back to cell ID extraction.
+ * Checks metadata first, then falls back to globalReferences and cell ID extraction.
  * Returns null if chapter cannot be determined.
  */
 function extractChapterForDetection(cell: ProcessedCell): string | null {
@@ -211,7 +223,13 @@ function extractChapterForDetection(cell: ProcessedCell): string | null {
         return String(cell.metadata.data.chapter);
     }
 
-    // Priority 4: Extract from cellId
+    // Priority 4: Extract from globalReferences
+    const chapterFromGlobalRefs = extractChapterFromGlobalReferences(cell);
+    if (chapterFromGlobalRefs) {
+        return chapterFromGlobalRefs;
+    }
+
+    // Priority 5: Extract from cellId
     if (cell?.id) {
         return extractChapterFromCellId(cell.id);
     }
@@ -220,47 +238,93 @@ function extractChapterForDetection(cell: ProcessedCell): string | null {
 }
 
 /**
+ * Result of extracting chapter information from a cell
+ */
+type ChapterExtractionResult = {
+    chapterNumber: string;
+    source: 'metadata' | 'cellId' | 'fallback';
+};
+
+/**
  * Extracts chapter number from a cell using priority order:
  * 1. metadata.chapterNumber (Biblica)
  * 2. metadata.chapter (USFM)
  * 3. metadata.data?.chapter (legacy)
- * 4. extractChapterFromCellId (from cellId)
- * 5. milestoneIndex (final fallback, 1-indexed)
+ * 4. extractChapterFromGlobalReferences (from globalReferences)
+ * 5. extractChapterFromCellId (from cellId)
+ * 6. milestoneIndex (final fallback, 1-indexed)
+ * 
+ * Returns both the chapter number and the source it came from.
  */
-function extractChapterFromCell(cell: ProcessedCell, milestoneIndex: number): string {
+function extractChapterFromCell(cell: ProcessedCell, milestoneIndex: number): ChapterExtractionResult {
     // Priority 1: metadata.chapterNumber (Biblica)
     if (cell?.metadata?.chapterNumber !== undefined && cell.metadata.chapterNumber !== null) {
-        return String(cell.metadata.chapterNumber);
+        return {
+            chapterNumber: String(cell.metadata.chapterNumber),
+            source: 'metadata',
+        };
     }
 
     // Priority 2: metadata.chapter (USFM)
     if (cell?.metadata?.chapter !== undefined && cell.metadata.chapter !== null) {
-        return String(cell.metadata.chapter);
+        return {
+            chapterNumber: String(cell.metadata.chapter),
+            source: 'metadata',
+        };
     }
 
     // Priority 3: metadata.data?.chapter (legacy)
     if (cell?.metadata?.data?.chapter !== undefined && cell.metadata.data.chapter !== null) {
-        return String(cell.metadata.data.chapter);
+        return {
+            chapterNumber: String(cell.metadata.data.chapter),
+            source: 'metadata',
+        };
     }
 
-    // Priority 4: Extract from cellId
+    // Priority 4: Extract from globalReferences (treat as cellId source for book name extraction)
+    const chapterFromGlobalRefs = extractChapterFromGlobalReferences(cell);
+    if (chapterFromGlobalRefs) {
+        return {
+            chapterNumber: chapterFromGlobalRefs,
+            source: 'cellId', // Treat as cellId source so book name can be extracted from globalReferences
+        };
+    }
+
+    // Priority 5: Extract from cellId
     if (cell?.id) {
         const chapterFromId = extractChapterFromCellId(cell.id);
         if (chapterFromId) {
-            return chapterFromId;
+            return {
+                chapterNumber: chapterFromId,
+                source: 'cellId',
+            };
         }
     }
 
-    // Priority 5: Use milestone index (1-indexed)
-    return milestoneIndex.toString();
+    // Priority 6: Use milestone index (1-indexed)
+    return {
+        chapterNumber: milestoneIndex.toString(),
+        source: 'fallback',
+    };
 }
 
 /**
- * Extracts book abbreviation from a cell's globalReferences, cellMarkers, or cellId.
+ * Checks if a cell ID looks like a Bible reference (e.g., "GEN 1:1", "EXO 2:5")
+ */
+function isBibleStyleCellId(cellId: string): boolean {
+    if (!cellId) return false;
+    // Pattern: word(s) followed by space, then number, colon, number
+    return /\s+\d+:\d+/.test(cellId);
+}
+
+/**
+ * Extracts book abbreviation from a cell's globalReferences or cellId.
+ * Only extracts from cellId if chapter came from cellId extraction or cellId looks like a Bible reference.
  * Returns null if no book abbreviation can be found.
  */
-function extractBookNameFromCell(cell: ProcessedCell): string | null {
+function extractBookNameFromCell(cell: ProcessedCell, chapterSource: 'metadata' | 'cellId' | 'fallback'): string | null {
     // Priority 1: Extract from globalReferences array (preferred method)
+    // Always extract from globalReferences if available, regardless of chapter source
     const globalRefs = cell?.metadata?.data?.globalReferences;
     if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
         const firstRef = globalRefs[0];
@@ -271,8 +335,11 @@ function extractBookNameFromCell(cell: ProcessedCell): string | null {
         }
     }
 
-    // Priority 2: Extract from cellId (format: "BOOK CHAPTER:VERSE")
-    if (cell?.id) {
+    // Priority 2: Extract from cellId only if:
+    // - Chapter came from cellId extraction (not metadata), OR
+    // - CellId looks like a Bible reference (has pattern "BOOK CHAPTER:VERSE")
+    // This prevents extracting "cell-1" as a book name when chapter comes from metadata
+    if (cell?.id && (chapterSource === 'cellId' || isBibleStyleCellId(cell.id))) {
         // Extract book name from cellId: "GEN 1:1" -> "GEN"
         const bookMatch = cell.id.match(/^([^\s]+)/);
         if (bookMatch) {
@@ -281,6 +348,27 @@ function extractBookNameFromCell(cell: ProcessedCell): string | null {
     }
 
     return null;
+}
+
+/**
+ * Extracts a unique chapter identifier from a cell for DETECTION purposes.
+ * Returns a string like "GEN-1" or "EXO-1" to uniquely identify chapters across books.
+ * Returns null if chapter cannot be determined.
+ */
+function extractChapterKeyForDetection(cell: ProcessedCell): string | null {
+    const chapter = extractChapterForDetection(cell);
+    if (!chapter) return null;
+
+    // Extract book abbreviation to create unique key per book+chapter
+    // Use 'fallback' as chapterSource since isBibleStyleCellId will still extract from cellId
+    const bookAbbr = extractBookNameFromCell(cell, 'fallback');
+
+    // If we can't extract book name, fall back to just chapter (for non-Bible content)
+    if (!bookAbbr) {
+        return chapter;
+    }
+
+    return `${bookAbbr}-${chapter}`;
 }
 
 /**
@@ -297,6 +385,9 @@ function getLocalizedBookName(bookAbbr: string): string {
 /**
  * Creates a milestone cell with book name and chapter number derived from the cell below it.
  * Format: "BookName ChapterNumber" (e.g., "Isaiah 1") or just chapter number if no book name found.
+ * Book name is only included when:
+ * - Chapter came from cellId extraction, OR
+ * - globalReferences are available
  * @param cell - The cell below the milestone (first cell of the chapter)
  * @param milestoneIndex - The index of this milestone (1-indexed)
  * @param uuid - Optional UUID to use. If not provided, a new UUID will be generated.
@@ -304,14 +395,15 @@ function getLocalizedBookName(bookAbbr: string): string {
  */
 function createMilestoneCell(cell: ProcessedCell, milestoneIndex: number, uuid?: string, isBibleType: boolean = true): ProcessedCell {
     const cellUuid = uuid || uuidv4();
-    const chapterNumber = extractChapterFromCell(cell, milestoneIndex);
+    const chapterResult = extractChapterFromCell(cell, milestoneIndex);
 
-    // Extract book name from cell
-    const bookAbbr = extractBookNameFromCell(cell);
+    // Extract book name from cell (only when chapter came from cellId or globalReferences exist)
+    const bookAbbr = extractBookNameFromCell(cell, chapterResult.source);
     const bookName = bookAbbr ? getLocalizedBookName(bookAbbr) : null;
 
     // Combine book name and chapter number, or use just chapter number if no book name found
-    const milestoneValue = bookName ? `${bookName} ${chapterNumber}` : chapterNumber;
+    // Only include book name when chapter came from cellId extraction or globalReferences are available
+    const milestoneValue = bookName ? `${bookName} ${chapterResult.chapterNumber}` : chapterResult.chapterNumber;
 
     return createProcessedCell(cellUuid, milestoneValue, {
         type: CodexCellTypes.MILESTONE,
@@ -424,10 +516,10 @@ export function addMilestoneCellsToNotebookPair(notebookPair: NotebookPair): Not
 
     // Generate UUID for first milestone and store it
     const firstMilestoneUuid = uuidv4();
-    const firstChapter = extractChapterForDetection(firstCell);
-    if (firstChapter) {
-        chapterUuids.set(firstChapter, firstMilestoneUuid);
-        seenChapters.add(firstChapter);
+    const firstChapterKey = extractChapterKeyForDetection(firstCell);
+    if (firstChapterKey) {
+        chapterUuids.set(firstChapterKey, firstMilestoneUuid);
+        seenChapters.add(firstChapterKey);
     }
 
     // Insert first milestone cell at the beginning (using same UUID for both)
@@ -440,17 +532,17 @@ export function addMilestoneCellsToNotebookPair(notebookPair: NotebookPair): Not
         const sourceCell = sourceCells[i];
         const codexCell = codexCells[i] || sourceCell; // Fallback to source cell if codex cell missing
 
-        const chapter = extractChapterForDetection(sourceCell);
-        if (chapter && !seenChapters.has(chapter)) {
+        const chapterKey = extractChapterKeyForDetection(sourceCell);
+        if (chapterKey && !seenChapters.has(chapterKey)) {
             // Generate UUID for this chapter and store it
             const chapterUuid = uuidv4();
-            chapterUuids.set(chapter, chapterUuid);
+            chapterUuids.set(chapterKey, chapterUuid);
 
             // Insert a milestone cell before this new chapter (using same UUID for both)
             newSourceCells.push(createMilestoneCell(sourceCell, milestoneIndex, chapterUuid, isBibleType));
             newCodexCells.push(createMilestoneCell(codexCell, milestoneIndex, chapterUuid, isBibleType));
             milestoneIndex++;
-            seenChapters.add(chapter);
+            seenChapters.add(chapterKey);
         }
 
         newSourceCells.push(sourceCell);
