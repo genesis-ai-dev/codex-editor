@@ -4093,15 +4093,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             }
         }
 
-        // DELETE: ISee if we need commented part.
         // Find matching webview panels and send refresh messages
         let refreshedCount = 0;
         for (const [docUri, panel] of this.webviewPanels.entries()) {
             try {
                 // Try URI string comparison first (fastest)
                 if (fileUriStrings.has(docUri)) {
-
-                debug(`Sending refreshCurrentPage to webview for ${docUri} (URI match)`);
+                    debug(`Sending refreshCurrentPage to webview for ${docUri} (URI match)`);
                     safePostMessageToPanel(panel, {
                         type: "refreshCurrentPage",
                     });
