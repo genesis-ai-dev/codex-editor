@@ -251,8 +251,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const { sourceCellMap } = useContext(SourceCellContext);
     const cellEditorRef = useRef<HTMLDivElement>(null);
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
-    // Some older documents stored lock state in metadata.data.isLocked. Treat either as locked.
-    const isCellLocked = !!(cell.metadata?.isLocked ?? (cell.metadata as any)?.data?.isLocked);
+    // Lock state is ONLY honored from top-level metadata.isLocked
+    const isCellLocked = !!cell.metadata?.isLocked;
     const [editorContent, setEditorContent] = useState(cellContent);
     const [isTextDirty, setIsTextDirty] = useState(false);
     const [showOfflineModal, setShowOfflineModal] = useState(false);

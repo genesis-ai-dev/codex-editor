@@ -468,8 +468,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
     }) => {
         // const { cellContent, timestamps, editHistory } = cell; // I don't think we use this
         const cellIds = cell.cellMarkers;
-        // Some older documents stored lock state in metadata.data.isLocked. Treat either as locked.
-        const isCellLocked = !!(cell.metadata?.isLocked ?? (cell.metadata as any)?.data?.isLocked);
+        // Lock state is ONLY honored from top-level metadata.isLocked
+        const isCellLocked = !!cell.metadata?.isLocked;
         const [fadingOut, setFadingOut] = useState(false);
         const [showSparkleButton, setShowSparkleButton] = useState(false);
         const [showAuthModal, setShowAuthModal] = useState(false);

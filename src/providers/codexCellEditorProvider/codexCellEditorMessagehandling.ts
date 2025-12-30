@@ -1904,8 +1904,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         // Prevent saving audio if cell is locked
         const cellId = typedEvent.content.cellId;
         const cell = document.getCell(cellId);
-        const isCellLocked = !!(cell?.metadata?.isLocked ?? (cell?.metadata as any)?.data?.isLocked);
-        if (isCellLocked) {
+        if (cell?.metadata?.isLocked) {
             console.warn(`Attempted to save audio to locked cell ${cellId}. Operation blocked.`);
             safePostMessageToPanel(webviewPanel, {
                 type: "error",

@@ -986,13 +986,10 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
         (window as any).AudioContext = OriginalAudioContext;
     });
 
-    it("locked cell (legacy metadata.data.isLocked): should disable Start Recording and not call getUserMedia", async () => {
+    it("locked cell: should disable Start Recording and not call getUserMedia", async () => {
         sessionStorage.setItem("preferred-editor-tab", "audio");
 
-        const lockedCell = {
-            ...mockTranslationUnits[0],
-            metadata: { data: { isLocked: true } } as any,
-        };
+        const lockedCell = { ...mockTranslationUnits[0], metadata: { isLocked: true } as any };
 
         const props = {
             cellMarkers: ["cell-1"],
@@ -1045,13 +1042,10 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
         expect(getUserMediaSpy).not.toHaveBeenCalled();
     });
 
-    it("locked cell (legacy metadata.data.isLocked): audio upload should NOT post saveAudioAttachment", async () => {
+    it("locked cell: audio upload should NOT post saveAudioAttachment", async () => {
         sessionStorage.setItem("preferred-editor-tab", "audio");
 
-        const lockedCell = {
-            ...mockTranslationUnits[0],
-            metadata: { data: { isLocked: true } } as any,
-        };
+        const lockedCell = { ...mockTranslationUnits[0], metadata: { isLocked: true } as any };
 
         const props = {
             cellMarkers: ["cell-1"],
