@@ -313,6 +313,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     const [confirmPassword, setConfirmPassword] = useState("");
     const [email, setEmail] = useState("");
     const [passwordError, setPasswordError] = useState("");
+    const [usernameError, setUsernameError] = useState("");
     const [emailErrors, setEmailErrors] = useState<string[]>([]);
     const [emailInvalidPositions, setEmailInvalidPositions] = useState<number[]>([]);
     const [showPassword, setShowPassword] = useState(false);
@@ -633,6 +634,28 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
         return errors.length === 0;
     };
 
+    const validateUsername = (user: string) => {
+        const trimmedUsername = user.trim();
+        
+        if (!trimmedUsername) {
+            if (isRegistering) {
+                setUsernameError("Username is required");
+            } else {
+                setUsernameError("");
+            }
+            return false;
+        }
+
+        // Check if username contains only alphanumeric characters and underscores
+        if (!/^[a-zA-Z0-9_]+$/.test(trimmedUsername)) {
+            setUsernameError("Username can only contain letters, numbers, and underscores");
+            return false;
+        }
+
+        setUsernameError("");
+        return true;
+    };
+
     const validatePassword = (pass: string) => {
         const { isValid, issues } = validateVisualPassword(pass, email, username);
 
@@ -658,6 +681,12 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
             let success = false;
 
             if (isRegistering) {
+                // Validate username for registration
+                if (!validateUsername(trimmedUsername)) {
+                    setIsLoading(false);
+                    return;
+                }
+
                 // Validate email for registration
                 if (!validateEmail(trimmedEmail)) {
                     setIsLoading(false);
@@ -714,6 +743,13 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
         // Automatically replace spaces with underscores
         const cleanedUsername = value.replace(/\s/g, "_");
         setUsername(cleanedUsername);
+        
+        // Real-time validation for registration
+        if (isRegistering && cleanedUsername.trim()) {
+            validateUsername(cleanedUsername);
+        } else if (isRegistering) {
+            setUsernameError(""); // Clear errors when field is empty during typing
+        }
     };
 
     const handleBackToLogin = () => {
@@ -885,10 +921,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                             <VSCodeTextField
                                 value={username}
                                 onInput={(e) => {
-                                    const value = (e.target as HTMLInputElement).value;
-                                    // Automatically replace spaces with underscores
-                                    const cleanedUsername = value.replace(/\s/g, "_");
-                                    setUsername(cleanedUsername);
+                                    handleUsernameChange(e as React.FormEvent<HTMLElement>);
                                 }}
                                 placeholder="Username"
                                 required
@@ -906,6 +939,11 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                 >
                                     Spaces will be automatically replaced with underscores
                                 </div>
+                            )}
+                            {usernameError && (
+                                <span style={{ color: "var(--vscode-errorForeground)", alignSelf: "flex-start", width: "100%" }}>
+                                    {usernameError}
+                                </span>
                             )}
                             {isRegistering && (
                                 <>
@@ -992,21 +1030,23 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                         ></i>
                                     </VSCodeButton>
                                 </div>
-                                <div className="flex justify-end w-full">
-                                    <span
-                                        className="text-sm cursor-pointer hover:underline text-var(--vscode-editor-foreground)"
-                                        onClick={
-                                            isMissingExtension || isOffline ? undefined : handleForgotPassword
-                                        }
-                                        style={{
-                                            opacity: isMissingExtension || isOffline ? 0.5 : 1,
-                                            pointerEvents: isMissingExtension || isOffline ? "none" : "auto",
-                                            cursor: isMissingExtension || isOffline ? "not-allowed" : "pointer",
-                                        }}
-                                    >
-                                        Forgot Password?
-                                    </span>
-                                </div>
+                                {!isRegistering && (
+                                    <div className="flex justify-end w-full">
+                                        <span
+                                            className="text-sm cursor-pointer hover:underline text-var(--vscode-editor-foreground)"
+                                            onClick={
+                                                isMissingExtension || isOffline ? undefined : handleForgotPassword
+                                            }
+                                            style={{
+                                                opacity: isMissingExtension || isOffline ? 0.5 : 1,
+                                                pointerEvents: isMissingExtension || isOffline ? "none" : "auto",
+                                                cursor: isMissingExtension || isOffline ? "not-allowed" : "pointer",
+                                            }}
+                                        >
+                                            Forgot Password?
+                                        </span>
+                                    </div>
+                                )}
                                 {isRegistering && (
                                     <PasswordDotsIndicator
                                         password={password}
