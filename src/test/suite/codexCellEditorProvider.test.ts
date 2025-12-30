@@ -568,6 +568,39 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
             document.dispose();
         });
+
+        test("updateCellIsLocked(false) does not persist isLocked for never-locked cells", async () => {
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            const cellId = codexSubtitleContent.cells[0].metadata.id;
+
+            // Ensure starting state has no explicit isLocked
+            const before = JSON.parse(await document.getText()).cells.find(
+                (c: any) => c.metadata.id === cellId
+            );
+            assert.strictEqual(
+                typeof before.metadata.isLocked,
+                "undefined",
+                "Precondition: isLocked should be absent for never-locked cells"
+            );
+
+            // Calling unlock on a never-locked cell should be a no-op and should not persist isLocked:false
+            document.updateCellIsLocked(cellId, false);
+
+            const after = JSON.parse(await document.getText()).cells.find(
+                (c: any) => c.metadata.id === cellId
+            );
+            assert.strictEqual(
+                typeof after.metadata.isLocked,
+                "undefined",
+                "isLocked should remain absent after updateCellIsLocked(false) on never-locked cell"
+            );
+
+            document.dispose();
+        });
     });
 
     suite("Locked cell update protection", () => {

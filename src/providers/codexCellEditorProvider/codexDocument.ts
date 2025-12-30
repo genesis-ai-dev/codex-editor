@@ -1148,8 +1148,38 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
 
-        // Update isLocked in memory
-        cellToUpdate.metadata.isLocked = isLocked;
+        // Only persist isLocked when meaningful:
+        // - If locking: store `true`
+        // - If unlocking: store `false` only if the cell was previously locked at least once
+        //   (otherwise omit the field entirely to avoid noisy metadata)
+        const lockEditMap = EditMapUtils.isLocked();
+        const edits = cellToUpdate.metadata?.edits || [];
+        const wasEverLocked =
+            cellToUpdate.metadata?.isLocked === true ||
+            edits.some((e: any) => {
+                const map = e?.editMap;
+                const mapMatches =
+                    Array.isArray(map) &&
+                    map.length === lockEditMap.length &&
+                    map.every((v: any, i: number) => v === (lockEditMap as any)[i]);
+                return mapMatches && e?.value === true;
+            });
+
+        // If asked to "unlock" a cell that was never locked, treat as a no-op and
+        // also remove any legacy `isLocked: false` field if present.
+        if (!isLocked && !wasEverLocked) {
+            delete (cellToUpdate.metadata as any).isLocked;
+            return;
+        }
+
+        if (isLocked) {
+            cellToUpdate.metadata.isLocked = true;
+        } else if (wasEverLocked) {
+            cellToUpdate.metadata.isLocked = false;
+        } else {
+            // Never locked → keep field absent
+            delete (cellToUpdate.metadata as any).isLocked;
+        }
 
         // Add edit to cell's edit history
         if (!cellToUpdate.metadata.edits) {
@@ -1157,7 +1187,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
         const currentTimestamp = Date.now();
         cellToUpdate.metadata.edits.push({
-            editMap: EditMapUtils.isLocked(),
+            editMap: lockEditMap,
             value: isLocked, // TypeScript infers: boolean
             timestamp: currentTimestamp,
             type: EditType.USER_EDIT,
