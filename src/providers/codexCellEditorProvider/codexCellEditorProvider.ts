@@ -3986,11 +3986,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         debug(`Refreshing webviews for ${codexFiles.length} codex file(s)`);
 
-        // Convert file paths to URIs for matching
-        const fileUris = new Set<string>();
+        // Build sets for both URI strings and normalized file paths for flexible matching
+        const fileUriStrings = new Set<string>();
+        const normalizedFilePaths = new Set<string>();
+
         for (const filePath of codexFiles) {
             try {
-                // Try to resolve as workspace-relative path first
                 let uri: vscode.Uri;
                 if (path.isAbsolute(filePath)) {
                     uri = vscode.Uri.file(filePath);
@@ -3998,21 +3999,43 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Workspace-relative path
                     uri = vscode.Uri.joinPath(workspaceFolder.uri, filePath);
                 }
-                fileUris.add(uri.toString());
+
+                // Add both URI string and normalized fsPath for comparison
+                fileUriStrings.add(uri.toString());
+                const normalized = path.normalize(uri.fsPath).replace(/\\/g, '/').toLowerCase();
+                normalizedFilePaths.add(normalized);
             } catch (error) {
-                console.warn(`Failed to convert file path to URI: ${filePath}`, error);
+                console.warn(`Failed to convert file path: ${filePath}`, error);
             }
         }
 
         // Find matching webview panels and send refresh messages
         let refreshedCount = 0;
         for (const [docUri, panel] of this.webviewPanels.entries()) {
-            if (fileUris.has(docUri)) {
-                debug(`Sending refreshCurrentPage to webview for ${docUri}`);
-                safePostMessageToPanel(panel, {
-                    type: "refreshCurrentPage",
-                });
-                refreshedCount++;
+            try {
+                // Try URI string comparison first (fastest)
+                if (fileUriStrings.has(docUri)) {
+                    debug(`Sending refreshCurrentPage to webview for ${docUri} (URI match)`);
+                    safePostMessageToPanel(panel, {
+                        type: "refreshCurrentPage",
+                    });
+                    refreshedCount++;
+                    continue;
+                }
+
+                // Fall back to normalized file path comparison
+                const docUriParsed = vscode.Uri.parse(docUri);
+                const docPathNormalized = path.normalize(docUriParsed.fsPath).replace(/\\/g, '/').toLowerCase();
+
+                if (normalizedFilePaths.has(docPathNormalized)) {
+                    debug(`Sending refreshCurrentPage to webview for ${docUri} (path match)`);
+                    safePostMessageToPanel(panel, {
+                        type: "refreshCurrentPage",
+                    });
+                    refreshedCount++;
+                }
+            } catch (error) {
+                console.warn(`Failed to parse docUri for comparison: ${docUri}`, error);
             }
         }
 
