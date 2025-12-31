@@ -959,6 +959,16 @@ export interface CustomNotebookMetadata {
     fileDisplayName?: string;
     edits?: FileEditHistory[];
     importerType?: FileImporterType;
+    /**
+     * The original filename of the imported artifact (if any).
+     * Example: "MAT.idml", "mydoc.docx"
+     */
+    originalFileName?: string;
+    /**
+     * One-time import context derived from the import process.
+     * This is the canonical home for attributes that do not vary per-cell.
+     */
+    importContext?: NotebookImportContext;
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
@@ -971,6 +981,18 @@ type CodexNotebookAsJSONData = {
 };
 
 type FileImporterType = "smart-segmenter" | "audio" | "docx-roundtrip" | "markdown" | "subtitles" | "spreadsheet" | "tms" | "pdf" | "indesign" | "usfm" | "paratext" | "ebible" | "macula" | "biblica" | "obs";
+
+export type NotebookImportContext = {
+    importerType?: FileImporterType | string;
+    fileName?: string;
+    originalFileName?: string;
+    originalHash?: string;
+    documentId?: string;
+    documentVersion?: string;
+    importTimestamp?: string;
+    fileSize?: number;
+    [key: string]: unknown;
+};
 
 /**
  * Represents information about a single milestone in a document.

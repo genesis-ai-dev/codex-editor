@@ -1591,6 +1591,281 @@ export const migration_addImporterTypeToMetadata = async (context?: vscode.Exten
     }
 };
 
+type Primitive = string | number | boolean | null;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPrimitive(value: unknown): value is Primitive {
+    return (
+        value === null ||
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+    );
+}
+
+type CellDocumentContextRef = {
+    ctx: Record<string, unknown>;
+    container: Record<string, unknown>;
+    path: "metadata.documentContext" | "metadata.data.documentContext";
+};
+
+function getCellDocumentContextRef(cell: unknown): CellDocumentContextRef | null {
+    if (!isRecord(cell)) return null;
+    const md = cell["metadata"];
+    if (!isRecord(md)) return null;
+
+    const direct = md["documentContext"];
+    if (isRecord(direct)) {
+        return { ctx: direct, container: md, path: "metadata.documentContext" };
+    }
+
+    const data = md["data"];
+    if (isRecord(data)) {
+        const nested = data["documentContext"];
+        if (isRecord(nested)) {
+            return { ctx: nested, container: data, path: "metadata.data.documentContext" };
+        }
+    }
+
+    return null;
+}
+
+function allEqual<T>(values: T[]): boolean {
+    if (values.length <= 1) return true;
+    const first = values[0];
+    for (let i = 1; i < values.length; i++) {
+        if (values[i] !== first) return false;
+    }
+    return true;
+}
+
+/**
+ * Migration: Hoist per-cell documentContext into notebook metadata.importContext
+ * - Idempotent
+ * - Only hoists keys when values are consistent across all found documentContext objects
+ * - Removes per-cell keys that were hoisted; deletes the per-cell documentContext object only if it becomes empty
+ */
+export const migration_hoistDocumentContextToNotebookMetadata = async (
+    context?: vscode.ExtensionContext
+) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        const migrationKey = "documentContextHoistMigrationCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        let hasMigrationRun = false;
+
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch (e) {
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
+
+        if (hasMigrationRun) {
+            console.log("DocumentContext hoist migration already completed, skipping");
+            return;
+        }
+
+        console.log("Running documentContext hoist migration...");
+
+        const workspaceFolder = workspaceFolders[0];
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+
+        const allFiles = [...codexFiles, ...sourceFiles];
+        if (allFiles.length === 0) {
+            console.log("No codex or source files found, skipping documentContext hoist migration");
+            return;
+        }
+
+        const serializer = new CodexContentSerializer();
+
+        const HOIST_KEYS: ReadonlyArray<string> = [
+            "importerType",
+            "fileName",
+            "originalFileName",
+            "originalHash",
+            "documentId",
+            "documentVersion",
+            "importTimestamp",
+            "fileSize",
+        ];
+
+        let processedFiles = 0;
+        let migratedFiles = 0;
+
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Hoisting documentContext to notebook metadata",
+                cancellable: false,
+            },
+            async (progress) => {
+                for (let i = 0; i < allFiles.length; i++) {
+                    const fileUri = allFiles[i];
+                    progress.report({
+                        message: `Processing ${path.basename(fileUri.fsPath)}`,
+                        increment: 100 / allFiles.length,
+                    });
+
+                    try {
+                        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+                        const notebookDataUnknown: unknown = await serializer.deserializeNotebook(
+                            fileContent,
+                            new vscode.CancellationTokenSource().token
+                        );
+
+                        if (!isRecord(notebookDataUnknown)) {
+                            processedFiles++;
+                            continue;
+                        }
+
+                        const notebookData = notebookDataUnknown as Record<string, unknown>;
+                        const cellsUnknown = notebookData.cells;
+                        const cells = Array.isArray(cellsUnknown) ? cellsUnknown : [];
+
+                        const refs: CellDocumentContextRef[] = [];
+                        for (const cell of cells) {
+                            const ref = getCellDocumentContextRef(cell);
+                            if (ref) refs.push(ref);
+                        }
+
+                        // Nothing to do for this file.
+                        if (refs.length === 0) {
+                            processedFiles++;
+                            continue;
+                        }
+
+                        if (!isRecord(notebookData.metadata)) {
+                            notebookData.metadata = {};
+                        }
+                        const md = notebookData.metadata as Record<string, unknown>;
+
+                        const hoisted: Record<string, Primitive> = {};
+
+                        for (const key of HOIST_KEYS) {
+                            const values: Primitive[] = [];
+                            for (const ref of refs) {
+                                const v = ref.ctx[key];
+                                if (v === undefined) continue;
+                                if (isPrimitive(v)) {
+                                    values.push(v);
+                                }
+                            }
+                            if (values.length > 0 && allEqual(values)) {
+                                hoisted[key] = values[0];
+                            }
+                        }
+
+                        let hasChanges = false;
+
+                        // Hoist importerType to top-level metadata.importerType when missing.
+                        const hoistedImporterType = hoisted.importerType;
+                        if (typeof hoistedImporterType === "string" && !md["importerType"]) {
+                            const standardized = standardizeImporterType(hoistedImporterType);
+                            if (standardized) {
+                                md["importerType"] = standardized;
+                                hasChanges = true;
+                            }
+                        }
+
+                        // Hoist originalFileName when missing (derived from fileName/originalFileName).
+                        if (!md["originalFileName"]) {
+                            const candidate =
+                                (typeof hoisted.originalFileName === "string" && hoisted.originalFileName) ||
+                                (typeof hoisted.fileName === "string" && hoisted.fileName) ||
+                                undefined;
+                            if (candidate) {
+                                md["originalFileName"] = candidate;
+                                hasChanges = true;
+                            }
+                        }
+
+                        // Hoist to metadata.importContext (fill missing keys only).
+                        const existingImportContext = md["importContext"];
+                        if (!isRecord(existingImportContext)) {
+                            md["importContext"] = {};
+                        }
+                        const importContext = md["importContext"] as Record<string, unknown>;
+
+                        for (const [key, value] of Object.entries(hoisted)) {
+                            if (importContext[key] === undefined) {
+                                importContext[key] = value;
+                                hasChanges = true;
+                            }
+                        }
+
+                        // Remove hoisted keys from per-cell contexts (only if they match what we hoisted).
+                        const hoistedKeys = Object.keys(hoisted);
+                        if (hoistedKeys.length > 0) {
+                            for (const ref of refs) {
+                                let ctxChanged = false;
+                                for (const key of hoistedKeys) {
+                                    const current = ref.ctx[key];
+                                    const target = hoisted[key];
+                                    if (current === target) {
+                                        delete ref.ctx[key];
+                                        ctxChanged = true;
+                                    }
+                                }
+
+                                if (ctxChanged) {
+                                    // If the context is now empty, remove it from its container.
+                                    if (Object.keys(ref.ctx).length === 0) {
+                                        delete ref.container["documentContext"];
+                                    }
+                                    hasChanges = true;
+                                }
+                            }
+                        }
+
+                        if (hasChanges) {
+                            const updatedContent = await serializer.serializeNotebook(
+                                notebookData as unknown as vscode.NotebookData,
+                                new vscode.CancellationTokenSource().token
+                            );
+                            await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+                            migratedFiles++;
+                        }
+
+                        processedFiles++;
+                    } catch (error) {
+                        processedFiles++;
+                        console.error(`Error processing ${fileUri.fsPath}:`, error);
+                    }
+                }
+            }
+        );
+
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch (e) {
+            await context?.workspaceState.update(migrationKey, true);
+        }
+
+        console.log(
+            `DocumentContext hoist migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`
+        );
+        if (migratedFiles > 0) {
+            vscode.window.showInformationMessage(
+                `DocumentContext hoist migration complete: ${migratedFiles} files updated`
+            );
+        }
+    } catch (error) {
+        console.error("Error running documentContext hoist migration:", error);
+    }
+};
+
 /**
  * Gets the current user name for edit tracking
  */
