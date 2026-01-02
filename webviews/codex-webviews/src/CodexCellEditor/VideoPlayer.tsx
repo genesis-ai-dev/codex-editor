@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import ReactPlayer, { Config } from "react-player";
 import { useSubtitleData } from "./utils/vttUtils";
 import { QuillCellContent } from "../../../../types";
@@ -23,8 +23,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     playerHeight,
 }) => {
     const { subtitleUrl } = useSubtitleData(translationUnitsForSection);
+    const [error, setError] = useState<string | null>(null);
+
+    // Check if the URL is a YouTube URL
+    const isYouTubeUrl = videoUrl?.includes("youtube.com") || videoUrl?.includes("youtu.be");
+
+    // Configure file tracks for local videos only
     let file: Config["file"] = undefined;
-    if (subtitleUrl && showSubtitles) {
+    if (subtitleUrl && showSubtitles && !isYouTubeUrl) {
         file = {
             tracks: [
                 {
@@ -37,14 +43,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ],
         };
     }
-    const [error, setError] = useState<string | null>(null);
 
     const handleError = (e: any) => {
         console.error("Video player error:", e);
-        if (e.target.error.code === 4) {
+        if (e.target?.error?.code === 4) {
             setError("To use a local video, the file must be located in the project folder.");
+        } else {
+            setError(`Video player error: ${e?.message || "Unknown error"}`);
         }
     };
+
     const handleProgress = (state: {
         played: number;
         playedSeconds: number;
@@ -53,6 +61,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }) => {
         onTimeUpdate?.(state.playedSeconds);
     };
+
+    // Build config based on video type
+    const playerConfig: Config = {};
+    if (isYouTubeUrl) {
+        playerConfig.youtube = {
+            playerVars: {
+                referrerpolicy: "strict-origin-when-cross-origin",
+            },
+        };
+    } else if (file) {
+        playerConfig.file = file;
+    }
 
     return (
         <div style={{ position: "relative" }}>
@@ -75,9 +95,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                         width="100%"
                         height={playerHeight}
                         onError={handleError}
-                        config={{
-                            file: file,
-                        }}
+                        config={playerConfig}
                         onProgress={handleProgress}
                     />
                 )}

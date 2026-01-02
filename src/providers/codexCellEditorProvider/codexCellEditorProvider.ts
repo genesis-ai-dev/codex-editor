@@ -530,13 +530,22 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
 
         // Enable scripts and set local resources in the webview
+        // Get workspace folder early so we can add it to localResourceRoots
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+        const localResourceRoots = [
+            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets"),
+            vscode.Uri.joinPath(this.context.extensionUri, "node_modules", "@vscode", "codicons", "dist"),
+            vscode.Uri.joinPath(this.context.extensionUri, "webviews", "codex-webviews", "dist")
+        ];
+
+        // Add workspace folder to localResourceRoots to allow access to workspace files (e.g., video files)
+        if (workspaceFolder) {
+            localResourceRoots.push(workspaceFolder.uri);
+        }
+
         webviewPanel.webview.options = {
             enableScripts: true,
-            localResourceRoots: [
-                vscode.Uri.joinPath(this.context.extensionUri, "src", "assets"),
-                vscode.Uri.joinPath(this.context.extensionUri, "node_modules", "@vscode", "codicons", "dist"),
-                vscode.Uri.joinPath(this.context.extensionUri, "webviews", "codex-webviews", "dist")
-            ]
+            localResourceRoots
         };
 
         // Get text direction and check if it's a source file
@@ -567,7 +576,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
 
         // Set up file system watcher (only if document is in a workspace)
-        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
         let watcher: vscode.FileSystemWatcher | undefined;
         let audioWatcher: vscode.FileSystemWatcher | undefined;
 
