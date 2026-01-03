@@ -59,6 +59,7 @@ export interface CellListProps {
     requiredValidations?: number;
     requiredAudioValidations?: number;
     isAuthenticated?: boolean;
+    userAccessLevel?: number;
     // Cells currently undergoing audio transcription
     transcribingCells?: Set<string>;
     isAudioOnly?: boolean;
@@ -105,6 +106,7 @@ const CellList: React.FC<CellListProps> = ({
     requiredValidations,
     requiredAudioValidations,
     transcribingCells,
+    userAccessLevel,
     isAudioOnly = false,
     showInlineBacktranslations = false,
     backtranslationsMap = new Map(),
@@ -672,6 +674,7 @@ const CellList: React.FC<CellListProps> = ({
                                 requiredValidations={requiredValidations}
                                 requiredAudioValidations={requiredAudioValidations}
                                 isAuthenticated={isAuthenticated}
+                                userAccessLevel={userAccessLevel}
                                 isAudioOnly={isAudioOnly}
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
@@ -707,6 +710,7 @@ const CellList: React.FC<CellListProps> = ({
             requiredValidations,
             requiredAudioValidations,
             isAuthenticated,
+            userAccessLevel,
             isAudioOnly,
             lineNumbersEnabled,
         ]
@@ -853,6 +857,7 @@ const CellList: React.FC<CellListProps> = ({
                                 requiredValidations={requiredValidations}
                                 requiredAudioValidations={requiredAudioValidations}
                                 isAuthenticated={isAuthenticated}
+                                userAccessLevel={userAccessLevel}
                                 isAudioOnly={isAudioOnly}
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
