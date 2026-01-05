@@ -105,22 +105,14 @@ export function getProgressTitle(
 ): string {
     const completedLevels = getCompletedValidationLevels(validationLevels, requiredValidations);
     const validationLevelText = completedLevels > 0
-        ? `\n${completedLevels} level${completedLevels === 1 ? '' : 's'} of validation complete.`
+        ? `; ${completedLevels} level${completedLevels === 1 ? '' : 's'} of validation complete`
         : '';
 
-    if (validatedPercent >= 100) {
-        return `${label} fully validated${validationLevelText}`;
-    }
-    if (completedPercent >= 100) {
-        return `${label} fully translated${validationLevelText}`;
-    }
-    if (validatedPercent > 0) {
-        return `${label} partially validated${validationLevelText}`;
-    }
-    if (completedPercent > 0) {
-        return `${label} present${validationLevelText}`;
-    }
-    return `No ${label.toLowerCase()} progress${validationLevelText}`;
+    // Round percentages to whole numbers (they should already be integers, but ensure consistency)
+    const translationPercent = Math.round(completedPercent);
+    const validationPercent = Math.round(validatedPercent);
+
+    return `Translation: ${translationPercent}%\nValidation: ${validationPercent}%${validationLevelText}`;
 }
 
 export function getProgressDisplay(
