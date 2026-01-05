@@ -7,10 +7,19 @@ import ReactPlayer from "react-player";
 import ZoomButton from "./ZoomButton";
 import ScrollToContentContext from "../contextProviders/ScrollToContentContext";
 
+// React Player v3 returns HTMLVideoElement but may expose additional methods
+interface ReactPlayerRef extends HTMLVideoElement {
+    seekTo?: (amount: number, type?: "seconds" | "fraction") => void;
+    getCurrentTime?: () => number;
+    getSecondsLoaded?: () => number;
+    getDuration?: () => number;
+    getInternalPlayer?: (key?: string) => any;
+}
+
 export interface TimelineProps {
     setAutoPlay: (autoPlay: boolean) => void;
     autoPlay: boolean;
-    playerRef?: React.RefObject<ReactPlayer>;
+    playerRef?: React.RefObject<ReactPlayerRef>;
     changeAreaShow: (beginingTimeShow: number, endTimeShow: number) => void;
     changeZoomLevel: (zoomLevel: number) => void;
     changeShift: (shift: number) => void;
@@ -94,9 +103,9 @@ export default function Timeline(props: TimelineProps) {
                 }
             },
             getPlayer: () => ({
-                currentTime: props.playerRef?.current?.getCurrentTime() || 0,
+                currentTime: props.playerRef?.current?.getCurrentTime?.() || 0,
                 play: (currentTime: number) => {
-                    props.playerRef?.current?.seekTo(currentTime);
+                    props.playerRef?.current?.seekTo?.(currentTime);
                     // props.playerRef?.current?.forceUpdate();
                 },
             }),
@@ -130,7 +139,7 @@ export default function Timeline(props: TimelineProps) {
 
     const resetTimeline = () => {
         if (props.data.length > 0 && props.src) {
-            drawTimeLine({ ...props, endTime: props.playerRef?.current?.getDuration() || 0 });
+            drawTimeLine({ ...props, endTime: props.playerRef?.current?.getDuration?.() || 0 });
         }
     };
 

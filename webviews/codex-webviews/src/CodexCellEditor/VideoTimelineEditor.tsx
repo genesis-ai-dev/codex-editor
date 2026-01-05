@@ -6,11 +6,20 @@ import { QuillCellContent, TimeBlock } from "../../../../types";
 import { useMouse } from "@uidotdev/usehooks";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 
+// React Player v3 returns HTMLVideoElement but may expose additional methods
+interface ReactPlayerRef extends HTMLVideoElement {
+    seekTo?: (amount: number, type?: "seconds" | "fraction") => void;
+    getCurrentTime?: () => number;
+    getSecondsLoaded?: () => number;
+    getDuration?: () => number;
+    getInternalPlayer?: (key?: string) => any;
+}
+
 interface VideoTimelineEditorProps {
     videoUrl: string;
     translationUnitsForSection: QuillCellContent[];
     vscode: any;
-    playerRef: React.RefObject<ReactPlayer>;
+    playerRef: React.RefObject<ReactPlayerRef>;
 }
 
 const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
@@ -61,7 +70,7 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
     // Add this function to handle seeking
     const handleSeek = (time: number) => {
         if (playerRef.current) {
-            playerRef.current.seekTo(time, "seconds");
+            playerRef.current.seekTo?.(time, "seconds");
         }
     };
 

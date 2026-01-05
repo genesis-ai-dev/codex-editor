@@ -1,6 +1,15 @@
 import React, { useState, useEffect, useRef, useMemo, useContext, useCallback } from "react";
 import ReactPlayer from "react-player";
 import Quill from "quill";
+
+// React Player v3 returns HTMLVideoElement but may expose additional methods
+interface ReactPlayerRef extends HTMLVideoElement {
+    seekTo?: (amount: number, type?: "seconds" | "fraction") => void;
+    getCurrentTime?: () => number;
+    getSecondsLoaded?: () => number;
+    getDuration?: () => number;
+    getInternalPlayer?: (key?: string) => any;
+}
 import {
     QuillCellContent,
     EditorPostMessages,
@@ -182,7 +191,7 @@ const CodexCellEditor: React.FC = () => {
         videoUrl: "", // FIXME: use attachments instead of videoUrl
     } as CustomNotebookMetadata);
     const [videoUrl, setVideoUrl] = useState<string>("");
-    const playerRef = useRef<ReactPlayer>(null);
+    const playerRef = useRef<ReactPlayerRef>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const { setSourceCellMap } = useContext(SourceCellContext);
 
@@ -2271,7 +2280,7 @@ const CodexCellEditor: React.FC = () => {
             const startTime = parseTimestampFromCellId(cellId);
             if (startTime !== null) {
                 debug("video", `Seeking to ${startTime} + ${OFFSET_SECONDS} seconds`);
-                playerRef.current.seekTo(startTime + OFFSET_SECONDS, "seconds");
+                playerRef.current.seekTo?.(startTime + OFFSET_SECONDS, "seconds");
             }
         }
     }, [contentBeingUpdated, OFFSET_SECONDS]);

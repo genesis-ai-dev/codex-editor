@@ -1,10 +1,20 @@
-import React, { useState } from "react";
-import ReactPlayer, { Config } from "react-player";
+import React, { useState, useEffect } from "react";
+import ReactPlayer from "react-player";
+import type { Config } from "react-player/dist/types";
 import { useSubtitleData } from "./utils/vttUtils";
 import { QuillCellContent } from "../../../../types";
 
+// React Player v3 returns HTMLVideoElement but may expose additional methods
+interface ReactPlayerRef extends HTMLVideoElement {
+    seekTo?: (amount: number, type?: "seconds" | "fraction") => void;
+    getCurrentTime?: () => number;
+    getSecondsLoaded?: () => number;
+    getDuration?: () => number;
+    getInternalPlayer?: (key?: string) => any;
+}
+
 interface VideoPlayerProps {
-    playerRef: React.RefObject<ReactPlayer>;
+    playerRef: React.RefObject<ReactPlayerRef>;
     videoUrl: string;
     translationUnitsForSection: QuillCellContent[];
     showSubtitles?: boolean;
@@ -28,51 +38,51 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // Check if the URL is a YouTube URL
     const isYouTubeUrl = videoUrl?.includes("youtube.com") || videoUrl?.includes("youtu.be");
 
-    // Configure file tracks for local videos only
-    let file: Config["file"] = undefined;
-    if (subtitleUrl && showSubtitles && !isYouTubeUrl) {
-        file = {
-            tracks: [
-                {
-                    kind: "subtitles",
-                    src: subtitleUrl,
-                    srcLang: "en", // FIXME: make this dynamic
-                    label: "English", // FIXME: make this dynamic
-                    default: true,
-                },
-            ],
-        };
-    }
-
-    const handleError = (e: any) => {
+    const handleError = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
         console.error("Video player error:", e);
-        if (e.target?.error?.code === 4) {
+        const target = e.target as HTMLVideoElement;
+        if (target?.error?.code === 4) {
             setError("To use a local video, the file must be located in the project folder.");
         } else {
-            setError(`Video player error: ${e?.message || "Unknown error"}`);
+            setError(`Video player error: ${target?.error?.message || "Unknown error"}`);
         }
     };
 
-    const handleProgress = (state: {
-        played: number;
-        playedSeconds: number;
-        loaded: number;
-        loadedSeconds: number;
-    }) => {
-        onTimeUpdate?.(state.playedSeconds);
+    // React Player v3 uses standard HTML video events
+    const handleTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>) => {
+        const target = e.target as HTMLVideoElement;
+        const currentTime = target.currentTime;
+        onTimeUpdate?.(currentTime);
     };
 
     // Build config based on video type
     const playerConfig: Config = {};
     if (isYouTubeUrl) {
+        // YouTube config uses YouTubeVideoElement config structure
         playerConfig.youtube = {
-            playerVars: {
-                referrerpolicy: "strict-origin-when-cross-origin",
-            },
-        };
-    } else if (file) {
-        playerConfig.file = file;
+            referrerPolicy: "strict-origin-when-cross-origin",
+        } as any; // Type assertion needed as YouTubeVideoElement config type may vary
     }
+
+    // Add subtitle tracks for local videos (React Player v3 uses standard HTML video elements)
+    useEffect(() => {
+        if (subtitleUrl && showSubtitles && !isYouTubeUrl && playerRef.current) {
+            const videoElement = playerRef.current;
+            
+            // Remove existing tracks
+            const existingTracks = videoElement.querySelectorAll("track");
+            existingTracks.forEach((track) => track.remove());
+
+            // Add subtitle track
+            const track = document.createElement("track");
+            track.kind = "subtitles";
+            track.src = subtitleUrl;
+            track.srclang = "en"; // FIXME: make this dynamic
+            track.label = "English"; // FIXME: make this dynamic
+            track.default = true;
+            videoElement.appendChild(track);
+        }
+    }, [subtitleUrl, showSubtitles, isYouTubeUrl]);
 
     return (
         <div style={{ position: "relative" }}>
@@ -88,7 +98,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     <ReactPlayer
                         key={subtitleUrl}
                         ref={playerRef}
-                        url={videoUrl}
+                        src={videoUrl}
                         playing={autoPlay}
                         volume={0}
                         controls={true}
@@ -96,7 +106,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                         height={playerHeight}
                         onError={handleError}
                         config={playerConfig}
-                        onProgress={handleProgress}
+                        onTimeUpdate={handleTimeUpdate}
                     />
                 )}
             </div>
