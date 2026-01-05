@@ -11,9 +11,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 async function createTempNotebook(notebook: vscode.NotebookData, ext: "codex" | "source" = "codex"): Promise<vscode.Uri> {
     const serializer = new CodexContentSerializer();
-    const tmpDir = os.tmpdir();
+    const baseDir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.tmpdir();
     const fileName = `document-context-test-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-    const uri = vscode.Uri.file(path.join(tmpDir, fileName));
+    const uri = vscode.Uri.file(path.join(baseDir, fileName));
     const bytes = await serializer.serializeNotebook(notebook, new vscode.CancellationTokenSource().token);
     await vscode.workspace.fs.writeFile(uri, bytes);
     return uri;
