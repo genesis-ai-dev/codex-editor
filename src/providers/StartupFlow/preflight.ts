@@ -54,8 +54,15 @@ export class PreflightCheck {
     private async initializeFrontierApi() {
         debugLog("Attempting to initialize Frontier API");
         try {
-            this.frontierApi = getAuthApi();
-            debugLog("Successfully initialized Frontier API");
+            // Wait for the extension to activate before getting the API
+            const extension = await waitForExtensionActivation("frontier-rnd.frontier-authentication", 5000);
+            if (extension?.isActive) {
+                const exports = extension.exports as any;
+                if (exports && typeof exports.getAuthStatus === "function") {
+                    this.frontierApi = exports;
+                    debugLog("Successfully initialized Frontier API");
+                }
+            }
         } catch (error) {
             debugLog("Failed to initialize Frontier API:", error);
             console.error("Failed to initialize Frontier API:", error);
@@ -136,10 +143,14 @@ export class PreflightCheck {
 
         try {
             debugLog("Checking authentication state");
+            // Check if extension is installed (regardless of activation status)
+            const authExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
+            state.authState.isAuthExtensionInstalled = !!authExtension;
+            debugLog("Auth extension installed:", state.authState.isAuthExtensionInstalled);
+
             const isAuthenticated = await this.checkAuthentication();
             state.authState.isAuthenticated = isAuthenticated;
             state.authState.isLoading = false;
-            state.authState.isAuthExtensionInstalled = !!this.frontierApi;
             debugLog("Auth state:", state.authState);
 
             // Subscribe to auth status changes
@@ -252,46 +263,97 @@ export const registerPreflightCommand = (context: vscode.ExtensionContext) => {
         "codex-project-manager.preflight",
         async () => {
             debugLog("Executing preflight command");
-            const state = await preflightCheck.preflight();
-            debugLog("Preflight state:", state);
 
-            // Decision tree matching the state machine:
-            debugLog("Evaluating decision tree");
-            if (state.authState.isAuthExtensionInstalled) {
-                if (!state.authState.isAuthenticated) {
-                    debugLog(
-                        "Auth extension installed but not authenticated - opening startup flow"
-                    );
-                    vscode.commands.executeCommand("codex-project-manager.openStartupFlow", { forceLogin: false });
+            // Check for pending project initialization first
+            if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+                const workspaceUri = vscode.workspace.workspaceFolders[0].uri;
+                const pendingInitFile = vscode.Uri.joinPath(workspaceUri, '.pending-project-init.json');
+
+                try {
+                    const fileData = await vscode.workspace.fs.readFile(pendingInitFile);
+                    const initData = JSON.parse(Buffer.from(fileData).toString('utf-8'));
+                    debugLog("Found pending project initialization data:", initData);
+
+                    // Initialize project with the stored data
+                    await vscode.commands.executeCommand('codex-project-manager.initializeNewProject');
+
+                    // Wait a moment for initialization
+                    await new Promise(resolve => setTimeout(resolve, 500));
+
+                    // Initialize metadata with languages
+                    const { initializeProjectMetadataAndGit } = await import('../../projectManager/utils/projectUtils');
+                    const { createSampleContent } = await import('../../utils/sampleContent');
+
+                    await initializeProjectMetadataAndGit({
+                        projectId: initData.projectId,
+                        sourceLanguage: initData.sourceLanguage,
+                        targetLanguage: initData.targetLanguage
+                    });
+
+                    // Generate sample content if requested
+                    if (initData.mode === "samples") {
+                        await createSampleContent(workspaceUri, [initData.projectType]);
+                    }
+
+                    // Delete the pending init file
+                    await vscode.workspace.fs.delete(pendingInitFile);
+
+                    // Open appropriate view
+                    if (initData.mode === "upload") {
+                        // Wait a moment then open source uploader
+                        setTimeout(async () => {
+                            await vscode.commands.executeCommand("codex-project-manager.openSourceUpload");
+                        }, 1000);
+                    }
+
+                    debugLog("Project initialization completed");
                     return;
+                } catch (error) {
+                    // File doesn't exist or couldn't be read - continue with normal preflight
+                    debugLog("No pending initialization file found or error reading it");
                 }
             }
 
+            const state = await preflightCheck.preflight();
+            debugLog("Preflight state:", state);
+
+            // Simple rule: if no workspace is open, open StartupFlow
             if (!state.workspaceState.isOpen) {
-                debugLog("No workspace open - opening startup flow");
-                vscode.commands.executeCommand("codex-project-manager.openStartupFlow", { forceLogin: false });
+                debugLog("No workspace open - checking if startup flow already open");
+
+                // Check if StartupFlow is already open to avoid duplicates
+                const allTabs = vscode.window.tabGroups.all.flatMap(group => group.tabs);
+                const hasStartupFlowOpen = allTabs.some(tab => {
+                    if (tab.input instanceof vscode.TabInputCustom) {
+                        return tab.input.viewType === 'startupFlowProvider';
+                    }
+                    return false;
+                });
+
+                if (!hasStartupFlowOpen) {
+                    debugLog("Opening startup flow");
+                    vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
+                } else {
+                    debugLog("StartupFlow already open, skipping");
+                }
                 return;
             }
 
-            if (!state.workspaceState.hasMetadata) {
-                debugLog("No metadata found - opening startup flow");
-                vscode.commands.executeCommand("codex-project-manager.openStartupFlow", { forceLogin: false });
-                return;
+            // Workspace is open - ensure StartupFlow is closed
+            debugLog("Workspace is open - ensuring StartupFlow is closed");
+            const allTabs = vscode.window.tabGroups.all.flatMap(group => group.tabs);
+            const startupFlowTabs = allTabs.filter(tab => {
+                if (tab.input instanceof vscode.TabInputCustom) {
+                    return tab.input.viewType === 'startupFlowProvider';
+                }
+                return false;
+            });
+
+            for (const tab of startupFlowTabs) {
+                await vscode.window.tabGroups.close(tab);
             }
 
-            if (!state.workspaceState.isProjectSetup) {
-                debugLog("Project not properly setup - opening startup flow");
-                vscode.commands.executeCommand("codex-project-manager.openStartupFlow", { forceLogin: false });
-                return;
-            }
-
-            if (!state.gitState.isGitRepo) {
-                debugLog("Not a git repository - opening startup flow");
-                vscode.commands.executeCommand("codex-project-manager.openStartupFlow", { forceLogin: false });
-                return;
-            }
-
-            debugLog("All checks passed - no action needed");
+            debugLog("Preflight check complete");
         }
     );
 

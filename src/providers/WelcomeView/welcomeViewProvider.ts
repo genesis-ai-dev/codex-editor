@@ -3,7 +3,6 @@ import * as path from "path";
 
 import { getAuthApi } from "../../extension";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
-import { StartupFlowGlobalState } from "../StartupFlow/StartupFlowProvider";
 
 const DEBUG_MODE = false;
 const debug = (message: string, ...args: any[]) => {
@@ -25,8 +24,8 @@ export class WelcomeViewProvider {
         this._extensionUri = extensionUri;
         // Check authentication status
         this._checkAuthStatus();
-        // Setup startup flow state listener
-        this._setupStartupFlowListener();
+        // Setup authentication listener
+        this._setupAuthenticationListener();
     }
 
     // Check if user is authenticated
@@ -45,29 +44,6 @@ export class WelcomeViewProvider {
         }
     }
 
-    // Setup listener for startup flow state changes
-    private _setupStartupFlowListener(): void {
-        // Listen for startup flow state changes
-        this._disposables.push(
-            StartupFlowGlobalState.instance.onStateChanged((isOpen) => {
-                debug(`[WelcomeView] Startup flow state changed: ${isOpen ? 'opened' : 'closed'}`);
-                if (this._panel) {
-                    safePostMessageToPanel(this._panel, {
-                        command: "startupFlowStateChanged",
-                        isOpen: isOpen,
-                    });
-                }
-
-                // If startup flow closes and user is authenticated, check if we should redirect
-                if (!isOpen && this._isAuthenticated) {
-                    this._handleAuthenticatedUserWithClosedStartupFlow();
-                }
-            })
-        );
-
-        // Also listen for authentication state changes
-        this._setupAuthenticationListener();
-    }
 
     // Setup authentication state listener
     private _setupAuthenticationListener(): void {
@@ -106,54 +82,15 @@ export class WelcomeViewProvider {
         // Check if there's a workspace open with a proper project
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (workspaceFolders && workspaceFolders.length > 0) {
-            // Check if this workspace has a proper project setup
-            this._checkProjectSetupAndRedirect();
+            // Workspace is open, close welcome view
+            debug("[WelcomeView] Workspace open, closing welcome view");
+            this._panel?.dispose();
         } else {
-            // No workspace open - the startup flow should handle project selection
-            // We'll let the startup flow's state machine handle this transition
-            debug("[WelcomeView] No workspace open, letting startup flow handle project selection");
+            // No workspace open - user can use "View Projects" button
+            debug("[WelcomeView] No workspace open");
         }
     }
 
-    // Handle when startup flow closes but user is authenticated
-    private _handleAuthenticatedUserWithClosedStartupFlow(): void {
-        debug("[WelcomeView] Startup flow closed for authenticated user");
-        this._checkProjectSetupAndRedirect();
-    }
-
-    // Check if project is properly set up and redirect accordingly
-    private async _checkProjectSetupAndRedirect(): Promise<void> {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders || workspaceFolders.length === 0) {
-            debug("[WelcomeView] No workspace open, staying on welcome view");
-            return;
-        }
-
-        try {
-            const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
-            const metadataContent = await vscode.workspace.fs.readFile(metadataUri);
-            const metadata = JSON.parse(metadataContent.toString());
-
-            const sourceLanguage = metadata.languages?.find((l: any) => l.projectStatus === "source");
-            const targetLanguage = metadata.languages?.find((l: any) => l.projectStatus === "target");
-
-            if (sourceLanguage && targetLanguage) {
-                debug("[WelcomeView] Project is properly set up, redirecting to project manager");
-                // Close welcome view and open project manager
-                this._panel?.dispose();
-                await vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
-            } else {
-                debug("[WelcomeView] Project needs setup, staying on welcome view");
-            }
-        } catch (error) {
-            debug("[WelcomeView] No metadata.json found or error reading it, staying on welcome view");
-        }
-    }
-
-    // Get current startup flow state
-    private _getCurrentStartupFlowState(): boolean {
-        return StartupFlowGlobalState.instance.isOpen;
-    }
 
     public dispose() {
         this._panel?.dispose();
@@ -323,6 +260,11 @@ export class WelcomeViewProvider {
                 case "navigateToMainMenu":
                     // Navigate to main menu using the registered command
                     await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
+                    break;
+
+                case "closeProject":
+                    // Close the current folder/project
+                    await vscode.commands.executeCommand("workbench.action.closeFolder");
                     break;
             }
         });
@@ -620,7 +562,21 @@ export class WelcomeViewProvider {
                         vscode.postMessage({ command: 'viewProjects' });
                     });
                 }
-                
+
+                const openMainMenu = document.getElementById('openMainMenu');
+                if (openMainMenu) {
+                    openMainMenu.addEventListener('click', () => {
+                        vscode.postMessage({ command: 'navigateToMainMenu' });
+                    });
+                }
+
+                const closeProject = document.getElementById('closeProject');
+                if (closeProject) {
+                    closeProject.addEventListener('click', () => {
+                        vscode.postMessage({ command: 'closeProject' });
+                    });
+                }
+
                 // Login link handler
                 const loginLink = document.getElementById('login-link');
                 if (loginLink) {
@@ -717,16 +673,6 @@ export class WelcomeViewProvider {
                 
                 // Initialize UI on load
                 updateMenuButtonUI();
-                
-                // Check initial startup flow state
-                const initialStartupFlowState = ${this._getCurrentStartupFlowState()};
-                if (initialStartupFlowState) {
-                    // If startup flow is already open, show "Login page opened"
-                    const loginText = document.getElementById('login-text');
-                    const loginPageOpened = document.getElementById('login-page-opened');
-                    if (loginText) loginText.style.display = 'none';
-                    if (loginPageOpened) loginPageOpened.style.display = 'flex';
-                }
             </script>
         </body>
         </html>`;
@@ -738,12 +684,12 @@ export class WelcomeViewProvider {
     private _getWorkspaceOpenHtml(): string {
         return `
             <p class="description">
-                Codex Editor helps you create beautiful and accurate translations. 
+                Codex Editor helps you create beautiful and accurate translations.
                 Get started by opening the main menu or continuing your recent work.
             </p>
-            
+
             <div class="actions">
-                
+
                 <div class="action-card" id="createNewProject" style="display:none;">
                     <div class="icon-container">
                         <i class="codicon codicon-add"></i>
@@ -751,7 +697,7 @@ export class WelcomeViewProvider {
                     <div class="card-title">Create New Project</div>
                     <div class="card-description">Start a new translation project</div>
                 </div>
-                
+
                 <div class="action-card" id="openTranslationFile">
                     <div class="icon-container">
                         <i class="codicon codicon-file-code"></i>
@@ -759,8 +705,24 @@ export class WelcomeViewProvider {
                     <div class="card-title">Open Translation File</div>
                     <div class="card-description">Browse and select a file to edit</div>
                 </div>
+
+                <div class="action-card" id="openMainMenu">
+                    <div class="icon-container">
+                        <i class="codicon codicon-menu"></i>
+                    </div>
+                    <div class="card-title">Open Main Menu</div>
+                    <div class="card-description">Access all project features and settings</div>
+                </div>
+
+                <div class="action-card" id="closeProject">
+                    <div class="icon-container">
+                        <i class="codicon codicon-close"></i>
+                    </div>
+                    <div class="card-title">Close Project</div>
+                    <div class="card-description">Close the current project</div>
+                </div>
             </div>
-            
+
             <div class="secondary-actions" style="display:none;">
                 <button class="secondary-button" id="openExistingProject">
                     <i class="codicon codicon-folder-opened"></i>

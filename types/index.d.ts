@@ -250,6 +250,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "auth.login"; username: string; password: string; }
     | { command: "auth.signup"; username: string; email: string; password: string; }
     | { command: "auth.logout"; }
+    | { command: "auth.skipAuthentication"; }
     | { command: "auth.status"; }
     | { command: "auth.checkAuthStatus"; }
     | { command: "auth.backToLogin"; }
@@ -288,7 +289,21 @@ export type MessagesToStartupFlowProvider =
     | { command: "project.cleanupMediaFiles"; projectPath: string; }
     | { command: "onboarding.complete"; projectTypes: string[]; skipOnboarding: boolean; }
     | { command: "onboarding.skip"; }
-    | { command: "onboarding.shouldShow"; };
+    | { command: "onboarding.shouldShow"; }
+    | {
+        command: "project.createWithSamples";
+        projectName: string;
+        projectType: "bible" | "subtitles" | "obs" | "documents" | "other";
+        sourceLanguage: LanguageMetadata;
+        targetLanguage: LanguageMetadata;
+    }
+    | {
+        command: "project.createForUpload";
+        projectName: string;
+        projectType: "bible" | "subtitles" | "obs" | "documents" | "other";
+        sourceLanguage: LanguageMetadata;
+        targetLanguage: LanguageMetadata;
+    };
 
 export type GitLabProject = {
     id: number;
@@ -369,6 +384,7 @@ export type MessagesFromStartupFlowProvider =
     }
     | { command: "setupIncompleteCriticalDataMissing"; }
     | { command: "setupComplete"; }
+    | { command: "forceLogin"; }
     | { command: "project.progressReportSubmitted"; success: boolean; error?: string; }
     | { command: "progressData"; data: any; }
     | { command: "aggregatedProgressData"; data: any; }
@@ -379,7 +395,13 @@ export type MessagesFromStartupFlowProvider =
     | { command: "project.openingInProgress"; projectPath: string; opening: boolean; }
     | { command: "project.zippingInProgress"; projectPath: string; zipType: "full" | "mini"; zipping: boolean; }
     | { command: "project.cleaningInProgress"; projectPath: string; cleaning: boolean; }
-    | { command: "onboarding.shouldShowResponse"; shouldShow: boolean; };
+    | { command: "onboarding.shouldShowResponse"; shouldShow: boolean; }
+    | {
+        command: "project.created";
+        success: boolean;
+        projectPath?: string;
+        error?: string;
+    };
 
 type DictionaryPostMessages =
     | {

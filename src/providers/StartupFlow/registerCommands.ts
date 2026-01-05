@@ -26,24 +26,26 @@ export const registerStartupFlowCommands = (context: vscode.ExtensionContext) =>
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand("codex-project-manager.openStartupFlow", (options?: { forceLogin?: boolean }) => {
+        vscode.commands.registerCommand("codex-project-manager.openStartupFlow", async (options?: { forceLogin?: boolean }) => {
             // Default to forcing login if options are undefined (manual invocation)
             // If options are provided, respect the flag
-            const shouldForce = options?.forceLogin ?? true;
-
-            if (shouldForce) {
-                startupFlowProvider.setForceLogin(true);
-            }
-
             // Always create the URI, regardless of workspace state
             const uri = vscode.Uri.parse(
                 `startupFlowProvider-scheme:Startup Flow`
             );
-            vscode.commands.executeCommand(
+            await vscode.commands.executeCommand(
                 "vscode.openWith",
                 uri,
                 StartupFlowProvider.viewType
             );
+
+            // Send forceLogin message to the webview if requested
+            if (options?.forceLogin) {
+                // Small delay to ensure webview is ready
+                setTimeout(() => {
+                    startupFlowProvider.sendForceLoginMessage();
+                }, 100);
+            }
         })
     );
 };

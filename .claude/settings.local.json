@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run compile:*)",
+      "Bash(Remove-Item \"C:\\\\Users\\\\sampe\\\\codex\\\\codex-editor\\\\src\\\\test\\\\suite\\\\startupFlowProvider_auth.test.ts\")",
+      "Bash(npm run test:*)",
+      "Bash(git restore:*)",
+      "Bash(npm run compile:extension:*)",
+      "Bash(npm run)"
+    ]
+  }
+}

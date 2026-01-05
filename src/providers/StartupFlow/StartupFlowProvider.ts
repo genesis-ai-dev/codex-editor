@@ -8,7 +8,7 @@ import {
 } from "../../../types";
 import * as vscode from "vscode";
 import { PreflightCheck, PreflightState } from "./preflight";
-import { findAllCodexProjects } from "../../../src/projectManager/utils/projectUtils";
+import { findAllCodexProjects, initializeProjectMetadataAndGit } from "../../../src/projectManager/utils/projectUtils";
 import { AuthState, FrontierAPI } from "webviews/codex-webviews/src/StartupFlow/types";
 import {
     createNewProject,
@@ -20,7 +20,6 @@ import {
 } from "../../utils/projectCreationUtils/projectCreationUtils";
 import { generateProjectId } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
-import { createMachine, assign, createActor } from "xstate";
 import { getCodexProjectsDirectory } from "../../utils/projectLocationUtils";
 import JSZip from "jszip";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
@@ -33,106 +32,6 @@ import { resolveConflictFiles } from "../../projectManager/utils/merge/resolvers
 import { buildConflictsFromDirectories } from "../../projectManager/utils/merge/directoryConflicts";
 import { shouldShowOnboarding, setUserPreference } from "../../utils/userPreferences";
 import { createSampleContent, ProjectType } from "../../utils/sampleContent";
-
-// Add global state tracking for startup flow
-export class StartupFlowGlobalState {
-    private static _instance: StartupFlowGlobalState;
-    private _isOpen: boolean = false;
-    private _eventEmitter = new vscode.EventEmitter<boolean>();
-
-    public static get instance(): StartupFlowGlobalState {
-        if (!StartupFlowGlobalState._instance) {
-            StartupFlowGlobalState._instance = new StartupFlowGlobalState();
-        }
-        return StartupFlowGlobalState._instance;
-    }
-
-    public get isOpen(): boolean {
-        return this._isOpen;
-    }
-
-    public setOpen(isOpen: boolean): void {
-        if (this._isOpen !== isOpen) {
-            this._isOpen = isOpen;
-            this._eventEmitter.fire(isOpen);
-        }
-    }
-
-    public get onStateChanged(): vscode.Event<boolean> {
-        return this._eventEmitter.event;
-    }
-
-    public dispose(): void {
-        this._eventEmitter.dispose();
-    }
-}
-
-// State machine types
-export enum StartupFlowStates {
-    LOGIN_REGISTER = "loginRegister",
-    OPEN_OR_CREATE_PROJECT = "createNewProject",
-    PROMPT_USER_TO_INITIALIZE_PROJECT = "promptUserToInitializeProject",
-    PROMPT_USER_TO_ADD_CRITICAL_DATA = "promptUserToAddCriticalData",
-    ALREADY_WORKING = "alreadyWorking",
-}
-
-export enum StartupFlowEvents {
-    AUTH_LOGGED_IN = "AUTH_LOGGED_IN",
-    NO_AUTH_EXTENSION = "NO_AUTH_EXTENSION",
-    SKIP_AUTH = "SKIP_AUTH",
-    PROJECT_CREATE_EMPTY = "PROJECT_CREATE_EMPTY",
-    PROJECT_CLONE_OR_OPEN = "PROJECT_CLONE_OR_OPEN",
-    BACK_TO_LOGIN = "BACK_TO_LOGIN",
-    UPDATE_AUTH_STATE = "UPDATE_AUTH_STATE",
-    INITIALIZE_PROJECT = "INITIALIZE_PROJECT",
-    EMPTY_WORKSPACE_THAT_NEEDS_PROJECT = "EMPTY_WORKSPACE_THAT_NEEDS_PROJECT",
-    VALIDATE_PROJECT_IS_OPEN = "VALIDATE_PROJECT_IS_OPEN",
-    PROJECT_MISSING_CRITICAL_DATA = "PROJECT_MISSING_CRITICAL_DATA",
-    SETUP_COMPLETE = "SETUP_COMPLETE",
-    SETUP_INCOMPLETE = "SETUP_INCOMPLETE",
-}
-
-type StartupFlowContext = {
-    authState: {
-        isAuthenticated: boolean;
-        isAuthExtensionInstalled: boolean;
-        isLoading: boolean;
-        error: undefined | string;
-        gitlabInfo: undefined | any;
-        workspaceState: {
-            isWorkspaceOpen: boolean;
-            isProjectInitialized: boolean;
-        };
-    };
-};
-
-type StartupFlowEvent =
-    | {
-        type:
-        | StartupFlowEvents.UPDATE_AUTH_STATE
-        | StartupFlowEvents.AUTH_LOGGED_IN
-        | StartupFlowEvents.NO_AUTH_EXTENSION;
-        data: StartupFlowContext["authState"];
-    }
-    | {
-        type:
-        | StartupFlowEvents.SKIP_AUTH
-        | StartupFlowEvents.PROJECT_CREATE_EMPTY
-        | StartupFlowEvents.PROJECT_CLONE_OR_OPEN
-        | StartupFlowEvents.BACK_TO_LOGIN;
-    }
-    | {
-        type: StartupFlowEvents.INITIALIZE_PROJECT;
-    }
-    | {
-        type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN;
-    }
-    | {
-        type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT;
-    }
-    | {
-        type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA;
-    };
 
 const DEBUG_MODE = false; // Set to true to enable debug logging
 
@@ -147,7 +46,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     private disposables: vscode.Disposable[] = [];
     private frontierApi?: FrontierAPI;
     private webviewPanel?: vscode.WebviewPanel;
-    private stateMachine!: ReturnType<typeof createActor>;
     private preflightState: PreflightState = {
         authState: {
             isAuthExtensionInstalled: false,
@@ -171,12 +69,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     };
     private metadataWatcher?: vscode.FileSystemWatcher;
     private _preflightPromise?: Promise<PreflightState>;
-    private _forceLogin: boolean = false;
     private static readonly PENDING_HEAL_SYNC_KEY = "codex.pendingHealSync";
-
-    public setForceLogin(force: boolean) {
-        this._forceLogin = force;
-    }
 
     constructor(private readonly context: vscode.ExtensionContext) {
         // Initialize components in parallel without waiting
@@ -187,8 +80,32 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             vscode.Disposable.from({
                 dispose: () => {
                     this.webviewPanel?.dispose();
-                    this.stateMachine?.stop();
                 },
+            })
+        );
+
+        // Listen for workspace folder changes to manage StartupFlow visibility
+        this.context.subscriptions.push(
+            vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
+                const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
+
+                if (hasWorkspace) {
+                    // Project opened - close StartupFlow
+                    await this.closeAllStartupFlowTabs();
+                } else {
+                    // No project - open StartupFlow if not already open
+                    const allTabs = vscode.window.tabGroups.all.flatMap(group => group.tabs);
+                    const hasStartupFlowOpen = allTabs.some(tab => {
+                        if (tab.input instanceof vscode.TabInputCustom) {
+                            return tab.input.viewType === StartupFlowProvider.viewType;
+                        }
+                        return false;
+                    });
+
+                    if (!hasStartupFlowOpen) {
+                        await vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
+                    }
+                }
             })
         );
     }
@@ -218,6 +135,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             scriptPath: ["StartupFlow", "index.js"],
         }), "StartupFlow");
 
+        // Send initial auth state to webview
+        setTimeout(() => {
+            this.updateAuthStateInWebview();
+        }, 100);
+
         // Set up message handling
         webviewPanel.webview.onDidReceiveMessage((message) => {
             this.handleMessage(message);
@@ -229,7 +151,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         // Track visibility state
         const visibilityDisposable = webviewPanel.onDidChangeViewState((e) => {
             const isVisible = e.webviewPanel.visible;
-            StartupFlowGlobalState.instance.setOpen(isVisible);
 
             // When becoming visible again, refresh the list and progress data
             if (isVisible) {
@@ -241,15 +162,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
         // Dispose listener
         webviewPanel.onDidDispose(() => {
-            StartupFlowGlobalState.instance.setOpen(false);
             this.webviewPanel = undefined;
-
-            // Reset force login flag when panel is closed
-            this._forceLogin = false;
         });
-
-        // Set global state to open
-        StartupFlowGlobalState.instance.setOpen(true);
     }
 
     /**
@@ -260,9 +174,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             // Run preflight check once and cache the result
             this._preflightPromise = this.runPreflightCheck();
             this.preflightState = await this._preflightPromise;
-
-            // Initialize state machine
-            this.initializeStateMachine();
 
             // Initialize Frontier API (but don't fetch project lists yet)
             await this.initializeFrontierApi();
@@ -290,307 +201,22 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         return await preflightCheck.preflight();
     }
 
-    private initializeStateMachine() {
-        const updateAuthStateAction = assign({
-            authState: ({ event }: any) => ({
-                isAuthenticated:
-                    "data" in event ? !!event.data.isAuthenticated : false,
-                isAuthExtensionInstalled:
-                    "data" in event
-                        ? !!event.data.isAuthExtensionInstalled
-                        : false,
-                isLoading: "data" in event ? !!event.data.isLoading : false,
-                error: "data" in event ? event.data.error : undefined,
-                gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
-                workspaceState: {
-                    isWorkspaceOpen:
-                        "data" in event
-                            ? !!event.data.workspaceState?.isWorkspaceOpen
-                            : false,
-                    isProjectInitialized:
-                        "data" in event
-                            ? !!event.data.workspaceState?.isProjectInitialized
-                            : false,
-                },
-            }),
-        }) as any;
-
-        const machine = createMachine({
-            id: "startupFlow",
-            initial: StartupFlowStates.LOGIN_REGISTER,
-            context: {
-                authState: {
-                    isAuthenticated: false,
-                    isAuthExtensionInstalled: false,
-                    isLoading: true,
-                    error: undefined,
-                    gitlabInfo: undefined,
-                    workspaceState: {
-                        isWorkspaceOpen: false,
-                        isProjectInitialized: false,
-                    },
-                },
-            },
-            types: {} as {
-                context: StartupFlowContext;
-                events: StartupFlowEvent;
-            },
-            states: {
-                [StartupFlowStates.LOGIN_REGISTER]: {
-                    on: {
-                        [StartupFlowEvents.UPDATE_AUTH_STATE]: {
-                            actions: assign({
-                                authState: ({ event }) => ({
-                                    isAuthenticated:
-                                        "data" in event ? !!event.data.isAuthenticated : false,
-                                    isAuthExtensionInstalled:
-                                        "data" in event
-                                            ? !!event.data.isAuthExtensionInstalled
-                                            : false,
-                                    isLoading: "data" in event ? !!event.data.isLoading : false,
-                                    error: "data" in event ? event.data.error : undefined,
-                                    gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
-                                    workspaceState: {
-                                        isWorkspaceOpen:
-                                            "data" in event
-                                                ? !!event.data.workspaceState?.isWorkspaceOpen
-                                                : false,
-                                        isProjectInitialized:
-                                            "data" in event
-                                                ? !!event.data.workspaceState?.isProjectInitialized
-                                                : false,
-                                    },
-                                }),
-                            }),
-                        },
-                        [StartupFlowEvents.AUTH_LOGGED_IN]: [
-                            {
-                                target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
-                                guard: ({ context }) => this._forceLogin,
-                            },
-                            {
-                                target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
-                                guard: ({ context }) =>
-                                    !context.authState?.workspaceState?.isWorkspaceOpen || false,
-                            },
-                            {
-                                target: StartupFlowStates.ALREADY_WORKING,
-                                guard: ({ context }) =>
-                                    (context.authState?.workspaceState?.isWorkspaceOpen ?? false) &&
-                                    (context.authState?.workspaceState?.isProjectInitialized ??
-                                        false),
-                            },
-                            {
-                                target: StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
-                                guard: ({ context }) =>
-                                    (context.authState?.workspaceState?.isWorkspaceOpen ?? false) &&
-                                    !(
-                                        context.authState?.workspaceState?.isProjectInitialized ??
-                                        false
-                                    ),
-                            },
-                        ],
-                        [StartupFlowEvents.SKIP_AUTH]: [
-                            {
-                                target: StartupFlowStates.ALREADY_WORKING,
-                                guard: ({ context }) => {
-                                    // Double check the actual workspace state from VS Code API, 
-                                    // as the context might be stale if preflight hasn't re-run
-                                    const hasOpenWorkspace = !!(vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0);
-                                    // Also check the context state for consistency
-                                    const contextSaysOpen = context.authState?.workspaceState?.isWorkspaceOpen ?? false;
-
-                                    debugLog("SKIP_AUTH guard check:", { hasOpenWorkspace, contextSaysOpen });
-
-                                    // Trust the VS Code API truth over potentially stale context
-                                    return hasOpenWorkspace;
-                                },
-                            },
-                            {
-                                target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
-                            },
-                        ],
-                        [StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA]:
-                            StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
-                        [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]:
-                            StartupFlowStates.ALREADY_WORKING,
-                    },
-                },
-                [StartupFlowStates.OPEN_OR_CREATE_PROJECT]: {
-                    on: {
-                        [StartupFlowEvents.UPDATE_AUTH_STATE]: [
-                            {
-                                target: StartupFlowStates.LOGIN_REGISTER,
-                                guard: ({ event }) => !("data" in event ? event.data.isAuthenticated : true),
-                                actions: updateAuthStateAction,
-                            },
-                            {
-                                actions: updateAuthStateAction,
-                            },
-                        ],
-                        [StartupFlowEvents.BACK_TO_LOGIN]: StartupFlowStates.LOGIN_REGISTER,
-                        [StartupFlowEvents.PROJECT_CREATE_EMPTY]:
-                            StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
-                        [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]:
-                            StartupFlowStates.ALREADY_WORKING,
-                        [StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT]:
-                            StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
-                        [StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA]:
-                            StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
-                        [StartupFlowEvents.NO_AUTH_EXTENSION]: {
-                            target: StartupFlowStates.LOGIN_REGISTER,
-                            actions: assign({
-                                authState: ({ event }) => ({
-                                    isAuthenticated:
-                                        "data" in event ? !!event.data.isAuthenticated : false,
-                                    isAuthExtensionInstalled:
-                                        "data" in event
-                                            ? !!event.data.isAuthExtensionInstalled
-                                            : false,
-                                    isLoading: "data" in event ? !!event.data.isLoading : false,
-                                    error: "data" in event ? event.data.error : undefined,
-                                    gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
-                                    workspaceState: {
-                                        isWorkspaceOpen:
-                                            "data" in event
-                                                ? !!event.data.workspaceState?.isWorkspaceOpen
-                                                : false,
-                                        isProjectInitialized:
-                                            "data" in event
-                                                ? !!event.data.workspaceState?.isProjectInitialized
-                                                : false,
-                                    },
-                                }),
-                            }),
-                        },
-                    },
-                },
-                [StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT]: {
-                    on: {
-                        [StartupFlowEvents.UPDATE_AUTH_STATE]: [
-                            {
-                                target: StartupFlowStates.LOGIN_REGISTER,
-                                guard: ({ event }) => !("data" in event ? event.data.isAuthenticated : true),
-                                actions: updateAuthStateAction,
-                            },
-                            {
-                                actions: updateAuthStateAction,
-                            },
-                        ],
-                        [StartupFlowEvents.INITIALIZE_PROJECT]:
-                            StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
-                        [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]:
-                            StartupFlowStates.ALREADY_WORKING,
-                        [StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA]:
-                            StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
-                        [StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT]:
-                            StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
-                        [StartupFlowEvents.NO_AUTH_EXTENSION]: {
-                            target: StartupFlowStates.LOGIN_REGISTER,
-                            actions: assign({
-                                authState: ({ event }) => ({
-                                    isAuthenticated:
-                                        "data" in event ? !!event.data.isAuthenticated : false,
-                                    isAuthExtensionInstalled:
-                                        "data" in event
-                                            ? !!event.data.isAuthExtensionInstalled
-                                            : false,
-                                    isLoading: "data" in event ? !!event.data.isLoading : false,
-                                    error: "data" in event ? event.data.error : undefined,
-                                    gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
-                                    workspaceState: {
-                                        isWorkspaceOpen:
-                                            "data" in event
-                                                ? !!event.data.workspaceState?.isWorkspaceOpen
-                                                : false,
-                                        isProjectInitialized:
-                                            "data" in event
-                                                ? !!event.data.workspaceState?.isProjectInitialized
-                                                : false,
-                                    },
-                                }),
-                            }),
-                        },
-                    },
-                },
-                [StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA]: {
-                    on: {
-                        [StartupFlowEvents.UPDATE_AUTH_STATE]: [
-                            {
-                                target: StartupFlowStates.LOGIN_REGISTER,
-                                guard: ({ event }) => !("data" in event ? event.data.isAuthenticated : true),
-                                actions: updateAuthStateAction,
-                            },
-                            {
-                                actions: updateAuthStateAction,
-                            },
-                        ],
-                        [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]:
-                            StartupFlowStates.ALREADY_WORKING,
-                    },
-                },
-                [StartupFlowStates.ALREADY_WORKING]: {
-                    on: {
-                        [StartupFlowEvents.NO_AUTH_EXTENSION]: {
-                            target: StartupFlowStates.LOGIN_REGISTER,
-                            actions: assign({
-                                authState: ({ event }) => ({
-                                    isAuthenticated:
-                                        "data" in event ? !!event.data.isAuthenticated : false,
-                                    isAuthExtensionInstalled:
-                                        "data" in event
-                                            ? !!event.data.isAuthExtensionInstalled
-                                            : false,
-                                    isLoading: "data" in event ? !!event.data.isLoading : false,
-                                    error: "data" in event ? event.data.error : undefined,
-                                    gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
-                                    workspaceState: {
-                                        isWorkspaceOpen:
-                                            "data" in event
-                                                ? !!event.data.workspaceState?.isWorkspaceOpen
-                                                : false,
-                                        isProjectInitialized:
-                                            "data" in event
-                                                ? !!event.data.workspaceState?.isProjectInitialized
-                                                : false,
-                                    },
-                                }),
-                            }),
-                        },
-                        [StartupFlowEvents.UPDATE_AUTH_STATE]: [
-                            {
-                                target: StartupFlowStates.LOGIN_REGISTER,
-                                guard: ({ event }) => !("data" in event ? event.data.isAuthenticated : true),
-                                actions: updateAuthStateAction,
-                            },
-                            {
-                                actions: updateAuthStateAction,
-                            },
-                        ],
-                    },
-                },
-            },
+    /**
+     * Close all tabs showing StartupFlow to prevent VS Code from restoring them after reload
+     */
+    private async closeAllStartupFlowTabs(): Promise<void> {
+        // Close all tabs showing StartupFlow
+        const allTabs = vscode.window.tabGroups.all.flatMap(group => group.tabs);
+        const startupFlowTabs = allTabs.filter(tab => {
+            if (tab.input instanceof vscode.TabInputCustom) {
+                return tab.input.viewType === StartupFlowProvider.viewType;
+            }
+            return false;
         });
 
-        const actor = createActor(machine).start();
-        this.stateMachine = actor;
-
-        actor.subscribe((state) => {
-            debugLog({ state }, "state in startup flow");
-            if (state.value === StartupFlowStates.ALREADY_WORKING) {
-                this.webviewPanel?.dispose();
-                return;
-            }
-            if (this.webviewPanel) {
-                this.safeSendMessage({
-                    command: "state.update",
-                    state: {
-                        value: state.value,
-                        context: state.context,
-                    },
-                });
-            }
-        });
+        for (const tab of startupFlowTabs) {
+            await vscode.window.tabGroups.close(tab);
+        }
     }
 
     private async initializeFrontierApi() {
@@ -602,107 +228,21 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                 // Get initial auth status
                 const initialStatus = this.frontierApi?.getAuthStatus();
-                this.updateAuthState({
-                    isAuthExtensionInstalled: true,
-                    isAuthenticated: initialStatus?.isAuthenticated,
-                    isLoading: false,
-                    workspaceState: {
-                        isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                        isProjectInitialized: this.preflightState.workspaceState.isProjectSetup,
-                    },
-                });
+                debugLog("Frontier API initialized, auth status:", initialStatus);
 
                 // Subscribe to auth status changes
                 const disposable = this.frontierApi?.onAuthStatusChanged((status) => {
-                    this.updateAuthState({
-                        isAuthExtensionInstalled: true,
-                        isAuthenticated: status?.isAuthenticated,
-                        isLoading: false,
-                        workspaceState: {
-                            isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                            isProjectInitialized: this.preflightState.workspaceState.isProjectSetup,
-                        },
-                    });
+                    debugLog("Auth status changed:", status);
                 });
                 disposable && this.disposables.push(disposable);
-                // Remove expensive sendList call from initialization - defer until needed
             } else {
-                this.updateAuthState({
-                    isAuthExtensionInstalled: false,
-                    isAuthenticated: false,
-                    isLoading: false,
-                    workspaceState: {
-                        isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                        isProjectInitialized: this.preflightState.workspaceState.isProjectSetup,
-                    },
-                });
+                debugLog("Frontier API not available");
             }
         } catch (error) {
             console.error("Error initializing Frontier API:", error);
-            this.updateAuthState({
-                isAuthExtensionInstalled: false,
-                isAuthenticated: false,
-                isLoading: false,
-                error: "Failed to initialize Frontier API",
-                workspaceState: {
-                    isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                    isProjectInitialized: this.preflightState.workspaceState.isProjectSetup,
-                },
-            });
         }
     }
 
-    private async updateAuthState(authState: AuthState) {
-        // Add null check before sending
-        if (!this.stateMachine) {
-            console.warn("State machine not initialized when updating auth state");
-            return;
-        }
-
-        let eventType: StartupFlowEvents;
-        if (!authState.isAuthExtensionInstalled) {
-            eventType = StartupFlowEvents.NO_AUTH_EXTENSION;
-        } else if (authState.isAuthenticated) {
-            eventType = StartupFlowEvents.AUTH_LOGGED_IN;
-        } else {
-            // This is the key change - explicitly handle not logged in case
-            eventType = StartupFlowEvents.UPDATE_AUTH_STATE;
-        }
-
-        debugLog({
-            eventType,
-            authState: authState,
-            stateMachine: this.stateMachine,
-            preflightState: this.preflightState,
-        });
-        this.stateMachine.send({
-            type: StartupFlowEvents.UPDATE_AUTH_STATE,
-            data: {
-                ...authState,
-                isAuthExtensionInstalled: !!authState.isAuthExtensionInstalled,
-                isAuthenticated: !!authState.isAuthenticated,
-                isLoading: false,
-                workspaceState: {
-                    isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                    isProjectInitialized: this.preflightState.workspaceState.isProjectSetup,
-                },
-            },
-        });
-
-        this.stateMachine.send({
-            type: eventType,
-            data: {
-                ...authState,
-                isAuthExtensionInstalled: !!authState.isAuthExtensionInstalled,
-                isAuthenticated: !!authState.isAuthenticated,
-                isLoading: false,
-                workspaceState: {
-                    isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                    isProjectInitialized: this.preflightState.workspaceState.isProjectSetup,
-                },
-            },
-        });
-    }
 
     private notifyWebviews(message: MessagesFromStartupFlowProvider) {
         // Implement if needed to broadcast to all webviews
@@ -715,363 +255,42 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         return safePostMessageToPanel(this.webviewPanel, message, "StartupFlow");
     }
 
+    /**
+     * Send forceLogin message to webview
+     */
+    public sendForceLoginMessage() {
+        if (this.webviewPanel) {
+            this.safeSendMessage({
+                command: "forceLogin"
+            });
+        }
+    }
+
+    /**
+     * Send current auth state to webview
+     */
+    private updateAuthStateInWebview() {
+        if (this.webviewPanel) {
+            this.safeSendMessage({
+                command: "updateAuthState",
+                success: true,
+                authState: {
+                    ...this.preflightState.authState,
+                    workspaceState: {
+                        isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
+                        isProjectInitialized: this.preflightState.workspaceState.isProjectSetup,
+                    }
+                }
+            } as MessagesFromStartupFlowProvider);
+        }
+    }
+
     dispose() {
         this.webviewPanel?.dispose();
         this.webviewPanel = undefined;
         this.disposables.forEach((d) => d.dispose());
         this.disposables = [];
         this.metadataWatcher?.dispose();
-    }
-
-    private async handleAuthenticationMessage(
-        webviewPanel: vscode.WebviewPanel,
-        message: MessagesToStartupFlowProvider
-    ) {
-        debugLog("Handling authentication message", message.command);
-
-        if (!this.frontierApi) {
-            await this.initializeFrontierApi();
-        }
-
-        if (!this.frontierApi) {
-            debugLog("Auth extension not installed");
-            this.stateMachine.send({
-                type: StartupFlowEvents.NO_AUTH_EXTENSION,
-                data: {
-                    isAuthExtensionInstalled: false,
-                    isAuthenticated: false,
-                    isLoading: false,
-                    workspaceState: {
-                        isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                        isProjectInitialized: this.preflightState.workspaceState.isProjectSetup,
-                    },
-                },
-            });
-            return;
-        }
-
-        switch (message.command) {
-            case "auth.status": {
-                debugLog("Getting auth status");
-                try {
-                    const status = this.frontierApi.getAuthStatus();
-                    debugLog("Got auth status", status);
-                    this.stateMachine.send({
-                        type: StartupFlowEvents.UPDATE_AUTH_STATE,
-                        data: {
-                            isAuthExtensionInstalled: true,
-                            isAuthenticated: status.isAuthenticated,
-                            isLoading: false,
-                            workspaceState: {
-                                isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                                isProjectInitialized:
-                                    this.preflightState.workspaceState.isProjectSetup,
-                            },
-                        },
-                    });
-                } catch (error) {
-                    debugLog("Error getting auth status", error);
-                    this.stateMachine.send({
-                        type: StartupFlowEvents.UPDATE_AUTH_STATE,
-                        data: {
-                            isAuthExtensionInstalled: true,
-                            isAuthenticated: false,
-                            isLoading: false,
-                            error:
-                                error instanceof Error
-                                    ? error.message
-                                    : "Failed to get auth status",
-                            workspaceState: {
-                                isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                                isProjectInitialized:
-                                    this.preflightState.workspaceState.isProjectSetup,
-                            },
-                        },
-                    });
-                }
-                break;
-            }
-            case "auth.login": {
-                debugLog("Attempting login");
-                try {
-                    const success = await this.frontierApi.login(
-                        message.username,
-                        message.password
-                    );
-                    debugLog("Login attempt result:", {
-                        success,
-                        stateMachine: this.stateMachine,
-                        preflightState: this.preflightState,
-                    });
-                    if (success) {
-                        const status = this.frontierApi.getAuthStatus();
-                        this.stateMachine.send({
-                            type: StartupFlowEvents.AUTH_LOGGED_IN,
-                            data: {
-                                isAuthExtensionInstalled: true,
-                                isAuthenticated: true,
-                                isLoading: false,
-                                workspaceState: {
-                                    isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                                    isProjectInitialized:
-                                        this.preflightState.workspaceState.isProjectSetup,
-                                },
-                            },
-                        });
-                    } else {
-                        throw new Error("Login failed");
-                    }
-                    await this.handleWorkspaceStatus(webviewPanel);
-                } catch (error) {
-                    debugLog("Login failed", error);
-                    this.stateMachine.send({
-                        type: StartupFlowEvents.UPDATE_AUTH_STATE,
-                        data: {
-                            isAuthExtensionInstalled: true,
-                            isAuthenticated: false,
-                            isLoading: false,
-                            error: this.getFormattedAuthError(error instanceof Error ? error.message : "Login failed"),
-                            workspaceState: {
-                                isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                                isProjectInitialized:
-                                    this.preflightState.workspaceState.isProjectSetup,
-                            },
-                        },
-                    });
-                }
-                break;
-            }
-            case "auth.signup": {
-                debugLog("Attempting registration");
-                if (!this.frontierApi) {
-                    debugLog("Auth extension not installed");
-                    this.stateMachine.send({
-                        type: StartupFlowEvents.NO_AUTH_EXTENSION,
-                        data: {
-                            isAuthExtensionInstalled: false,
-                            isAuthenticated: false,
-                            isLoading: false,
-                            workspaceState: {
-                                isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                                isProjectInitialized:
-                                    this.preflightState.workspaceState.isProjectSetup,
-                            },
-                        },
-                    });
-                    return;
-                }
-                try {
-                    const wasRegisteredSuccessful = await this.frontierApi.register(
-                        message.username,
-                        message.email,
-                        message.password
-                    );
-                    debugLog("Registration successful?", wasRegisteredSuccessful);
-                    if (wasRegisteredSuccessful) {
-                        this.stateMachine.send({
-                            type: StartupFlowEvents.AUTH_LOGGED_IN,
-                            data: {
-                                isAuthExtensionInstalled: true,
-                                isAuthenticated: true,
-                                isLoading: false,
-                                workspaceState: {
-                                    isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                                    isProjectInitialized:
-                                        this.preflightState.workspaceState.isProjectSetup,
-                                },
-                            },
-                        });
-                        await this.handleWorkspaceStatus(webviewPanel);
-                    } else {
-                        throw new Error("Registration failed");
-                    }
-                } catch (error) {
-                    debugLog("Registration failed", error);
-                    this.stateMachine.send({
-                        type: StartupFlowEvents.UPDATE_AUTH_STATE,
-                        data: {
-                            isAuthExtensionInstalled: true,
-                            isAuthenticated: false,
-                            isLoading: false,
-                            error: this.getFormattedAuthError(error instanceof Error ? error.message : "Registration failed"),
-                            workspaceState: {
-                                isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                                isProjectInitialized:
-                                    this.preflightState.workspaceState.isProjectSetup,
-                            },
-                        },
-                    });
-                }
-                break;
-            }
-            case "auth.logout": {
-                debugLog("Attempting logout");
-                try {
-                    await this.frontierApi.logout();
-                    debugLog("Logout successful");
-                    this.stateMachine.send({
-                        type: StartupFlowEvents.NO_AUTH_EXTENSION,
-                        data: {
-                            isAuthExtensionInstalled: true,
-                            isAuthenticated: false,
-                            isLoading: false,
-                            workspaceState: {
-                                isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                                isProjectInitialized:
-                                    this.preflightState.workspaceState.isProjectSetup,
-                            },
-                        },
-                    });
-                    await this.handleWorkspaceStatus(webviewPanel);
-                } catch (error) {
-                    debugLog("Logout failed", error);
-                    this.stateMachine.send({
-                        type: StartupFlowEvents.UPDATE_AUTH_STATE,
-                        data: {
-                            isAuthExtensionInstalled: true,
-                            isAuthenticated: true,
-                            isLoading: false,
-                            error: error instanceof Error ? error.message : "Logout failed",
-                            workspaceState: {
-                                isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                                isProjectInitialized:
-                                    this.preflightState.workspaceState.isProjectSetup,
-                            },
-                        },
-                    });
-                }
-                break;
-            }
-            case "auth.backToLogin": {
-                debugLog("Handling back to login");
-                this.stateMachine.send({ type: StartupFlowEvents.BACK_TO_LOGIN });
-                break;
-            }
-            case "auth.requestPasswordReset": {
-                debugLog("Requesting password reset");
-
-                try {
-                    const response = await fetch(
-                        "https://api.frontierrnd.com/api/v1/auth/password-reset/request",
-                        {
-                            method: "POST",
-                            headers: {
-                                "Content-Type": "application/json",
-                            },
-                            body: JSON.stringify({ email: message.resetEmail }),
-                        }
-                    );
-
-                    if (response.ok) {
-                        safePostMessageToPanel(webviewPanel, {
-                            command: "passwordReset.success",
-                        });
-                    } else {
-                        const data = await response.json();
-                        // Handle error response - detail might be a string or an object (validation error)
-                        let errorMessage = "Failed to send reset link";
-                        if (data.detail) {
-                            if (typeof data.detail === "string") {
-                                errorMessage = data.detail;
-                            } else if (Array.isArray(data.detail)) {
-                                // Handle array of validation errors
-                                errorMessage = data.detail.map((err: any) => {
-                                    if (typeof err === "string") return err;
-                                    if (err.msg) return err.msg;
-                                    return JSON.stringify(err);
-                                }).join(", ");
-                            } else if (typeof data.detail === "object") {
-                                // Handle object validation error
-                                if (data.detail.msg) {
-                                    errorMessage = data.detail.msg;
-                                } else {
-                                    errorMessage = JSON.stringify(data.detail);
-                                }
-                            }
-                        } else if (data.message) {
-                            errorMessage = typeof data.message === "string" ? data.message : JSON.stringify(data.message);
-                        } else if (data.error) {
-                            errorMessage = typeof data.error === "string" ? data.error : JSON.stringify(data.error);
-                        }
-                        safePostMessageToPanel(webviewPanel, {
-                            command: "passwordReset.error",
-                            error: errorMessage,
-                        });
-                    }
-                } catch (error) {
-                    debugLog("Password reset request failed", error);
-                    const errorMessage = error instanceof Error
-                        ? error.message
-                        : "An error occurred while requesting password reset";
-                    safePostMessageToPanel(webviewPanel, {
-                        command: "passwordReset.error",
-                        error: errorMessage,
-                    });
-                }
-                break;
-            }
-            case "startup.dismiss":
-                debugLog("Dismissing startup flow");
-                webviewPanel.dispose();
-                break;
-        }
-    }
-
-    private async handleWorkspaceStatus(webviewPanel: vscode.WebviewPanel) {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        const isOpen = !!workspaceFolders?.length;
-        debugLog("Workspace status", { isOpen, workspaceFolders });
-        if (!isOpen) {
-            debugLog("Workspace is not open");
-            this.stateMachine.send({ type: StartupFlowEvents.PROJECT_CLONE_OR_OPEN });
-            return;
-        }
-
-        try {
-            const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
-            await vscode.workspace.fs.stat(metadataUri);
-
-            // First check auth status
-            const authState = this.frontierApi?.getAuthStatus();
-            if (!authState?.isAuthenticated) {
-                // If not authenticated, don't send metadata response yet
-                return;
-            }
-
-            // Read and parse metadata.json to check if project is properly setup
-            const metadataContent = await vscode.workspace.fs.readFile(metadataUri);
-            const metadata = JSON.parse(metadataContent.toString());
-
-            // Check if metadata has required fields
-            const hasProjectName = !!metadata.projectName;
-            const sourceLanguage = metadata.languages?.find(
-                (l: any) => l.projectStatus === "source"
-            );
-            const targetLanguage = metadata.languages?.find(
-                (l: any) => l.projectStatus === "target"
-            );
-
-            // If both languages exist, close the startup flow and show project manager
-            if (sourceLanguage && targetLanguage) {
-                debugLog("Both languages exist, closing startup flow");
-                await vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
-                this.stateMachine.send({ type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN });
-                webviewPanel.dispose();
-                return;
-            }
-
-            // If only source language exists, go to critical data state to select target
-            if (sourceLanguage && !targetLanguage) {
-                debugLog("Only source language exists, prompting for target");
-                this.stateMachine.send({ type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA });
-                return;
-            }
-
-            // If neither language exists, go to critical data state
-            this.stateMachine.send({ type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA });
-        } catch {
-            this.stateMachine.send({ type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT });
-        }
     }
 
     private async handleWorkspaceMessage(
@@ -1082,12 +301,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         const workspaceFolders = vscode.workspace.workspaceFolders;
 
         switch (message.command) {
-            case "workspace.status": {
-                debugLog("Getting workspace status");
-                await this.handleWorkspaceStatus(webviewPanel);
-
-                break;
-            }
             case "workspace.open": {
                 debugLog("Opening workspace");
                 const result = await vscode.window.showOpenDialog({
@@ -1142,7 +355,14 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 } else {
                     debugLog("No workspace folder found");
                 }
+
+                // Dispose immediately
                 webviewPanel.dispose();
+
+                // Show Welcome view after disposal to provide clear starting point
+                setTimeout(() => {
+                    vscode.commands.executeCommand("codex-editor.showWelcomeView");
+                }, 100);
                 break;
             }
             case "project.open": {
@@ -1349,9 +569,14 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         debugLog("Auto-download pre-open pointer cleanup skipped/failed:", prepErr);
                     }
 
-                    // Open the project directly
+                    // Dispose the webview panel
+                    this.webviewPanel?.dispose();
+                    this.webviewPanel = undefined;
+
+                    // Open the project directly (replace current workspace)
+                    // The workspace folder change listener will close StartupFlow tabs when the folder opens
                     const projectUri = vscode.Uri.file(projectPath);
-                    await vscode.commands.executeCommand("vscode.openFolder", projectUri);
+                    await vscode.commands.executeCommand("vscode.openFolder", projectUri, { forceNewWindow: false });
 
                 } catch (error) {
                     console.error("Error opening project:", error);
@@ -1468,6 +693,36 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             }
         } catch (error) {
             console.error("Error fetching progress data:", error);
+        }
+    }
+
+    /**
+     * Creates a new project folder with the given name in the Codex projects directory
+     * @param projectName - The name of the project
+     * @returns The absolute path to the created project folder, or null if creation failed
+     */
+    private async createProjectFolder(projectName: string): Promise<string | null> {
+        try {
+            // Sanitize the project name
+            const sanitized = sanitizeProjectName(projectName);
+
+            // Get the Codex projects directory
+            const codexProjectsDir = await getCodexProjectsDirectory();
+
+            // Generate a project ID and create folder name with ID suffix
+            const projectId = generateProjectId();
+            const folderName = `${sanitized}-${projectId}`;
+            const projectPath = path.join(codexProjectsDir.fsPath, folderName);
+
+            // Create the project directory
+            const projectUri = vscode.Uri.file(projectPath);
+            await vscode.workspace.fs.createDirectory(projectUri);
+
+            debugLog("Created project folder at:", projectPath);
+            return projectPath;
+        } catch (error) {
+            console.error("Error creating project folder:", error);
+            return null;
         }
     }
 
@@ -1774,6 +1029,105 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
                 break;
             }
+            case "project.createWithSamples": {
+                try {
+                    const { projectName, projectType, sourceLanguage, targetLanguage } = message;
+                    debugLog("Creating project with samples:", projectName, projectType);
+
+                    // Sanitize project name
+                    const sanitized = sanitizeProjectName(projectName);
+                    const projectId = generateProjectId();
+
+                    // Get Codex projects directory
+                    const codexProjectsDir = await getCodexProjectsDirectory();
+                    const folderName = `${sanitized}-${projectId}`;
+                    const projectUri = vscode.Uri.joinPath(codexProjectsDir, folderName);
+
+                    // Create the project directory
+                    await vscode.workspace.fs.createDirectory(projectUri);
+
+                    // Write pending data file for initialization after workspace opens
+                    const pendingDataFile = vscode.Uri.joinPath(projectUri, '.pending-project-init.json');
+                    await vscode.workspace.fs.writeFile(
+                        pendingDataFile,
+                        Buffer.from(JSON.stringify({
+                            projectId,
+                            sourceLanguage,
+                            targetLanguage,
+                            projectType,
+                            mode: "samples"
+                        }), 'utf-8')
+                    );
+
+                    // Dispose the webview panel
+                    this.webviewPanel?.dispose();
+                    this.webviewPanel = undefined;
+
+                    // Open the folder
+                    // The workspace folder change listener will close StartupFlow tabs when the folder opens
+                    await vscode.commands.executeCommand("vscode.openFolder", projectUri, { forceNewWindow: false });
+
+                    // Note: Project initialization will happen in preflight/activation after workspace loads
+                } catch (error) {
+                    console.error("Error creating project with samples:", error);
+                    this.safeSendMessage({
+                        command: "project.created",
+                        success: false,
+                        error: `Failed to create project: ${error instanceof Error ? error.message : String(error)}`,
+                    } as MessagesFromStartupFlowProvider);
+                }
+                break;
+            }
+            case "project.createForUpload": {
+                try {
+                    const { projectName, projectType, sourceLanguage, targetLanguage } = message;
+                    debugLog("Creating project for upload:", projectName, projectType);
+
+                    // Sanitize project name
+                    const sanitized = sanitizeProjectName(projectName);
+                    const projectId = generateProjectId();
+
+                    // Get Codex projects directory
+                    const codexProjectsDir = await getCodexProjectsDirectory();
+                    const folderName = `${sanitized}-${projectId}`;
+                    const projectUri = vscode.Uri.joinPath(codexProjectsDir, folderName);
+
+                    // Create the project directory
+                    await vscode.workspace.fs.createDirectory(projectUri);
+
+                    // Write pending data file for initialization after workspace opens
+                    const pendingDataFile = vscode.Uri.joinPath(projectUri, '.pending-project-init.json');
+                    await vscode.workspace.fs.writeFile(
+                        pendingDataFile,
+                        Buffer.from(JSON.stringify({
+                            projectId,
+                            sourceLanguage,
+                            targetLanguage,
+                            projectType,
+                            mode: "upload"
+                        }), 'utf-8')
+                    );
+
+                    // Dispose the webview panel
+                    this.webviewPanel?.dispose();
+                    this.webviewPanel = undefined;
+
+                    // Open the folder
+                    // The workspace folder change listener will close StartupFlow tabs when the folder opens
+                    await vscode.commands.executeCommand("vscode.openFolder", projectUri, { forceNewWindow: false });
+
+                    // Note: Project initialization will happen in preflight/activation,
+                    // then uploadSourceText command will be triggered
+                } catch (error) {
+                    console.error("Error creating project for upload:", error);
+                    this.safeSendMessage({
+                        command: "project.created",
+                        success: false,
+                        error: `Failed to create project: ${error instanceof Error ? error.message : String(error)}`,
+                    } as MessagesFromStartupFlowProvider);
+                }
+                break;
+            }
             case "project.initialize": {
                 debugLog("Initializing project");
 
@@ -1810,8 +1164,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             command: "project.initializationStatus",
                             isInitialized: true,
                         });
-
-                        this.stateMachine.send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
                     } catch (error) {
                         console.error("Error checking metadata.json:", error);
                         // If metadata.json doesn't exist yet, don't transition state
@@ -1833,7 +1185,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             }
             case "onboarding.complete": {
                 const { projectTypes, skipOnboarding } = message;
-                
+
                 // Save preference if user wants to skip onboarding
                 if (skipOnboarding) {
                     await setUserPreference(this.context, "skipOnboarding", true);
@@ -1850,7 +1202,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         const idData = await vscode.workspace.fs.readFile(pendingIdFile);
                         projectId = Buffer.from(idData).toString('utf-8');
                         debugLog("Read projectId from pending file:", projectId);
-                        
+
                         // Delete the pending file after reading
                         await vscode.workspace.fs.delete(pendingIdFile);
                     } catch {
@@ -1884,19 +1236,19 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     projectTypes as ProjectType[]
                                 );
                                 debugLog("Sample content created successfully");
-                                
+
                                 // Force refresh the file explorer to show new files
                                 await vscode.commands.executeCommand("workbench.files.action.refreshFilesExplorer");
-                                
+
                                 // Small delay to ensure files are visible
                                 await new Promise(resolve => setTimeout(resolve, 500));
-                                
+
                                 // Try to open the first sample file to make it visible
                                 const filesDir = vscode.Uri.joinPath(workspaceFolders[0].uri, "files");
                                 try {
                                     const files = await vscode.workspace.fs.readDirectory(filesDir);
                                     debugLog("Files in directory:", files);
-                                    
+
                                     if (files.length > 0) {
                                         // Open the first .codex file found
                                         const firstCodexFile = files.find(([name]) => name.endsWith('.codex'));
@@ -1909,7 +1261,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 } catch (openError) {
                                     debugLog("Could not open sample file:", openError);
                                 }
-                                
+
                                 // Show a success message
                                 vscode.window.showInformationMessage(
                                     `Project initialized with sample ${projectTypes.length > 1 ? 'files' : 'file'} for: ${projectTypes.join(', ')}. Check the files/ folder!`
@@ -1933,8 +1285,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             command: "project.initializationStatus",
                             isInitialized: true,
                         });
-
-                        this.stateMachine.send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
                     } catch (error) {
                         console.error("Error during onboarding completion:", error);
                         this.safeSendMessage({
@@ -1957,7 +1307,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         const idData = await vscode.workspace.fs.readFile(pendingIdFile);
                         projectId = Buffer.from(idData).toString('utf-8');
                         debugLog("Read projectId from pending file:", projectId);
-                        
+
                         // Delete the pending file after reading
                         await vscode.workspace.fs.delete(pendingIdFile);
                     } catch {
@@ -1988,8 +1338,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             command: "project.initializationStatus",
                             isInitialized: true,
                         });
-
-                        this.stateMachine.send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
                     } catch (error) {
                         console.error("Error checking metadata.json:", error);
                         this.safeSendMessage({
@@ -2006,63 +1354,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     await this.initializeFrontierApi();
                 }
 
-                // Use cached preflight state instead of creating new PreflightCheck
-                // Force refresh if we are forcing login, to ensure auth state is up to date
-                const shouldRefresh = this._forceLogin;
-                const preflightState = await this.getCachedPreflightState(shouldRefresh);
-                debugLog("Sending cached preflight state:", preflightState);
-                this.stateMachine.send({
-                    type: StartupFlowEvents.UPDATE_AUTH_STATE,
-                    data: preflightState.authState,
-                });
-
-                // If forcing login, stay in LOGIN_REGISTER (initial state) and don't auto-redirect
-                if (this._forceLogin) {
-                    debugLog("Forcing login flow - skipping auto-redirects");
-                    this._forceLogin = false; // Reset flag
-                    return;
-                }
-
-                // Check workspace status
-                if (!preflightState.workspaceState.isOpen) {
-                    this.stateMachine.send({ type: StartupFlowEvents.PROJECT_CLONE_OR_OPEN });
-                    return;
-                }
-
-                // Check if metadata exists and project is set up
-                if (preflightState.workspaceState.hasMetadata) {
-                    if (preflightState.workspaceState.isProjectSetup) {
-                        this.stateMachine.send({
-                            type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN,
-                        });
-                    } else {
-                        this.stateMachine.send({
-                            type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA,
-                        });
-                    }
-                } else {
-                    this.stateMachine.send({
-                        type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT,
-                    });
-                }
+                debugLog("Webview ready, projects list will be sent when requested");
                 break;
             }
-            case "auth.status":
-            case "auth.login":
-            case "auth.signup":
-            case "auth.logout":
-            case "auth.backToLogin":
-            case "auth.requestPasswordReset":
-                debugLog("Handling authentication message", message.command);
-                await this.handleAuthenticationMessage(this.webviewPanel!, message);
-                break;
             case "startup.dismiss":
                 debugLog("Dismissing startup flow");
                 this.webviewPanel?.dispose();
-                break;
-            case "skipAuth":
-                debugLog("Skipping authentication");
-                this.stateMachine.send({ type: StartupFlowEvents.SKIP_AUTH });
                 break;
             case "extension.installFrontier":
                 debugLog("Opening extensions view");
@@ -2120,11 +1417,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 await this.handleWorkspaceMessage(this.webviewPanel!, message);
                 break;
             case "extension.check": {
-                this.stateMachine.send({
-                    type: "extension.checkResponse",
-                    data: {
-                        isInstalled: !!this.frontierApi,
-                    },
+                this.safeSendMessage({
+                    command: "extension.checkResponse",
+                    isInstalled: !!this.frontierApi,
                 });
                 break;
             }
@@ -2182,6 +1477,70 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 await this.sendList(this.webviewPanel!);
                 break;
             }
+            case "auth.login": {
+                debugLog("Handling login request");
+                try {
+                    if (!this.frontierApi) {
+                        this.frontierApi = getAuthApi();
+                    }
+                    if (this.frontierApi) {
+                        // Call the login method directly on the API
+                        const success = await this.frontierApi.login(message.username, message.password);
+                        debugLog("Login result:", success);
+
+                        // Refresh preflight state to get updated auth status
+                        this.preflightState = await this.getCachedPreflightState(true);
+                        this.updateAuthStateInWebview();
+                    }
+                } catch (error) {
+                    console.error("Login error:", error);
+                }
+                break;
+            }
+            case "auth.signup": {
+                debugLog("Handling signup request");
+                try {
+                    if (!this.frontierApi) {
+                        this.frontierApi = getAuthApi();
+                    }
+                    if (this.frontierApi) {
+                        // Call the register method directly on the API
+                        const success = await this.frontierApi.register(message.username, message.email, message.password);
+                        debugLog("Signup result:", success);
+
+                        // Refresh preflight state to get updated auth status
+                        this.preflightState = await this.getCachedPreflightState(true);
+                        this.updateAuthStateInWebview();
+                    }
+                } catch (error) {
+                    console.error("Signup error:", error);
+                }
+                break;
+            }
+            case "auth.logout": {
+                debugLog("Handling logout request");
+                try {
+                    if (this.frontierApi) {
+                        // Call the logout method directly on the API
+                        await this.frontierApi.logout();
+                        debugLog("Logout completed");
+
+                        // Refresh preflight state to get updated auth status
+                        this.preflightState = await this.getCachedPreflightState(true);
+                        this.updateAuthStateInWebview();
+                    }
+                } catch (error) {
+                    console.error("Logout error:", error);
+                }
+                break;
+            }
+            case "auth.skipAuthentication": {
+                debugLog("User skipped authentication");
+                // Mark as skipped but not authenticated
+                this.preflightState.authState.isLoading = false;
+                this.updateAuthStateInWebview();
+                break;
+            }
             case "getProjectsSyncStatus": {
                 debugLog("Fetching projects sync status");
                 try {
@@ -2206,23 +1565,15 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     }
 
                     // Send status back to webview
-                    this.stateMachine.send({
-                        type: "projectsSyncStatus",
-                        data: {
-                            status,
-                        },
+                    this.safeSendMessage({
+                        command: "projectsSyncStatus",
+                        status,
                     });
                 } catch (error) {
                     console.error("Failed to get projects sync status:", error);
-                    this.stateMachine.send({
-                        type: "projectsSyncStatus",
-                        data: {
-                            status: {},
-                            error:
-                                error instanceof Error
-                                    ? error.message
-                                    : "Failed to get projects sync status",
-                        },
+                    this.safeSendMessage({
+                        command: "projectsSyncStatus",
+                        status: {},
                     });
                 }
                 break;

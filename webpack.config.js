@@ -30,7 +30,7 @@ const extensionConfig = {
         "fts5-sql-bundle": "commonjs fts5-sql-bundle",
         vm: "commonjs vm",
         encoding: "commonjs encoding",
-        // Note: tar is NOT external - it's bundled so audio import can extract FFmpeg on-demand
+        tar: "commonjs tar",
     },
     resolve: {
         // support reading TypeScript and JavaScript files, 📖 -> https://github.com/TypeStrong/ts-loader
@@ -192,7 +192,7 @@ const testConfig = {
         vscode: "commonjs vscode",
         child_process: "commonjs child_process", // Required for audioMigration utility
         util: "commonjs util", // Required for promisify
-        // Note: tar is NOT external - it's bundled so audio import can extract FFmpeg on-demand
+        tar: "commonjs tar",
     },
     resolve: {
         extensions: [".ts", ".js"],
