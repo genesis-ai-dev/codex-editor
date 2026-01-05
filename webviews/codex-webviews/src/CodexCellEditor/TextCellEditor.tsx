@@ -526,6 +526,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     },
                 };
                 window.vscodeApi.postMessage(messageContent);
+                // Optimistically clear staged timestamps - will be re-cleared by effect if needed
+                const { cellTimestamps, ...rest } = contentBeingUpdated;
+                setContentBeingUpdated(rest as EditorCellContent);
             }
         }, 0);
     };
@@ -755,6 +758,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
         cellTimestamps,
         setUnsavedChanges,
     ]);
+
+    // Clear staged timestamps when prop updates to match (after successful save)
+    useEffect(() => {
+        const staged = contentBeingUpdated.cellTimestamps;
+        const prop = cellTimestamps;
+
+        // Only clear if we have staged timestamps and they match the prop
+        if (staged && prop) {
+            const startMatch = (staged.startTime ?? undefined) === (prop.startTime ?? undefined);
+            const endMatch = (staged.endTime ?? undefined) === (prop.endTime ?? undefined);
+
+            if (startMatch && endMatch) {
+                // Timestamps match - clear staged changes
+                const { cellTimestamps, ...rest } = contentBeingUpdated;
+                setContentBeingUpdated(rest as EditorCellContent);
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [cellTimestamps, contentBeingUpdated.cellTimestamps]);
 
     // Add effect to fetch source text
     useEffect(() => {
