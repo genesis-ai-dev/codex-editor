@@ -2,15 +2,7 @@ import React, { useEffect, useState } from "react";
 import Timeline from "./Timeline/index";
 import { EditorPostMessages, TimeBlock } from "../../../../types";
 import ReactPlayer from "react-player";
-
-// React Player v3 returns HTMLVideoElement but may expose additional methods
-interface ReactPlayerRef extends HTMLVideoElement {
-    seekTo?: (amount: number, type?: "seconds" | "fraction") => void;
-    getCurrentTime?: () => number;
-    getSecondsLoaded?: () => number;
-    getDuration?: () => number;
-    getInternalPlayer?: (key?: string) => any;
-}
+import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 
 interface TimelineEditorProps {
     playerRef: React.RefObject<ReactPlayerRef>;

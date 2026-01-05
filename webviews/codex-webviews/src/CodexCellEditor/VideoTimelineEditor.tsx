@@ -5,15 +5,7 @@ import TimelineEditor from "./TimelineEditor";
 import { QuillCellContent, TimeBlock } from "../../../../types";
 import { useMouse } from "@uidotdev/usehooks";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
-
-// React Player v3 returns HTMLVideoElement but may expose additional methods
-interface ReactPlayerRef extends HTMLVideoElement {
-    seekTo?: (amount: number, type?: "seconds" | "fraction") => void;
-    getCurrentTime?: () => number;
-    getSecondsLoaded?: () => number;
-    getDuration?: () => number;
-    getInternalPlayer?: (key?: string) => any;
-}
+import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 
 interface VideoTimelineEditorProps {
     videoUrl: string;

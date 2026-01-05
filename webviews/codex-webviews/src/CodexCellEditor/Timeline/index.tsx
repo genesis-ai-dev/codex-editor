@@ -6,15 +6,7 @@ import { TimeBlock } from "../../../../../types";
 import ReactPlayer from "react-player";
 import ZoomButton from "./ZoomButton";
 import ScrollToContentContext from "../contextProviders/ScrollToContentContext";
-
-// React Player v3 returns HTMLVideoElement but may expose additional methods
-interface ReactPlayerRef extends HTMLVideoElement {
-    seekTo?: (amount: number, type?: "seconds" | "fraction") => void;
-    getCurrentTime?: () => number;
-    getSecondsLoaded?: () => number;
-    getDuration?: () => number;
-    getInternalPlayer?: (key?: string) => any;
-}
+import type { ReactPlayerRef } from "../types/reactPlayerTypes";
 
 export interface TimelineProps {
     setAutoPlay: (autoPlay: boolean) => void;

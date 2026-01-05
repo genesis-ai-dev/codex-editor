@@ -18,6 +18,7 @@ import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import CommentsBadge from "./CommentsBadge";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { sanitizeQuillHtml } from "./utils";
+import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 
 export interface CellListProps {
     spellCheckResponse: SpellCheckResponse | null;
@@ -70,6 +71,10 @@ export interface CellListProps {
     currentMilestoneIndex?: number;
     currentSubsectionIndex?: number;
     cellsPerPage?: number;
+    // Video player props
+    playerRef?: React.RefObject<ReactPlayerRef>;
+    shouldShowVideoPlayer?: boolean;
+    videoUrl?: string;
 }
 
 const DEBUG_ENABLED = false;
@@ -116,6 +121,9 @@ const CellList: React.FC<CellListProps> = ({
     backtranslationsMap = new Map(),
     isAuthenticated = false,
     milestoneIndex = null,
+    playerRef,
+    shouldShowVideoPlayer = false,
+    videoUrl,
     currentMilestoneIndex = 0,
     currentSubsectionIndex = 0,
     cellsPerPage = 50,
@@ -761,6 +769,9 @@ const CellList: React.FC<CellListProps> = ({
                                 unresolvedCommentsCount={cellCommentsCount.get(cellMarkers[0]) || 0}
                                 currentUsername={currentUsername || undefined}
                                 requiredValidations={requiredValidations}
+                                playerRef={playerRef}
+                                shouldShowVideoPlayer={shouldShowVideoPlayer}
+                                videoUrl={videoUrl}
                                 requiredAudioValidations={requiredAudioValidations}
                                 isAuthenticated={isAuthenticated}
                                 isAudioOnly={isAudioOnly}
@@ -947,6 +958,9 @@ const CellList: React.FC<CellListProps> = ({
                                 isAudioOnly={isAudioOnly}
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
+                                playerRef={playerRef}
+                                shouldShowVideoPlayer={shouldShowVideoPlayer}
+                                videoUrl={videoUrl}
                             />
                         </span>
                     );

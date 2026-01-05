@@ -1,15 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useContext, useCallback } from "react";
 import ReactPlayer from "react-player";
 import Quill from "quill";
-
-// React Player v3 returns HTMLVideoElement but may expose additional methods
-interface ReactPlayerRef extends HTMLVideoElement {
-    seekTo?: (amount: number, type?: "seconds" | "fraction") => void;
-    getCurrentTime?: () => number;
-    getSecondsLoaded?: () => number;
-    getDuration?: () => number;
-    getInternalPlayer?: (key?: string) => any;
-}
+import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 import {
     QuillCellContent,
     EditorPostMessages,
@@ -2916,6 +2908,9 @@ const CodexCellEditor: React.FC = () => {
                             currentMilestoneIndex={currentMilestoneIndex}
                             currentSubsectionIndex={currentSubsectionIndex}
                             cellsPerPage={cellsPerPage}
+                            playerRef={playerRef}
+                            shouldShowVideoPlayer={shouldShowVideoPlayer}
+                            videoUrl={videoUrl}
                         />
                     </div>
                 </div>
