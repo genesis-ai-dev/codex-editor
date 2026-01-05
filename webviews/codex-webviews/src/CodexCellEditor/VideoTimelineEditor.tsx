@@ -102,14 +102,14 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
                 onTimeUpdate={handleTimeUpdate}
                 playerHeight={playerHeight}
             />
-            <TimelineEditor
+            {/* <TimelineEditor
                 autoPlay={autoPlay}
                 playerRef={playerRef}
                 data={data}
                 vscode={vscode}
                 setAutoPlay={setAutoPlay}
                 currentTime={currentTime}
-            />
+            /> */}
             <div
                 style={{
                     width: "100%",

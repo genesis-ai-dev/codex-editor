@@ -68,7 +68,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     useEffect(() => {
         if (subtitleUrl && showSubtitles && !isYouTubeUrl && playerRef.current) {
             const videoElement = playerRef.current;
-            
+
             // Remove existing tracks
             const existingTracks = videoElement.querySelectorAll("track");
             existingTracks.forEach((track) => track.remove());
@@ -99,8 +99,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                         key={subtitleUrl}
                         ref={playerRef}
                         src={videoUrl}
-                        playing={autoPlay}
-                        volume={0}
                         controls={true}
                         width="100%"
                         height={playerHeight}
