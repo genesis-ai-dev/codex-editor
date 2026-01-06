@@ -86,12 +86,6 @@ export function createIndesignVerseCellMetadata(params: IndesignVerseCellMetadat
                     parentStory: storyId,
                     paragraphOrder: 0, // Will be set by importer if needed
                 },
-                // Minimal context - only what's needed for identification
-                documentContext: {
-                    originalHash,
-                    importerType: 'indesign',
-                    fileName,
-                }
             }
         }
     };
@@ -138,12 +132,6 @@ export function createIndesignParagraphCellMetadata(params: IndesignParagraphCel
                     storyOrder: stories.findIndex(s => s.id === storyId),
                     paragraphOrder: paragraphIndex,
                 },
-                // Minimal context - only what's needed for identification
-                documentContext: {
-                    originalHash,
-                    importerType: 'indesign',
-                    fileName,
-                }
             }
         }
     };

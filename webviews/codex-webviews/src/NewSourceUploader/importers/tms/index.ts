@@ -329,6 +329,15 @@ export const parseFile = async (
                 corpusMarker: 'tms', // Use 'tms' for UI grouping, fileType stores the specific format
                 importerType: 'tms', // Set to 'tms' for consistent grouping
                 createdAt: new Date().toISOString(),
+                importContext: {
+                    importerType: 'tms',
+                    fileName: file.name,
+                    originalFileName: file.name,
+                    fileSize: file.size,
+                    fileType: fileType,
+                    fileFormat: corpusMarker,
+                    importTimestamp: new Date().toISOString(),
+                },
                 translationUnitCount: translationUnits.length,
                 sourceLanguage: translationUnits[0]?.sourceLanguage || '',
                 targetLanguage: translationUnits[0]?.targetLanguage || '',

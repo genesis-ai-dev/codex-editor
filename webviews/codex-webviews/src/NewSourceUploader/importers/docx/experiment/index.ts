@@ -113,6 +113,7 @@ export const parseFile = async (
 
         // Create notebook pair
         const baseName = file.name.replace(/\.[^/.]+$/, '');
+        const nowIso = new Date().toISOString();
         const sourceNotebook = {
             name: baseName,
             cells,
@@ -122,7 +123,15 @@ export const parseFile = async (
                 originalFileData: arrayBuffer, // Store original file for export
                 corpusMarker: 'Docx',
                 importerType: 'docx-roundtrip',
-                createdAt: new Date().toISOString(),
+                createdAt: nowIso,
+                importContext: {
+                    importerType: 'docx-roundtrip',
+                    fileName: file.name,
+                    originalFileName: file.name,
+                    originalHash: docxDoc.originalHash,
+                    documentId: docxDoc.id,
+                    importTimestamp: nowIso,
+                },
                 wordCount: countWordsInDocument(docxDoc),
                 paragraphCount: docxDoc.paragraphs.length,
                 // Store complete DOCX document structure for round-trip

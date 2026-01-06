@@ -43,10 +43,6 @@ export function createSpreadsheetCellMetadata(params: SpreadsheetCellMetadataPar
                 globalReferences: [], // Empty for Spreadsheet files (no verse references)
                 sourceFile: fileName,
             },
-            documentContext: {
-                fileName,
-                importerType: 'spreadsheet',
-            }
         }
     };
 }

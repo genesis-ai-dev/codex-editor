@@ -319,6 +319,13 @@ export const parseFile = async (
                 originalFileName: file.name,
                 importerType: 'markdown',
                 createdAt: new Date().toISOString(),
+                importContext: {
+                    importerType: 'markdown',
+                    fileName: file.name,
+                    originalFileName: file.name,
+                    fileSize: file.size,
+                    importTimestamp: new Date().toISOString(),
+                },
                 elementCount: elements.length,
                 headingCount,
                 listItemCount,

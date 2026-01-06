@@ -75,11 +75,6 @@ export function createPdfCellMetadata(params: PdfCellMetadataParams): { metadata
                 corpusMarker: 'pdf',
                 importerVersion: '1.0.0',
             },
-            documentContext: {
-                fileName,
-                importerType: 'pdf',
-                fileSize,
-            }
         }
     };
 }

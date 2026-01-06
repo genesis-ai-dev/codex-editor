@@ -109,10 +109,6 @@ export function createEbibleVerseCellMetadata(params: EbibleVerseCellMetadataPar
                 globalReferences: globalReferences,
                 sourceFile: params.fileName || '',
             },
-            documentContext: {
-                importerType: 'ebibleCorpus',
-                fileName: params.fileName || '',
-            }
         }
     };
 }

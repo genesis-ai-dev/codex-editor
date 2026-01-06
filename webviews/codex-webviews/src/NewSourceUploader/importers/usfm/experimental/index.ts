@@ -105,6 +105,13 @@ export const parseFile = async (
                 fileType: 'usfm',
                 corpusMarker: getCorpusMarkerForBook(baseName) || 'usfm',
                 createdAt: new Date().toISOString(),
+                importContext: {
+                    importerType: 'usfm-experimental',
+                    fileName: file.name,
+                    originalFileName: file.name,
+                    fileSize: file.size,
+                    importTimestamp: new Date().toISOString(),
+                },
                 bookCode: parsedDocument.bookCode,
                 bookName: parsedDocument.bookName,
                 totalVerses: parsedDocument.verseCount,

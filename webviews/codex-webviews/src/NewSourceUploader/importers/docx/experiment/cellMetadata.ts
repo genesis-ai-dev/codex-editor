@@ -54,15 +54,6 @@ export function createDocxCellMetadata(params: DocxCellMetadataParams): { metada
             afterParagraphXml: paragraph.afterParagraphXml,
         },
 
-        // Document context for export
-        documentContext: {
-            documentId: docxDoc.id,
-            originalHash: docxDoc.originalHash,
-            fileName: fileName,
-            importerType: 'docx-roundtrip',
-            importTimestamp: new Date().toISOString(),
-        },
-
         // Cell label (paragraph number)
         cellLabel: `¶${paragraphIndex + 1}`,
     };

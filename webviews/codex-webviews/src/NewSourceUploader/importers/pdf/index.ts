@@ -508,6 +508,13 @@ export const parseFile = async (
                 corpusMarker: 'pdf',
                 importerType: 'pdf', // Alias for corpusMarker (type requirement)
                 createdAt: new Date().toISOString(),
+                importContext: {
+                    importerType: 'pdf',
+                    fileName: file.name,
+                    originalFileName: file.name,
+                    fileSize: file.size,
+                    importTimestamp: new Date().toISOString(),
+                },
                 sourceFile: file.name,
                 totalCells: cells.length,
                 fileType: 'pdf',
@@ -550,6 +557,13 @@ export const parseFile = async (
                 corpusMarker: 'pdf',
                 importerType: 'pdf', // Alias for corpusMarker (type requirement)
                 createdAt: new Date().toISOString(),
+                importContext: {
+                    importerType: 'pdf',
+                    fileName: file.name,
+                    originalFileName: file.name,
+                    fileSize: file.size,
+                    importTimestamp: new Date().toISOString(),
+                },
                 sourceFile: file.name,
                 totalCells: cells.length,
                 fileType: 'pdf',

@@ -46,10 +46,6 @@ export function createTmsCellMetadata(params: TmsCellMetadataParams): { metadata
                 originalText: params.originalText,
                 globalReferences: [], // Empty for TMS files (no verse references)
             },
-            documentContext: {
-                fileName: params.fileName,
-                importerType: 'tms',
-            }
         }
     };
 }

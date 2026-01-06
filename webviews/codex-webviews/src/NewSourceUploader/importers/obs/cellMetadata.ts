@@ -203,10 +203,6 @@ export function createObsTextCellMetadata(params: ObsTextCellMetadataParams): { 
                 globalReferences: globalReferences,
                 sourceFile: params.fileName,
             },
-            documentContext: {
-                importerType: 'obs',
-                fileName: params.fileName,
-            }
         }
     };
 }
@@ -245,10 +241,6 @@ export function createObsImageCellMetadata(params: ObsImageCellMetadataParams): 
                 globalReferences: globalReferences,
                 sourceFile: params.fileName,
             },
-            documentContext: {
-                importerType: 'obs',
-                fileName: params.fileName,
-            }
         }
     };
 }

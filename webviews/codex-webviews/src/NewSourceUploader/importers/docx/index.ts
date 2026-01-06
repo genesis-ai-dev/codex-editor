@@ -350,6 +350,13 @@ export const parseFile = async (
                 originalFileData: arrayBuffer, // Store original file to be saved in attachments
                 importerType: 'docx',
                 createdAt: new Date().toISOString(),
+                importContext: {
+                    importerType: 'docx',
+                    fileName: file.name,
+                    originalFileName: file.name,
+                    fileSize: file.size,
+                    importTimestamp: new Date().toISOString(),
+                },
                 wordCount: countWordsInHtml(htmlContent),
                 mammothMessages: result.messages,
                 documentStructure: serializeDocumentStructure(structureMetadata),

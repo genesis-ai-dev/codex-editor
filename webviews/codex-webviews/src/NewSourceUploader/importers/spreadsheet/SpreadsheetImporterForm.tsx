@@ -323,6 +323,13 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                             originalFileName: selectedFile!.name,
                             importerType: "spreadsheet",
                             createdAt: new Date().toISOString(),
+                            importContext: {
+                                importerType: "spreadsheet",
+                                fileName: selectedFile!.name,
+                                originalFileName: selectedFile!.name,
+                                fileSize: selectedFile!.size,
+                                importTimestamp: new Date().toISOString(),
+                            },
                             delimiter: parsedData.delimiter,
                             columnCount: parsedData.columns.length,
                             rowCount: parsedData.rows.length,
@@ -339,6 +346,13 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                             originalFileName: selectedFile!.name,
                             importerType: "spreadsheet",
                             createdAt: new Date().toISOString(),
+                            importContext: {
+                                importerType: "spreadsheet",
+                                fileName: selectedFile!.name,
+                                originalFileName: selectedFile!.name,
+                                fileSize: selectedFile!.size,
+                                importTimestamp: new Date().toISOString(),
+                            },
                         },
                     },
                 };

@@ -213,10 +213,6 @@ export function createMarkdownCellMetadata(params: MarkdownCellMetadataParams): 
                 globalReferences: globalReferences,
                 sourceFile: params.fileName,
             },
-            documentContext: {
-                importerType: 'markdown',
-                fileName: params.fileName,
-            }
         }
     };
 }

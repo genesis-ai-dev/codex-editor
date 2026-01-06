@@ -211,6 +211,13 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
                 originalFileName: file.name,
                 importerType: 'subtitles',
                 createdAt: new Date().toISOString(),
+                importContext: {
+                    importerType: 'subtitles',
+                    fileName: file.name,
+                    originalFileName: file.name,
+                    fileSize: file.size,
+                    importTimestamp: new Date().toISOString(),
+                },
                 format,
                 totalCues: parsed.cues.length,
             },

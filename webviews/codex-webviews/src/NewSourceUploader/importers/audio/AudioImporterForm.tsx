@@ -663,6 +663,14 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                         importerType: "audio",
                         createdAt: nowIso,
                         audioOnly: true,
+                        importContext: {
+                            importerType: "audio",
+                            fileName: file.fileName,
+                            originalFileName: file.fileName,
+                            importTimestamp: nowIso,
+                            thresholdDb: file.thresholdDb,
+                            minDuration: file.minDuration,
+                        },
                     },
                 },
                 codex: {
@@ -674,6 +682,14 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                         importerType: "audio",
                         createdAt: nowIso,
                         audioOnly: true,
+                        importContext: {
+                            importerType: "audio",
+                            fileName: file.fileName,
+                            originalFileName: file.fileName,
+                            importTimestamp: nowIso,
+                            thresholdDb: file.thresholdDb,
+                            minDuration: file.minDuration,
+                        },
                     },
                 },
             };

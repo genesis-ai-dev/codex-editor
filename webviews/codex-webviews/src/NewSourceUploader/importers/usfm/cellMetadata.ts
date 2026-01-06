@@ -80,10 +80,6 @@ export function createVerseCellMetadata(params: VerseCellMetadataParams): { meta
                 globalReferences: globalReferences,
                 sourceFile: params.fileName,
             },
-            documentContext: {
-                importerType: 'usfm',
-                fileName: params.fileName,
-            }
         }
     };
 }
@@ -117,10 +113,6 @@ export function createParatextCellMetadata(params: ParatextCellMetadataParams): 
                 globalReferences: [], // Empty for paratext cells (no verse references)
                 sourceFile: params.fileName,
             },
-            documentContext: {
-                importerType: 'usfm',
-                fileName: params.fileName,
-            }
         }
     };
 }
@@ -152,10 +144,6 @@ export function createHeaderCellMetadata(params: HeaderCellMetadataParams): { me
                 globalReferences: [], // Empty for header cells (no verse references)
                 sourceFile: params.fileName,
             },
-            documentContext: {
-                importerType: 'usfm',
-                fileName: params.fileName,
-            }
         }
     };
 }
