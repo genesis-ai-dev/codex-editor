@@ -1,28 +1,11 @@
-import React, { useEffect, useRef, useState } from "react";
-import { getCachedAudioDataUrl, setCachedAudioDataUrl } from "../lib/audioCache";
-import type { WebviewApi } from "vscode-webview";
-import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
-import { Timestamps } from "../../../../types";
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import { WebviewApi } from "vscode-webview";
 import type { ReactPlayerRef } from "./types/reactPlayerTypes";
-
-type AudioState =
-    | "available"
-    | "available-local"
-    | "available-pointer"
-    | "missing"
-    | "deletedOnly"
-    | "none";
-
-interface AudioPlayButtonProps {
-    cellId: string;
-    vscode: WebviewApi<unknown>;
-    state?: AudioState;
-    onOpenCell?: (cellId: string) => void;
-    playerRef?: React.RefObject<ReactPlayerRef>;
-    cellTimestamps?: Timestamps;
-    shouldShowVideoPlayer?: boolean;
-    videoUrl?: string;
-}
+import { Timestamps } from "../../../../types";
+import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
+import { AudioControllerEvent, globalAudioController } from "../lib/audioController";
+import { getCachedAudioDataUrl, setCachedAudioDataUrl } from "../lib/audioCache";
+import { EditorPostMessages } from "../../../../types";
 
 /**
  * Waits for a video element to be ready for playback.
@@ -65,478 +48,569 @@ const waitForVideoReady = (
     });
 };
 
-const AudioPlayButton: React.FC<AudioPlayButtonProps> = ({
-    cellId,
-    vscode,
-    state = "available",
-    onOpenCell,
-    playerRef,
-    cellTimestamps,
-    shouldShowVideoPlayer = false,
-    videoUrl,
-}) => {
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [audioUrl, setAudioUrl] = useState<string | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
-    const pendingPlayRef = useRef(false);
-    const audioRef = useRef<HTMLAudioElement | null>(null);
-    const previousVideoMuteStateRef = useRef<boolean | null>(null);
-    const videoElementRef = useRef<HTMLVideoElement | null>(null);
+const AudioPlayButton: React.FC<{
+    cellId: string;
+    vscode: WebviewApi<unknown>;
+    state?:
+        | "available"
+        | "available-local"
+        | "available-pointer"
+        | "missing"
+        | "deletedOnly"
+        | "none";
+    onOpenCell?: (cellId: string) => void;
+    playerRef?: React.RefObject<ReactPlayerRef>;
+    cellTimestamps?: Timestamps;
+    shouldShowVideoPlayer?: boolean;
+    videoUrl?: string;
+}> = React.memo(
+    ({
+        cellId,
+        vscode,
+        state = "available",
+        onOpenCell,
+        playerRef,
+        cellTimestamps,
+        shouldShowVideoPlayer = false,
+        videoUrl,
+    }) => {
+        const [isPlaying, setIsPlaying] = useState(false);
+        const [audioUrl, setAudioUrl] = useState<string | null>(null);
+        const [isLoading, setIsLoading] = useState(false);
+        const pendingPlayRef = useRef(false);
+        const audioRef = useRef<HTMLAudioElement | null>(null);
+        const previousVideoMuteStateRef = useRef<boolean | null>(null);
+        const videoElementRef = useRef<HTMLVideoElement | null>(null);
 
-    useMessageHandler(
-        "audioPlayButton",
-        async (event: MessageEvent) => {
-            const message = event.data;
+        // Helper function to stop video playback and restore mute state
+        const stopVideoPlayback = useCallback(() => {
+            if (
+                shouldShowVideoPlayer &&
+                previousVideoMuteStateRef.current !== null &&
+                videoElementRef.current
+            ) {
+                try {
+                    videoElementRef.current.pause();
+                    videoElementRef.current.muted = previousVideoMuteStateRef.current;
+                } catch (error) {
+                    console.error("Error restoring video mute state:", error);
+                }
+                previousVideoMuteStateRef.current = null;
+                videoElementRef.current = null;
+            }
+        }, [shouldShowVideoPlayer]);
 
-            if (message.type === "providerSendsAudioAttachments") {
-                // Only clear cached URL if this cell's availability actually changed to a different state
-                const attachments = message.attachments || {};
-                const newState = attachments[cellId];
-                if (typeof newState !== "undefined") {
+        // Do not pre-load on mount; we will request on first click to avoid spinner churn
+
+        // Listen for audio data messages
+        useMessageHandler(
+            "cellContentDisplay-audioData",
+            async (event: MessageEvent) => {
+                const message = event.data;
+
+                // Handle audio attachments updates - clear current url and cache; fetch on next click
+                if (message.type === "providerSendsAudioAttachments") {
                     // Clear cached audio data since selected audio might have changed
                     const { clearCachedAudio } = await import("../lib/audioCache");
                     clearCachedAudio(cellId);
 
-                    // If we previously had no audio URL and still don't, no-op; avoid churn
                     if (audioUrl && audioUrl.startsWith("blob:")) {
                         URL.revokeObjectURL(audioUrl);
                     }
                     setAudioUrl(null);
                     setIsLoading(false);
                 }
-            }
 
-            if (message.type === "providerSendsAudioData" && message.content.cellId === cellId) {
-                if (message.content.audioData) {
-                    // Store the old blob URL to revoke later, but only if audio element isn't using it
-                    const oldBlobUrl = audioUrl && audioUrl.startsWith("blob:") ? audioUrl : null;
+                if (
+                    message.type === "providerSendsAudioData" &&
+                    message.content.cellId === cellId
+                ) {
+                    if (message.content.audioData) {
+                        // Store the old blob URL to revoke later, but only if audio element isn't using it
+                        const oldBlobUrl =
+                            audioUrl && audioUrl.startsWith("blob:") ? audioUrl : null;
 
-                    fetch(message.content.audioData)
-                        .then((res) => res.blob())
-                        .then(async (blob) => {
-                            const blobUrl = URL.createObjectURL(blob);
-                            try {
-                                setCachedAudioDataUrl(cellId, message.content.audioData);
-                            } catch {
-                                // Ignore cache errors
-                            }
-                            setAudioUrl(blobUrl);
-                            setIsLoading(false);
-                            if (pendingPlayRef.current) {
+                        // Convert base64 to blob URL
+                        fetch(message.content.audioData)
+                            .then((res) => res.blob())
+                            .then(async (blob) => {
+                                const blobUrl = URL.createObjectURL(blob);
                                 try {
-                                    // Handle video seeking, muting, and playback if video is showing
-                                    let videoElement: HTMLVideoElement | null = null;
-                                    if (
-                                        shouldShowVideoPlayer &&
-                                        videoUrl &&
-                                        playerRef?.current &&
-                                        cellTimestamps?.startTime !== undefined
-                                    ) {
-                                        // Seek video to cell's start timestamp, mute it, and start playback
-                                        try {
-                                            let seeked = false;
+                                    setCachedAudioDataUrl(cellId, message.content.audioData);
+                                } catch {
+                                    /* empty */
+                                }
+                                setAudioUrl(blobUrl);
+                                setIsLoading(false);
+                                if (pendingPlayRef.current) {
+                                    // Auto-play once the data arrives
+                                    try {
+                                        // Handle video seeking, muting, and playback if video is showing
+                                        let videoElement: HTMLVideoElement | null = null;
+                                        if (
+                                            shouldShowVideoPlayer &&
+                                            videoUrl &&
+                                            playerRef?.current &&
+                                            cellTimestamps?.startTime !== undefined
+                                        ) {
+                                            // Seek video to cell's start timestamp, mute it, and start playback
+                                            try {
+                                                let seeked = false;
 
-                                            // First try seekTo method if available
-                                            if (typeof playerRef.current.seekTo === "function") {
-                                                playerRef.current.seekTo(
-                                                    cellTimestamps.startTime,
-                                                    "seconds"
-                                                );
-                                                seeked = true;
-                                            }
-
-                                            // Try to find the video element for both seeking (fallback) and muting
-                                            const internalPlayer =
-                                                playerRef.current.getInternalPlayer?.();
-
-                                            if (internalPlayer instanceof HTMLVideoElement) {
-                                                videoElement = internalPlayer;
-                                                if (!seeked) {
-                                                    videoElement.currentTime =
-                                                        cellTimestamps.startTime;
+                                                // First try seekTo method if available
+                                                if (
+                                                    typeof playerRef.current.seekTo === "function"
+                                                ) {
+                                                    playerRef.current.seekTo(
+                                                        cellTimestamps.startTime,
+                                                        "seconds"
+                                                    );
                                                     seeked = true;
                                                 }
-                                            } else if (
-                                                internalPlayer &&
-                                                typeof internalPlayer === "object"
-                                            ) {
-                                                // Try different ways to access the video element
-                                                const foundVideo =
-                                                    (internalPlayer as any).querySelector?.(
-                                                        "video"
-                                                    ) ||
-                                                    (internalPlayer as any).video ||
-                                                    internalPlayer;
 
-                                                if (foundVideo instanceof HTMLVideoElement) {
-                                                    videoElement = foundVideo;
+                                                // Try to find the video element for both seeking (fallback) and muting
+                                                const internalPlayer =
+                                                    playerRef.current.getInternalPlayer?.();
+
+                                                if (internalPlayer instanceof HTMLVideoElement) {
+                                                    videoElement = internalPlayer;
                                                     if (!seeked) {
                                                         videoElement.currentTime =
                                                             cellTimestamps.startTime;
                                                         seeked = true;
                                                     }
-                                                }
-                                            }
+                                                } else if (
+                                                    internalPlayer &&
+                                                    typeof internalPlayer === "object"
+                                                ) {
+                                                    // Try different ways to access the video element
+                                                    const foundVideo =
+                                                        (internalPlayer as any).querySelector?.(
+                                                            "video"
+                                                        ) ||
+                                                        (internalPlayer as any).video ||
+                                                        internalPlayer;
 
-                                            // Last resort: Try to find video element in the DOM
-                                            if (!videoElement && playerRef.current) {
-                                                const wrapper = playerRef.current as any;
-                                                const foundVideo =
-                                                    wrapper.querySelector?.("video") ||
-                                                    wrapper.parentElement?.querySelector?.("video");
-
-                                                if (foundVideo instanceof HTMLVideoElement) {
-                                                    videoElement = foundVideo;
-                                                    if (!seeked) {
-                                                        videoElement.currentTime =
-                                                            cellTimestamps.startTime;
-                                                        seeked = true;
+                                                    if (foundVideo instanceof HTMLVideoElement) {
+                                                        videoElement = foundVideo;
+                                                        if (!seeked) {
+                                                            videoElement.currentTime =
+                                                                cellTimestamps.startTime;
+                                                            seeked = true;
+                                                        }
                                                     }
                                                 }
-                                            }
 
-                                            // Mute and start video playback if we found the element
-                                            if (videoElement) {
-                                                previousVideoMuteStateRef.current =
-                                                    videoElement.muted;
-                                                videoElementRef.current = videoElement;
-                                                videoElement.muted = true;
+                                                // Last resort: Try to find video element in the DOM
+                                                if (!videoElement && playerRef.current) {
+                                                    const wrapper = playerRef.current as any;
+                                                    const foundVideo =
+                                                        wrapper.querySelector?.("video") ||
+                                                        wrapper.parentElement?.querySelector?.(
+                                                            "video"
+                                                        );
 
-                                                // Start video playback
-                                                try {
-                                                    await videoElement.play();
-                                                } catch (playError) {
-                                                    // Video play() may fail due to autoplay restrictions, but we'll still wait for readiness
-                                                    console.warn(
-                                                        "Video play() failed, will wait for readiness:",
-                                                        playError
-                                                    );
+                                                    if (foundVideo instanceof HTMLVideoElement) {
+                                                        videoElement = foundVideo;
+                                                        if (!seeked) {
+                                                            videoElement.currentTime =
+                                                                cellTimestamps.startTime;
+                                                            seeked = true;
+                                                        }
+                                                    }
                                                 }
 
-                                                // Wait for video to be ready before starting audio
-                                                await waitForVideoReady(videoElement);
+                                                // Mute and start video playback if we found the element
+                                                if (videoElement) {
+                                                    previousVideoMuteStateRef.current =
+                                                        videoElement.muted;
+                                                    videoElementRef.current = videoElement;
+                                                    videoElement.muted = true;
+
+                                                    // Start video playback
+                                                    try {
+                                                        await videoElement.play();
+                                                    } catch (playError) {
+                                                        // Video play() may fail due to autoplay restrictions, but we'll still wait for readiness
+                                                        console.warn(
+                                                            "Video play() failed, will wait for readiness:",
+                                                            playError
+                                                        );
+                                                    }
+
+                                                    // Wait for video to be ready before starting audio
+                                                    await waitForVideoReady(videoElement);
+                                                }
+                                            } catch (error) {
+                                                console.error(
+                                                    "Error seeking/muting/playing video:",
+                                                    error
+                                                );
                                             }
-                                        } catch (error) {
-                                            console.error(
-                                                "Error seeking/muting/playing video:",
-                                                error
-                                            );
                                         }
+
+                                        if (!audioRef.current) {
+                                            audioRef.current = new Audio();
+                                            audioRef.current.onended = () => {
+                                                setIsPlaying(false);
+                                                stopVideoPlayback();
+                                            };
+                                            audioRef.current.onerror = () => {
+                                                console.error(
+                                                    "Error playing audio for cell:",
+                                                    cellId
+                                                );
+                                                setIsPlaying(false);
+                                            };
+                                        }
+
+                                        // Set the new blob URL as src
+                                        audioRef.current.src = blobUrl;
+
+                                        // Now safe to revoke the old blob URL if it exists and isn't being used
+                                        if (oldBlobUrl && audioRef.current.src !== oldBlobUrl) {
+                                            URL.revokeObjectURL(oldBlobUrl);
+                                        }
+
+                                        globalAudioController
+                                            .playExclusive(audioRef.current)
+                                            .then(() => setIsPlaying(true))
+                                            .catch((e) => {
+                                                console.error(
+                                                    "Error auto-playing audio for cell:",
+                                                    e
+                                                );
+                                                setIsPlaying(false);
+                                            });
+                                    } finally {
+                                        pendingPlayRef.current = false;
                                     }
-
-                                    if (!audioRef.current) {
-                                        audioRef.current = new Audio();
-                                        audioRef.current.onended = () => {
-                                            setIsPlaying(false);
-                                            // Restore video mute state when audio ends
-                                            if (
-                                                shouldShowVideoPlayer &&
-                                                previousVideoMuteStateRef.current !== null &&
-                                                videoElementRef.current
-                                            ) {
-                                                try {
-                                                    // Use the stored video element reference
-                                                    videoElementRef.current.muted =
-                                                        previousVideoMuteStateRef.current;
-                                                } catch (error) {
-                                                    console.error(
-                                                        "Error restoring video mute state:",
-                                                        error
-                                                    );
-                                                }
-                                                previousVideoMuteStateRef.current = null;
-                                                videoElementRef.current = null;
-                                            }
-                                        };
-                                        audioRef.current.onerror = () => {
-                                            console.error("Error playing audio for cell:", cellId);
-                                            setIsPlaying(false);
-                                        };
-                                    }
-
-                                    // Set the new blob URL as src
-                                    audioRef.current.src = blobUrl;
-
-                                    // Now safe to revoke the old blob URL if it exists and isn't being used
-                                    if (oldBlobUrl && audioRef.current.src !== oldBlobUrl) {
+                                } else {
+                                    // Not auto-playing, safe to revoke old blob URL now
+                                    if (
+                                        oldBlobUrl &&
+                                        (!audioRef.current || audioRef.current.src !== oldBlobUrl)
+                                    ) {
                                         URL.revokeObjectURL(oldBlobUrl);
                                     }
-
-                                    audioRef.current
-                                        .play()
-                                        .then(() => setIsPlaying(true))
-                                        .catch(() => setIsPlaying(false));
-                                } finally {
-                                    pendingPlayRef.current = false;
                                 }
-                            } else {
-                                // Not auto-playing, safe to revoke old blob URL now
-                                if (
-                                    oldBlobUrl &&
-                                    (!audioRef.current || audioRef.current.src !== oldBlobUrl)
-                                ) {
-                                    URL.revokeObjectURL(oldBlobUrl);
-                                }
-                            }
-                        })
-                        .catch(() => setIsLoading(false));
-                } else {
-                    setAudioUrl(null);
-                    setIsLoading(false);
-                }
-            }
-        },
-        [audioUrl, cellId, vscode, shouldShowVideoPlayer, videoUrl, playerRef, cellTimestamps]
-    );
-
-    useEffect(() => {
-        return () => {
-            // Only revoke blob URL if audio element isn't using it
-            if (audioUrl && audioUrl.startsWith("blob:")) {
-                if (!audioRef.current || audioRef.current.src !== audioUrl) {
-                    URL.revokeObjectURL(audioUrl);
-                }
-            }
-            if (audioRef.current && isPlaying) {
-                audioRef.current.pause();
-            }
-        };
-    }, [audioUrl, isPlaying]);
-
-    const handlePlayAudio = async () => {
-        try {
-            if (state !== "available") {
-                // For missing audio, just open the editor without auto-starting recording
-                if (state !== "missing") {
-                    try {
-                        sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");
-                    } catch {
-                        // no-op
+                            })
+                            .catch((error) => {
+                                console.error("Error converting audio data:", error);
+                                setIsLoading(false);
+                            });
+                    } else {
+                        // No audio data - clear the audio URL and stop loading
+                        setAudioUrl(null);
+                        setIsLoading(false);
                     }
                 }
-                vscode.postMessage({
-                    command: "setPreferredEditorTab",
-                    content: { tab: "audio" },
-                } as any);
-                if (onOpenCell) onOpenCell(cellId);
-                return;
-            }
+            },
+            [audioUrl, cellId, vscode, shouldShowVideoPlayer, videoUrl, playerRef, cellTimestamps]
+        );
 
-            if (isPlaying) {
-                if (audioRef.current) {
+        // Clean up blob URL on unmount
+        useEffect(() => {
+            return () => {
+                // Only revoke blob URL if audio element isn't using it
+                if (audioUrl && audioUrl.startsWith("blob:")) {
+                    if (!audioRef.current || audioRef.current.src !== audioUrl) {
+                        URL.revokeObjectURL(audioUrl);
+                    }
+                }
+                // Stop audio if playing when unmounting
+                if (audioRef.current && isPlaying) {
                     audioRef.current.pause();
-                    audioRef.current.currentTime = 0;
                 }
-                setIsPlaying(false);
-                // Restore video mute state when audio is manually stopped
+            };
+        }, [audioUrl, isPlaying]);
+
+        const handlePlayAudio = async () => {
+            try {
+                // For any non-available state, open editor on audio tab and auto-start recording
                 if (
-                    shouldShowVideoPlayer &&
-                    previousVideoMuteStateRef.current !== null &&
-                    videoElementRef.current
+                    state !== "available" &&
+                    state !== "available-local" &&
+                    state !== "available-pointer"
                 ) {
-                    try {
-                        // Use the stored video element reference
-                        videoElementRef.current.muted = previousVideoMuteStateRef.current;
-                    } catch (error) {
-                        console.error("Error restoring video mute state:", error);
+                    // For missing audio, just open the editor without auto-starting recording
+                    if (state !== "missing") {
+                        try {
+                            sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");
+                        } catch (e) {
+                            void e;
+                        }
                     }
-                    previousVideoMuteStateRef.current = null;
-                    videoElementRef.current = null;
-                }
-            } else {
-                if (!audioUrl) {
-                    pendingPlayRef.current = true;
-                    setIsLoading(true);
                     vscode.postMessage({
-                        command: "requestAudioForCell",
-                        content: { cellId },
+                        command: "setPreferredEditorTab",
+                        content: { tab: "audio" },
                     } as any);
+                    if (onOpenCell) onOpenCell(cellId);
                     return;
                 }
 
-                // Handle video seeking, muting, and playback if video is showing
-                let videoElement: HTMLVideoElement | null = null;
-                if (
-                    shouldShowVideoPlayer &&
-                    videoUrl &&
-                    playerRef?.current &&
-                    cellTimestamps?.startTime !== undefined
-                ) {
-                    // Seek video to cell's start timestamp, mute it, and start playback
-                    try {
-                        let seeked = false;
-
-                        // First try seekTo method if available
-                        if (typeof playerRef.current.seekTo === "function") {
-                            playerRef.current.seekTo(cellTimestamps.startTime, "seconds");
-                            seeked = true;
+                if (isPlaying) {
+                    // Stop current audio
+                    if (audioRef.current) {
+                        audioRef.current.pause();
+                        audioRef.current.currentTime = 0;
+                    }
+                    setIsPlaying(false);
+                    stopVideoPlayback();
+                } else {
+                    // If we don't have audio yet, try cached data first; only request if not cached
+                    let effectiveUrl: string | null = audioUrl;
+                    if (!effectiveUrl) {
+                        const cached = getCachedAudioDataUrl(cellId);
+                        if (cached) {
+                            pendingPlayRef.current = true;
+                            setIsLoading(true);
+                            try {
+                                const res = await fetch(cached);
+                                const blob = await res.blob();
+                                const blobUrl = URL.createObjectURL(blob);
+                                setAudioUrl(blobUrl); // update state for future plays
+                                effectiveUrl = blobUrl; // use immediately for this play
+                                setIsLoading(false);
+                                // fall through to playback below
+                            } catch {
+                                // If cache hydration fails, request from provider
+                                pendingPlayRef.current = true;
+                                setIsLoading(true);
+                                vscode.postMessage({
+                                    command: "requestAudioForCell",
+                                    content: { cellId },
+                                } as EditorPostMessages);
+                                return;
+                            }
+                        } else {
+                            pendingPlayRef.current = true;
+                            setIsLoading(true);
+                            vscode.postMessage({
+                                command: "requestAudioForCell",
+                                content: { cellId },
+                            } as EditorPostMessages);
+                            return;
                         }
+                    }
 
-                        // Try to find the video element for both seeking (fallback) and muting
-                        const internalPlayer = playerRef.current.getInternalPlayer?.();
+                    // Handle video seeking, muting, and playback if video is showing
+                    let videoElement: HTMLVideoElement | null = null;
+                    if (
+                        shouldShowVideoPlayer &&
+                        videoUrl &&
+                        playerRef?.current &&
+                        cellTimestamps?.startTime !== undefined
+                    ) {
+                        // Seek video to cell's start timestamp, mute it, and start playback
+                        try {
+                            let seeked = false;
 
-                        if (internalPlayer instanceof HTMLVideoElement) {
-                            videoElement = internalPlayer;
-                            if (!seeked) {
-                                videoElement.currentTime = cellTimestamps.startTime;
+                            // First try seekTo method if available
+                            if (typeof playerRef.current.seekTo === "function") {
+                                playerRef.current.seekTo(cellTimestamps.startTime, "seconds");
                                 seeked = true;
                             }
-                        } else if (internalPlayer && typeof internalPlayer === "object") {
-                            // Try different ways to access the video element
-                            const foundVideo =
-                                (internalPlayer as any).querySelector?.("video") ||
-                                (internalPlayer as any).video ||
-                                internalPlayer;
 
-                            if (foundVideo instanceof HTMLVideoElement) {
-                                videoElement = foundVideo;
+                            // Try to find the video element for both seeking (fallback) and muting
+                            const internalPlayer = playerRef.current.getInternalPlayer?.();
+
+                            if (internalPlayer instanceof HTMLVideoElement) {
+                                videoElement = internalPlayer;
                                 if (!seeked) {
                                     videoElement.currentTime = cellTimestamps.startTime;
                                     seeked = true;
                                 }
-                            }
-                        }
+                            } else if (internalPlayer && typeof internalPlayer === "object") {
+                                // Try different ways to access the video element
+                                const foundVideo =
+                                    (internalPlayer as any).querySelector?.("video") ||
+                                    (internalPlayer as any).video ||
+                                    internalPlayer;
 
-                        // Last resort: Try to find video element in the DOM
-                        if (!videoElement && playerRef.current) {
-                            const wrapper = playerRef.current as any;
-                            const foundVideo =
-                                wrapper.querySelector?.("video") ||
-                                wrapper.parentElement?.querySelector?.("video");
-
-                            if (foundVideo instanceof HTMLVideoElement) {
-                                videoElement = foundVideo;
-                                if (!seeked) {
-                                    videoElement.currentTime = cellTimestamps.startTime;
-                                    seeked = true;
+                                if (foundVideo instanceof HTMLVideoElement) {
+                                    videoElement = foundVideo;
+                                    if (!seeked) {
+                                        videoElement.currentTime = cellTimestamps.startTime;
+                                        seeked = true;
+                                    }
                                 }
                             }
-                        }
 
-                        // Mute and start video playback if we found the element
-                        if (videoElement) {
-                            previousVideoMuteStateRef.current = videoElement.muted;
-                            videoElementRef.current = videoElement;
-                            videoElement.muted = true;
+                            // Last resort: Try to find video element in the DOM
+                            if (!videoElement && playerRef.current) {
+                                const wrapper = playerRef.current as any;
+                                const foundVideo =
+                                    wrapper.querySelector?.("video") ||
+                                    wrapper.parentElement?.querySelector?.("video");
 
-                            // Start video playback
-                            try {
-                                await videoElement.play();
-                            } catch (playError) {
-                                // Video play() may fail due to autoplay restrictions, but we'll still wait for readiness
-                                console.warn(
-                                    "Video play() failed, will wait for readiness:",
-                                    playError
-                                );
+                                if (foundVideo instanceof HTMLVideoElement) {
+                                    videoElement = foundVideo;
+                                    if (!seeked) {
+                                        videoElement.currentTime = cellTimestamps.startTime;
+                                        seeked = true;
+                                    }
+                                }
                             }
 
-                            // Wait for video to be ready before starting audio
-                            await waitForVideoReady(videoElement);
+                            // Mute and start video playback if we found the element
+                            if (videoElement) {
+                                previousVideoMuteStateRef.current = videoElement.muted;
+                                videoElementRef.current = videoElement;
+                                videoElement.muted = true;
+
+                                // Start video playback
+                                try {
+                                    await videoElement.play();
+                                } catch (playError) {
+                                    // Video play() may fail due to autoplay restrictions, but we'll still wait for readiness
+                                    console.warn(
+                                        "Video play() failed, will wait for readiness:",
+                                        playError
+                                    );
+                                }
+
+                                // Wait for video to be ready before starting audio
+                                await waitForVideoReady(videoElement);
+                            }
+                        } catch (error) {
+                            console.error("Error seeking/muting/playing video:", error);
                         }
-                    } catch (error) {
-                        console.error("Error seeking/muting/playing video:", error);
                     }
+
+                    // Create or reuse audio element
+                    if (!audioRef.current) {
+                        audioRef.current = new Audio();
+                        audioRef.current.onended = () => {
+                            setIsPlaying(false);
+                            stopVideoPlayback();
+                        };
+                        audioRef.current.onerror = () => {
+                            console.error("Error playing audio for cell:", cellId);
+                            setIsPlaying(false);
+                        };
+                    }
+
+                    audioRef.current.src = effectiveUrl || audioUrl || "";
+                    await globalAudioController.playExclusive(audioRef.current);
+                    setIsPlaying(true);
                 }
+            } catch (error) {
+                console.error("Error handling audio playback:", error);
+                setIsPlaying(false);
+            }
+        };
 
-                if (!audioRef.current) {
-                    audioRef.current = new Audio();
-                    audioRef.current.onended = () => {
-                        setIsPlaying(false);
-                        // Restore video mute state when audio ends
-                        if (
-                            shouldShowVideoPlayer &&
-                            previousVideoMuteStateRef.current !== null &&
-                            videoElementRef.current
-                        ) {
-                            try {
-                                // Use the stored video element reference
-                                videoElementRef.current.muted = previousVideoMuteStateRef.current;
-                            } catch (error) {
-                                console.error("Error restoring video mute state:", error);
-                            }
-                            previousVideoMuteStateRef.current = null;
-                            videoElementRef.current = null;
-                        }
-                    };
-                    audioRef.current.onerror = () => setIsPlaying(false);
+        // Keep inline button in sync if this audio is stopped by global controller
+        useEffect(() => {
+            const handler = (e: AudioControllerEvent) => {
+                if (audioRef.current && e.audio === audioRef.current) {
+                    setIsPlaying(false);
+                    stopVideoPlayback();
                 }
+            };
+            globalAudioController.addListener(handler);
+            return () => globalAudioController.removeListener(handler);
+        }, [stopVideoPlayback]);
 
-                audioRef.current.src = audioUrl;
-                await audioRef.current.play();
-                setIsPlaying(true);
+        // Decide icon color/style based on state
+        const { iconClass, color, titleSuffix } = (() => {
+            // If we already have audio bytes (from cache or just streamed), show Play regardless of pointer/local state
+            if (audioUrl || getCachedAudioDataUrl(cellId)) {
+                return {
+                    iconClass: isLoading
+                        ? "codicon-loading codicon-modifier-spin"
+                        : isPlaying
+                        ? "codicon-debug-stop"
+                        : "codicon-play",
+                    color: "var(--vscode-charts-blue)",
+                    titleSuffix: "(available)",
+                } as const;
             }
-        } catch (error) {
-            console.error("Error handling audio playback:", error);
-            setIsPlaying(false);
-        }
-    };
-
-    const { iconClass, color } = (() => {
-        // If we already have an audio URL, always show Play (post-stream or cache)
-        if (audioUrl) {
-            return {
-                iconClass: isPlaying ? "codicon-debug-stop" : "codicon-play",
-                color: "var(--vscode-charts-blue)",
-            } as const;
-        }
-        if (state === "available" || state === "available-local") {
-            return {
-                iconClass: isPlaying ? "codicon-debug-stop" : "codicon-play",
-                color: "var(--vscode-charts-blue)",
-            } as const;
-        }
-        if (state === "available-pointer") {
-            return {
-                iconClass: isPlaying ? "codicon-debug-stop" : "codicon-cloud-download",
-                color: "var(--vscode-charts-blue)",
-            } as const;
-        }
-        if (state === "missing") {
-            return {
-                iconClass: "codicon-warning",
-                color: "var(--vscode-errorForeground)",
-            } as const;
-        }
-        return { iconClass: "codicon-mic", color: "var(--vscode-foreground)" } as const;
-    })();
-
-    return (
-        <button
-            onClick={handlePlayAudio}
-            className="audio-play-button p-[1px]"
-            title={
-                isLoading
-                    ? "Preparing audio..."
-                    : state === "available" || state === "available-local"
-                    ? "Play"
-                    : state === "available-pointer"
-                    ? "Download"
-                    : state === "missing"
-                    ? "Missing audio"
-                    : "Record"
+            // Local file present but not yet loaded into memory
+            if (state === "available-local") {
+                return {
+                    iconClass: isLoading
+                        ? "codicon-loading codicon-modifier-spin"
+                        : isPlaying
+                        ? "codicon-debug-stop"
+                        : "codicon-play",
+                    color: "var(--vscode-charts-blue)",
+                    titleSuffix: "(local)",
+                } as const;
             }
-            disabled={false}
-            style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                borderRadius: "4px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color,
-                opacity: isPlaying ? 1 : 0.8,
-                transition: "opacity 0.2s",
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-            onMouseLeave={(e) => (e.currentTarget.style.opacity = isPlaying ? "1" : "0.8")}
-        >
-            <i
-                className={`codicon ${iconClass}`}
-                style={{ fontSize: "16px", position: "relative" }}
-            />
-        </button>
-    );
-};
+            // Available remotely/downloadable or pointer-only → show cloud
+            if (state === "available" || state === "available-pointer") {
+                return {
+                    iconClass: isLoading
+                        ? "codicon-loading codicon-modifier-spin"
+                        : "codicon-cloud-download", // cloud behind play
+                    color: "var(--vscode-charts-blue)",
+                    titleSuffix: state === "available-pointer" ? "(pointer)" : "(in cloud)",
+                } as const;
+            }
+            if (state === "missing") {
+                return {
+                    iconClass: "codicon-warning",
+                    color: "var(--vscode-errorForeground)",
+                    titleSuffix: "(missing)",
+                } as const;
+            }
+            // deletedOnly or none => show mic to begin recording
+            return {
+                iconClass: "codicon-mic",
+                color: "var(--vscode-foreground)",
+                titleSuffix: "(record)",
+            } as const;
+        })();
 
-export default React.memo(AudioPlayButton);
+        return (
+            <button
+                onClick={handlePlayAudio}
+                className="audio-play-button"
+                title={
+                    isLoading
+                        ? "Preparing audio..."
+                        : state === "available" || state === "available-pointer"
+                        ? audioUrl || getCachedAudioDataUrl(cellId)
+                            ? "Play"
+                            : "Download"
+                        : state === "available-local"
+                        ? "Play"
+                        : state === "missing"
+                        ? "Missing audio"
+                        : "Record"
+                }
+                disabled={false}
+                style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: "1px",
+                    borderRadius: "4px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color,
+                    opacity: isPlaying ? 1 : 0.8,
+                    transition: "opacity 0.2s",
+                }}
+                onMouseEnter={(e) => {
+                    e.stopPropagation();
+                    e.currentTarget.style.opacity = "1";
+                }}
+                onMouseLeave={(e) => {
+                    e.stopPropagation();
+                    e.currentTarget.style.opacity = isPlaying ? "1" : "0.8";
+                }}
+            >
+                <i
+                    className={`codicon ${iconClass}`}
+                    style={{ fontSize: "16px", position: "relative" }}
+                />
+            </button>
+        );
+    }
+);
+
+export default AudioPlayButton;
