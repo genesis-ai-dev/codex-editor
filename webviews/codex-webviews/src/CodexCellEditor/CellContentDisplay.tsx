@@ -325,6 +325,7 @@ const AudioPlayButton: React.FC<{
                                                         // Use the stored video element reference
                                                         videoElementRef.current.muted =
                                                             previousVideoMuteStateRef.current;
+                                                        videoElementRef.current.pause();
                                                     } catch (error) {
                                                         console.error(
                                                             "Error restoring video mute state:",
@@ -444,6 +445,7 @@ const AudioPlayButton: React.FC<{
                     ) {
                         try {
                             // Use the stored video element reference
+                            videoElementRef.current.pause();
                             videoElementRef.current.muted = previousVideoMuteStateRef.current;
                         } catch (error) {
                             console.error("Error restoring video mute state:", error);
@@ -614,6 +616,7 @@ const AudioPlayButton: React.FC<{
 
                                     if (videoElement) {
                                         videoElement.muted = previousVideoMuteStateRef.current;
+                                        videoElement.pause();
                                     }
                                 } catch (error) {
                                     console.error("Error restoring video mute state:", error);
