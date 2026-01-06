@@ -249,6 +249,12 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                             originalFileName: `${fullBookName}.macula`, // Use full name instead of code
                             importerType: "macula",
                             createdAt: new Date().toISOString(),
+                            importContext: {
+                                importerType: "macula",
+                                fileName: `${fullBookName}.macula`,
+                                originalFileName: `${fullBookName}.macula`,
+                                importTimestamp: new Date().toISOString(),
+                            },
                             corpusMarker: corpusMarker,
                             fileDisplayName: notebookName, // Use full name for display (e.g., "1 Corinthians Macula")
                         },

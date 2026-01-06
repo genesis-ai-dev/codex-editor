@@ -103,6 +103,13 @@ const parseFile = async (
                 originalFileName: file.name,
                 importerType: 'ebibleCorpus',
                 createdAt: new Date().toISOString(),
+                importContext: {
+                    importerType: 'ebibleCorpus',
+                    fileName: file.name,
+                    originalFileName: file.name,
+                    fileSize: file.size,
+                    importTimestamp: new Date().toISOString(),
+                },
                 format,
                 verseCount: verses.length,
                 books: Array.from(new Set(verses.map(v => v.book))),

@@ -283,6 +283,12 @@ const downloadObsRepository = async (
                     corpusMarker: 'obs', // Enable round-trip export
                     importerType: 'obs',
                     createdAt: new Date().toISOString(),
+                    importContext: {
+                        importerType: 'obs',
+                        fileName: storyFile.name,
+                        originalFileName: storyFile.name,
+                        importTimestamp: new Date().toISOString(),
+                    },
                     storyNumber: obsStory.storyNumber,
                     storyTitle: obsStory.title,
                     segmentCount: storyCells.length,
@@ -306,6 +312,12 @@ const downloadObsRepository = async (
                     corpusMarker: 'obs', // Enable round-trip export
                     importerType: 'obs',
                     createdAt: new Date().toISOString(),
+                    importContext: {
+                        importerType: 'obs',
+                        fileName: storyFile.name,
+                        originalFileName: storyFile.name,
+                        importTimestamp: new Date().toISOString(),
+                    },
                     storyNumber: obsStory.storyNumber,
                     storyTitle: obsStory.title,
                     segmentCount: codexCells.length,

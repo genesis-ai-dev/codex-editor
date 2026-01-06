@@ -73,10 +73,6 @@ export function createAudioCellMetadata(params: AudioCellMetadataParams): { meta
             },
             selectedAudioId: params.attachmentId,
             selectionTimestamp: Date.now(),
-            documentContext: {
-                importerType: 'audio',
-                fileName: params.fileName,
-            }
         }
     };
 }

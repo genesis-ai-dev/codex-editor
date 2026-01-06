@@ -91,10 +91,6 @@ export function createSubtitleCellMetadata(params: SubtitleCellMetadataParams): 
                 globalReferences: [], // Empty for subtitle files (no verse references)
                 sourceFile: params.fileName || '',
             },
-            documentContext: {
-                importerType: 'subtitles',
-                fileName: params.fileName || '',
-            }
         }
     };
 }

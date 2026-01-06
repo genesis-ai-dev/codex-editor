@@ -91,12 +91,28 @@ Each cell stores complete metadata:
   
   // Complete paragraph XML for perfect reconstruction
   originalParagraphXml: "<w:p>...</w:p>",
-  
-  documentContext: {
-    documentId: "docx-1234567890",
+}
+```
+
+#### 4. Notebook-level Import Context
+
+One-time attributes from the import process are stored **once per notebook**, not per cell:
+
+```typescript
+{
+  metadata: {
+    importerType: "docx-roundtrip",
+    originalFileName: "document.docx",
     originalHash: "abc123...",
-    fileName: "document.docx",
-    importerType: "docx-roundtrip"
+    // ... other notebook metadata ...
+    importContext: {
+      importerType: "docx-roundtrip",
+      fileName: "document.docx",
+      originalFileName: "document.docx",
+      originalHash: "abc123...",
+      documentId: "docx-1234567890",
+      importTimestamp: "2026-01-05T12:34:56.000Z"
+    }
   }
 }
 ```

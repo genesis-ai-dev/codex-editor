@@ -529,15 +529,24 @@ export const createNotebookPair = (
         throw new Error('Notebook name cannot be empty');
     }
 
+    const nowIso = new Date().toISOString();
+    const originalFileName: string = metadata.originalFileName || baseName;
+
     const sourceNotebook: ProcessedNotebook = {
         name: baseName,
         cells,
         metadata: {
             ...metadata,
             id: `${importerType}-source-${Date.now()}`,
-            originalFileName: baseName,
+            originalFileName,
             importerType,
-            createdAt: new Date().toISOString(),
+            createdAt: nowIso,
+            importContext: metadata.importContext || {
+                importerType,
+                fileName: originalFileName,
+                originalFileName,
+                importTimestamp: nowIso,
+            },
             corpusMarker: getCorpusMarkerForBook(baseName) || metadata.corpusMarker,
         },
     };

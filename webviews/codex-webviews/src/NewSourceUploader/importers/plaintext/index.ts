@@ -154,6 +154,13 @@ export const parseFile = async (file: File, onProgress?: ProgressCallback, optio
                 originalFileName: file.name,
                 importerType: 'plaintext',
                 createdAt: new Date().toISOString(),
+                importContext: {
+                    importerType: 'plaintext',
+                    fileName: file.name,
+                    originalFileName: file.name,
+                    fileSize: file.size,
+                    importTimestamp: new Date().toISOString(),
+                },
                 splitStrategy,
                 totalSegments: segments.length,
                 originalLength: content.length,

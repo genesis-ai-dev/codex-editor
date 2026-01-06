@@ -63,10 +63,6 @@ export function createMaculaVerseCellMetadata(params: MaculaVerseCellMetadataPar
                     globalReferences: [], // Empty if parsing fails
                     sourceFile: params.fileName,
                 },
-                documentContext: {
-                    importerType: 'macula',
-                    fileName: params.fileName,
-                }
             }
         };
     }
@@ -100,10 +96,6 @@ export function createMaculaVerseCellMetadata(params: MaculaVerseCellMetadataPar
                 globalReferences: globalReferences,
                 sourceFile: params.fileName,
             },
-            documentContext: {
-                importerType: 'macula',
-                fileName: params.fileName,
-            }
         }
     };
 }

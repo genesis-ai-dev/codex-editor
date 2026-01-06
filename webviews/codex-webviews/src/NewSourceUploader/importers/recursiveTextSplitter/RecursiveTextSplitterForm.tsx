@@ -495,6 +495,13 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                         originalFileName: file.name,
                         importerType: "smart-segmenter",
                         createdAt: new Date().toISOString(),
+                        importContext: {
+                            importerType: "smart-segmenter",
+                            fileName: file.name,
+                            originalFileName: file.name,
+                            fileSize: file.size,
+                            importTimestamp: new Date().toISOString(),
+                        },
                     },
                 },
                 codex: {
@@ -505,6 +512,13 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                         originalFileName: file.name,
                         importerType: "smart-segmenter",
                         createdAt: new Date().toISOString(),
+                        importContext: {
+                            importerType: "smart-segmenter",
+                            fileName: file.name,
+                            originalFileName: file.name,
+                            fileSize: file.size,
+                            importTimestamp: new Date().toISOString(),
+                        },
                     },
                 },
             };

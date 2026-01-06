@@ -73,12 +73,6 @@ export function createNoteCellMetadata(params: NoteCellMetadataParams): { metada
                     segmentIndex: params.segmentIndex, // Track which segment this is within the paragraph
                     totalSegments: params.totalSegments, // Track total segments for this paragraph
                 },
-                // Minimal context - only what's needed for identification
-                documentContext: {
-                    originalHash: params.originalHash,
-                    importerType: 'biblica-experimental',
-                    fileName: params.sourceFileName,
-                }
             }
         }
     };
