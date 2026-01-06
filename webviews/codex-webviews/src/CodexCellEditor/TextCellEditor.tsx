@@ -82,6 +82,7 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import CommentsBadge from "./CommentsBadge";
+import { Checkbox } from "../components/ui/checkbox";
 
 // Define interface for saved backtranslation
 interface SavedBacktranslation {
@@ -342,6 +343,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const videoTimeUpdateHandlerRef = useRef<((e: Event) => void) | null>(null);
     const audioTimeUpdateHandlerRef = useRef<((e: Event) => void) | null>(null);
     const previousVideoMuteStateRef = useRef<boolean | null>(null);
+    const [muteVideoAudioDuringPlayback, setMuteVideoAudioDuringPlayback] = useState(true);
     const [confirmingDiscard, setConfirmingDiscard] = useState(false);
     const [showRecorder, setShowRecorder] = useState(() => {
         try {
@@ -715,7 +717,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 if (videoElement) {
                     videoElementRef.current = videoElement;
                     previousVideoMuteStateRef.current = videoElement.muted;
-                    videoElement.muted = true;
+                    // Only mute if checkbox is checked
+                    videoElement.muted = muteVideoAudioDuringPlayback;
 
                     // Set up timeupdate listener to pause at endTime
                     const timeUpdateHandler = (e: Event) => {
@@ -801,7 +804,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 audioElementRef.current = null;
             }
         }
-    }, [audioBlob, effectiveTimestamps, shouldShowVideoPlayer, videoUrl, playerRef]);
+    }, [
+        audioBlob,
+        effectiveTimestamps,
+        shouldShowVideoPlayer,
+        videoUrl,
+        playerRef,
+        muteVideoAudioDuringPlayback,
+    ]);
 
     useEffect(() => {
         setEditableLabel(cellLabel || "");
@@ -2864,34 +2874,55 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             </div>
                                         </div>
 
-                                        <div className="flex gap-2">
-                                            <Button
-                                                onClick={handlePlayAudioWithVideo}
-                                                variant="default"
-                                                size="sm"
-                                                disabled={
-                                                    !audioBlob ||
-                                                    (effectiveTimestamps?.endTime ?? 0) - (effectiveTimestamps?.startTime ?? 0) <= 0 ||
-                                                    !shouldShowVideoPlayer
-                                                }
-                                            >
-                                                <Play className="mr-1 h-4 w-4" />
-                                                Play
-                                            </Button>
-                                            <Button
-                                                onClick={() => {
-                                                    // Clear timestamps
-                                                    setContentBeingUpdated({
-                                                        ...contentBeingUpdated,
-                                                        cellTimestamps: undefined,
-                                                    });
-                                                }}
-                                                variant="outline"
-                                                size="sm"
-                                            >
-                                                <RotateCcw className="mr-1 h-4 w-4" />
-                                                Revert
-                                            </Button>
+                                        <div className="flex justify-between">
+                                            <div className="flex gap-2">
+                                                <Button
+                                                    onClick={handlePlayAudioWithVideo}
+                                                    variant="default"
+                                                    size="sm"
+                                                    disabled={
+                                                        !audioBlob ||
+                                                        (effectiveTimestamps?.endTime ?? 0) -
+                                                            (effectiveTimestamps?.startTime ?? 0) <=
+                                                            0 ||
+                                                        !shouldShowVideoPlayer
+                                                    }
+                                                >
+                                                    <Play className="mr-1 h-4 w-4" />
+                                                    Play
+                                                </Button>
+                                                <Button
+                                                    onClick={() => {
+                                                        // Clear timestamps
+                                                        setContentBeingUpdated({
+                                                            ...contentBeingUpdated,
+                                                            cellTimestamps: undefined,
+                                                        });
+                                                    }}
+                                                    variant="outline"
+                                                    size="sm"
+                                                >
+                                                    <RotateCcw className="mr-1 h-4 w-4" />
+                                                    Revert
+                                                </Button>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <Checkbox
+                                                    id="mute-video-audio-during-playback"
+                                                    checked={muteVideoAudioDuringPlayback}
+                                                    onCheckedChange={(checked) =>
+                                                        setMuteVideoAudioDuringPlayback(
+                                                            checked === true
+                                                        )
+                                                    }
+                                                />
+                                                <label
+                                                    htmlFor="mute-video-audio-during-playback"
+                                                    className="text-sm cursor-pointer"
+                                                >
+                                                    Mute video
+                                                </label>
+                                            </div>
                                         </div>
                                     </div>
                                 ) : (
