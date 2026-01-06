@@ -891,6 +891,9 @@ const CellList: React.FC<CellListProps> = ({
                             vscode={vscode}
                             isSourceText={isSourceText}
                             isAuthenticated={isAuthenticated}
+                            playerRef={playerRef}
+                            videoUrl={videoUrl}
+                            shouldShowVideoPlayer={shouldShowVideoPlayer}
                         />
                     </span>
                 );

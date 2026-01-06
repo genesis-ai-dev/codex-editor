@@ -7,6 +7,7 @@ import {
     SpellCheckResponse,
     Timestamps,
 } from "../../../../types";
+import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 import Editor, { EditorHandles } from "./Editor";
 import { getCleanedHtml } from "./react-quill-spellcheck";
 import { CodexCellTypes } from "../../../../types/enums";
@@ -138,6 +139,9 @@ interface CellEditorProps {
     vscode?: any;
     isSourceText?: boolean;
     isAuthenticated?: boolean;
+    playerRef?: React.RefObject<ReactPlayerRef>;
+    videoUrl?: string;
+    shouldShowVideoPlayer?: boolean;
 }
 
 // Simple ISO-639-1 to ISO-639-3 mapping for common languages; default to 'eng'
@@ -244,6 +248,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
     vscode,
     isSourceText,
     isAuthenticated,
+    playerRef,
+    videoUrl,
+    shouldShowVideoPlayer,
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
@@ -329,6 +336,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
     const [recordingStatus, setRecordingStatus] = useState<string>("");
     const audioChunksRef = useRef<Blob[]>([]);
+    // Refs for synchronized audio/video playback
+    const audioElementRef = useRef<HTMLAudioElement | null>(null);
+    const videoElementRef = useRef<HTMLVideoElement | null>(null);
+    const videoTimeUpdateHandlerRef = useRef<((e: Event) => void) | null>(null);
+    const audioTimeUpdateHandlerRef = useRef<((e: Event) => void) | null>(null);
+    const previousVideoMuteStateRef = useRef<boolean | null>(null);
     const [confirmingDiscard, setConfirmingDiscard] = useState(false);
     const [showRecorder, setShowRecorder] = useState(() => {
         try {
@@ -543,9 +556,291 @@ const CellEditor: React.FC<CellEditorProps> = ({
         ? nextStartBound
         : Math.max(effectiveTimestamps?.endTime ?? 0, (effectiveTimestamps?.startTime ?? 0) + 10);
 
+    // Handler to play audio blob with synchronized video playback
+    const handlePlayAudioWithVideo = useCallback(async () => {
+        // Validate prerequisites
+        if (!audioBlob) {
+            console.warn("No audio blob available to play");
+            return;
+        }
+
+        const startTime = effectiveTimestamps?.startTime;
+        const endTime = effectiveTimestamps?.endTime;
+        const duration = (endTime ?? 0) - (startTime ?? 0);
+
+        if (startTime === undefined || endTime === undefined) {
+            console.warn("Timestamps are not available");
+            return;
+        }
+
+        if (endTime <= startTime) {
+            console.warn("Invalid timestamps: endTime must be greater than startTime");
+            return;
+        }
+
+        // Clean up any existing playback
+        if (audioElementRef.current) {
+            if (audioTimeUpdateHandlerRef.current) {
+                audioElementRef.current.removeEventListener(
+                    "timeupdate",
+                    audioTimeUpdateHandlerRef.current
+                );
+                audioTimeUpdateHandlerRef.current = null;
+            }
+            audioElementRef.current.pause();
+            audioElementRef.current.src = "";
+            audioElementRef.current = null;
+        }
+
+        if (videoElementRef.current && videoTimeUpdateHandlerRef.current) {
+            videoElementRef.current.removeEventListener(
+                "timeupdate",
+                videoTimeUpdateHandlerRef.current
+            );
+            videoTimeUpdateHandlerRef.current = null;
+        }
+
+        // Create audio element and play
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audio = new Audio(audioUrl);
+        audioElementRef.current = audio;
+
+        audio.onended = () => {
+            // Clean up audio
+            if (audioElementRef.current) {
+                if (audioTimeUpdateHandlerRef.current) {
+                    audioElementRef.current.removeEventListener(
+                        "timeupdate",
+                        audioTimeUpdateHandlerRef.current
+                    );
+                    audioTimeUpdateHandlerRef.current = null;
+                }
+                URL.revokeObjectURL(audioUrl);
+                audioElementRef.current = null;
+            }
+
+            // Restore video mute state and clean up video
+            if (videoElementRef.current) {
+                if (previousVideoMuteStateRef.current !== null) {
+                    videoElementRef.current.muted = previousVideoMuteStateRef.current;
+                    previousVideoMuteStateRef.current = null;
+                }
+                if (videoTimeUpdateHandlerRef.current) {
+                    videoElementRef.current.removeEventListener(
+                        "timeupdate",
+                        videoTimeUpdateHandlerRef.current
+                    );
+                    videoTimeUpdateHandlerRef.current = null;
+                }
+                videoElementRef.current.pause();
+                videoElementRef.current = null;
+            }
+        };
+
+        audio.onerror = () => {
+            console.error("Error playing audio");
+            if (audioElementRef.current) {
+                if (audioTimeUpdateHandlerRef.current) {
+                    audioElementRef.current.removeEventListener(
+                        "timeupdate",
+                        audioTimeUpdateHandlerRef.current
+                    );
+                    audioTimeUpdateHandlerRef.current = null;
+                }
+                URL.revokeObjectURL(audioUrl);
+                audioElementRef.current = null;
+            }
+        };
+
+        // Handle video playback if available
+        if (
+            shouldShowVideoPlayer &&
+            videoUrl &&
+            playerRef?.current &&
+            startTime !== undefined &&
+            endTime !== undefined
+        ) {
+            try {
+                let videoElement: HTMLVideoElement | null = null;
+                let seeked = false;
+
+                // First try seekTo method if available
+                if (typeof playerRef.current.seekTo === "function") {
+                    playerRef.current.seekTo(startTime, "seconds");
+                    seeked = true;
+                }
+
+                // Try to find the video element
+                const internalPlayer = playerRef.current.getInternalPlayer?.();
+
+                if (internalPlayer instanceof HTMLVideoElement) {
+                    videoElement = internalPlayer;
+                    if (!seeked) {
+                        videoElement.currentTime = startTime;
+                        seeked = true;
+                    }
+                } else if (internalPlayer && typeof internalPlayer === "object") {
+                    // Try different ways to access the video element
+                    const foundVideo =
+                        (internalPlayer as any).querySelector?.("video") ||
+                        (internalPlayer as any).video ||
+                        internalPlayer;
+
+                    if (foundVideo instanceof HTMLVideoElement) {
+                        videoElement = foundVideo;
+                        if (!seeked) {
+                            videoElement.currentTime = startTime;
+                            seeked = true;
+                        }
+                    }
+                }
+
+                // Last resort: Try to find video element in the DOM
+                if (!videoElement && playerRef.current) {
+                    const wrapper = playerRef.current as any;
+                    const foundVideo =
+                        wrapper.querySelector?.("video") ||
+                        wrapper.parentElement?.querySelector?.("video");
+
+                    if (foundVideo instanceof HTMLVideoElement) {
+                        videoElement = foundVideo;
+                        if (!seeked) {
+                            videoElement.currentTime = startTime;
+                            seeked = true;
+                        }
+                    }
+                }
+
+                // If we found the video element, mute it and set up playback
+                if (videoElement) {
+                    videoElementRef.current = videoElement;
+                    previousVideoMuteStateRef.current = videoElement.muted;
+                    videoElement.muted = true;
+
+                    // Set up timeupdate listener to pause at endTime
+                    const timeUpdateHandler = (e: Event) => {
+                        const target = e.target as HTMLVideoElement;
+                        if (target.currentTime >= endTime) {
+                            target.pause();
+                            if (videoTimeUpdateHandlerRef.current) {
+                                target.removeEventListener(
+                                    "timeupdate",
+                                    videoTimeUpdateHandlerRef.current
+                                );
+                                videoTimeUpdateHandlerRef.current = null;
+                            }
+                        }
+                    };
+
+                    videoTimeUpdateHandlerRef.current = timeUpdateHandler;
+                    videoElement.addEventListener("timeupdate", timeUpdateHandler);
+
+                    // Start video playback
+                    try {
+                        await videoElement.play();
+                    } catch (playError) {
+                        console.warn("Video play() failed:", playError);
+                    }
+                }
+            } catch (error) {
+                console.error("Error setting up video playback:", error);
+            }
+        }
+
+        // Set up timeupdate listener to stop audio at endTime
+        const audioTimeUpdateHandler = (e: Event) => {
+            const target = e.target as HTMLAudioElement;
+            if (target.currentTime >= duration) {
+                target.pause();
+                if (audioTimeUpdateHandlerRef.current) {
+                    target.removeEventListener("timeupdate", audioTimeUpdateHandlerRef.current);
+                    audioTimeUpdateHandlerRef.current = null;
+                }
+                // Trigger cleanup similar to onended
+                if (audioElementRef.current) {
+                    URL.revokeObjectURL(audioUrl);
+                    audioElementRef.current = null;
+                }
+                // Restore video mute state and clean up video
+                if (videoElementRef.current) {
+                    if (previousVideoMuteStateRef.current !== null) {
+                        videoElementRef.current.muted = previousVideoMuteStateRef.current;
+                        previousVideoMuteStateRef.current = null;
+                    }
+                    if (videoTimeUpdateHandlerRef.current) {
+                        videoElementRef.current.removeEventListener(
+                            "timeupdate",
+                            videoTimeUpdateHandlerRef.current
+                        );
+                        videoTimeUpdateHandlerRef.current = null;
+                    }
+                    videoElementRef.current.pause();
+                    videoElementRef.current = null;
+                }
+            }
+        };
+
+        audioTimeUpdateHandlerRef.current = audioTimeUpdateHandler;
+        audio.addEventListener("timeupdate", audioTimeUpdateHandler);
+
+        // Start audio playback
+        try {
+            await audio.play();
+        } catch (playError) {
+            console.error("Error playing audio:", playError);
+            // Clean up on error
+            if (audioElementRef.current) {
+                if (audioTimeUpdateHandlerRef.current) {
+                    audioElementRef.current.removeEventListener(
+                        "timeupdate",
+                        audioTimeUpdateHandlerRef.current
+                    );
+                    audioTimeUpdateHandlerRef.current = null;
+                }
+                URL.revokeObjectURL(audioUrl);
+                audioElementRef.current = null;
+            }
+        }
+    }, [audioBlob, effectiveTimestamps, shouldShowVideoPlayer, videoUrl, playerRef]);
+
     useEffect(() => {
         setEditableLabel(cellLabel || "");
     }, [cellLabel]);
+
+    // Cleanup audio/video playback on unmount or when cell changes
+    useEffect(() => {
+        return () => {
+            // Clean up audio element
+            if (audioElementRef.current) {
+                if (audioTimeUpdateHandlerRef.current) {
+                    audioElementRef.current.removeEventListener(
+                        "timeupdate",
+                        audioTimeUpdateHandlerRef.current
+                    );
+                    audioTimeUpdateHandlerRef.current = null;
+                }
+                audioElementRef.current.pause();
+                audioElementRef.current.src = "";
+                audioElementRef.current = null;
+            }
+
+            // Clean up video element listeners and restore mute state
+            if (videoElementRef.current) {
+                if (videoTimeUpdateHandlerRef.current) {
+                    videoElementRef.current.removeEventListener(
+                        "timeupdate",
+                        videoTimeUpdateHandlerRef.current
+                    );
+                    videoTimeUpdateHandlerRef.current = null;
+                }
+                if (previousVideoMuteStateRef.current !== null) {
+                    videoElementRef.current.muted = previousVideoMuteStateRef.current;
+                    previousVideoMuteStateRef.current = null;
+                }
+                videoElementRef.current = null;
+            }
+        };
+    }, [cellMarkers]);
 
     // Fetch comments count for this cell
     // Comments count now handled by CellList.tsx batched requests
@@ -2570,6 +2865,19 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         </div>
 
                                         <div className="flex gap-2">
+                                            <Button
+                                                onClick={handlePlayAudioWithVideo}
+                                                variant="default"
+                                                size="sm"
+                                                disabled={
+                                                    !audioBlob ||
+                                                    (effectiveTimestamps?.endTime ?? 0) - (effectiveTimestamps?.startTime ?? 0) <= 0 ||
+                                                    !shouldShowVideoPlayer
+                                                }
+                                            >
+                                                <Play className="mr-1 h-4 w-4" />
+                                                Play
+                                            </Button>
                                             <Button
                                                 onClick={() => {
                                                     // Clear timestamps
