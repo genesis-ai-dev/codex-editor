@@ -125,6 +125,10 @@ interface CellEditorProps {
     footnoteOffset?: number;
     prevEndTime?: number;
     nextStartTime?: number;
+    prevCellId?: string;
+    prevStartTime?: number;
+    nextCellId?: string;
+    nextEndTime?: number;
     audioAttachments?: {
         [cellId: string]:
             | "available"
@@ -242,6 +246,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     footnoteOffset = 1,
     prevEndTime,
     nextStartTime,
+    prevCellId,
+    prevStartTime,
+    nextCellId,
+    nextEndTime,
     audioAttachments,
     requiredValidations,
     requiredAudioValidations,
@@ -343,6 +351,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const videoTimeUpdateHandlerRef = useRef<((e: Event) => void) | null>(null);
     const audioTimeUpdateHandlerRef = useRef<((e: Event) => void) | null>(null);
     const previousVideoMuteStateRef = useRef<boolean | null>(null);
+    // Refs for mixed audio playback (multiple overlapping cells)
+    const overlappingAudioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+    const overlappingAudioHandlersRef = useRef<Map<string, (e: Event) => void>>(new Map());
+    const overlappingAudioUrlsRef = useRef<Map<string, string>>(new Map());
     const [muteVideoAudioDuringPlayback, setMuteVideoAudioDuringPlayback] = useState(true);
     const [confirmingDiscard, setConfirmingDiscard] = useState(false);
     const [showRecorder, setShowRecorder] = useState(() => {
@@ -554,9 +566,85 @@ const CellEditor: React.FC<CellEditorProps> = ({
         typeof nextStartTime === "number" ? nextStartTime : Number.POSITIVE_INFINITY;
     const effectiveTimestamps: Timestamps | undefined =
         contentBeingUpdated.cellTimestamps ?? cellTimestamps;
+
+    // Extended bounds for overlapping ranges
+    const extendedMinBound =
+        typeof prevStartTime === "number" ? prevStartTime : Math.max(0, previousEndBound);
+    const extendedMaxBound =
+        typeof nextEndTime === "number"
+            ? nextEndTime
+            : Number.isFinite(nextStartBound)
+            ? nextStartBound
+            : Math.max(
+                  effectiveTimestamps?.endTime ?? 0,
+                  (effectiveTimestamps?.startTime ?? 0) + 10
+              );
+
     const computedMaxBound = Number.isFinite(nextStartBound)
         ? nextStartBound
         : Math.max(effectiveTimestamps?.endTime ?? 0, (effectiveTimestamps?.startTime ?? 0) + 10);
+
+    // Helper function to request audio blob for a cell
+    const requestAudioBlob = useCallback((cellId: string): Promise<Blob | null> => {
+        return new Promise((resolve) => {
+            let resolved = false;
+            const timeout = setTimeout(() => {
+                if (!resolved) {
+                    resolved = true;
+                    window.removeEventListener("message", handler);
+                    resolve(null);
+                }
+            }, 5000);
+
+            const handler = (event: MessageEvent) => {
+                const message = event.data;
+                if (
+                    message?.type === "providerSendsAudioData" &&
+                    message.content?.cellId === cellId
+                ) {
+                    if (!resolved) {
+                        resolved = true;
+                        clearTimeout(timeout);
+                        window.removeEventListener("message", handler);
+                        if (message.content.audioData) {
+                            fetch(message.content.audioData)
+                                .then((res) => res.blob())
+                                .then((blob) => resolve(blob))
+                                .catch(() => resolve(null));
+                        } else {
+                            resolve(null);
+                        }
+                    }
+                }
+            };
+
+            window.addEventListener("message", handler);
+            window.vscodeApi.postMessage({
+                command: "requestAudioForCell",
+                content: { cellId },
+            } as EditorPostMessages);
+        });
+    }, []);
+
+    // Helper function to clean up all overlapping audio
+    const cleanupOverlappingAudio = useCallback(() => {
+        // Clean up overlapping audio elements
+        overlappingAudioElementsRef.current.forEach((audio, cellId) => {
+            const handler = overlappingAudioHandlersRef.current.get(cellId);
+            if (handler) {
+                audio.removeEventListener("timeupdate", handler);
+                overlappingAudioHandlersRef.current.delete(cellId);
+            }
+            audio.pause();
+            audio.src = "";
+            const url = overlappingAudioUrlsRef.current.get(cellId);
+            if (url) {
+                URL.revokeObjectURL(url);
+                overlappingAudioUrlsRef.current.delete(cellId);
+            }
+        });
+        overlappingAudioElementsRef.current.clear();
+    }, []);
 
     // Handler to play audio blob with synchronized video playback
     const handlePlayAudioWithVideo = useCallback(async () => {
@@ -581,6 +669,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
 
         // Clean up any existing playback
+        cleanupOverlappingAudio();
+
         if (audioElementRef.current) {
             if (audioTimeUpdateHandlerRef.current) {
                 audioElementRef.current.removeEventListener(
@@ -602,13 +692,43 @@ const CellEditor: React.FC<CellEditorProps> = ({
             videoTimeUpdateHandlerRef.current = null;
         }
 
-        // Create audio element and play
-        const audioUrl = URL.createObjectURL(audioBlob);
-        const audio = new Audio(audioUrl);
-        audioElementRef.current = audio;
+        // Determine which cells overlap with current cell's range
+        const needsPreviousAudio =
+            prevCellId &&
+            typeof prevStartTime === "number" &&
+            typeof prevEndTime === "number" &&
+            startTime < prevEndTime;
+        const needsNextAudio =
+            nextCellId &&
+            typeof nextStartTime === "number" &&
+            typeof nextEndTime === "number" &&
+            endTime > nextStartTime;
 
-        audio.onended = () => {
-            // Clean up audio
+        // Request overlapping audio blobs
+        const audioPromises: Promise<{ cellId: string; blob: Blob | null }>[] = [];
+        if (needsPreviousAudio && prevCellId) {
+            audioPromises.push(
+                requestAudioBlob(prevCellId).then((blob) => ({
+                    cellId: prevCellId!,
+                    blob,
+                }))
+            );
+        }
+        if (needsNextAudio && nextCellId) {
+            audioPromises.push(
+                requestAudioBlob(nextCellId).then((blob) => ({
+                    cellId: nextCellId!,
+                    blob,
+                }))
+            );
+        }
+
+        // Wait for all audio requests (don't block if some fail)
+        const overlappingAudios = await Promise.all(audioPromises);
+
+        // Helper function to clean up all audio and video
+        const cleanupAll = () => {
+            cleanupOverlappingAudio();
             if (audioElementRef.current) {
                 if (audioTimeUpdateHandlerRef.current) {
                     audioElementRef.current.removeEventListener(
@@ -617,7 +737,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     );
                     audioTimeUpdateHandlerRef.current = null;
                 }
-                URL.revokeObjectURL(audioUrl);
+                const currentUrl = overlappingAudioUrlsRef.current.get("current");
+                if (currentUrl) {
+                    URL.revokeObjectURL(currentUrl);
+                    overlappingAudioUrlsRef.current.delete("current");
+                }
+                audioElementRef.current.pause();
+                audioElementRef.current.src = "";
                 audioElementRef.current = null;
             }
 
@@ -639,18 +765,27 @@ const CellEditor: React.FC<CellEditorProps> = ({
             }
         };
 
+        // Create audio element for current cell
+        const audioUrl = URL.createObjectURL(audioBlob);
+        overlappingAudioUrlsRef.current.set("current", audioUrl);
+        const audio = new Audio(audioUrl);
+        audioElementRef.current = audio;
+
+        let currentAudioErrorHandled = false;
+        audio.onended = cleanupAll;
         audio.onerror = () => {
-            console.error("Error playing audio");
-            if (audioElementRef.current) {
-                if (audioTimeUpdateHandlerRef.current) {
-                    audioElementRef.current.removeEventListener(
-                        "timeupdate",
-                        audioTimeUpdateHandlerRef.current
-                    );
-                    audioTimeUpdateHandlerRef.current = null;
+            if (!currentAudioErrorHandled) {
+                currentAudioErrorHandled = true;
+                const error = audio.error;
+                // Only log if it's a real error (not just unsupported format - code 4)
+                // MediaError codes: 1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED
+                if (error && error.code !== 4) {
+                    const errorMessage = error.message
+                        ? `Error loading current cell audio: ${error.message}`
+                        : "Error loading current cell audio";
+                    console.warn(errorMessage);
                 }
-                URL.revokeObjectURL(audioUrl);
-                audioElementRef.current = null;
+                cleanupAll();
             }
         };
 
@@ -750,59 +885,315 @@ const CellEditor: React.FC<CellEditorProps> = ({
             }
         }
 
-        // Set up timeupdate listener to stop audio at endTime
+        // Set up overlapping audio elements
+        const overlappingAudioReadyPromises: Promise<void>[] = [];
+        for (const { cellId, blob } of overlappingAudios) {
+            if (!blob) {
+                // Audio not available for this overlapping cell - skip silently
+                // This is expected when some cells don't have audio recorded yet
+                continue;
+            }
+
+            let playStartTime: number;
+            let playEndTime: number;
+
+            if (
+                cellId === prevCellId &&
+                typeof prevStartTime === "number" &&
+                typeof prevEndTime === "number"
+            ) {
+                // Previous cell: play overlapping portion
+                playStartTime = Math.max(prevStartTime, startTime);
+                playEndTime = Math.min(prevEndTime, endTime);
+            } else if (
+                cellId === nextCellId &&
+                typeof nextStartTime === "number" &&
+                typeof nextEndTime === "number"
+            ) {
+                // Next cell: play overlapping portion
+                playStartTime = Math.max(nextStartTime, startTime);
+                playEndTime = Math.min(nextEndTime, endTime);
+            } else {
+                continue;
+            }
+
+            if (playEndTime <= playStartTime) continue;
+
+            const overlappingUrl = URL.createObjectURL(blob);
+            overlappingAudioUrlsRef.current.set(cellId, overlappingUrl);
+            const overlappingAudio = new Audio(overlappingUrl);
+            overlappingAudioElementsRef.current.set(cellId, overlappingAudio);
+
+            // Calculate offset within the cell's audio
+            const cellStartTime =
+                cellId === prevCellId
+                    ? typeof prevStartTime === "number"
+                        ? prevStartTime
+                        : 0
+                    : typeof nextStartTime === "number"
+                    ? nextStartTime
+                    : 0;
+            const offsetInCell = playStartTime - cellStartTime;
+            const durationInPlayback = playEndTime - playStartTime;
+
+            // Track if error handler has already run to prevent infinite loops
+            let errorHandled = false;
+            let isReady = false;
+
+            // Helper function to clean up this overlapping audio
+            const cleanupOverlappingAudioForCell = () => {
+                if (errorHandled) return; // Prevent infinite loop
+                errorHandled = true;
+
+                const handler = overlappingAudioHandlersRef.current.get(cellId);
+                if (handler && overlappingAudio) {
+                    try {
+                        overlappingAudio.removeEventListener("timeupdate", handler);
+                    } catch (e) {
+                        // Ignore errors during cleanup
+                    }
+                    overlappingAudioHandlersRef.current.delete(cellId);
+                }
+                try {
+                    overlappingAudio.pause();
+                    overlappingAudio.src = "";
+                } catch (e) {
+                    // Ignore errors during cleanup
+                }
+                const url = overlappingAudioUrlsRef.current.get(cellId);
+                if (url) {
+                    URL.revokeObjectURL(url);
+                    overlappingAudioUrlsRef.current.delete(cellId);
+                }
+                overlappingAudioElementsRef.current.delete(cellId);
+            };
+
+            // Set up error handler (only log if not already handled by promise rejection)
+            overlappingAudio.onerror = () => {
+                if (!errorHandled) {
+                    errorHandled = true;
+                    const error = overlappingAudio.error;
+                    // Only log if it's a real error (not just unsupported format - code 4)
+                    // MediaError codes: 1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED
+                    if (error && error.code !== 4) {
+                        const errorMessage = error.message
+                            ? `Error loading overlapping audio for cell ${cellId}: ${error.message}`
+                            : `Error loading overlapping audio for cell ${cellId}`;
+                        console.warn(errorMessage);
+                    }
+                    cleanupOverlappingAudioForCell();
+                }
+            };
+
+            // Set up timeupdate listener to stop at the calculated end time
+            const overlappingHandler = (e: Event) => {
+                const target = e.target as HTMLAudioElement;
+                // Check if we've reached the end of the overlapping portion
+                if (target.currentTime >= offsetInCell + durationInPlayback) {
+                    target.pause();
+                    const handler = overlappingAudioHandlersRef.current.get(cellId);
+                    if (handler) {
+                        target.removeEventListener("timeupdate", handler);
+                        overlappingAudioHandlersRef.current.delete(cellId);
+                    }
+                }
+            };
+
+            overlappingAudioHandlersRef.current.set(cellId, overlappingHandler);
+            overlappingAudio.addEventListener("timeupdate", overlappingHandler);
+
+            // Create a promise that resolves when audio is ready to play
+            const readyPromise = new Promise<void>((resolve, reject) => {
+                const handleLoadedMetadata = () => {
+                    try {
+                        if (
+                            offsetInCell >= 0 &&
+                            offsetInCell < overlappingAudio.duration &&
+                            !errorHandled
+                        ) {
+                            overlappingAudio.currentTime = offsetInCell;
+                            isReady = true;
+                            overlappingAudio.removeEventListener(
+                                "loadedmetadata",
+                                handleLoadedMetadata
+                            );
+                            overlappingAudio.removeEventListener("error", handleError);
+                            resolve();
+                        } else {
+                            console.warn(
+                                `Invalid offset ${offsetInCell} for audio duration ${overlappingAudio.duration} in cell ${cellId}`
+                            );
+                            overlappingAudio.removeEventListener(
+                                "loadedmetadata",
+                                handleLoadedMetadata
+                            );
+                            overlappingAudio.removeEventListener("error", handleError);
+                            cleanupOverlappingAudioForCell();
+                            reject(new Error(`Invalid offset for cell ${cellId}`));
+                        }
+                    } catch (error) {
+                        console.error(
+                            `Error setting currentTime for overlapping audio ${cellId}:`,
+                            error
+                        );
+                        overlappingAudio.removeEventListener(
+                            "loadedmetadata",
+                            handleLoadedMetadata
+                        );
+                        overlappingAudio.removeEventListener("error", handleError);
+                        cleanupOverlappingAudioForCell();
+                        reject(error);
+                    }
+                };
+
+                const handleError = () => {
+                    if (!errorHandled) {
+                        overlappingAudio.removeEventListener(
+                            "loadedmetadata",
+                            handleLoadedMetadata
+                        );
+                        overlappingAudio.removeEventListener("error", handleError);
+                        errorHandled = true;
+                        // Don't log here - let onerror handler log it
+                        const error = overlappingAudio.error;
+                        const errorMessage =
+                            error?.message || `Error loading audio for cell ${cellId}`;
+                        cleanupOverlappingAudioForCell();
+                        reject(new Error(errorMessage));
+                    }
+                };
+
+                // If already loaded, handle immediately
+                if (overlappingAudio.readyState >= HTMLMediaElement.HAVE_METADATA) {
+                    handleLoadedMetadata();
+                } else {
+                    overlappingAudio.addEventListener("loadedmetadata", handleLoadedMetadata);
+                    overlappingAudio.addEventListener("error", handleError);
+                }
+            });
+
+            overlappingAudioReadyPromises.push(readyPromise);
+        }
+
+        // Set up timeupdate listener to stop current cell audio at endTime
         const audioTimeUpdateHandler = (e: Event) => {
             const target = e.target as HTMLAudioElement;
             if (target.currentTime >= duration) {
                 target.pause();
-                if (audioTimeUpdateHandlerRef.current) {
-                    target.removeEventListener("timeupdate", audioTimeUpdateHandlerRef.current);
-                    audioTimeUpdateHandlerRef.current = null;
-                }
-                // Trigger cleanup similar to onended
-                if (audioElementRef.current) {
-                    URL.revokeObjectURL(audioUrl);
-                    audioElementRef.current = null;
-                }
-                // Restore video mute state and clean up video
-                if (videoElementRef.current) {
-                    if (previousVideoMuteStateRef.current !== null) {
-                        videoElementRef.current.muted = previousVideoMuteStateRef.current;
-                        previousVideoMuteStateRef.current = null;
-                    }
-                    if (videoTimeUpdateHandlerRef.current) {
-                        videoElementRef.current.removeEventListener(
-                            "timeupdate",
-                            videoTimeUpdateHandlerRef.current
-                        );
-                        videoTimeUpdateHandlerRef.current = null;
-                    }
-                    videoElementRef.current.pause();
-                    videoElementRef.current = null;
-                }
+                cleanupAll();
             }
         };
 
         audioTimeUpdateHandlerRef.current = audioTimeUpdateHandler;
         audio.addEventListener("timeupdate", audioTimeUpdateHandler);
 
-        // Start audio playback
+        // Start all audio playback simultaneously
         try {
-            await audio.play();
+            // Wait for current cell audio to be ready
+            const currentAudioReady = new Promise<void>((resolve, reject) => {
+                const handleCanPlay = () => {
+                    audio.removeEventListener("canplay", handleCanPlay);
+                    audio.removeEventListener("error", handleError);
+                    resolve();
+                };
+
+                const handleError = () => {
+                    if (!currentAudioErrorHandled) {
+                        audio.removeEventListener("canplay", handleCanPlay);
+                        audio.removeEventListener("error", handleError);
+                        currentAudioErrorHandled = true;
+                        const error = audio.error;
+                        // Don't log here - let onerror handler log it
+                        const errorMessage = error?.message || "Error loading current cell audio";
+                        reject(new Error(errorMessage));
+                    }
+                };
+
+                if (audio.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA) {
+                    resolve();
+                } else {
+                    audio.addEventListener("canplay", handleCanPlay);
+                    audio.addEventListener("error", handleError);
+                }
+            });
+
+            // Wait for all overlapping audio to be ready before starting playback
+            const readyResults = await Promise.allSettled([
+                currentAudioReady,
+                ...overlappingAudioReadyPromises,
+            ]);
+
+            // Check if current audio failed to load
+            const currentAudioResult = readyResults[0];
+            if (currentAudioResult.status === "rejected") {
+                // Error already logged by onerror handler or promise rejection handler
+                cleanupAll();
+                return; // Exit early if current audio fails to load
+            }
+
+            // Start current cell audio
+            try {
+                await audio.play();
+            } catch (playError) {
+                if (
+                    !currentAudioErrorHandled &&
+                    playError instanceof Error &&
+                    playError.name !== "AbortError" &&
+                    playError.name !== "NotAllowedError"
+                ) {
+                    currentAudioErrorHandled = true;
+                    console.error("Error playing current cell audio:", playError);
+                }
+                cleanupAll();
+                return; // Exit early if current audio fails to play
+            }
+
+            // Start overlapping audio elements (they're now ready)
+            const overlappingPlayPromises: Promise<void>[] = [];
+            overlappingAudioElementsRef.current.forEach((overlappingAudio, cellId) => {
+                // Only try to play if the audio is still in the map (not removed due to error)
+                if (overlappingAudioElementsRef.current.has(cellId)) {
+                    overlappingPlayPromises.push(
+                        overlappingAudio.play().catch((error) => {
+                            // Only log if it's a real error (not just user interruption)
+                            if (error.name !== "AbortError" && error.name !== "NotAllowedError") {
+                                console.warn(
+                                    `Error playing overlapping audio for ${cellId}:`,
+                                    error
+                                );
+                            }
+                            // Clean up on play error
+                            const handler = overlappingAudioHandlersRef.current.get(cellId);
+                            if (handler) {
+                                try {
+                                    overlappingAudio.removeEventListener("timeupdate", handler);
+                                } catch (e) {
+                                    // Ignore cleanup errors
+                                }
+                                overlappingAudioHandlersRef.current.delete(cellId);
+                            }
+                            try {
+                                overlappingAudio.pause();
+                                overlappingAudio.src = "";
+                            } catch (e) {
+                                // Ignore cleanup errors
+                            }
+                            const url = overlappingAudioUrlsRef.current.get(cellId);
+                            if (url) {
+                                URL.revokeObjectURL(url);
+                                overlappingAudioUrlsRef.current.delete(cellId);
+                            }
+                            overlappingAudioElementsRef.current.delete(cellId);
+                        })
+                    );
+                }
+            });
+
+            // Wait for all overlapping audio to start (don't fail if some fail)
+            await Promise.allSettled(overlappingPlayPromises);
         } catch (playError) {
             console.error("Error playing audio:", playError);
-            // Clean up on error
-            if (audioElementRef.current) {
-                if (audioTimeUpdateHandlerRef.current) {
-                    audioElementRef.current.removeEventListener(
-                        "timeupdate",
-                        audioTimeUpdateHandlerRef.current
-                    );
-                    audioTimeUpdateHandlerRef.current = null;
-                }
-                URL.revokeObjectURL(audioUrl);
-                audioElementRef.current = null;
-            }
+            cleanupAll();
         }
     }, [
         audioBlob,
@@ -811,6 +1202,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
         videoUrl,
         playerRef,
         muteVideoAudioDuringPlayback,
+        prevCellId,
+        prevStartTime,
+        prevEndTime,
+        nextCellId,
+        nextStartTime,
+        nextEndTime,
+        requestAudioBlob,
+        cleanupOverlappingAudio,
     ]);
 
     useEffect(() => {
@@ -2793,58 +3192,113 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     effectiveTimestamps.endTime !== undefined) ? (
                                     <div className="space-y-4">
                                         {/* Scrubber with clamped handles */}
-                                        <div className="space-y-2">
-                                            <label className="text-sm font-medium">
-                                                Adjust range
-                                            </label>
-                                            <Slider
-                                                min={Math.max(0, previousEndBound)}
-                                                max={Math.max(
-                                                    computedMaxBound,
-                                                    effectiveTimestamps.endTime ?? 0
+                                        <div className="space-y-4">
+                                            {/* Previous cell slider - read-only */}
+                                            {typeof prevStartTime === "number" &&
+                                                typeof prevEndTime === "number" &&
+                                                prevStartTime < prevEndTime && (
+                                                    <div className="space-y-2 opacity-60">
+                                                        <label className="text-sm font-medium text-muted-foreground">
+                                                            Previous cell range
+                                                        </label>
+                                                        <Slider
+                                                            disabled
+                                                            min={Math.max(0, prevStartTime)}
+                                                            max={Math.max(
+                                                                prevEndTime,
+                                                                prevStartTime + 0.001
+                                                            )}
+                                                            value={[prevStartTime, prevEndTime]}
+                                                            step={0.001}
+                                                        />
+                                                        <div className="flex justify-between text-xs text-muted-foreground">
+                                                            <span>{formatTime(prevStartTime)}</span>
+                                                            <span>{formatTime(prevEndTime)}</span>
+                                                        </div>
+                                                    </div>
                                                 )}
-                                                value={[
-                                                    Math.max(
-                                                        Math.max(0, previousEndBound),
-                                                        effectiveTimestamps.startTime ?? 0
-                                                    ),
-                                                    Math.min(
-                                                        nextStartBound,
+
+                                            {/* Current cell slider */}
+                                            <div className="space-y-2">
+                                                <label className="text-sm font-medium">
+                                                    Adjust range
+                                                </label>
+                                                <Slider
+                                                    min={extendedMinBound}
+                                                    max={Math.max(
+                                                        extendedMaxBound,
                                                         effectiveTimestamps.endTime ??
+                                                            extendedMinBound
+                                                    )}
+                                                    value={[
+                                                        Math.max(
+                                                            extendedMinBound,
                                                             effectiveTimestamps.startTime ??
-                                                            0
-                                                    ),
-                                                ]}
-                                                step={0.001}
-                                                onValueChange={(vals: number[]) => {
-                                                    const [start, end] = vals;
-                                                    const clampedStart = Math.max(
-                                                        Math.max(0, previousEndBound),
-                                                        Math.min(start, end)
-                                                    );
-                                                    const clampedEnd = Math.min(
-                                                        nextStartBound,
-                                                        Math.max(end, clampedStart)
-                                                    );
-                                                    const updatedTimestamps: Timestamps = {
-                                                        ...effectiveTimestamps,
-                                                        startTime: Number(clampedStart.toFixed(3)),
-                                                        endTime: Number(clampedEnd.toFixed(3)),
-                                                    };
-                                                    setContentBeingUpdated({
-                                                        ...contentBeingUpdated,
-                                                        cellTimestamps: updatedTimestamps,
-                                                        cellChanged: true,
-                                                    });
-                                                    setUnsavedChanges(true);
-                                                }}
-                                            />
-                                            <div className="flex justify-between text-xs text-muted-foreground">
-                                                <span>
-                                                    Min: {formatTime(Math.max(0, previousEndBound))}
-                                                </span>
-                                                <span>Max: {formatTime(computedMaxBound)}</span>
+                                                                extendedMinBound
+                                                        ),
+                                                        Math.min(
+                                                            extendedMaxBound,
+                                                            effectiveTimestamps.endTime ??
+                                                                effectiveTimestamps.startTime ??
+                                                                extendedMaxBound
+                                                        ),
+                                                    ]}
+                                                    step={0.001}
+                                                    onValueChange={(vals: number[]) => {
+                                                        const [start, end] = vals;
+                                                        const clampedStart = Math.max(
+                                                            extendedMinBound,
+                                                            Math.min(start, end)
+                                                        );
+                                                        const clampedEnd = Math.min(
+                                                            extendedMaxBound,
+                                                            Math.max(end, clampedStart)
+                                                        );
+                                                        const updatedTimestamps: Timestamps = {
+                                                            ...effectiveTimestamps,
+                                                            startTime: Number(
+                                                                clampedStart.toFixed(3)
+                                                            ),
+                                                            endTime: Number(clampedEnd.toFixed(3)),
+                                                        };
+                                                        setContentBeingUpdated({
+                                                            ...contentBeingUpdated,
+                                                            cellTimestamps: updatedTimestamps,
+                                                            cellChanged: true,
+                                                        });
+                                                        setUnsavedChanges(true);
+                                                    }}
+                                                />
+                                                <div className="flex justify-between text-xs text-muted-foreground">
+                                                    <span>Min: {formatTime(extendedMinBound)}</span>
+                                                    <span>Max: {formatTime(extendedMaxBound)}</span>
+                                                </div>
                                             </div>
+
+                                            {/* Next cell slider - read-only */}
+                                            {typeof nextStartTime === "number" &&
+                                                typeof nextEndTime === "number" &&
+                                                nextStartTime < nextEndTime && (
+                                                    <div className="space-y-2 opacity-60">
+                                                        <label className="text-sm font-medium text-muted-foreground">
+                                                            Next cell range
+                                                        </label>
+                                                        <Slider
+                                                            disabled
+                                                            min={Math.max(0, nextStartTime)}
+                                                            max={Math.max(
+                                                                nextEndTime,
+                                                                nextStartTime + 0.001
+                                                            )}
+                                                            value={[nextStartTime, nextEndTime]}
+                                                            step={0.001}
+                                                        />
+                                                        <div className="flex justify-between text-xs text-muted-foreground">
+                                                            <span>{formatTime(nextStartTime)}</span>
+                                                            <span>{formatTime(nextEndTime)}</span>
+                                                        </div>
+                                                    </div>
+                                                )}
                                         </div>
 
                                         <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
