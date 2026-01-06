@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { WebviewApi } from "vscode-webview";
-import { LanguageMetadata } from "codex-types";
+import { LanguageMetadata, LanguageProjectStatus } from "codex-types";
 import {
     Dialog,
     DialogContent,
@@ -22,9 +22,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../..
 import { Label } from "../../components/ui/label";
 import { LanguagePicker } from "../../shared/components/LanguagePicker";
 import { MessagesToStartupFlowProvider } from "../types";
+import { Lock } from "lucide-react";
 
 type ProjectType = "bible" | "subtitles" | "obs" | "documents" | "other";
 type CreationMode = "generate" | "upload" | null;
+
+// English language metadata for auto-selection
+const ENGLISH_LANGUAGE: LanguageMetadata = {
+    tag: "eng",
+    name: { en: "English" },
+    refName: "English",
+    projectStatus: LanguageProjectStatus.SOURCE,
+    iso1: "en",
+    scope: "I",
+    type: "L",
+};
 
 interface ProjectCreationModalProps {
     isOpen: boolean;
@@ -47,6 +59,20 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
     // Validation state
     const [touched, setTouched] = useState(false);
     const [nameError, setNameError] = useState<string | null>(null);
+
+    // Auto-select Bible and English when Generate mode is selected
+    useEffect(() => {
+        if (creationMode === "generate") {
+            setProjectType("bible");
+            setSourceLanguage(ENGLISH_LANGUAGE);
+        } else if (creationMode === "upload") {
+            // Reset to empty when switching to upload mode
+            if (projectType === "bible" && sourceLanguage?.tag === "eng") {
+                setProjectType("");
+                setSourceLanguage(null);
+            }
+        }
+    }, [creationMode]);
 
     // Reset form when modal closes
     useEffect(() => {
@@ -78,13 +104,22 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
     // Check if form is valid
     const isFormValid = (): boolean => {
         const trimmedName = projectName.trim();
+        const hasValidName = trimmedName.length > 0 && trimmedName.length <= 256;
+        
+        if (!hasValidName || !creationMode) {
+            return false;
+        }
+        
+        // For generate mode, only need name and target language
+        if (creationMode === "generate") {
+            return targetLanguage !== null;
+        }
+        
+        // For upload mode, need all fields
         return (
-            trimmedName.length > 0 &&
-            trimmedName.length <= 256 &&
             projectType !== "" &&
             sourceLanguage !== null &&
-            targetLanguage !== null &&
-            creationMode !== null
+            targetLanguage !== null
         );
     };
 
@@ -168,54 +203,6 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
                         )}
                     </div>
 
-                    {/* Project Type */}
-                    <div className="space-y-2">
-                        <Label htmlFor="project-type">
-                            Project Type <span className="text-red-500">*</span>
-                        </Label>
-                        <Select
-                            value={projectType}
-                            onValueChange={(value) => setProjectType(value as ProjectType)}
-                        >
-                            <SelectTrigger id="project-type">
-                                <SelectValue placeholder="Select project type" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="bible">Bible Translation</SelectItem>
-                                <SelectItem value="subtitles">Subtitles Translation</SelectItem>
-                                <SelectItem value="obs">Open Bible Stories</SelectItem>
-                                <SelectItem value="documents">Document Translation</SelectItem>
-                                <SelectItem value="other">Other</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    {/* Source Language */}
-                    <div className="space-y-2">
-                        <Label>
-                            Source Language <span className="text-red-500">*</span>
-                        </Label>
-                        <LanguagePicker
-                            onLanguageSelect={handleLanguageSelect}
-                            projectStatus="source"
-                            label="Select Source Language"
-                            initialLanguage={sourceLanguage || undefined}
-                        />
-                    </div>
-
-                    {/* Target Language */}
-                    <div className="space-y-2">
-                        <Label>
-                            Target Language <span className="text-red-500">*</span>
-                        </Label>
-                        <LanguagePicker
-                            onLanguageSelect={handleLanguageSelect}
-                            projectStatus="target"
-                            label="Select Target Language"
-                            initialLanguage={targetLanguage || undefined}
-                        />
-                    </div>
-
                     {/* Creation Mode Selection */}
                     <div className="space-y-2">
                         <Label>
@@ -253,9 +240,7 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
                                 </CardHeader>
                                 <CardContent>
                                     <CardDescription>
-                                        {projectType && projectType !== ""
-                                            ? getProjectTypeDescription(projectType as ProjectType)
-                                            : "Select a project type to see sample description"}
+                                        Sample Genesis (English) source text with empty target cells ready for translation
                                     </CardDescription>
                                 </CardContent>
                             </Card>
@@ -295,6 +280,74 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
                                 </CardContent>
                             </Card>
                         </div>
+                        {creationMode === "generate" && (
+                            <p className="text-sm text-muted-foreground mt-2 flex items-center gap-1">
+                                <span>ℹ️</span>
+                                <span>Sample projects use Genesis (English) as the source text</span>
+                            </p>
+                        )}
+                    </div>
+
+                    {/* Project Type */}
+                    <div className="space-y-2">
+                        <Label htmlFor="project-type" className="flex items-center gap-2">
+                            <span>
+                                Project Type <span className="text-red-500">*</span>
+                            </span>
+                            {creationMode === "generate" && (
+                                <Lock className="h-3 w-3 text-muted-foreground" />
+                            )}
+                        </Label>
+                        <Select
+                            value={projectType}
+                            onValueChange={(value) => setProjectType(value as ProjectType)}
+                            disabled={creationMode === "generate"}
+                        >
+                            <SelectTrigger id="project-type" className={creationMode === "generate" ? "opacity-60 cursor-not-allowed" : ""}>
+                                <SelectValue placeholder="Select project type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="bible">Bible Translation</SelectItem>
+                                <SelectItem value="subtitles">Subtitles Translation</SelectItem>
+                                <SelectItem value="obs">Open Bible Stories</SelectItem>
+                                <SelectItem value="documents">Document Translation</SelectItem>
+                                <SelectItem value="other">Other</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    {/* Source Language */}
+                    <div className="space-y-2">
+                        <Label className="flex items-center gap-2">
+                            <span>
+                                Source Language <span className="text-red-500">*</span>
+                            </span>
+                            {creationMode === "generate" && (
+                                <Lock className="h-3 w-3 text-muted-foreground" />
+                            )}
+                        </Label>
+                        <div className={creationMode === "generate" ? "opacity-60 pointer-events-none" : ""}>
+                            <LanguagePicker
+                                key={creationMode === "generate" ? "source-locked" : "source-editable"}
+                                onLanguageSelect={handleLanguageSelect}
+                                projectStatus="source"
+                                label="Select Source Language"
+                                initialLanguage={creationMode === "generate" ? ENGLISH_LANGUAGE : (sourceLanguage || undefined)}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Target Language */}
+                    <div className="space-y-2">
+                        <Label>
+                            Target Language <span className="text-red-500">*</span>
+                        </Label>
+                        <LanguagePicker
+                            onLanguageSelect={handleLanguageSelect}
+                            projectStatus="target"
+                            label="Select Target Language"
+                            initialLanguage={targetLanguage || undefined}
+                        />
                     </div>
                 </div>
 
@@ -303,7 +356,7 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
                         Cancel
                     </Button>
                     <Button onClick={handleSubmit} disabled={!isFormValid()}>
-                        Create Project
+                        Get Started
                     </Button>
                 </DialogFooter>
             </DialogContent>

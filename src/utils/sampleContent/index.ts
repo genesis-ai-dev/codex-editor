@@ -1,18 +1,13 @@
 import * as vscode from "vscode";
-import { createBibleSampleContent } from "./bibleSamples";
-import { createSubtitleSampleContent } from "./subtitleSamples";
-import { createOBSSampleContent } from "./obsSamples";
-import { createDocumentSampleContent } from "./documentSamples";
+import { createGenesisSampleContent } from "./genesisSample";
 
 export type ProjectType = "bible" | "subtitles" | "obs" | "documents" | "other";
 
-export { createBibleSampleContent } from "./bibleSamples";
-export { createSubtitleSampleContent } from "./subtitleSamples";
-export { createOBSSampleContent } from "./obsSamples";
-export { createDocumentSampleContent } from "./documentSamples";
+export { createGenesisSampleContent } from "./genesisSample";
 
 /**
  * Creates sample content based on selected project types
+ * Currently only supports Bible (Genesis) sample generation
  */
 export async function createSampleContent(
     workspaceFolder: vscode.Uri,
@@ -30,38 +25,14 @@ export async function createSampleContent(
         console.log("[createSampleContent] Files directory already exists or error:", error);
     }
 
-    // Create sample content for each selected type
-    const promises: Promise<any>[] = [];
-
+    // Currently only Bible (Genesis) sample is supported
+    // Other types are reserved for future implementation
     if (projectTypes.includes("bible")) {
-        console.log("[createSampleContent] Adding bible sample");
-        promises.push(createBibleSampleContent(workspaceFolder));
-    }
-
-    if (projectTypes.includes("subtitles")) {
-        console.log("[createSampleContent] Adding subtitles sample");
-        promises.push(createSubtitleSampleContent(workspaceFolder));
-    }
-
-    if (projectTypes.includes("obs")) {
-        console.log("[createSampleContent] Adding OBS sample");
-        promises.push(createOBSSampleContent(workspaceFolder));
-    }
-
-    if (projectTypes.includes("documents")) {
-        console.log("[createSampleContent] Adding documents sample");
-        promises.push(createDocumentSampleContent(workspaceFolder));
-    }
-
-    console.log("[createSampleContent] Total promises to execute:", promises.length);
-    
-    // Wait for all sample content to be created
-    try {
-        await Promise.all(promises);
-        console.log("[createSampleContent] All sample content created successfully");
-    } catch (error) {
-        console.error("[createSampleContent] Error creating sample content:", error);
-        throw error;
+        console.log("[createSampleContent] Creating Genesis sample");
+        await createGenesisSampleContent(workspaceFolder);
+        console.log("[createSampleContent] Genesis sample created successfully");
+    } else {
+        console.log("[createSampleContent] No supported project types found. Only 'bible' is currently supported.");
     }
 }
 

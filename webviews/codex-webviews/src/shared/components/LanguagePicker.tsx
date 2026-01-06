@@ -94,6 +94,14 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
         return { filteredLanguages: finalLanguages, hasHighQualityMatches };
     }, [availableLanguages, languageFilter]);
 
+    // Sync languageFilter when initialLanguage changes
+    useEffect(() => {
+        if (initialLanguage?.refName && initialLanguage.refName !== languageFilter) {
+            setLanguageFilter(initialLanguage.refName);
+            setPreviousLanguage(initialLanguage);
+        }
+    }, [initialLanguage]);
+
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (

@@ -32,6 +32,7 @@ import { resolveConflictFiles } from "../../projectManager/utils/merge/resolvers
 import { buildConflictsFromDirectories } from "../../projectManager/utils/merge/directoryConflicts";
 import { shouldShowOnboarding, setUserPreference } from "../../utils/userPreferences";
 import { createSampleContent, ProjectType } from "../../utils/sampleContent";
+import { LanguageMetadata, LanguageProjectStatus } from "codex-types";
 
 const DEBUG_MODE = false; // Set to true to enable debug logging
 
@@ -1031,8 +1032,20 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             }
             case "project.createWithSamples": {
                 try {
-                    const { projectName, projectType, sourceLanguage, targetLanguage } = message;
-                    debugLog("Creating project with samples:", projectName, projectType);
+                    const { projectName, targetLanguage } = message;
+                    debugLog("Creating project with samples:", projectName);
+
+                    // Force Bible type and English source for sample generation
+                    const projectType: ProjectType = "bible";
+                    const sourceLanguage: LanguageMetadata = {
+                        tag: "eng",
+                        name: { en: "English" },
+                        refName: "English",
+                        projectStatus: LanguageProjectStatus.SOURCE,
+                        iso1: "en",
+                        scope: "I",
+                        type: "L",
+                    };
 
                     // Sanitize project name
                     const sanitized = sanitizeProjectName(projectName);
