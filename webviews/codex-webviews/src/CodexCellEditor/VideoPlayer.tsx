@@ -11,6 +11,8 @@ interface VideoPlayerProps {
     translationUnitsForSection: QuillCellContent[];
     showSubtitles?: boolean;
     onTimeUpdate?: (time: number) => void;
+    onPlay?: () => void;
+    onPause?: () => void;
     autoPlay: boolean;
     playerHeight: number;
 }
@@ -21,6 +23,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     translationUnitsForSection,
     showSubtitles = true,
     onTimeUpdate,
+    onPlay,
+    onPause,
     autoPlay,
     playerHeight,
 }) => {
@@ -45,6 +49,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const target = e.target as HTMLVideoElement;
         const currentTime = target.currentTime;
         onTimeUpdate?.(currentTime);
+    };
+
+    const handlePlay = () => {
+        onPlay?.();
+    };
+
+    const handlePause = () => {
+        onPause?.();
     };
 
     // Build config based on video type
@@ -74,7 +86,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             track.default = true;
             videoElement.appendChild(track);
         }
-    }, [subtitleUrl, showSubtitles, isYouTubeUrl]);
+    }, [subtitleUrl, showSubtitles, isYouTubeUrl, playerRef]);
 
     return (
         <div style={{ position: "relative" }}>
@@ -97,6 +109,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                         onError={handleError}
                         config={playerConfig}
                         onTimeUpdate={handleTimeUpdate}
+                        onPlay={handlePlay}
+                        onPause={handlePause}
                     />
                 )}
             </div>

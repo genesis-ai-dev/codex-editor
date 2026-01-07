@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useMemo, useContext, useCallback } from "react";
-import ReactPlayer from "react-player";
 import Quill from "quill";
 import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 import {
@@ -23,7 +22,6 @@ import { getCleanedHtml } from "./react-quill-spellcheck/SuggestionBoxes";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
-import TimelineEditor from "./TimelineEditor";
 import VideoTimelineEditor from "./VideoTimelineEditor";
 
 import {
@@ -2849,6 +2847,7 @@ const CodexCellEditor: React.FC = () => {
                             translationUnitsForSection={translationUnitsWithCurrentEditorContent}
                             vscode={vscode}
                             playerRef={playerRef}
+                            audioAttachments={audioAttachments}
                         />
                     </div>
                 )}

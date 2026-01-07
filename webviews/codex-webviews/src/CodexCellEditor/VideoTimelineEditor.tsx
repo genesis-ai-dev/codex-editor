@@ -4,12 +4,24 @@ import { QuillCellContent } from "../../../../types";
 import { useMouse } from "@uidotdev/usehooks";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import type { ReactPlayerRef } from "./types/reactPlayerTypes";
+import { useMultiCellAudioPlayback } from "./hooks/useMultiCellAudioPlayback";
+
+type AudioAttachmentState =
+    | "available"
+    | "available-local"
+    | "available-pointer"
+    | "deletedOnly"
+    | "none"
+    | "missing";
 
 interface VideoTimelineEditorProps {
     videoUrl: string;
     translationUnitsForSection: QuillCellContent[];
     vscode: any;
     playerRef: React.RefObject<ReactPlayerRef>;
+    audioAttachments?: {
+        [cellId: string]: AudioAttachmentState;
+    };
 }
 
 const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
@@ -17,6 +29,7 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
     translationUnitsForSection,
     vscode,
     playerRef,
+    audioAttachments,
 }) => {
     const [playerHeight, setPlayerHeight] = useState<number>(300);
     const [isDragging, setIsDragging] = useState(false);
@@ -56,10 +69,29 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
     // const playerRef = useRef<ReactPlayer>(null);
     const [autoPlay, setAutoPlay] = useState(true);
     const [currentTime, setCurrentTime] = useState(0);
+    const [isVideoPlaying, setIsVideoPlaying] = useState(false);
 
     const handleTimeUpdate = (time: number) => {
         setCurrentTime(time);
     };
+
+    const handlePlay = () => {
+        setIsVideoPlaying(true);
+    };
+
+    const handlePause = () => {
+        setIsVideoPlaying(false);
+    };
+
+    // Use multi-cell audio playback hook
+    useMultiCellAudioPlayback({
+        translationUnitsForSection,
+        audioAttachments,
+        playerRef,
+        vscode,
+        isVideoPlaying,
+        currentVideoTime: currentTime,
+    });
 
     return (
         <div style={{ display: "flex", flexDirection: "column" }}>
@@ -69,6 +101,8 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
                 translationUnitsForSection={translationUnitsForSection}
                 autoPlay={autoPlay}
                 onTimeUpdate={handleTimeUpdate}
+                onPlay={handlePlay}
+                onPause={handlePause}
                 playerHeight={playerHeight}
             />
             <div
