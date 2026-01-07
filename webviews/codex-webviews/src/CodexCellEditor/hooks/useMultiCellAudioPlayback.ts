@@ -333,6 +333,13 @@ export function useMultiCellAudioPlayback({
                         return;
                     }
                     const error = audioElement.error;
+                    // Skip logging "Empty src attribute" errors (code 4) - these are expected
+                    // when src is cleared or during normal cleanup/reset operations
+                    if (error?.code === 4 || !audioElement.src || audioElement.readyState === 0) {
+                        data.isPlaying = false;
+                        updateVideoMuteState();
+                        return;
+                    }
                     console.error(
                         `Error playing audio for cell ${cellId}:`,
                         error?.code || "unknown",
