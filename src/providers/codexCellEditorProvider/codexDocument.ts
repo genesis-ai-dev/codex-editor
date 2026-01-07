@@ -288,6 +288,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
 
+        // Block updates to locked cells (except for system operations like unlocking)
+        // Allow LLM_GENERATION previews (shouldUpdateValue=false) but block actual content updates
+        if (cellToUpdate.metadata?.isLocked && editType === EditType.USER_EDIT && shouldUpdateValue) {
+            console.warn(`Attempted to update locked cell ${cellId}. Operation blocked.`);
+            return;
+        }
+
         // For user edits, only add the edit if content has actually changed
         if (editType === EditType.USER_EDIT && cellToUpdate.value === newContent) {
             return; // Skip adding edit if normalized content hasn't changed
@@ -728,6 +735,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
             cellLabel: cell.metadata.cellLabel,
             data: cell.metadata.data,
             attachments: cell.metadata.attachments || {},
+            metadata: {
+                isLocked: cell.metadata.isLocked,
+            },
         };
     }
 
@@ -744,6 +754,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
+
+        // Block timestamp updates to locked cells
+        if (cellToUpdate.metadata?.isLocked) {
+            console.warn(`Attempted to update timestamps of locked cell ${cellId}. Operation blocked.`);
+            return;
+        }
 
         // Capture previous values before updating so comparisons are correct
         const previousStartTime = cellToUpdate.metadata.data?.startTime;
@@ -1603,6 +1619,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
 
+        // Block label updates to locked cells
+        if (cellToUpdate.metadata?.isLocked) {
+            console.warn(`Attempted to update label of locked cell ${cellId}. Operation blocked.`);
+            return;
+        }
+
         // Update cell label in memory
         cellToUpdate.metadata.cellLabel = newLabel;
 
@@ -1638,6 +1660,85 @@ export class CodexCellDocument implements vscode.CustomDocument {
         this._isDirty = true;
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, newLabel }],
+        });
+    }
+
+    public updateCellIsLocked(cellId: string, isLocked: boolean) {
+        const indexOfCellToUpdate = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error("Could not find cell to update");
+        }
+
+        const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
+
+        // Only persist isLocked when meaningful:
+        // - If locking: store `true`
+        // - If unlocking: store `false` only if the cell was previously locked at least once
+        //   (otherwise omit the field entirely to avoid noisy metadata)
+        const lockEditMap = EditMapUtils.isLocked();
+        const edits = cellToUpdate.metadata?.edits || [];
+        const wasEverLocked =
+            cellToUpdate.metadata?.isLocked === true ||
+            edits.some((e: any) => {
+                const map = e?.editMap;
+                const mapMatches =
+                    Array.isArray(map) &&
+                    map.length === lockEditMap.length &&
+                    map.every((v: any, i: number) => v === (lockEditMap as any)[i]);
+                return mapMatches && e?.value === true;
+            });
+
+        // If asked to "unlock" a cell that was never locked, treat as a no-op and
+        // also remove any legacy `isLocked: false` field if present.
+        if (!isLocked && !wasEverLocked) {
+            delete (cellToUpdate.metadata as any).isLocked;
+            return;
+        }
+
+        if (isLocked) {
+            cellToUpdate.metadata.isLocked = true;
+        } else if (wasEverLocked) {
+            cellToUpdate.metadata.isLocked = false;
+        } else {
+            // Never locked → keep field absent
+            delete (cellToUpdate.metadata as any).isLocked;
+        }
+
+        // Add edit to cell's edit history
+        if (!cellToUpdate.metadata.edits) {
+            cellToUpdate.metadata.edits = [];
+        }
+        const currentTimestamp = Date.now();
+        cellToUpdate.metadata.edits.push({
+            editMap: lockEditMap,
+            value: isLocked, // TypeScript infers: boolean
+            timestamp: currentTimestamp,
+            type: EditType.USER_EDIT,
+            author: this._author,
+            validatedBy: [
+                {
+                    username: this._author,
+                    creationTimestamp: currentTimestamp,
+                    updatedTimestamp: currentTimestamp,
+                    isDeleted: false,
+                },
+            ],
+        });
+
+        // Record the edit
+        this._edits.push({
+            type: "updateCellIsLocked",
+            cellId,
+            isLocked,
+        });
+
+        // Set dirty flag and notify listeners about the change
+        this._isDirty = true;
+        this._onDidChangeForVsCodeAndWebview.fire({
+            edits: [{ cellId, isLocked }],
         });
     }
 
@@ -2224,6 +2325,14 @@ export class CodexCellDocument implements vscode.CustomDocument {
             throw new Error(`Could not find cell ${cellId} to update data`);
         }
 
+        const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
+
+        // Block data updates to locked cells
+        if (cellToUpdate.metadata?.isLocked) {
+            console.warn(`Attempted to update data of locked cell ${cellId}. Operation blocked.`);
+            return;
+        }
+
         // Ensure metadata exists
         if (!this._documentData.cells[indexOfCellToUpdate].metadata) {
             this._documentData.cells[indexOfCellToUpdate].metadata = {
@@ -2276,6 +2385,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         const cell = this._documentData.cells[indexOfCellToUpdate];
+
+        // Block attachment updates to locked cells
+        if (cell.metadata?.isLocked) {
+            console.warn(`Attempted to update attachment of locked cell ${cellId}. Operation blocked.`);
+            return;
+        }
 
         // Ensure metadata exists
         if (!cell.metadata) {

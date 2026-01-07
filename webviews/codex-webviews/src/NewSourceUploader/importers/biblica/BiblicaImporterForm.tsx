@@ -900,8 +900,8 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                     images: cell.images || [], // Include images property
                     metadata: {
                         ...metadata,
-                        // Mark Bible verses as non-editable (right after isBibleVerse)
-                        isEditable: isBibleVerse ? false : undefined,
+                        // Mark Bible verses as locked
+                        isLocked: isBibleVerse ? true : undefined,
                         originalContent: cell.content,
                         // Mark that this came from translated bible
                         translatedBibleFile: translatedBibleFile?.name || null,

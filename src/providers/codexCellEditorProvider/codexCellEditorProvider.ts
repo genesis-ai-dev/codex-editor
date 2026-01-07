@@ -761,6 +761,39 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     }
                 }
 
+            // Fetch user role/access level if authenticated
+            let userAccessLevel: number | undefined = undefined;
+            try {
+                if (isAuthenticated && userInfo?.username) {
+                    const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                    if (ws) {
+                        const { extractProjectIdFromUrl, fetchProjectMembers } = await import("../../utils/remoteHealingManager");
+                        const git = await import("isomorphic-git");
+                        const fs = await import("fs");
+                        const remotes = await git.listRemotes({ fs, dir: ws.uri.fsPath });
+                        const origin = remotes.find((r) => r.remote === "origin");
+
+                        if (origin?.url) {
+                            const projectId = extractProjectIdFromUrl(origin.url);
+                            if (projectId) {
+                                const memberList = await fetchProjectMembers(projectId);
+                                if (memberList) {
+                                    const currentUserMember = memberList.find(
+                                        m => m.username === userInfo.username || m.email === userInfo.email
+                                    );
+                                    if (currentUserMember) {
+                                        userAccessLevel = currentUserMember.accessLevel;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                // Silently fail - user role is optional
+                debug("Could not fetch user role:", error);
+            }
+
                 this.postMessageToWebview(webviewPanel, {
                     type: "providerSendsInitialContentPaginated",
                     milestoneIndex: milestoneIndex,
@@ -773,7 +806,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     validationCount: validationCount,
                     validationCountAudio: validationCountAudio,
                     isAuthenticated: isAuthenticated,
-                });
+                    userAccessLevel: userAccessLevel,
+            });
             }
 
             // Also send updated metadata plus the autoDownloadAudioOnOpen flag for the project
@@ -2172,6 +2206,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             metadata: {
                 selectedAudioId: cell.metadata?.selectedAudioId,
                 selectionTimestamp: cell.metadata?.selectionTimestamp,
+                isLocked: cell.metadata?.isLocked,
             },
         }));
         debug("Translation units:", translationUnits);
@@ -4140,6 +4175,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             const existingCell = document.getCellContent(cellId);
             if (!existingCell) {
                 console.warn(`Cell ${cellId} not found in document ${uri}`);
+                return false;
+            }
+
+            // Block updates to locked cells
+            if (existingCell.metadata?.isLocked) {
+                console.warn(`Attempted to update locked cell ${cellId} via updateCellContentDirect. Operation blocked.`);
                 return false;
             }
 
