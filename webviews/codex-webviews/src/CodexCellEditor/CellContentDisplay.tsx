@@ -41,6 +41,7 @@ interface CellContentDisplayProps {
     hasDuplicateId: boolean;
     alertColorCode: number | undefined;
     highlightedGlobalReferences?: string[];
+    highlightedCellId?: string | null; // Optional cellId for fallback matching when globalReferences is empty
     scrollSyncEnabled: boolean;
     lineNumber: string;
     label?: string;
@@ -421,6 +422,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         hasDuplicateId,
         alertColorCode,
         highlightedGlobalReferences,
+        highlightedCellId,
         scrollSyncEnabled,
         lineNumber,
         label,
@@ -511,18 +513,24 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         // Note: comments counts are provided by parent (`CellList`) to avoid per-cell fetches
 
         // Helper function to check if this cell should be highlighted
-        // Matches using globalReferences array
+        // Matches using globalReferences array, with fallback to cellId when globalReferences is empty
         const checkShouldHighlight = useCallback((): boolean => {
-            if (!highlightedGlobalReferences || highlightedGlobalReferences.length === 0) {
-                return false;
+            // First try matching by globalReferences if available
+            if (highlightedGlobalReferences && highlightedGlobalReferences.length > 0) {
+                // Get globalReferences from this cell
+                const cellGlobalRefs = cell.data?.globalReferences || [];
+                // Check if any highlighted reference matches this cell's references
+                return highlightedGlobalReferences.some((ref) => cellGlobalRefs.includes(ref));
             }
 
-            // Get globalReferences from this cell
-            const cellGlobalRefs = cell.data?.globalReferences || [];
+            // Fallback to cellId matching when globalReferences is empty
+            if (highlightedCellId && cellIds && cellIds.length > 0) {
+                // Check if the highlighted cellId matches any of this cell's markers
+                return cellIds.includes(highlightedCellId);
+            }
 
-            // Check if any highlighted reference matches this cell's references
-            return highlightedGlobalReferences.some((ref) => cellGlobalRefs.includes(ref));
-        }, [cell, highlightedGlobalReferences]);
+            return false;
+        }, [cell, highlightedGlobalReferences, highlightedCellId, cellIds]);
 
         useEffect(() => {
             debug("Before Scrolling to content highlightedGlobalReferences", {

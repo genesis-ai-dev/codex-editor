@@ -2417,13 +2417,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         let globalReferences: string[] = [];
 
         if (doc) {
-            const notebookData = this.getDocumentAsJson(doc);
-            const isBibleType = isBiblicalImporterType(notebookData.metadata?.importerType);
-
-            if (isBibleType) {
-                const cell = doc.getCellContent(cellId);
-                globalReferences = cell?.data?.globalReferences || [];
-            }
+            // Extract globalReferences for all cell types, not just Bible types
+            const cell = doc.getCellContent(cellId);
+            globalReferences = cell?.data?.globalReferences || [];
         }
 
         // Handle both setting and clearing highlights
@@ -2433,9 +2429,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 // Get the configuration for cellsPerPage
                 const config = vscode.workspace.getConfiguration("codex-editor-extension");
                 const cellsPerPage = config.get("cellsPerPage", 50);
-
-                // Find the milestone and subsection index for the clicked cell in the target document
-                const targetPosition = doc.findMilestoneAndSubsectionForCell(cellId, cellsPerPage);
 
                 // Get the corresponding source URI
                 const codexUri = vscode.Uri.parse(uri);
@@ -2450,62 +2443,82 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         const isMatchingSource = sourceUri && panelUri === sourceUri.toString();
 
                         if (globalReferences.length > 0) {
-                            // Set highlight
+                            // Set highlight using globalReferences
                             debug("Sending highlight message to source file:", panelUri, "globalReferences:", globalReferences);
                             safePostMessageToPanel(panel, {
                                 type: "highlightCell",
                                 globalReferences: globalReferences,
                             });
                         } else {
-                            // Clear highlight
-                            debug("Clearing highlight in source file:", panelUri);
+                            // Fallback to cellId matching when globalReferences is empty
+                            debug("Sending highlight message to source file using cellId fallback:", panelUri, "cellId:", cellId);
                             safePostMessageToPanel(panel, {
                                 type: "highlightCell",
                                 globalReferences: [],
+                                cellId: cellId,
                             });
                         }
 
-                        // If this is the matching source file and we found a milestone/subsection, jump to that position
-                        if (isMatchingSource && targetPosition && sourceUri) {
-                            const { milestoneIndex: targetMilestoneIndex, subsectionIndex: targetSubsectionIndex } = targetPosition;
-                            debug("Jumping source file to milestone:", panelUri, "milestoneIndex:", targetMilestoneIndex, "subsectionIndex:", targetSubsectionIndex);
-
-                            // Get the source document to fetch cells for the milestone/subsection
+                        // If this is the matching source file, find the target position and jump to it
+                        if (isMatchingSource && sourceUri) {
+                            // Get the source document to find the matching cell and fetch cells
                             const sourceDoc = this.documents.get(sourceUri.toString());
                             if (sourceDoc) {
-                                // Get cells for the milestone/subsection from the source document
-                                const cells = sourceDoc.getCellsForMilestone(targetMilestoneIndex, targetSubsectionIndex, cellsPerPage);
+                                // Determine the target position in the source file by finding the matching cell
+                                // First try globalReferences, then fallback to cellId if globalReferences is empty
+                                let targetPosition: { milestoneIndex: number; subsectionIndex: number; } | null = null;
 
-                                // Process cells (merge ranges, etc.)
-                                const processedCells = this.mergeRangesAndProcess(
-                                    cells,
-                                    this.isCorrectionEditorMode,
-                                    true // isSourceText
-                                );
-
-                                // Build source cell map for these cells
-                                const sourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
-                                for (const cell of cells) {
-                                    const cellId = cell.cellMarkers?.[0];
-                                    if (cellId && sourceDoc._sourceCellMap[cellId]) {
-                                        sourceCellMap[cellId] = sourceDoc._sourceCellMap[cellId];
-                                    }
+                                if (globalReferences.length > 0) {
+                                    // Find the milestone/subsection for the matching cell in the source file by globalReferences
+                                    targetPosition = sourceDoc.findMilestoneAndSubsectionForCellByGlobalReferences(
+                                        globalReferences,
+                                        cellsPerPage
+                                    );
+                                } else {
+                                    // Fallback to cellId matching when globalReferences is empty
+                                    targetPosition = sourceDoc.findMilestoneAndSubsectionForCell(cellId, cellsPerPage);
                                 }
 
-                                // Store the current milestone/subsection for the source document
-                                this.currentMilestoneSubsectionMap.set(sourceUri.toString(), {
-                                    milestoneIndex: targetMilestoneIndex,
-                                    subsectionIndex: targetSubsectionIndex,
-                                });
+                                if (targetPosition) {
+                                    const { milestoneIndex: targetMilestoneIndex, subsectionIndex: targetSubsectionIndex } = targetPosition;
+                                    debug("Jumping source file to milestone:", panelUri, "milestoneIndex:", targetMilestoneIndex, "subsectionIndex:", targetSubsectionIndex);
 
-                                // Send the cell page to the source webview
-                                safePostMessageToPanel(panel, {
-                                    type: "providerSendsCellPage",
-                                    milestoneIndex: targetMilestoneIndex,
-                                    subsectionIndex: targetSubsectionIndex,
-                                    cells: processedCells,
-                                    sourceCellMap,
-                                });
+                                    // Get cells for the milestone/subsection from the source document
+                                    const cells = sourceDoc.getCellsForMilestone(targetMilestoneIndex, targetSubsectionIndex, cellsPerPage);
+
+                                    // Process cells (merge ranges, etc.)
+                                    const processedCells = this.mergeRangesAndProcess(
+                                        cells,
+                                        this.isCorrectionEditorMode,
+                                        true // isSourceText
+                                    );
+
+                                    // Build source cell map for these cells
+                                    const sourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
+                                    for (const cell of cells) {
+                                        const cellId = cell.cellMarkers?.[0];
+                                        if (cellId && sourceDoc._sourceCellMap[cellId]) {
+                                            sourceCellMap[cellId] = sourceDoc._sourceCellMap[cellId];
+                                        }
+                                    }
+
+                                    // Store the current milestone/subsection for the source document
+                                    this.currentMilestoneSubsectionMap.set(sourceUri.toString(), {
+                                        milestoneIndex: targetMilestoneIndex,
+                                        subsectionIndex: targetSubsectionIndex,
+                                    });
+
+                                    // Send the cell page to the source webview
+                                    safePostMessageToPanel(panel, {
+                                        type: "providerSendsCellPage",
+                                        milestoneIndex: targetMilestoneIndex,
+                                        subsectionIndex: targetSubsectionIndex,
+                                        cells: processedCells,
+                                        sourceCellMap,
+                                    });
+                                } else {
+                                    debug("Could not find matching cell in source file by globalReferences:", globalReferences);
+                                }
                             } else {
                                 debug("Source document not loaded, cannot jump to milestone");
                             }

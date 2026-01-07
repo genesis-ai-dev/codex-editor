@@ -35,6 +35,7 @@ export interface CellListProps {
     headerHeight: number;
     alertColorCodes: { [cellId: string]: number };
     highlightedGlobalReferences: string[];
+    highlightedCellId?: string | null; // Optional cellId for fallback matching when globalReferences is empty
     scrollSyncEnabled: boolean;
     translationQueue?: string[]; // Queue of cells waiting for translation
     currentProcessingCellId?: string; // Currently processing cell ID
@@ -95,6 +96,7 @@ const CellList: React.FC<CellListProps> = ({
     spellCheckResponse,
     alertColorCodes,
     highlightedGlobalReferences,
+    highlightedCellId,
     scrollSyncEnabled,
     translationQueue = [],
     currentProcessingCellId,
@@ -747,6 +749,7 @@ const CellList: React.FC<CellListProps> = ({
                                 hasDuplicateId={hasDuplicateId}
                                 alertColorCode={alertColorCodes[cellMarkers[0]]}
                                 highlightedGlobalReferences={highlightedGlobalReferences}
+                                highlightedCellId={highlightedCellId}
                                 scrollSyncEnabled={scrollSyncEnabled}
                                 isInTranslationProcess={isCellInTranslationProcess(cellMarkers[0])}
                                 translationState={translationState}
@@ -928,6 +931,7 @@ const CellList: React.FC<CellListProps> = ({
                                 hasDuplicateId={false}
                                 alertColorCode={alertColorCodes[cellMarkers[0]]}
                                 highlightedGlobalReferences={highlightedGlobalReferences}
+                                highlightedCellId={highlightedCellId}
                                 scrollSyncEnabled={scrollSyncEnabled}
                                 isInTranslationProcess={isCellInTranslationProcess(cellMarkers[0])}
                                 translationState={getCellTranslationState(cellMarkers[0])}
