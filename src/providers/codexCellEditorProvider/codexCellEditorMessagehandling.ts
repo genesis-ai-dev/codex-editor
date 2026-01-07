@@ -1406,17 +1406,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         document.replaceDuplicateCells(typedEvent.content);
     },
 
-    saveTimeBlocks: ({ event, document }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "saveTimeBlocks"; }>;
-        console.log("saveTimeBlocks message received", { event });
-        typedEvent.content.forEach((cell) => {
-            document.updateCellTimestamps(cell.id, {
-                startTime: cell.begin,
-                endTime: cell.end,
-            });
-        });
-    },
-
     supplyRecentEditHistory: async ({ event }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "supplyRecentEditHistory"; }>;
         console.log("supplyRecentEditHistory message received", { event });

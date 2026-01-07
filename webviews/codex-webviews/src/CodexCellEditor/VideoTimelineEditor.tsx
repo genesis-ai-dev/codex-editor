@@ -1,8 +1,6 @@
-import React, { useRef, useState, useEffect } from "react";
-import ReactPlayer from "react-player";
+import React, { useState, useEffect } from "react";
 import VideoPlayer from "./VideoPlayer";
-import TimelineEditor from "./TimelineEditor";
-import { QuillCellContent, TimeBlock } from "../../../../types";
+import { QuillCellContent } from "../../../../types";
 import { useMouse } from "@uidotdev/usehooks";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import type { ReactPlayerRef } from "./types/reactPlayerTypes";
@@ -59,27 +57,6 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
     const [autoPlay, setAutoPlay] = useState(true);
     const [currentTime, setCurrentTime] = useState(0);
 
-    // Add this function to handle seeking
-    const handleSeek = (time: number) => {
-        if (playerRef.current) {
-            playerRef.current.seekTo?.(time, "seconds");
-        }
-    };
-
-    const removeHtmlTags = (text: string) => {
-        return text
-            .replace(/<[^>]*>?/g, "")
-            .replace(/\n/g, " ")
-            .replace(/&nbsp; ?/g, " ");
-    };
-
-    const data: TimeBlock[] = translationUnitsForSection.map((unit) => ({
-        begin: unit.timestamps?.startTime || 0,
-        end: unit.timestamps?.endTime || 0,
-        text: removeHtmlTags(unit.cellContent),
-        id: unit.cellMarkers[0],
-    }));
-
     const handleTimeUpdate = (time: number) => {
         setCurrentTime(time);
     };
@@ -94,14 +71,6 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
                 onTimeUpdate={handleTimeUpdate}
                 playerHeight={playerHeight}
             />
-            {/* <TimelineEditor
-                autoPlay={autoPlay}
-                playerRef={playerRef}
-                data={data}
-                vscode={vscode}
-                setAutoPlay={setAutoPlay}
-                currentTime={currentTime}
-            /> */}
             <div
                 style={{
                     width: "100%",

@@ -486,6 +486,43 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
         // Function to render the content with footnote markers and proper spacing
         const renderContent = () => {
+            const timestamps = () => {
+                if (
+                    cell.timestamps &&
+                    (cell.timestamps.startTime !== undefined ||
+                        cell.timestamps.endTime !== undefined)
+                ) {
+                    return (
+                        <div
+                            className="timestamp-display"
+                            style={{
+                                fontSize: "0.75rem",
+                                color: "var(--vscode-descriptionForeground)",
+                                marginTop: "0.25rem",
+                                fontFamily: "monospace",
+                                opacity: 0.8,
+                                textAlign: "start",
+                                width: "100%",
+                            }}
+                        >
+                            {cell.timestamps.startTime !== undefined &&
+                            cell.timestamps.endTime !== undefined ? (
+                                <span>
+                                    {formatTime(cell.timestamps.startTime)} →{" "}
+                                    {formatTime(cell.timestamps.endTime)}
+                                </span>
+                            ) : cell.timestamps.startTime !== undefined ? (
+                                <span>Start: {formatTime(cell.timestamps.startTime)}</span>
+                            ) : cell.timestamps.endTime !== undefined ? (
+                                <span>End: {formatTime(cell.timestamps.endTime)}</span>
+                            ) : null}
+                        </div>
+                    );
+                }
+
+                return null;
+            };
+
             // Handle empty cell case
             if (
                 (!cell.cellContent || cell.cellContent.trim() === "") &&
@@ -493,16 +530,19 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 (!isSourceText || !isAudioOnly)
             ) {
                 return (
-                    <div
-                        ref={contentRef}
-                        className="cell-content empty-cell-content"
-                        style={{
-                            color: "var(--vscode-descriptionForeground)",
-                            fontStyle: "italic",
-                            opacity: 0.8,
-                        }}
-                    >
-                        {isSourceText ? "No text" : "Click to translate"}
+                    <div className="flex flex-col gap-[0.5rem]">
+                        <div
+                            ref={contentRef}
+                            className="cell-content empty-cell-content"
+                            style={{
+                                color: "var(--vscode-descriptionForeground)",
+                                fontStyle: "italic",
+                                opacity: 0.8,
+                            }}
+                        >
+                            {isSourceText ? "No text" : "Click to translate"}
+                        </div>
+                        {timestamps()}
                     </div>
                 );
             }
@@ -535,11 +575,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             // Render content with timestamp display when timestamps are present
             return (
                 <div
+                    className="flex flex-col gap-[0.5rem]"
                     onClick={() => {
                         hideTooltip();
                         handleCellClick(cellIds[0]);
                     }}
-                    style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}
                 >
                     <div
                         ref={contentRef}
@@ -548,34 +588,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                             __html: processedHtml,
                         }}
                     />
-                    {cell.timestamps &&
-                        (cell.timestamps.startTime !== undefined ||
-                            cell.timestamps.endTime !== undefined) && (
-                            <div
-                                className="timestamp-display"
-                                style={{
-                                    fontSize: "0.75rem",
-                                    color: "var(--vscode-descriptionForeground)",
-                                    marginTop: "0.25rem",
-                                    fontFamily: "monospace",
-                                    opacity: 0.8,
-                                    textAlign: "start",
-                                    width: "100%",
-                                }}
-                            >
-                                {cell.timestamps.startTime !== undefined &&
-                                cell.timestamps.endTime !== undefined ? (
-                                    <span>
-                                        {formatTime(cell.timestamps.startTime)} →{" "}
-                                        {formatTime(cell.timestamps.endTime)}
-                                    </span>
-                                ) : cell.timestamps.startTime !== undefined ? (
-                                    <span>Start: {formatTime(cell.timestamps.startTime)}</span>
-                                ) : cell.timestamps.endTime !== undefined ? (
-                                    <span>End: {formatTime(cell.timestamps.endTime)}</span>
-                                ) : null}
-                            </div>
-                        )}
+                    {timestamps()}
                 </div>
             );
         };
