@@ -368,6 +368,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
     });
     const [isAudioLoading, setIsAudioLoading] = useState(false);
+    const [isPlayAudioLoading, setIsPlayAudioLoading] = useState(false);
     const [hasAudioHistory, setHasAudioHistory] = useState<boolean>(false);
     const [audioHistoryCount, setAudioHistoryCount] = useState<number>(0);
 
@@ -671,67 +672,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
             return;
         }
 
-        // Clean up any existing playback
-        cleanupOverlappingAudio();
-
-        if (audioElementRef.current) {
-            if (audioTimeUpdateHandlerRef.current) {
-                audioElementRef.current.removeEventListener(
-                    "timeupdate",
-                    audioTimeUpdateHandlerRef.current
-                );
-                audioTimeUpdateHandlerRef.current = null;
-            }
-            audioElementRef.current.pause();
-            audioElementRef.current.src = "";
-            audioElementRef.current = null;
-        }
-
-        if (videoElementRef.current && videoTimeUpdateHandlerRef.current) {
-            videoElementRef.current.removeEventListener(
-                "timeupdate",
-                videoTimeUpdateHandlerRef.current
-            );
-            videoTimeUpdateHandlerRef.current = null;
-        }
-
-        // Determine which cells overlap with current cell's range
-        const needsPreviousAudio =
-            prevCellId &&
-            typeof prevStartTime === "number" &&
-            typeof prevEndTime === "number" &&
-            startTime < prevEndTime;
-        const needsNextAudio =
-            nextCellId &&
-            typeof nextStartTime === "number" &&
-            typeof nextEndTime === "number" &&
-            endTime > nextStartTime;
-
-        // Request overlapping audio blobs
-        const audioPromises: Promise<{ cellId: string; blob: Blob | null }>[] = [];
-        if (needsPreviousAudio && prevCellId) {
-            audioPromises.push(
-                requestAudioBlob(prevCellId).then((blob) => ({
-                    cellId: prevCellId!,
-                    blob,
-                }))
-            );
-        }
-        if (needsNextAudio && nextCellId) {
-            audioPromises.push(
-                requestAudioBlob(nextCellId).then((blob) => ({
-                    cellId: nextCellId!,
-                    blob,
-                }))
-            );
-        }
-
-        // Wait for all audio requests (don't block if some fail)
-        const overlappingAudios = await Promise.all(audioPromises);
-
-        // Helper function to clean up all audio and video
-        const cleanupAll = () => {
+        setIsPlayAudioLoading(true);
+        try {
+            // Clean up any existing playback
             cleanupOverlappingAudio();
+
             if (audioElementRef.current) {
                 if (audioTimeUpdateHandlerRef.current) {
                     audioElementRef.current.removeEventListener(
@@ -740,444 +685,290 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     );
                     audioTimeUpdateHandlerRef.current = null;
                 }
-                if (startOverlappingAudioHandlerRef.current) {
-                    audioElementRef.current.removeEventListener(
-                        "timeupdate",
-                        startOverlappingAudioHandlerRef.current
-                    );
-                    startOverlappingAudioHandlerRef.current = null;
-                }
-                const currentUrl = overlappingAudioUrlsRef.current.get("current");
-                if (currentUrl) {
-                    URL.revokeObjectURL(currentUrl);
-                    overlappingAudioUrlsRef.current.delete("current");
-                }
                 audioElementRef.current.pause();
                 audioElementRef.current.src = "";
                 audioElementRef.current = null;
             }
 
-            // Restore video mute state and clean up video
-            if (videoElementRef.current) {
-                if (previousVideoMuteStateRef.current !== null) {
-                    videoElementRef.current.muted = previousVideoMuteStateRef.current;
-                    previousVideoMuteStateRef.current = null;
-                }
-                if (videoTimeUpdateHandlerRef.current) {
-                    videoElementRef.current.removeEventListener(
-                        "timeupdate",
-                        videoTimeUpdateHandlerRef.current
-                    );
-                    videoTimeUpdateHandlerRef.current = null;
-                }
-                videoElementRef.current.pause();
-                videoElementRef.current = null;
-            }
-        };
-
-        // Create audio element for current cell
-        const audioUrl = URL.createObjectURL(audioBlob);
-        overlappingAudioUrlsRef.current.set("current", audioUrl);
-        const audio = new Audio(audioUrl);
-        audioElementRef.current = audio;
-
-        let currentAudioErrorHandled = false;
-        audio.onended = cleanupAll;
-        audio.onerror = () => {
-            if (!currentAudioErrorHandled) {
-                currentAudioErrorHandled = true;
-                const error = audio.error;
-                // Only log if it's a real error (not just unsupported format - code 4)
-                // MediaError codes: 1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED
-                if (error && error.code !== 4) {
-                    const errorMessage = error.message
-                        ? `Error loading current cell audio: ${error.message}`
-                        : "Error loading current cell audio";
-                    console.warn(errorMessage);
-                }
-                cleanupAll();
-            }
-        };
-
-        // Handle video playback if available
-        if (
-            shouldShowVideoPlayer &&
-            videoUrl &&
-            playerRef?.current &&
-            startTime !== undefined &&
-            endTime !== undefined
-        ) {
-            try {
-                let videoElement: HTMLVideoElement | null = null;
-                let seeked = false;
-
-                // First try seekTo method if available
-                if (typeof playerRef.current.seekTo === "function") {
-                    playerRef.current.seekTo(startTime, "seconds");
-                    seeked = true;
-                }
-
-                // Try to find the video element
-                const internalPlayer = playerRef.current.getInternalPlayer?.();
-
-                if (internalPlayer instanceof HTMLVideoElement) {
-                    videoElement = internalPlayer;
-                    if (!seeked) {
-                        videoElement.currentTime = startTime;
-                        seeked = true;
-                    }
-                } else if (internalPlayer && typeof internalPlayer === "object") {
-                    // Try different ways to access the video element
-                    const foundVideo =
-                        (internalPlayer as any).querySelector?.("video") ||
-                        (internalPlayer as any).video ||
-                        internalPlayer;
-
-                    if (foundVideo instanceof HTMLVideoElement) {
-                        videoElement = foundVideo;
-                        if (!seeked) {
-                            videoElement.currentTime = startTime;
-                            seeked = true;
-                        }
-                    }
-                }
-
-                // Last resort: Try to find video element in the DOM
-                if (!videoElement && playerRef.current) {
-                    const wrapper = playerRef.current as any;
-                    const foundVideo =
-                        wrapper.querySelector?.("video") ||
-                        wrapper.parentElement?.querySelector?.("video");
-
-                    if (foundVideo instanceof HTMLVideoElement) {
-                        videoElement = foundVideo;
-                        if (!seeked) {
-                            videoElement.currentTime = startTime;
-                            seeked = true;
-                        }
-                    }
-                }
-
-                // If we found the video element, mute it and set up playback
-                if (videoElement) {
-                    videoElementRef.current = videoElement;
-                    previousVideoMuteStateRef.current = videoElement.muted;
-                    // Only mute if checkbox is checked
-                    videoElement.muted = muteVideoAudioDuringPlayback;
-
-                    // Set up timeupdate listener to pause at endTime
-                    const timeUpdateHandler = (e: Event) => {
-                        const target = e.target as HTMLVideoElement;
-                        if (target.currentTime >= endTime) {
-                            target.pause();
-                            if (videoTimeUpdateHandlerRef.current) {
-                                target.removeEventListener(
-                                    "timeupdate",
-                                    videoTimeUpdateHandlerRef.current
-                                );
-                                videoTimeUpdateHandlerRef.current = null;
-                            }
-                        }
-                    };
-
-                    videoTimeUpdateHandlerRef.current = timeUpdateHandler;
-                    videoElement.addEventListener("timeupdate", timeUpdateHandler);
-
-                    // Start video playback
-                    try {
-                        await videoElement.play();
-                    } catch (playError) {
-                        console.warn("Video play() failed:", playError);
-                    }
-                }
-            } catch (error) {
-                console.error("Error setting up video playback:", error);
-            }
-        }
-
-        // Set up overlapping audio elements
-        const overlappingAudioReadyPromises: Promise<void>[] = [];
-        for (const { cellId, blob } of overlappingAudios) {
-            if (!blob) {
-                // Audio not available for this overlapping cell - skip silently
-                // This is expected when some cells don't have audio recorded yet
-                continue;
+            if (videoElementRef.current && videoTimeUpdateHandlerRef.current) {
+                videoElementRef.current.removeEventListener(
+                    "timeupdate",
+                    videoTimeUpdateHandlerRef.current
+                );
+                videoTimeUpdateHandlerRef.current = null;
             }
 
-            let playStartTime: number;
-            let playEndTime: number;
-
-            if (
-                cellId === prevCellId &&
+            // Determine which cells overlap with current cell's range
+            const needsPreviousAudio =
+                prevCellId &&
                 typeof prevStartTime === "number" &&
-                typeof prevEndTime === "number"
-            ) {
-                // Previous cell: play overlapping portion
-                playStartTime = Math.max(prevStartTime, startTime);
-                playEndTime = Math.min(prevEndTime, endTime);
-            } else if (
-                cellId === nextCellId &&
+                typeof prevEndTime === "number" &&
+                startTime < prevEndTime;
+            const needsNextAudio =
+                nextCellId &&
                 typeof nextStartTime === "number" &&
-                typeof nextEndTime === "number"
-            ) {
-                // Next cell: play overlapping portion
-                playStartTime = Math.max(nextStartTime, startTime);
-                playEndTime = Math.min(nextEndTime, endTime);
-            } else {
-                continue;
+                typeof nextEndTime === "number" &&
+                endTime > nextStartTime;
+
+            // Request overlapping audio blobs
+            const audioPromises: Promise<{ cellId: string; blob: Blob | null }>[] = [];
+            if (needsPreviousAudio && prevCellId) {
+                audioPromises.push(
+                    requestAudioBlob(prevCellId).then((blob) => ({
+                        cellId: prevCellId!,
+                        blob,
+                    }))
+                );
+            }
+            if (needsNextAudio && nextCellId) {
+                audioPromises.push(
+                    requestAudioBlob(nextCellId).then((blob) => ({
+                        cellId: nextCellId!,
+                        blob,
+                    }))
+                );
             }
 
-            if (playEndTime <= playStartTime) continue;
+            // Wait for all audio requests (don't block if some fail)
+            const overlappingAudios = await Promise.all(audioPromises);
 
-            const overlappingUrl = URL.createObjectURL(blob);
-            overlappingAudioUrlsRef.current.set(cellId, overlappingUrl);
-            const overlappingAudio = new Audio(overlappingUrl);
-            overlappingAudioElementsRef.current.set(cellId, overlappingAudio);
-
-            // Calculate offset within the cell's audio
-            const cellStartTime =
-                cellId === prevCellId
-                    ? typeof prevStartTime === "number"
-                        ? prevStartTime
-                        : 0
-                    : typeof nextStartTime === "number"
-                    ? nextStartTime
-                    : 0;
-            const offsetInCell = playStartTime - cellStartTime;
-            const durationInPlayback = playEndTime - playStartTime;
-
-            // Calculate delay: when should this overlapping audio start relative to current cell's start
-            // If playStartTime > startTime, we need to delay by the difference
-            const delay = Math.max(0, playStartTime - startTime);
-            overlappingAudioDelaysRef.current.set(cellId, delay);
-
-            // Track if error handler has already run to prevent infinite loops
-            let errorHandled = false;
-            let isReady = false;
-
-            // Helper function to clean up this overlapping audio
-            const cleanupOverlappingAudioForCell = () => {
-                if (errorHandled) return; // Prevent infinite loop
-                errorHandled = true;
-
-                const handler = overlappingAudioHandlersRef.current.get(cellId);
-                if (handler && overlappingAudio) {
-                    try {
-                        overlappingAudio.removeEventListener("timeupdate", handler);
-                    } catch (e) {
-                        // Ignore errors during cleanup
+            // Helper function to clean up all audio and video
+            const cleanupAll = () => {
+                cleanupOverlappingAudio();
+                if (audioElementRef.current) {
+                    if (audioTimeUpdateHandlerRef.current) {
+                        audioElementRef.current.removeEventListener(
+                            "timeupdate",
+                            audioTimeUpdateHandlerRef.current
+                        );
+                        audioTimeUpdateHandlerRef.current = null;
                     }
-                    overlappingAudioHandlersRef.current.delete(cellId);
+                    if (startOverlappingAudioHandlerRef.current) {
+                        audioElementRef.current.removeEventListener(
+                            "timeupdate",
+                            startOverlappingAudioHandlerRef.current
+                        );
+                        startOverlappingAudioHandlerRef.current = null;
+                    }
+                    const currentUrl = overlappingAudioUrlsRef.current.get("current");
+                    if (currentUrl) {
+                        URL.revokeObjectURL(currentUrl);
+                        overlappingAudioUrlsRef.current.delete("current");
+                    }
+                    audioElementRef.current.pause();
+                    audioElementRef.current.src = "";
+                    audioElementRef.current = null;
                 }
-                try {
-                    overlappingAudio.pause();
-                    overlappingAudio.src = "";
-                } catch (e) {
-                    // Ignore errors during cleanup
+
+                // Restore video mute state and clean up video
+                if (videoElementRef.current) {
+                    if (previousVideoMuteStateRef.current !== null) {
+                        videoElementRef.current.muted = previousVideoMuteStateRef.current;
+                        previousVideoMuteStateRef.current = null;
+                    }
+                    if (videoTimeUpdateHandlerRef.current) {
+                        videoElementRef.current.removeEventListener(
+                            "timeupdate",
+                            videoTimeUpdateHandlerRef.current
+                        );
+                        videoTimeUpdateHandlerRef.current = null;
+                    }
+                    videoElementRef.current.pause();
+                    videoElementRef.current = null;
                 }
-                const url = overlappingAudioUrlsRef.current.get(cellId);
-                if (url) {
-                    URL.revokeObjectURL(url);
-                    overlappingAudioUrlsRef.current.delete(cellId);
-                }
-                overlappingAudioElementsRef.current.delete(cellId);
             };
 
-            // Set up error handler (only log if not already handled by promise rejection)
-            overlappingAudio.onerror = () => {
-                if (!errorHandled) {
-                    errorHandled = true;
-                    const error = overlappingAudio.error;
+            // Create audio element for current cell
+            const audioUrl = URL.createObjectURL(audioBlob);
+            overlappingAudioUrlsRef.current.set("current", audioUrl);
+            const audio = new Audio(audioUrl);
+            audioElementRef.current = audio;
+
+            let currentAudioErrorHandled = false;
+            audio.onended = cleanupAll;
+            audio.onerror = () => {
+                if (!currentAudioErrorHandled) {
+                    currentAudioErrorHandled = true;
+                    const error = audio.error;
                     // Only log if it's a real error (not just unsupported format - code 4)
                     // MediaError codes: 1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED
                     if (error && error.code !== 4) {
                         const errorMessage = error.message
-                            ? `Error loading overlapping audio for cell ${cellId}: ${error.message}`
-                            : `Error loading overlapping audio for cell ${cellId}`;
+                            ? `Error loading current cell audio: ${error.message}`
+                            : "Error loading current cell audio";
                         console.warn(errorMessage);
                     }
-                    cleanupOverlappingAudioForCell();
+                    cleanupAll();
                 }
             };
 
-            // Set up timeupdate listener to stop at the calculated end time
-            const overlappingHandler = (e: Event) => {
-                const target = e.target as HTMLAudioElement;
-                // Check if we've reached the end of the overlapping portion
-                if (target.currentTime >= offsetInCell + durationInPlayback) {
-                    target.pause();
-                    const handler = overlappingAudioHandlersRef.current.get(cellId);
-                    if (handler) {
-                        target.removeEventListener("timeupdate", handler);
-                        overlappingAudioHandlersRef.current.delete(cellId);
+            // Handle video playback if available
+            if (
+                shouldShowVideoPlayer &&
+                videoUrl &&
+                playerRef?.current &&
+                startTime !== undefined &&
+                endTime !== undefined
+            ) {
+                try {
+                    let videoElement: HTMLVideoElement | null = null;
+                    let seeked = false;
+
+                    // First try seekTo method if available
+                    if (typeof playerRef.current.seekTo === "function") {
+                        playerRef.current.seekTo(startTime, "seconds");
+                        seeked = true;
                     }
-                }
-            };
 
-            overlappingAudioHandlersRef.current.set(cellId, overlappingHandler);
-            overlappingAudio.addEventListener("timeupdate", overlappingHandler);
+                    // Try to find the video element
+                    const internalPlayer = playerRef.current.getInternalPlayer?.();
 
-            // Create a promise that resolves when audio is ready to play
-            const readyPromise = new Promise<void>((resolve, reject) => {
-                const handleLoadedMetadata = () => {
-                    try {
-                        if (
-                            offsetInCell >= 0 &&
-                            offsetInCell < overlappingAudio.duration &&
-                            !errorHandled
-                        ) {
-                            overlappingAudio.currentTime = offsetInCell;
-                            isReady = true;
-                            overlappingAudio.removeEventListener(
-                                "loadedmetadata",
-                                handleLoadedMetadata
-                            );
-                            overlappingAudio.removeEventListener("error", handleError);
-                            resolve();
-                        } else {
-                            console.warn(
-                                `Invalid offset ${offsetInCell} for audio duration ${overlappingAudio.duration} in cell ${cellId}`
-                            );
-                            overlappingAudio.removeEventListener(
-                                "loadedmetadata",
-                                handleLoadedMetadata
-                            );
-                            overlappingAudio.removeEventListener("error", handleError);
-                            cleanupOverlappingAudioForCell();
-                            reject(new Error(`Invalid offset for cell ${cellId}`));
+                    if (internalPlayer instanceof HTMLVideoElement) {
+                        videoElement = internalPlayer;
+                        if (!seeked) {
+                            videoElement.currentTime = startTime;
+                            seeked = true;
                         }
-                    } catch (error) {
-                        console.error(
-                            `Error setting currentTime for overlapping audio ${cellId}:`,
-                            error
-                        );
-                        overlappingAudio.removeEventListener(
-                            "loadedmetadata",
-                            handleLoadedMetadata
-                        );
-                        overlappingAudio.removeEventListener("error", handleError);
-                        cleanupOverlappingAudioForCell();
-                        reject(error);
-                    }
-                };
+                    } else if (internalPlayer && typeof internalPlayer === "object") {
+                        // Try different ways to access the video element
+                        const foundVideo =
+                            (internalPlayer as any).querySelector?.("video") ||
+                            (internalPlayer as any).video ||
+                            internalPlayer;
 
-                const handleError = () => {
-                    if (!errorHandled) {
-                        overlappingAudio.removeEventListener(
-                            "loadedmetadata",
-                            handleLoadedMetadata
-                        );
-                        overlappingAudio.removeEventListener("error", handleError);
-                        errorHandled = true;
-                        // Don't log here - let onerror handler log it
-                        const error = overlappingAudio.error;
-                        const errorMessage =
-                            error?.message || `Error loading audio for cell ${cellId}`;
-                        cleanupOverlappingAudioForCell();
-                        reject(new Error(errorMessage));
+                        if (foundVideo instanceof HTMLVideoElement) {
+                            videoElement = foundVideo;
+                            if (!seeked) {
+                                videoElement.currentTime = startTime;
+                                seeked = true;
+                            }
+                        }
                     }
-                };
 
-                // If already loaded, handle immediately
-                if (overlappingAudio.readyState >= HTMLMediaElement.HAVE_METADATA) {
-                    handleLoadedMetadata();
-                } else {
-                    overlappingAudio.addEventListener("loadedmetadata", handleLoadedMetadata);
-                    overlappingAudio.addEventListener("error", handleError);
+                    // Last resort: Try to find video element in the DOM
+                    if (!videoElement && playerRef.current) {
+                        const wrapper = playerRef.current as any;
+                        const foundVideo =
+                            wrapper.querySelector?.("video") ||
+                            wrapper.parentElement?.querySelector?.("video");
+
+                        if (foundVideo instanceof HTMLVideoElement) {
+                            videoElement = foundVideo;
+                            if (!seeked) {
+                                videoElement.currentTime = startTime;
+                                seeked = true;
+                            }
+                        }
+                    }
+
+                    // If we found the video element, mute it and set up playback
+                    if (videoElement) {
+                        videoElementRef.current = videoElement;
+                        previousVideoMuteStateRef.current = videoElement.muted;
+                        // Only mute if checkbox is checked
+                        videoElement.muted = muteVideoAudioDuringPlayback;
+
+                        // Set up timeupdate listener to pause at endTime
+                        const timeUpdateHandler = (e: Event) => {
+                            const target = e.target as HTMLVideoElement;
+                            if (target.currentTime >= endTime) {
+                                target.pause();
+                                if (videoTimeUpdateHandlerRef.current) {
+                                    target.removeEventListener(
+                                        "timeupdate",
+                                        videoTimeUpdateHandlerRef.current
+                                    );
+                                    videoTimeUpdateHandlerRef.current = null;
+                                }
+                            }
+                        };
+
+                        videoTimeUpdateHandlerRef.current = timeUpdateHandler;
+                        videoElement.addEventListener("timeupdate", timeUpdateHandler);
+
+                        // Start video playback
+                        try {
+                            await videoElement.play();
+                        } catch (playError) {
+                            console.warn("Video play() failed:", playError);
+                        }
+                    }
+                } catch (error) {
+                    console.error("Error setting up video playback:", error);
                 }
-            });
-
-            overlappingAudioReadyPromises.push(readyPromise);
-        }
-
-        // Set up timeupdate listener to stop current cell audio at endTime
-        const audioTimeUpdateHandler = (e: Event) => {
-            const target = e.target as HTMLAudioElement;
-            if (target.currentTime >= duration) {
-                target.pause();
-                cleanupAll();
-            }
-        };
-
-        audioTimeUpdateHandlerRef.current = audioTimeUpdateHandler;
-        audio.addEventListener("timeupdate", audioTimeUpdateHandler);
-
-        // Start all audio playback simultaneously
-        try {
-            // Wait for current cell audio to be ready
-            const currentAudioReady = new Promise<void>((resolve, reject) => {
-                const handleCanPlay = () => {
-                    audio.removeEventListener("canplay", handleCanPlay);
-                    audio.removeEventListener("error", handleError);
-                    resolve();
-                };
-
-                const handleError = () => {
-                    if (!currentAudioErrorHandled) {
-                        audio.removeEventListener("canplay", handleCanPlay);
-                        audio.removeEventListener("error", handleError);
-                        currentAudioErrorHandled = true;
-                        const error = audio.error;
-                        // Don't log here - let onerror handler log it
-                        const errorMessage = error?.message || "Error loading current cell audio";
-                        reject(new Error(errorMessage));
-                    }
-                };
-
-                if (audio.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA) {
-                    resolve();
-                } else {
-                    audio.addEventListener("canplay", handleCanPlay);
-                    audio.addEventListener("error", handleError);
-                }
-            });
-
-            // Wait for all overlapping audio to be ready before starting playback
-            const readyResults = await Promise.allSettled([
-                currentAudioReady,
-                ...overlappingAudioReadyPromises,
-            ]);
-
-            // Check if current audio failed to load
-            const currentAudioResult = readyResults[0];
-            if (currentAudioResult.status === "rejected") {
-                // Error already logged by onerror handler or promise rejection handler
-                cleanupAll();
-                return; // Exit early if current audio fails to load
             }
 
-            // Start current cell audio
-            try {
-                await audio.play();
-            } catch (playError) {
+            // Set up overlapping audio elements
+            const overlappingAudioReadyPromises: Promise<void>[] = [];
+            for (const { cellId, blob } of overlappingAudios) {
+                if (!blob) {
+                    // Audio not available for this overlapping cell - skip silently
+                    // This is expected when some cells don't have audio recorded yet
+                    continue;
+                }
+
+                let playStartTime: number;
+                let playEndTime: number;
+
                 if (
-                    !currentAudioErrorHandled &&
-                    playError instanceof Error &&
-                    playError.name !== "AbortError" &&
-                    playError.name !== "NotAllowedError"
+                    cellId === prevCellId &&
+                    typeof prevStartTime === "number" &&
+                    typeof prevEndTime === "number"
                 ) {
-                    currentAudioErrorHandled = true;
-                    console.error("Error playing current cell audio:", playError);
+                    // Previous cell: play overlapping portion
+                    playStartTime = Math.max(prevStartTime, startTime);
+                    playEndTime = Math.min(prevEndTime, endTime);
+                } else if (
+                    cellId === nextCellId &&
+                    typeof nextStartTime === "number" &&
+                    typeof nextEndTime === "number"
+                ) {
+                    // Next cell: play overlapping portion
+                    playStartTime = Math.max(nextStartTime, startTime);
+                    playEndTime = Math.min(nextEndTime, endTime);
+                } else {
+                    continue;
                 }
-                cleanupAll();
-                return; // Exit early if current audio fails to play
-            }
 
-            // Start overlapping audio elements at their correct timestamps
-            const overlappingPlayPromises: Promise<void>[] = [];
-            const startOverlappingAudio = (overlappingAudio: HTMLAudioElement, cellId: string) => {
-                return overlappingAudio.play().catch((error) => {
-                    // Only log if it's a real error (not just user interruption)
-                    if (error.name !== "AbortError" && error.name !== "NotAllowedError") {
-                        console.warn(`Error playing overlapping audio for ${cellId}:`, error);
-                    }
-                    // Clean up on play error
+                if (playEndTime <= playStartTime) continue;
+
+                const overlappingUrl = URL.createObjectURL(blob);
+                overlappingAudioUrlsRef.current.set(cellId, overlappingUrl);
+                const overlappingAudio = new Audio(overlappingUrl);
+                overlappingAudioElementsRef.current.set(cellId, overlappingAudio);
+
+                // Calculate offset within the cell's audio
+                const cellStartTime =
+                    cellId === prevCellId
+                        ? typeof prevStartTime === "number"
+                            ? prevStartTime
+                            : 0
+                        : typeof nextStartTime === "number"
+                        ? nextStartTime
+                        : 0;
+                const offsetInCell = playStartTime - cellStartTime;
+                const durationInPlayback = playEndTime - playStartTime;
+
+                // Calculate delay: when should this overlapping audio start relative to current cell's start
+                // If playStartTime > startTime, we need to delay by the difference
+                const delay = Math.max(0, playStartTime - startTime);
+                overlappingAudioDelaysRef.current.set(cellId, delay);
+
+                // Track if error handler has already run to prevent infinite loops
+                let errorHandled = false;
+                let isReady = false;
+
+                // Helper function to clean up this overlapping audio
+                const cleanupOverlappingAudioForCell = () => {
+                    if (errorHandled) return; // Prevent infinite loop
+                    errorHandled = true;
+
                     const handler = overlappingAudioHandlersRef.current.get(cellId);
-                    if (handler) {
+                    if (handler && overlappingAudio) {
                         try {
                             overlappingAudio.removeEventListener("timeupdate", handler);
                         } catch (e) {
-                            // Ignore cleanup errors
+                            // Ignore errors during cleanup
                         }
                         overlappingAudioHandlersRef.current.delete(cellId);
                     }
@@ -1185,7 +976,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         overlappingAudio.pause();
                         overlappingAudio.src = "";
                     } catch (e) {
-                        // Ignore cleanup errors
+                        // Ignore errors during cleanup
                     }
                     const url = overlappingAudioUrlsRef.current.get(cellId);
                     if (url) {
@@ -1193,64 +984,285 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         overlappingAudioUrlsRef.current.delete(cellId);
                     }
                     overlappingAudioElementsRef.current.delete(cellId);
-                });
-            };
+                };
 
-            // Use a timeupdate listener on the current audio to trigger overlapping audio at the right time
-            const startOverlappingAudioHandler = (e: Event) => {
-                const target = e.target as HTMLAudioElement;
-                const currentPlaybackTime = target.currentTime;
+                // Set up error handler (only log if not already handled by promise rejection)
+                overlappingAudio.onerror = () => {
+                    if (!errorHandled) {
+                        errorHandled = true;
+                        const error = overlappingAudio.error;
+                        // Only log if it's a real error (not just unsupported format - code 4)
+                        // MediaError codes: 1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED
+                        if (error && error.code !== 4) {
+                            const errorMessage = error.message
+                                ? `Error loading overlapping audio for cell ${cellId}: ${error.message}`
+                                : `Error loading overlapping audio for cell ${cellId}`;
+                            console.warn(errorMessage);
+                        }
+                        cleanupOverlappingAudioForCell();
+                    }
+                };
 
-                // Check each overlapping audio to see if it's time to start it
-                overlappingAudioElementsRef.current.forEach((overlappingAudio, cellId) => {
-                    // Only try to play if the audio is still in the map (not removed due to error)
-                    if (!overlappingAudioElementsRef.current.has(cellId)) return;
+                // Set up timeupdate listener to stop at the calculated end time
+                const overlappingHandler = (e: Event) => {
+                    const target = e.target as HTMLAudioElement;
+                    // Check if we've reached the end of the overlapping portion
+                    if (target.currentTime >= offsetInCell + durationInPlayback) {
+                        target.pause();
+                        const handler = overlappingAudioHandlersRef.current.get(cellId);
+                        if (handler) {
+                            target.removeEventListener("timeupdate", handler);
+                            overlappingAudioHandlersRef.current.delete(cellId);
+                        }
+                    }
+                };
 
-                    const delay = overlappingAudioDelaysRef.current.get(cellId);
-                    if (delay === undefined) return; // Already started
+                overlappingAudioHandlersRef.current.set(cellId, overlappingHandler);
+                overlappingAudio.addEventListener("timeupdate", overlappingHandler);
 
-                    // Check if it's time to start this overlapping audio
-                    // Use a small threshold (0.05s) to account for timing precision
-                    if (currentPlaybackTime >= delay - 0.05 && overlappingAudio.paused) {
-                        // Remove delay from ref since we're starting it now
-                        overlappingAudioDelaysRef.current.delete(cellId);
+                // Create a promise that resolves when audio is ready to play
+                const readyPromise = new Promise<void>((resolve, reject) => {
+                    const handleLoadedMetadata = () => {
+                        try {
+                            if (
+                                offsetInCell >= 0 &&
+                                offsetInCell < overlappingAudio.duration &&
+                                !errorHandled
+                            ) {
+                                overlappingAudio.currentTime = offsetInCell;
+                                isReady = true;
+                                overlappingAudio.removeEventListener(
+                                    "loadedmetadata",
+                                    handleLoadedMetadata
+                                );
+                                overlappingAudio.removeEventListener("error", handleError);
+                                resolve();
+                            } else {
+                                console.warn(
+                                    `Invalid offset ${offsetInCell} for audio duration ${overlappingAudio.duration} in cell ${cellId}`
+                                );
+                                overlappingAudio.removeEventListener(
+                                    "loadedmetadata",
+                                    handleLoadedMetadata
+                                );
+                                overlappingAudio.removeEventListener("error", handleError);
+                                cleanupOverlappingAudioForCell();
+                                reject(new Error(`Invalid offset for cell ${cellId}`));
+                            }
+                        } catch (error) {
+                            console.error(
+                                `Error setting currentTime for overlapping audio ${cellId}:`,
+                                error
+                            );
+                            overlappingAudio.removeEventListener(
+                                "loadedmetadata",
+                                handleLoadedMetadata
+                            );
+                            overlappingAudio.removeEventListener("error", handleError);
+                            cleanupOverlappingAudioForCell();
+                            reject(error);
+                        }
+                    };
 
-                        // Start playing this overlapping audio
-                        startOverlappingAudio(overlappingAudio, cellId);
+                    const handleError = () => {
+                        if (!errorHandled) {
+                            overlappingAudio.removeEventListener(
+                                "loadedmetadata",
+                                handleLoadedMetadata
+                            );
+                            overlappingAudio.removeEventListener("error", handleError);
+                            errorHandled = true;
+                            // Don't log here - let onerror handler log it
+                            const error = overlappingAudio.error;
+                            const errorMessage =
+                                error?.message || `Error loading audio for cell ${cellId}`;
+                            cleanupOverlappingAudioForCell();
+                            reject(new Error(errorMessage));
+                        }
+                    };
+
+                    // If already loaded, handle immediately
+                    if (overlappingAudio.readyState >= HTMLMediaElement.HAVE_METADATA) {
+                        handleLoadedMetadata();
+                    } else {
+                        overlappingAudio.addEventListener("loadedmetadata", handleLoadedMetadata);
+                        overlappingAudio.addEventListener("error", handleError);
                     }
                 });
 
-                // If all overlapping audio has started, remove this listener
-                if (overlappingAudioDelaysRef.current.size === 0) {
-                    target.removeEventListener("timeupdate", startOverlappingAudioHandler);
-                    startOverlappingAudioHandlerRef.current = null;
+                overlappingAudioReadyPromises.push(readyPromise);
+            }
+
+            // Set up timeupdate listener to stop current cell audio at endTime
+            const audioTimeUpdateHandler = (e: Event) => {
+                const target = e.target as HTMLAudioElement;
+                if (target.currentTime >= duration) {
+                    target.pause();
+                    cleanupAll();
                 }
             };
 
-            // Start overlapping audio that should start immediately (delay = 0 or very small)
-            overlappingAudioElementsRef.current.forEach((overlappingAudio, cellId) => {
-                if (!overlappingAudioElementsRef.current.has(cellId)) return;
+            audioTimeUpdateHandlerRef.current = audioTimeUpdateHandler;
+            audio.addEventListener("timeupdate", audioTimeUpdateHandler);
 
-                const delay = overlappingAudioDelaysRef.current.get(cellId) ?? 0;
+            // Start all audio playback simultaneously
+            try {
+                // Wait for current cell audio to be ready
+                const currentAudioReady = new Promise<void>((resolve, reject) => {
+                    const handleCanPlay = () => {
+                        audio.removeEventListener("canplay", handleCanPlay);
+                        audio.removeEventListener("error", handleError);
+                        resolve();
+                    };
 
-                if (delay <= 0.05) {
-                    // Start immediately
-                    overlappingAudioDelaysRef.current.delete(cellId);
-                    overlappingPlayPromises.push(startOverlappingAudio(overlappingAudio, cellId));
+                    const handleError = () => {
+                        if (!currentAudioErrorHandled) {
+                            audio.removeEventListener("canplay", handleCanPlay);
+                            audio.removeEventListener("error", handleError);
+                            currentAudioErrorHandled = true;
+                            const error = audio.error;
+                            // Don't log here - let onerror handler log it
+                            const errorMessage =
+                                error?.message || "Error loading current cell audio";
+                            reject(new Error(errorMessage));
+                        }
+                    };
+
+                    if (audio.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA) {
+                        resolve();
+                    } else {
+                        audio.addEventListener("canplay", handleCanPlay);
+                        audio.addEventListener("error", handleError);
+                    }
+                });
+
+                // Wait for all overlapping audio to be ready before starting playback
+                const readyResults = await Promise.allSettled([
+                    currentAudioReady,
+                    ...overlappingAudioReadyPromises,
+                ]);
+
+                // Check if current audio failed to load
+                const currentAudioResult = readyResults[0];
+                if (currentAudioResult.status === "rejected") {
+                    // Error already logged by onerror handler or promise rejection handler
+                    cleanupAll();
+                    return; // Exit early if current audio fails to load
                 }
-            });
 
-            // Add listener to start delayed overlapping audio at the right times
-            if (overlappingAudioDelaysRef.current.size > 0) {
-                startOverlappingAudioHandlerRef.current = startOverlappingAudioHandler;
-                audio.addEventListener("timeupdate", startOverlappingAudioHandler);
+                // Start current cell audio
+                try {
+                    await audio.play();
+                } catch (playError) {
+                    if (
+                        !currentAudioErrorHandled &&
+                        playError instanceof Error &&
+                        playError.name !== "AbortError" &&
+                        playError.name !== "NotAllowedError"
+                    ) {
+                        currentAudioErrorHandled = true;
+                        console.error("Error playing current cell audio:", playError);
+                    }
+                    cleanupAll();
+                    return; // Exit early if current audio fails to play
+                }
+
+                // Start overlapping audio elements at their correct timestamps
+                const overlappingPlayPromises: Promise<void>[] = [];
+                const startOverlappingAudio = (
+                    overlappingAudio: HTMLAudioElement,
+                    cellId: string
+                ) => {
+                    return overlappingAudio.play().catch((error) => {
+                        // Only log if it's a real error (not just user interruption)
+                        if (error.name !== "AbortError" && error.name !== "NotAllowedError") {
+                            console.warn(`Error playing overlapping audio for ${cellId}:`, error);
+                        }
+                        // Clean up on play error
+                        const handler = overlappingAudioHandlersRef.current.get(cellId);
+                        if (handler) {
+                            try {
+                                overlappingAudio.removeEventListener("timeupdate", handler);
+                            } catch (e) {
+                                // Ignore cleanup errors
+                            }
+                            overlappingAudioHandlersRef.current.delete(cellId);
+                        }
+                        try {
+                            overlappingAudio.pause();
+                            overlappingAudio.src = "";
+                        } catch (e) {
+                            // Ignore cleanup errors
+                        }
+                        const url = overlappingAudioUrlsRef.current.get(cellId);
+                        if (url) {
+                            URL.revokeObjectURL(url);
+                            overlappingAudioUrlsRef.current.delete(cellId);
+                        }
+                        overlappingAudioElementsRef.current.delete(cellId);
+                    });
+                };
+
+                // Use a timeupdate listener on the current audio to trigger overlapping audio at the right time
+                const startOverlappingAudioHandler = (e: Event) => {
+                    const target = e.target as HTMLAudioElement;
+                    const currentPlaybackTime = target.currentTime;
+
+                    // Check each overlapping audio to see if it's time to start it
+                    overlappingAudioElementsRef.current.forEach((overlappingAudio, cellId) => {
+                        // Only try to play if the audio is still in the map (not removed due to error)
+                        if (!overlappingAudioElementsRef.current.has(cellId)) return;
+
+                        const delay = overlappingAudioDelaysRef.current.get(cellId);
+                        if (delay === undefined) return; // Already started
+
+                        // Check if it's time to start this overlapping audio
+                        // Use a small threshold (0.05s) to account for timing precision
+                        if (currentPlaybackTime >= delay - 0.05 && overlappingAudio.paused) {
+                            // Remove delay from ref since we're starting it now
+                            overlappingAudioDelaysRef.current.delete(cellId);
+
+                            // Start playing this overlapping audio
+                            startOverlappingAudio(overlappingAudio, cellId);
+                        }
+                    });
+
+                    // If all overlapping audio has started, remove this listener
+                    if (overlappingAudioDelaysRef.current.size === 0) {
+                        target.removeEventListener("timeupdate", startOverlappingAudioHandler);
+                        startOverlappingAudioHandlerRef.current = null;
+                    }
+                };
+
+                // Start overlapping audio that should start immediately (delay = 0 or very small)
+                overlappingAudioElementsRef.current.forEach((overlappingAudio, cellId) => {
+                    if (!overlappingAudioElementsRef.current.has(cellId)) return;
+
+                    const delay = overlappingAudioDelaysRef.current.get(cellId) ?? 0;
+
+                    if (delay <= 0.05) {
+                        // Start immediately
+                        overlappingAudioDelaysRef.current.delete(cellId);
+                        overlappingPlayPromises.push(
+                            startOverlappingAudio(overlappingAudio, cellId)
+                        );
+                    }
+                });
+
+                // Add listener to start delayed overlapping audio at the right times
+                if (overlappingAudioDelaysRef.current.size > 0) {
+                    startOverlappingAudioHandlerRef.current = startOverlappingAudioHandler;
+                    audio.addEventListener("timeupdate", startOverlappingAudioHandler);
+                }
+
+                // Wait for immediately-starting overlapping audio to start (don't fail if some fail)
+                await Promise.allSettled(overlappingPlayPromises);
+            } catch (playError) {
+                console.error("Error playing audio:", playError);
+                cleanupAll();
             }
-
-            // Wait for immediately-starting overlapping audio to start (don't fail if some fail)
-            await Promise.allSettled(overlappingPlayPromises);
-        } catch (playError) {
-            console.error("Error playing audio:", playError);
-            cleanupAll();
+        } finally {
+            setIsPlayAudioLoading(false);
         }
     }, [
         audioBlob,
@@ -3396,10 +3408,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         (effectiveTimestamps?.endTime ?? 0) -
                                                             (effectiveTimestamps?.startTime ?? 0) <=
                                                             0 ||
-                                                        !shouldShowVideoPlayer
+                                                        !shouldShowVideoPlayer ||
+                                                        isPlayAudioLoading
                                                     }
                                                 >
-                                                    <Play className="mr-1 h-4 w-4" />
+                                                    {isPlayAudioLoading ? (
+                                                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                                                    ) : (
+                                                        <Play className="mr-1 h-4 w-4" />
+                                                    )}
                                                     Play
                                                 </Button>
                                                 <Button
