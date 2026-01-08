@@ -65,7 +65,7 @@ export async function createNewWorkspaceAndProject() {
         }
     }
 
-    // Generate projectId for this legacy flow
+    // Generate projectId before creating the folder
     const projectId = generateProjectId();
     await createProjectInNewFolder(projectName, projectId);
 }
@@ -83,13 +83,16 @@ async function createProjectInNewFolder(projectName: string, projectId: string) 
     const codexProjectsDir = await getCodexProjectsDirectory();
     let parentFolderUri: vscode.Uri[] | undefined;
 
+    // Append projectId to the sanitized project name for the folder name
+    const folderName = `${projectName}-${projectId}`;
+
     if (SHOULD_PROMPT_USER_FOR_PARENT_FOLDER) {
         // Allow the user to choose a different location if they want
         parentFolderUri = await vscode.window.showOpenDialog({
             canSelectFolders: true,
             canSelectFiles: false,
             canSelectMany: false,
-            openLabel: `Choose location for "${projectName}" folder`,
+            openLabel: `Choose location for "${folderName}" folder`,
             defaultUri: codexProjectsDir,
         });
     } else {
@@ -109,8 +112,7 @@ async function createProjectInNewFolder(projectName: string, projectId: string) 
         return;
     }
 
-    const newFolderUri = vscode.Uri.joinPath(parentFolderUri[0], projectName);
-
+    const newFolderUri = vscode.Uri.joinPath(parentFolderUri[0], folderName);
     try {
         await vscode.workspace.fs.createDirectory(newFolderUri);
         

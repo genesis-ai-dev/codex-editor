@@ -107,20 +107,24 @@ const AudioPlayButton: React.FC<{
 
         // Do not pre-load on mount; we will request on first click to avoid spinner churn
 
-        // Listen for audio data messages
-        useMessageHandler(
-            "cellContentDisplay-audioData",
-            (event: MessageEvent) => {
-                const message = event.data;
+    // Listen for audio data messages
+    useMessageHandler(
+        "cellContentDisplay-audioData",
+        async (event: MessageEvent) => {
+            const message = event.data;
 
-                // Handle audio attachments updates - clear current url; fetch on next click
-                if (message.type === "providerSendsAudioAttachments") {
-                    if (audioUrl && audioUrl.startsWith("blob:")) {
-                        URL.revokeObjectURL(audioUrl);
-                    }
-                    setAudioUrl(null);
-                    setIsLoading(false);
+            // Handle audio attachments updates - clear current url and cache; fetch on next click
+            if (message.type === "providerSendsAudioAttachments") {
+                // Clear cached audio data since selected audio might have changed
+                const { clearCachedAudio } = await import("../lib/audioCache");
+                clearCachedAudio(cellId);
+
+                if (audioUrl && audioUrl.startsWith("blob:")) {
+                    URL.revokeObjectURL(audioUrl);
                 }
+                setAudioUrl(null);
+                setIsLoading(false);
+            }
 
                 if (
                     message.type === "providerSendsAudioData" &&

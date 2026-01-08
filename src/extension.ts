@@ -16,9 +16,12 @@ import {
     migration_chatSystemMessageToMetadata,
     migration_lineNumbersSettings,
     migration_editHistoryFormat,
+    migration_addMilestoneCells,
+    migration_reorderMisplacedParatextCells,
+    migration_addGlobalReferences,
+    migration_cellIdsToUuid,
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/contentIndexes/indexes";
-import { migrateSourceFiles } from "./utils/codexNotebookUtils";
 import { StatusBarItem } from "vscode";
 import { Database } from "fts5-sql-bundle";
 import {
@@ -622,12 +625,15 @@ export async function activate(context: vscode.ExtensionContext) {
         // NOTE: migration_chatSystemMessageSetting() now runs BEFORE sync (see line ~768)
         await temporaryMigrationScript_checkMatthewNotebook();
         await migration_changeDraftFolderToFilesFolder();
-        await migrateSourceFiles();
         await migration_lineNumbersSettings(context);
         await migration_moveTimestampsToMetadataData(context);
         await migration_promoteCellTypeToTopLevel(context);
         await migration_editHistoryFormat(context);
         await migration_addImporterTypeToMetadata(context);
+        await migration_addMilestoneCells(context);
+        await migration_reorderMisplacedParatextCells(context);
+        await migration_addGlobalReferences(context);
+        await migration_cellIdsToUuid(context);
         trackTiming("Running Post-activation Tasks", postActivationStart);
 
         // Register update commands and check for updates (non-blocking)

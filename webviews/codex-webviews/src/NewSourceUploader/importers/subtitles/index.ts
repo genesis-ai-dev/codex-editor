@@ -10,6 +10,7 @@ import {
     createProgress,
     createProcessedCell,
     validateFileExtension,
+    addMilestoneCellsToNotebookPair,
 } from '../../utils/workflowHelpers';
 import { WebVTTParser } from 'webvtt-parser';
 import { englishSubtitlesRaw, tigrinyaSubtitlesRaw, sourceOfTruthMapping } from './testData';
@@ -187,7 +188,6 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
             // Create ProcessedCell using the structure expected by the editor
             // Timestamps and related fields should live under metadata.data
             const cell = createProcessedCell(cueId, cue.text, {
-
                 type: "text" as CodexCellTypes,
                 data: {
                     startTime: cue.startTime,
@@ -238,20 +238,18 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
             },
         };
 
-        // Debug logging
-        console.log("Subtitles importer created cells:", sourceNotebook.cells.length);
-        console.log("First few cells:", sourceNotebook.cells.slice(0, 2));
-
         const notebookPair = {
             source: sourceNotebook,
             codex: codexNotebook,
         };
 
+        const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
+
         onProgress?.(createProgress('Complete', 'Subtitle processing complete', 100));
 
         return {
             success: true,
-            notebookPair,
+            notebookPair: notebookPairWithMilestones,
             metadata: {
                 segmentCount: sourceNotebook.cells.length,
                 format,

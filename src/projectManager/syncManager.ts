@@ -12,6 +12,7 @@ import { getFrontierVersionStatus, checkVSCodeVersion } from "./utils/versionChe
 import { BookCompletionData } from "../progressReporting/progressReportingService";
 import { ProgressReportingService, registerProgressReportingCommands } from "../progressReporting/progressReportingService";
 import { CommentsMigrator } from "../utils/commentsMigrationUtils";
+import { deduplicateConsecutiveMilestoneCells } from "./utils/migrationUtils";
 // Define TranslationProgress interface locally since it's not exported from types
 interface BookProgress {
     bookId: string;
@@ -742,6 +743,36 @@ export class SyncManager {
             // Rebuild indexes in the background after successful sync (truly async)
             // Pass the sync result to optimize database synchronization
             this.rebuildIndexesInBackground(syncResult);
+
+            // Deduplicate consecutive milestone cells after successful sync (runs only once)
+            try {
+                await deduplicateConsecutiveMilestoneCells(undefined);
+            } catch (error) {
+                console.error("[SyncManager] Error during milestone cells deduplication:", error);
+                // Don't fail sync if deduplication fails
+            }
+
+            // Refresh webviews for affected codex files to show newly added cells
+            try {
+                const affectedCodexFiles = [
+                    ...syncResult.changedFiles.filter(f => f.endsWith('.codex')),
+                    ...syncResult.newFiles.filter(f => f.endsWith('.codex'))
+                ];
+
+                if (affectedCodexFiles.length > 0) {
+                    debug(`Refreshing webviews for ${affectedCodexFiles.length} affected codex file(s)`);
+                    const { GlobalProvider } = await import("../globalProvider");
+                    const provider = GlobalProvider.getInstance().getProvider("codex-cell-editor") as any;
+                    if (provider && typeof provider.refreshWebviewsForFiles === 'function') {
+                        await provider.refreshWebviewsForFiles(affectedCodexFiles);
+                    } else {
+                        debug("[SyncManager] Codex cell editor provider not available or missing refreshWebviewsForFiles method");
+                    }
+                }
+            } catch (error) {
+                console.error("[SyncManager] Error refreshing webviews after sync:", error);
+                // Don't fail sync if webview refresh fails
+            }
 
         } catch (error) {
             console.error("Error during background sync operation:", error);

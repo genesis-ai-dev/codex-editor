@@ -7,6 +7,7 @@ import {
 import {
     createProgress,
     validateFileExtension,
+    addMilestoneCellsToNotebookPair,
 } from '../../utils/workflowHelpers';
 import {
     validateUsfmContent,
@@ -84,11 +85,14 @@ export const parseFile = async (file: File, onProgress?: ProgressCallback): Prom
             chapters: processedBook.chapters,
         });
 
+        // Add milestone cells to the notebook pair
+        const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
+
         onProgress?.(createProgress('Complete', 'USFM processing complete', 100));
 
         return {
             success: true,
-            notebookPair,
+            notebookPair: notebookPairWithMilestones,
             metadata: {
                 bookCode: processedBook.bookCode,
                 bookName: processedBook.bookName,

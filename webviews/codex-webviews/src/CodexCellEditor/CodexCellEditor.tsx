@@ -9,6 +9,7 @@ import {
     CustomNotebookMetadata,
     EditorReceiveMessages,
     CellIdGlobalState,
+    MilestoneIndex,
 } from "../../../../types";
 import { CodexCellTypes } from "../../../../types/enums";
 import { ChapterNavigationHeader } from "./ChapterNavigationHeader";
@@ -37,6 +38,7 @@ import { getVSCodeAPI } from "../shared/vscodeApi";
 import { Subsection, ProgressPercentages } from "../lib/types";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
+import { createCacheHelpers, createProgressCacheHelpers } from "./utils";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -89,6 +91,50 @@ const isCellContentEmpty = (cellContent: string | undefined): boolean => {
     const onlyWhitespaceRegex = /^[\s\u00A0\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]*$/;
 
     return onlyWhitespaceRegex.test(textContent);
+};
+
+/**
+ * Extracts chapter number from a milestone value.
+ * Handles both old format ("1", "2") and new format ("Isaiah 1", "GEN 2").
+ * Returns the chapter number as a number, or null if not found.
+ */
+export const extractChapterNumberFromMilestoneValue = (
+    value: string | undefined
+): number | null => {
+    if (!value) return null;
+
+    // Try to extract the last number in the string (handles "Isaiah 1", "GEN 2", etc.)
+    // This works for both old format ("1") and new format ("BookName 1")
+    const matches = value.match(/(\d+)(?!.*\d)/);
+    if (matches && matches[1]) {
+        const chapterNum = parseInt(matches[1], 10);
+        if (!isNaN(chapterNum) && chapterNum > 0) {
+            return chapterNum;
+        }
+    }
+
+    // Fallback: try parsing the entire string as a number (for old format "1")
+    const parsed = parseInt(value, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+        return parsed;
+    }
+
+    return null;
+};
+
+// Helper function to extract chapter number from milestone cell value
+// Milestone cells have values like "1", "2", "Isaiah 1", "GEN 2", etc.
+const extractChapterFromMilestoneValue = (cellContent: string | undefined): string | null => {
+    if (!cellContent) return null;
+
+    // Create a temporary div to parse HTML and extract text content
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = cellContent;
+    const textContent = tempDiv.textContent || tempDiv.innerText || "";
+
+    // Use the new helper function to extract chapter number
+    const chapterNum = extractChapterNumberFromMilestoneValue(textContent);
+    return chapterNum !== null ? chapterNum.toString() : null;
 };
 
 const CodexCellEditor: React.FC = () => {
@@ -230,6 +276,61 @@ const CodexCellEditor: React.FC = () => {
         "leftmost" | "rightmost" | "center" | "single" | "unknown"
     >("unknown");
     const [currentSubsectionIndex, setCurrentSubsectionIndex] = useState(0);
+
+    // Milestone-based pagination state
+    const [milestoneIndex, setMilestoneIndex] = useState<MilestoneIndex | null>(null);
+    const [currentMilestoneIndex, setCurrentMilestoneIndex] = useState(0);
+    const [isLoadingCells, setIsLoadingCells] = useState(false);
+
+    // Subsection progress state (milestone index -> subsection index -> progress)
+    const [subsectionProgress, setSubsectionProgress] = useState<
+        Record<number, Record<number, ProgressPercentages>>
+    >({});
+
+    // Cache for milestone progress (LRU cache with max size of 10)
+    const MAX_PROGRESS_CACHE_SIZE = 10;
+    const progressCacheRef = useRef<Map<number, Record<number, ProgressPercentages>>>(new Map());
+    const pendingProgressRequestsRef = useRef<Set<number>>(new Set());
+
+    // Track which milestone/subsection combinations have been loaded
+    const loadedPagesRef = useRef<Set<string>>(new Set());
+
+    // Cache cells for each loaded page (LRU cache with max size of 10)
+    const cellsCacheRef = useRef<Map<string, QuillCellContent[]>>(new Map());
+    const MAX_CACHE_SIZE = 10;
+
+    // Create cache helpers
+    const { getCachedCells, setCachedCells } = useMemo(
+        () =>
+            createCacheHelpers(cellsCacheRef, loadedPagesRef, MAX_CACHE_SIZE, (category, message) =>
+                debug(category, message)
+            ),
+        []
+    );
+
+    // Progress cache helpers
+    const { getCachedProgress, setCachedProgress } = useMemo(
+        () =>
+            createProgressCacheHelpers(
+                progressCacheRef,
+                MAX_PROGRESS_CACHE_SIZE,
+                setSubsectionProgress,
+                (category, message) => debug(category, message)
+            ),
+        [setSubsectionProgress]
+    );
+
+    // Track the latest request to ignore stale responses
+    const latestRequestRef = useRef<{ milestoneIdx: number; subsectionIdx: number } | null>(null);
+
+    // Refs to access current milestone/subsection indices in message handlers without dependencies
+    const currentMilestoneIndexRef = useRef<number>(0);
+    const currentSubsectionIndexRef = useRef<number>(0);
+
+    // Ref to store requestCellsForMilestone function so it can be used in message handlers
+    const requestCellsForMilestoneRef = useRef<
+        ((milestoneIdx: number, subsectionIdx?: number) => void) | null
+    >(null);
 
     // Add audio attachments state
     const [audioAttachments, setAudioAttachments] = useState<{
@@ -629,6 +730,7 @@ const CodexCellEditor: React.FC = () => {
             // Also listen for validation completion message
             if (message.type === "validationsApplied") {
                 setIsApplyingValidations(false);
+                // Note: Progress refresh for validationsApplied is handled in the validationProgress handler below
             }
 
             // Handle file status updates
@@ -655,6 +757,25 @@ const CodexCellEditor: React.FC = () => {
                 setTempFontSize(null);
                 // Request updated content to get the new font sizes and metadata
                 vscode.postMessage({ command: "getContent" } as EditorPostMessages);
+            }
+
+            // Handle current page refresh (e.g., when a paratext cell is added or after sync)
+            if (message.type === "refreshCurrentPage") {
+                // After sync, changes can occur in any cell range, not just the current page
+                // Clear ALL cached pages to ensure fresh data is loaded when navigating to any page
+                cellsCacheRef.current.clear();
+                loadedPagesRef.current.clear();
+
+                // Use refs to get current values without adding them to dependency array
+                const milestoneIdx = currentMilestoneIndexRef.current;
+                const subsectionIdx = currentSubsectionIndexRef.current;
+
+                // Request fresh cells for the current page
+                if (requestCellsForMilestoneRef.current) {
+                    requestCellsForMilestoneRef.current(milestoneIdx, subsectionIdx);
+                } else {
+                    debug("pagination", "ERROR: requestCellsForMilestoneRef.current is null!");
+                }
             }
         },
         [vscode]
@@ -743,6 +864,38 @@ const CodexCellEditor: React.FC = () => {
         []
     );
 
+    // Listen for milestone progress updates
+    useMessageHandler(
+        "codexCellEditor-milestoneProgress",
+        (event: MessageEvent) => {
+            const message = event.data as EditorReceiveMessages;
+            if (message?.type === "milestoneProgressUpdate" && milestoneIndex) {
+                // Update milestone progress in the milestone index
+                setMilestoneIndex({
+                    ...milestoneIndex,
+                    milestoneProgress: message.milestoneProgress,
+                });
+            }
+        },
+        [milestoneIndex]
+    );
+
+    // Listen for subsection progress updates
+    useMessageHandler(
+        "codexCellEditor-subsectionProgress",
+        (event: MessageEvent) => {
+            const message = event.data as EditorReceiveMessages;
+            if (message?.type === "providerSendsSubsectionProgress") {
+                // Remove from pending requests
+                pendingProgressRequestsRef.current.delete(message.milestoneIndex);
+
+                // Store in cache (handles LRU eviction)
+                setCachedProgress(message.milestoneIndex, message.subsectionProgress);
+            }
+        },
+        [setCachedProgress]
+    );
+
     useEffect(() => {
         if (highlightedCellId && scrollSyncEnabled && isSourceText) {
             const cellId = highlightedCellId;
@@ -769,12 +922,24 @@ const CodexCellEditor: React.FC = () => {
             if (shouldAutoNavigate) {
                 // Get all cells for the target chapter
                 const allCellsForTargetChapter = translationUnits.filter((verse) => {
+                    // Include milestone cells for their chapter
+                    if (verse.cellType === CodexCellTypes.MILESTONE) {
+                        const milestoneChapter = extractChapterFromMilestoneValue(
+                            verse.cellContent
+                        );
+                        return milestoneChapter === newChapterNumber.toString();
+                    }
                     const verseChapter = verse?.cellMarkers?.[0]?.split(" ")?.[1]?.split(":")[0];
                     return verseChapter === newChapterNumber.toString();
                 });
 
-                // Find the index of the highlighted cell within the chapter
-                const cellIndexInChapter = allCellsForTargetChapter.findIndex(
+                // Filter out milestone cells for pagination calculations (they're excluded from the view)
+                const cellsForTargetChapterWithoutMilestones = allCellsForTargetChapter.filter(
+                    (verse) => verse.cellType !== CodexCellTypes.MILESTONE
+                );
+
+                // Find the index of the highlighted cell within the chapter (excluding milestones)
+                const cellIndexInChapter = cellsForTargetChapterWithoutMilestones.findIndex(
                     (verse) => verse.cellMarkers[0] === cellId
                 );
 
@@ -792,7 +957,7 @@ const CodexCellEditor: React.FC = () => {
                     // Same chapter, but check if we need to change subsection
                     // Check if chapter has multiple pages (subsections)
                     if (
-                        allCellsForTargetChapter.length > cellsPerPage &&
+                        cellsForTargetChapterWithoutMilestones.length > cellsPerPage &&
                         targetSubsectionIndex !== currentSubsectionIndex
                     ) {
                         setCurrentSubsectionIndex(targetSubsectionIndex);
@@ -888,6 +1053,87 @@ const CodexCellEditor: React.FC = () => {
         successfulCompletions,
     ]);
 
+    // Debounce refs for progress refresh
+    const progressRefreshTimeoutRef = useRef<Map<number, NodeJS.Timeout>>(new Map());
+
+    // Helper function to invalidate progress cache and force refresh for a milestone
+    // Debounced to avoid overwhelming the system with frequent requests
+    const refreshProgressForMilestone = useCallback(
+        (milestoneIdx: number) => {
+            // Clear any existing timeout for this milestone
+            const existingTimeout = progressRefreshTimeoutRef.current.get(milestoneIdx);
+            if (existingTimeout) {
+                clearTimeout(existingTimeout);
+            }
+
+            // Set a new debounced timeout (300ms delay)
+            const timeoutId = setTimeout(() => {
+                // Remove from cache to force fresh fetch
+                if (progressCacheRef.current.has(milestoneIdx)) {
+                    progressCacheRef.current.delete(milestoneIdx);
+                    debug("progress", `Invalidated progress cache for milestone ${milestoneIdx}`);
+                }
+
+                // Remove from pending requests if present (to allow new request)
+                pendingProgressRequestsRef.current.delete(milestoneIdx);
+
+                // Request fresh progress
+                pendingProgressRequestsRef.current.add(milestoneIdx);
+                vscode.postMessage({
+                    command: "requestSubsectionProgress",
+                    content: {
+                        milestoneIndex: milestoneIdx,
+                    },
+                } as EditorPostMessages);
+
+                debug("progress", `Requested fresh progress for milestone ${milestoneIdx}`);
+
+                // Clean up timeout reference
+                progressRefreshTimeoutRef.current.delete(milestoneIdx);
+            }, 300);
+
+            // Store timeout reference
+            progressRefreshTimeoutRef.current.set(milestoneIdx, timeoutId);
+        },
+        [vscode]
+    );
+
+    // Listen for validation state updates to refresh progress
+    useMessageHandler(
+        "codexCellEditor-validationProgress",
+        (event: MessageEvent) => {
+            const message = event.data;
+
+            // Listen for batch validation completion
+            if (message.type === "validationsApplied") {
+                // Refresh progress for current milestone after batch validations are applied
+                const milestoneIdx = currentMilestoneIndexRef.current;
+                if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
+                    refreshProgressForMilestone(milestoneIdx);
+                }
+            }
+
+            // Listen for individual validation state updates to refresh progress
+            if (message.type === "providerUpdatesValidationState") {
+                // Refresh progress for current milestone after text validation completes
+                const milestoneIdx = currentMilestoneIndexRef.current;
+                if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
+                    refreshProgressForMilestone(milestoneIdx);
+                }
+            }
+
+            // Listen for audio validation state updates to refresh progress
+            if (message.type === "providerUpdatesAudioValidationState") {
+                // Refresh progress for current milestone after audio validation completes
+                const milestoneIdx = currentMilestoneIndexRef.current;
+                if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
+                    refreshProgressForMilestone(milestoneIdx);
+                }
+            }
+        },
+        [milestoneIndex, refreshProgressForMilestone]
+    );
+
     useVSCodeMessageHandler({
         setContent: (
             content: QuillCellContent[],
@@ -962,6 +1208,12 @@ const CodexCellEditor: React.FC = () => {
                     // Important: call both state updates in sequence to ensure they happen in the same render cycle
                     setSingleCellQueueProcessingId(undefined);
                     setIsProcessingCell(false);
+
+                    // Refresh progress for current milestone after autocomplete completes
+                    const milestoneIdx = currentMilestoneIndexRef.current;
+                    if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
+                        refreshProgressForMilestone(milestoneIdx);
+                    }
                 }
             }
         },
@@ -969,6 +1221,11 @@ const CodexCellEditor: React.FC = () => {
         // Add this for compatibility
         autocompleteChapterComplete: () => {
             debug("autocomplete", "Autocomplete chapter complete (legacy handler)");
+            // Refresh progress for current milestone after autocomplete completes
+            const milestoneIdx = currentMilestoneIndexRef.current;
+            if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
+                refreshProgressForMilestone(milestoneIdx);
+            }
         },
 
         // New handlers for provider-centric state management
@@ -1008,6 +1265,12 @@ const CodexCellEditor: React.FC = () => {
                     newSet.add(cellId);
                     return newSet;
                 });
+
+                // Refresh progress for current milestone after successful autocomplete
+                const milestoneIdx = currentMilestoneIndexRef.current;
+                if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
+                    refreshProgressForMilestone(milestoneIdx);
+                }
             } else if (cancelled) {
                 // Cell was cancelled - make sure it's not in successful completions
                 debug("translation", `Cell ${cellId} was cancelled`);
@@ -1099,6 +1362,115 @@ const CodexCellEditor: React.FC = () => {
             // Otherwise, auto-apply first variant quietly (no modal)
             applyVariantToCell(cellId, variants[0], testId, 0, count, 0, testName, names);
         },
+
+        // Milestone-based pagination handlers
+        setContentPaginated: (
+            milestoneIdx: MilestoneIndex,
+            cells: QuillCellContent[],
+            currentMilestoneIdx: number,
+            currentSubsectionIdx: number,
+            isSourceTextValue: boolean,
+            sourceCellMapValue: { [k: string]: { content: string; versions: string[] } }
+        ) => {
+            debug("pagination", "Received paginated content:", {
+                milestones: milestoneIdx.milestones.length,
+                cells: cells.length,
+                currentMilestone: currentMilestoneIdx,
+                currentSubsection: currentSubsectionIdx,
+            });
+
+            setMilestoneIndex(milestoneIdx);
+            setTranslationUnits(cells);
+            setCurrentMilestoneIndex(currentMilestoneIdx);
+            setCurrentSubsectionIndex(currentSubsectionIdx);
+            setIsSourceText(isSourceTextValue);
+            setSourceCellMap(sourceCellMapValue);
+
+            // Update chapter number to match the milestone value if milestone navigation is active
+            if (
+                milestoneIdx.milestones.length > 0 &&
+                currentMilestoneIdx < milestoneIdx.milestones.length
+            ) {
+                const milestone = milestoneIdx.milestones[currentMilestoneIdx];
+                const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
+                if (chapterNum !== null) {
+                    setChapterNumber(chapterNum);
+                }
+            }
+
+            // Mark this page as loaded and cache the cells
+            const pageKey = `${currentMilestoneIdx}-${currentSubsectionIdx}`;
+            loadedPagesRef.current.add(pageKey);
+            setCachedCells(pageKey, cells);
+            setIsLoadingCells(false);
+
+            // If we're currently saving, this content update likely means the save completed
+            if (isSaving) {
+                debug("editor", "Content updated during save - save completed");
+                if (saveTimeoutRef.current) {
+                    clearTimeout(saveTimeoutRef.current);
+                    saveTimeoutRef.current = null;
+                }
+                setIsSaving(false);
+                setSaveError(false);
+                setSaveRetryCount(0);
+                handleCloseEditor();
+            }
+        },
+
+        handleCellPage: (
+            milestoneIdx: number,
+            subsectionIdx: number,
+            cells: QuillCellContent[],
+            sourceCellMapValue: { [k: string]: { content: string; versions: string[] } }
+        ) => {
+            debug("pagination", "Received cell page:", {
+                milestone: milestoneIdx,
+                subsection: subsectionIdx,
+                cells: cells.length,
+            });
+
+            // Ignore stale responses - only process if this matches the latest request
+            const latestRequest = latestRequestRef.current;
+            if (
+                latestRequest &&
+                (latestRequest.milestoneIdx !== milestoneIdx ||
+                    latestRequest.subsectionIdx !== subsectionIdx)
+            ) {
+                debug(
+                    "pagination",
+                    `Ignoring stale response for milestone ${milestoneIdx}, subsection ${subsectionIdx}. Latest request is milestone ${latestRequest.milestoneIdx}, subsection ${latestRequest.subsectionIdx}`
+                );
+                return;
+            }
+
+            // Replace translation units with new cells
+            setTranslationUnits(cells);
+            setCurrentMilestoneIndex(milestoneIdx);
+            setCurrentSubsectionIndex(subsectionIdx);
+
+            // Merge source cell map
+            setSourceCellMap((prev) => ({ ...prev, ...sourceCellMapValue }));
+
+            // Mark this page as loaded and cache the cells
+            const pageKey = `${milestoneIdx}-${subsectionIdx}`;
+            loadedPagesRef.current.add(pageKey);
+            setCachedCells(pageKey, cells);
+            setIsLoadingCells(false);
+
+            // If we're currently saving, this content update likely means the save completed
+            if (isSaving) {
+                debug("editor", "Content updated during save - save completed (handleCellPage)");
+                if (saveTimeoutRef.current) {
+                    clearTimeout(saveTimeoutRef.current);
+                    saveTimeoutRef.current = null;
+                }
+                setIsSaving(false);
+                setSaveError(false);
+                setSaveRetryCount(0);
+                handleCloseEditor();
+            }
+        },
     });
 
     useEffect(() => {
@@ -1140,17 +1512,42 @@ const CodexCellEditor: React.FC = () => {
         return sectionSet.size;
     };
 
-    // Helper function to get global line number for a cell (skips paratext and child cells)
+    // Helper function to get cell identifier (prefer globalReferences, fallback to cellMarkers)
+    const getCellIdentifier = (cell: QuillCellContent): string => {
+        // Prefer globalReferences (new format after migration)
+        const globalRefs = cell.data?.globalReferences;
+        if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+            return globalRefs[0];
+        }
+        // Fallback to cellMarkers for backward compatibility
+        return cell.cellMarkers[0] || "";
+    };
+
+    // Helper function to get global line number for a cell (skips paratext, milestone, and child cells)
     const getGlobalLineNumber = (cell: QuillCellContent, allUnits: QuillCellContent[]): number => {
-        const cellIndex = allUnits.findIndex((unit) => unit.cellMarkers[0] === cell.cellMarkers[0]);
+        const cellIdentifier = getCellIdentifier(cell);
+        if (!cellIdentifier) return 0;
+
+        const cellIndex = allUnits.findIndex((unit) => getCellIdentifier(unit) === cellIdentifier);
 
         if (cellIndex === -1) return 0;
 
-        // Count non-paratext, non-child cells up to and including this one
+        // Count non-paratext, non-milestone, non-child cells up to and including this one
         let lineNumber = 0;
         for (let i = 0; i <= cellIndex; i++) {
-            const cellIdParts = allUnits[i].cellMarkers[0].split(":");
-            if (allUnits[i].cellType !== CodexCellTypes.PARATEXT && cellIdParts.length < 3) {
+            const unit = allUnits[i];
+            // MILESTONES: Can probably remove this after the cell ID migration.
+            // Check if this is a child cell by checking metadata.parentId (new UUID format)
+            // Legacy: also check ID format for backward compatibility during migration
+            const isChildCell =
+                unit.data?.parentId !== undefined ||
+                (getCellIdentifier(unit) && getCellIdentifier(unit).split(":").length > 2);
+
+            if (
+                unit.cellType !== CodexCellTypes.PARATEXT &&
+                unit.cellType !== CodexCellTypes.MILESTONE &&
+                !isChildCell
+            ) {
                 lineNumber++;
             }
         }
@@ -1168,129 +1565,122 @@ const CodexCellEditor: React.FC = () => {
         return sectionCellNumber === chapterNum.toString();
     };
 
-    // Add function to get subsections for a chapter based on content cells (excluding paratext)
-    const getSubsectionsForChapter = (chapterNum: number) => {
-        // Filter cells for the specific chapter
-        const cellsForChapter = translationUnits.filter((verse) => {
-            const cellId = verse?.cellMarkers?.[0];
-            const sectionCellIdParts = cellId?.split(" ")?.[1]?.split(":");
-            const sectionCellNumber = sectionCellIdParts?.[0];
-            return sectionCellNumber === chapterNum.toString();
-        });
+    // Milestone-based pagination functions
+    const getSubsectionsForMilestone = useCallback(
+        (milestoneIdx: number): Subsection[] => {
+            if (!milestoneIndex || milestoneIdx >= milestoneIndex.milestones.length) {
+                return [];
+            }
 
-        if (cellsForChapter.length === 0) {
-            return [];
-        }
+            const milestone = milestoneIndex.milestones[milestoneIdx];
+            const { cellCount, value } = milestone;
+            const effectiveCellsPerPage = milestoneIndex.cellsPerPage || cellsPerPage;
 
-        // Filter out only source/target content cells (non-paratext) for pagination counting
-        const contentCells = cellsForChapter.filter((cell) => {
-            return cell.cellType !== "paratext";
-        });
+            // Calculate number of pages based on content cells
+            const totalPages = Math.ceil(cellCount / effectiveCellsPerPage) || 1;
+            const subsections: Subsection[] = [];
 
-        // If content cells fit in one page, no subsections needed
-        if (contentCells.length <= cellsPerPage) {
-            return [];
-        }
+            for (let i = 0; i < totalPages; i++) {
+                const startCellNumber = i * effectiveCellsPerPage + 1;
+                const endCellNumber = Math.min((i + 1) * effectiveCellsPerPage, cellCount);
 
-        // Calculate number of pages based on content cells
-        const totalPages = Math.ceil(contentCells.length / cellsPerPage);
-        const subsections: Subsection[] = [];
+                subsections.push({
+                    id: `milestone-${milestoneIdx}-page-${i}`,
+                    label: `${startCellNumber}-${endCellNumber}`,
+                    startIndex: i * effectiveCellsPerPage,
+                    endIndex: endCellNumber,
+                });
+            }
 
-        for (let i = 0; i < totalPages; i++) {
-            const startContentIndex = i * cellsPerPage;
-            const endContentIndex = Math.min((i + 1) * cellsPerPage, contentCells.length);
+            return subsections;
+        },
+        [milestoneIndex, cellsPerPage]
+    );
 
-            // Get the range of content cells for this page
-            const pageContentCells = contentCells.slice(startContentIndex, endContentIndex);
-            const firstContentCell = pageContentCells[0];
-            const lastContentCell = pageContentCells[pageContentCells.length - 1];
+    // Request cells for a specific milestone/subsection
+    const requestCellsForMilestone = useCallback(
+        (milestoneIdx: number, subsectionIdx: number = 0) => {
+            const pageKey = `${milestoneIdx}-${subsectionIdx}`;
 
-            // Create a generic label based on cell position/index rather than specific ID format
-            const startCellNumber = startContentIndex + 1; // 1-based indexing
-            const endCellNumber = endContentIndex;
+            // Track this as the latest request
+            latestRequestRef.current = { milestoneIdx, subsectionIdx };
 
-            // Find the positions of the first and last content cells in the full chapter
-            const firstContentPosition = cellsForChapter.findIndex(
-                (cell) => cell.cellMarkers[0] === firstContentCell.cellMarkers[0]
-            );
-            const lastContentPosition = cellsForChapter.findIndex(
-                (cell) => cell.cellMarkers[0] === lastContentCell.cellMarkers[0]
-            );
-
-            // Get the content cell IDs for this page for quick lookup
-            const contentCellIds = new Set(pageContentCells.map((cell) => cell.cellMarkers[0]));
-
-            // Find the actual start and end indices by expanding to include related paratext cells
-            let startCellIndex = firstContentPosition;
-            let endCellIndex = lastContentPosition + 1;
-
-            // Special handling for the first page: include all leading paratext
-            if (i === 0) {
-                // For the first page, start from the beginning to capture all leading paratext
-                startCellIndex = 0;
-            } else {
-                // For subsequent pages, expand backward to include any paratext cells
-                while (startCellIndex > 0) {
-                    const prevCell = cellsForChapter[startCellIndex - 1];
-
-                    // Include if it's paratext for this chapter
-                    if ((prevCell.cellType as string) === "paratext") {
-                        startCellIndex--;
-                        continue;
-                    }
-
-                    // Stop expanding if we hit another content cell that's not on this page
-                    if (
-                        (prevCell.cellType as string) !== "paratext" &&
-                        !contentCellIds.has(prevCell.cellMarkers[0])
-                    ) {
-                        break;
-                    }
-
-                    startCellIndex--;
+            // Check if this page is already loaded
+            if (loadedPagesRef.current.has(pageKey)) {
+                debug("pagination", `Page ${pageKey} already loaded, using cached cells`);
+                // Retrieve cached cells and update state (this also updates LRU order)
+                const cachedCells = getCachedCells(pageKey);
+                if (cachedCells) {
+                    setTranslationUnits(cachedCells);
+                    setCurrentMilestoneIndex(milestoneIdx);
+                    setCurrentSubsectionIndex(subsectionIdx);
+                    setIsLoadingCells(false);
+                    return;
+                } else {
+                    // Cache miss - fall through to request new cells
+                    debug("pagination", `Cache miss for ${pageKey}, requesting cells`);
                 }
             }
 
-            // Expand forward to include any paratext cells that should be with the last content cell
-            while (endCellIndex < cellsForChapter.length) {
-                const nextCell = cellsForChapter[endCellIndex];
+            debug(
+                "pagination",
+                `Requesting cells for milestone ${milestoneIdx}, subsection ${subsectionIdx}`
+            );
+            setIsLoadingCells(true);
 
-                // Include if it's paratext for this chapter
-                if ((nextCell.cellType as string) === "paratext") {
-                    endCellIndex++;
-                    continue;
-                }
+            vscode.postMessage({
+                command: "requestCellsForMilestone",
+                content: {
+                    milestoneIndex: milestoneIdx,
+                    subsectionIndex: subsectionIdx,
+                },
+            } as EditorPostMessages);
+        },
+        [vscode, getCachedCells]
+    );
 
-                // Stop expanding if we hit another content cell that's not on this page
-                if (
-                    (nextCell.cellType as string) !== "paratext" &&
-                    !contentCellIds.has(nextCell.cellMarkers[0])
-                ) {
-                    break;
-                }
+    // Keep refs in sync with state (must be after requestCellsForMilestone is defined)
+    useEffect(() => {
+        currentMilestoneIndexRef.current = currentMilestoneIndex;
+    }, [currentMilestoneIndex]);
 
-                endCellIndex++;
-            }
+    useEffect(() => {
+        currentSubsectionIndexRef.current = currentSubsectionIndex;
+    }, [currentSubsectionIndex]);
 
-            subsections.push({
-                id: `page-${i}`,
-                label: `${startCellNumber}-${endCellNumber}`,
-                startIndex: startCellIndex,
-                endIndex: endCellIndex,
-            });
+    // Store requestCellsForMilestone in ref so it can be used in message handlers
+    useEffect(() => {
+        requestCellsForMilestoneRef.current = requestCellsForMilestone;
+    }, [requestCellsForMilestone]);
+
+    // Get total number of milestones
+    const totalMilestones = useMemo(() => {
+        return milestoneIndex?.milestones?.length || 0;
+    }, [milestoneIndex]);
+
+    // Get current milestone info
+    const currentMilestone = useMemo(() => {
+        if (!milestoneIndex || currentMilestoneIndex >= milestoneIndex.milestones.length) {
+            return null;
         }
+        return milestoneIndex.milestones[currentMilestoneIndex];
+    }, [milestoneIndex, currentMilestoneIndex]);
 
-        return subsections;
-    };
-
-    const totalChapters = calculateTotalChapters(translationUnits);
+    // Use milestone-based chapters when milestone index is available, otherwise fall back to traditional chapters
+    const totalChapters = milestoneIndex
+        ? totalMilestones
+        : calculateTotalChapters(translationUnits);
 
     // Calculate progress for each chapter based on translation and validation status
     const calculateChapterProgress = useCallback(
         (chapterNum: number): ProgressPercentages => {
-            // Filter cells for the specific chapter (excluding paratext and merged cells)
+            // Filter cells for the specific chapter (excluding paratext, milestone, and merged cells)
             const cellsForChapter = translationUnits.filter((cell) => {
                 const cellId = cell?.cellMarkers?.[0];
+                // Exclude milestone cells from progress calculation
+                if (cell.cellType === CodexCellTypes.MILESTONE) {
+                    return false;
+                }
                 if (!cellId || cellId.startsWith("paratext-") || cell.merged) {
                     return false;
                 }
@@ -1353,50 +1743,95 @@ const CodexCellEditor: React.FC = () => {
     // Calculate progress for all chapters
     const allChapterProgress = useMemo(() => {
         const progress: Record<number, ProgressPercentages> = {};
-        for (let i = 1; i <= totalChapters; i++) {
-            progress[i] = calculateChapterProgress(i);
-        }
-        return progress;
-    }, [calculateChapterProgress, totalChapters]);
 
-    // Get all cells for the current chapter first
-    const allCellsForChapter = translationUnits.filter((verse) => {
-        const cellId = verse?.cellMarkers?.[0];
-
-        // Handle paratext cells specially - they should be included based on context
-        if (cellId?.startsWith("paratext-")) {
-            // For now, include all paratext cells when viewing any chapter
-            // This ensures leading paratext (like the Tigrinya intro) is visible
-            return true;
-        }
-
-        // For regular cells, check if they belong to the current chapter
-        const sectionCellIdParts = cellId?.split(" ")?.[1]?.split(":");
-        const sectionCellNumber = sectionCellIdParts?.[0];
-        return sectionCellNumber === chapterNumber.toString();
-    });
-
-    // Get the subsections for the current chapter
-    const subsections = getSubsectionsForChapter(chapterNumber);
-
-    // Apply pagination if there are subsections
-    const translationUnitsForSection = useMemo(() => {
-        if (subsections.length === 0) {
-            // No pagination needed, return all cells for the chapter
-            return allCellsForChapter;
-        } else {
-            // Apply pagination based on current subsection index
-            const currentSubsection = subsections[currentSubsectionIndex];
-            if (!currentSubsection) {
-                // If somehow we have an invalid subsection index, default to first page
-                return allCellsForChapter.slice(0, cellsPerPage);
+        // Use pre-calculated progress from backend if available
+        if (milestoneIndex?.milestoneProgress) {
+            // Use pre-calculated progress from backend
+            for (let i = 1; i <= totalChapters; i++) {
+                progress[i] = milestoneIndex.milestoneProgress[i] || {
+                    percentTranslationsCompleted: 0,
+                    percentAudioTranslationsCompleted: 0,
+                    percentFullyValidatedTranslations: 0,
+                    percentAudioValidatedTranslations: 0,
+                    percentTextValidatedTranslations: 0,
+                };
             }
-            return allCellsForChapter.slice(
-                currentSubsection.startIndex,
-                currentSubsection.endIndex
-            );
+        } else {
+            // Fall back to calculating progress from loaded cells
+            for (let i = 1; i <= totalChapters; i++) {
+                progress[i] = calculateChapterProgress(i);
+            }
         }
-    }, [allCellsForChapter, subsections, currentSubsectionIndex, cellsPerPage]);
+
+        return progress;
+    }, [calculateChapterProgress, totalChapters, milestoneIndex]);
+
+    // Get all cells for the current milestone
+    // translationUnits already contains the correct cells for the current milestone/subsection (loaded from backend)
+    // Just filter out milestone cells from display
+    const allCellsForChapter = useMemo(() => {
+        return translationUnits.filter((verse) => {
+            return verse.cellType !== CodexCellTypes.MILESTONE;
+        });
+    }, [translationUnits]);
+
+    // Get the subsections for the current milestone
+    const subsections = getSubsectionsForMilestone(currentMilestoneIndex);
+
+    // Request subsection progress when milestone changes
+    useEffect(() => {
+        if (milestoneIndex && currentMilestoneIndex < milestoneIndex.milestones.length) {
+            // Check cache first
+            const cached = getCachedProgress(currentMilestoneIndex);
+            if (!cached && !pendingProgressRequestsRef.current.has(currentMilestoneIndex)) {
+                // Request progress for current milestone
+                pendingProgressRequestsRef.current.add(currentMilestoneIndex);
+                vscode.postMessage({
+                    command: "requestSubsectionProgress",
+                    content: {
+                        milestoneIndex: currentMilestoneIndex,
+                    },
+                } as EditorPostMessages);
+            } else if (cached) {
+                // Ensure state is updated from cache
+                setSubsectionProgress((prev) => ({
+                    ...prev,
+                    [currentMilestoneIndex]: cached,
+                }));
+            }
+        }
+    }, [currentMilestoneIndex, milestoneIndex, vscode, getCachedProgress]);
+
+    // Request function for milestone progress (used by accordion)
+    const requestSubsectionProgressForMilestone = useCallback(
+        (milestoneIdx: number) => {
+            // Check cache first
+            const cached = getCachedProgress(milestoneIdx);
+            if (!cached && !pendingProgressRequestsRef.current.has(milestoneIdx)) {
+                // Request progress for milestone
+                pendingProgressRequestsRef.current.add(milestoneIdx);
+                vscode.postMessage({
+                    command: "requestSubsectionProgress",
+                    content: {
+                        milestoneIndex: milestoneIdx,
+                    },
+                } as EditorPostMessages);
+            } else if (cached) {
+                // Ensure state is updated from cache
+                setSubsectionProgress((prev) => ({
+                    ...prev,
+                    [milestoneIdx]: cached,
+                }));
+            }
+        },
+        [vscode, getCachedProgress]
+    );
+
+    // Cells are already paginated by the backend for milestone navigation
+    // No additional slicing needed
+    const translationUnitsForSection = useMemo(() => {
+        return allCellsForChapter;
+    }, [allCellsForChapter]);
 
     const { setUnsavedChanges } = useContext(UnsavedChangesContext);
 
@@ -1514,7 +1949,10 @@ const CodexCellEditor: React.FC = () => {
     useMessageHandler(
         "codexCellEditor-bundledMetadata",
         (event: MessageEvent) => {
-            if (event.data.type === "providerSendsInitialContent") {
+            if (
+                event.data.type === "providerSendsInitialContent" ||
+                event.data.type === "providerSendsInitialContentPaginated"
+            ) {
                 if (event.data.username !== undefined) {
                     setUsername(event.data.username);
                 }
@@ -1749,10 +2187,12 @@ const CodexCellEditor: React.FC = () => {
                 latestEdit?.validatedBy?.filter(
                     (v) => v && typeof v === "object" && !v.isDeleted
                 ) || [];
-            
+
             const hasNoValidators = activeValidators.length === 0;
             const isFullyValidated = activeValidators.length >= VALIDATION_THRESHOLD;
-            const validatedByCurrentUser = activeValidators.some((v) => v.username === currentUsername);
+            const validatedByCurrentUser = activeValidators.some(
+                (v) => v.username === currentUsername
+            );
 
             let shouldInclude = false;
 
@@ -1769,13 +2209,23 @@ const CodexCellEditor: React.FC = () => {
 
             // Check if matches "Not validated by you"
             // (Not fully validated, and not validated by current user. Includes 0-validator cells)
-            if (!shouldInclude && includeNotValidatedByCurrentUser && !isFullyValidated && !validatedByCurrentUser) {
+            if (
+                !shouldInclude &&
+                includeNotValidatedByCurrentUser &&
+                !isFullyValidated &&
+                !validatedByCurrentUser
+            ) {
                 shouldInclude = true;
             }
 
             // Check if matches "Fully validated by others"
             // (Must be fully validated, and not validated by current user)
-            if (!shouldInclude && includeFullyValidatedByOthers && isFullyValidated && !validatedByCurrentUser) {
+            if (
+                !shouldInclude &&
+                includeFullyValidatedByOthers &&
+                isFullyValidated &&
+                !validatedByCurrentUser
+            ) {
                 shouldInclude = true;
             }
 
@@ -1963,6 +2413,13 @@ const CodexCellEditor: React.FC = () => {
             content: chapterNumber,
         } as EditorPostMessages);
     }, [chapterNumber]);
+
+    useEffect(() => {
+        vscode.postMessage({
+            command: "updateCachedSubsection",
+            content: currentSubsectionIndex,
+        } as EditorPostMessages);
+    }, [currentSubsectionIndex, currentMilestoneIndex]);
 
     const checkForDuplicateCells = (translationUnitsToCheck: QuillCellContent[]) => {
         const listOfCellIds = translationUnitsToCheck.map((unit) => unit.cellMarkers[0]);
@@ -2359,7 +2816,6 @@ const CodexCellEditor: React.FC = () => {
                             setCurrentSubsectionIndex={setCurrentSubsectionIndex}
                             showInlineBacktranslations={showInlineBacktranslations}
                             onToggleInlineBacktranslations={toggleInlineBacktranslations}
-                            getSubsectionsForChapter={getSubsectionsForChapter}
                             editorPosition={editorPosition}
                             fileStatus={fileStatus}
                             onTriggerSync={handleTriggerSync}
@@ -2370,6 +2826,16 @@ const CodexCellEditor: React.FC = () => {
                             onFontSizeSave={handleFontSizeSave}
                             requiredValidations={requiredValidations ?? undefined}
                             requiredAudioValidations={requiredAudioValidations ?? undefined}
+                            // Milestone-based pagination props
+                            milestoneIndex={milestoneIndex}
+                            currentMilestoneIndex={currentMilestoneIndex}
+                            setCurrentMilestoneIndex={setCurrentMilestoneIndex}
+                            getSubsectionsForMilestone={getSubsectionsForMilestone}
+                            requestCellsForMilestone={requestCellsForMilestone}
+                            isLoadingCells={isLoadingCells}
+                            subsectionProgress={subsectionProgress[currentMilestoneIndex]}
+                            allSubsectionProgress={subsectionProgress}
+                            requestSubsectionProgress={requestSubsectionProgressForMilestone}
                         />
                     </div>
                 </div>
@@ -2442,6 +2908,10 @@ const CodexCellEditor: React.FC = () => {
                             transcribingCells={transcribingCells}
                             showInlineBacktranslations={showInlineBacktranslations}
                             backtranslationsMap={backtranslationsMap}
+                            milestoneIndex={milestoneIndex}
+                            currentMilestoneIndex={currentMilestoneIndex}
+                            currentSubsectionIndex={currentSubsectionIndex}
+                            cellsPerPage={cellsPerPage}
                         />
                     </div>
                 </div>
