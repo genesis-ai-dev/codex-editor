@@ -5,27 +5,110 @@ import * as git from "isomorphic-git";
 import * as fs from "fs";
 
 const DEBUG = false;
-const debug = DEBUG ? (...args: any[]) => console.log("[RemoteHealing]", ...args) : () => { };
+const debug = DEBUG ? (...args: any[]) => console.log("[RemoteUpdating]", ...args) : () => { };
 
-export interface RemoteHealingEntry {
-    userToHeal: string;
+/**
+ * Feature Flags for Remote Updating
+ * 
+ * ENABLE_ENTRY_CLEARING: Feature flag for clearing executed or cancelled entries 
+ * from the required updating list. Allows Maintainers/Owners to permanently 
+ * remove update entries from history.
+ * 
+ * When enabled:
+ * - Shows trash icon button on completed/cancelled entries
+ * - Allows clearing entries from the remote update history
+ * - Completely removes entries during merge (no recovery)
+ * 
+ * TODO: Enable this feature in a future release after thorough testing
+ * Current status: ENABLED for testing (set to `false` to disable)
+ */
+export const FEATURE_FLAGS = {
+    ENABLE_ENTRY_CLEARING: true,
+} as const;
+
+/**
+ * Type-safe feature flag checker
+ */
+export function isFeatureEnabled(feature: keyof typeof FEATURE_FLAGS): boolean {
+    return FEATURE_FLAGS[feature];
+}
+
+export interface RemoteUpdatingEntry {
+    userToUpdate: string;
     addedBy: string;
     createdAt: number;
     updatedAt: number;
-    deleted: boolean;
-    deletedBy: string;
+    cancelled: boolean;      // Indicates update requirement was cancelled
+    cancelledBy: string;
     executed: boolean;
+    clearEntry?: boolean;    // When true, completely removes entry from history (feature flagged)
+}
+
+/**
+ * Normalizes legacy field names to current terminology.
+ * Converts old → new as soon as we read entries from metadata.json.
+ * This allows us to only use new field names in our code.
+ * 
+ * Legacy mappings:
+ * - deleted → cancelled
+ * - deletedBy → cancelledBy
+ * - obliterate → clearEntry
+ * 
+ * @param entry Raw entry from metadata.json (may contain legacy fields)
+ * @returns Normalized entry with only current field names
+ */
+export function normalizeUpdateEntry(entry: any): RemoteUpdatingEntry {
+    const normalized: any = { ...entry };
+
+    // Migrate deleted → cancelled
+    if ('deleted' in normalized && !('cancelled' in normalized)) {
+        normalized.cancelled = normalized.deleted;
+        delete normalized.deleted;
+    }
+
+    // Migrate deletedBy → cancelledBy
+    if ('deletedBy' in normalized && !('cancelledBy' in normalized)) {
+        normalized.cancelledBy = normalized.deletedBy;
+        delete normalized.deletedBy;
+    }
+
+    // Migrate obliterate → clearEntry
+    if ('obliterate' in normalized && !('clearEntry' in normalized)) {
+        normalized.clearEntry = normalized.obliterate;
+        delete normalized.obliterate;
+    }
+
+    // Ensure required fields have defaults
+    normalized.cancelled = normalized.cancelled || false;
+    normalized.cancelledBy = normalized.cancelledBy || '';
+    normalized.executed = normalized.executed || false;
+
+    return normalized as RemoteUpdatingEntry;
+}
+
+/**
+ * Helper to check if entry is cancelled
+ */
+export function isCancelled(entry: RemoteUpdatingEntry): boolean {
+    return entry.cancelled === true;
+}
+
+/**
+ * Helper to get cancelledBy value
+ */
+export function getCancelledBy(entry: RemoteUpdatingEntry): string {
+    return entry.cancelledBy || '';
 }
 
 interface ProjectMetadata {
     meta?: {
-        initiateRemoteHealingFor?: RemoteHealingEntry[];
+        initiateRemoteUpdatingFor?: RemoteUpdatingEntry[];
         [key: string]: unknown;
     };
     [key: string]: unknown;
 }
 
-interface RemoteHealingCheckResult {
+interface RemoteUpdatingCheckResult {
     required: boolean;
     reason?: string;
     currentUsername?: string;
@@ -185,26 +268,26 @@ async function getGitOriginUrl(projectPath: string): Promise<string | null> {
 }
 
 /**
- * Check if remote healing is required for the current user
+ * Check if remote updating is required for the current user
  * This is the main function called before opening a project
  * 
  * @param projectPath - Local path to the project
  * @param gitOriginUrl - Git origin URL (optional, will be fetched if not provided)
  * @param bypassCache - Whether to bypass the cache and force a network fetch (useful to verify connectivity)
- * @returns Object indicating if healing is required and why
+ * @returns Object indicating if updating is required and why
  */
-export async function checkRemoteHealingRequired(
+export async function checkRemoteUpdatingRequired(
     projectPath: string,
     gitOriginUrl?: string,
     bypassCache: boolean = false
-): Promise<RemoteHealingCheckResult> {
+): Promise<RemoteUpdatingCheckResult> {
     try {
-        debug("Checking remote healing requirement for:", projectPath);
+        debug("Checking remote updating requirement for:", projectPath);
 
         // Get current username
         const currentUsername = await getCurrentUsername();
         if (!currentUsername) {
-            debug("Cannot determine current username, skipping remote healing check");
+            debug("Cannot determine current username, skipping remote updating check");
             return { required: false, reason: "No current username" };
         }
 
@@ -215,33 +298,35 @@ export async function checkRemoteHealingRequired(
         }
 
         if (!gitOriginUrl) {
-            debug("No git origin URL found, skipping remote healing check");
+            debug("No git origin URL found, skipping remote updating check");
             return { required: false, reason: "No git origin URL" };
         }
 
         // Extract project ID from URL
         const projectId = extractProjectIdFromUrl(gitOriginUrl);
         if (!projectId) {
-            debug("Could not extract project ID from URL, skipping remote healing check");
+            debug("Could not extract project ID from URL, skipping remote updating check");
             return { required: false, reason: "Could not extract project ID" };
         }
 
         // Fetch remote metadata
         const remoteMetadata = await fetchRemoteMetadata(projectId, !bypassCache);
         if (!remoteMetadata) {
-            debug("Could not fetch remote metadata, skipping remote healing check");
+            debug("Could not fetch remote metadata, skipping remote updating check");
             return { required: false, reason: "Could not fetch remote metadata" };
         }
 
-        // Check if current user is in the healing list
-        const healingList = remoteMetadata.meta?.initiateRemoteHealingFor || [];
+        // Check if current user is in the updating list
+        // Normalize entries on read to convert legacy field names
+        const rawList = remoteMetadata.meta?.initiateRemoteUpdatingFor || [];
+        const healingList = rawList.map(entry => normalizeUpdateEntry(entry));
 
         let isInHealingList = false;
 
         // Check for new objects
         for (const entry of healingList) {
             if (typeof entry === 'object' && entry !== null) {
-                if (entry.userToHeal === currentUsername && !entry.executed && !entry.deleted) {
+                if (entry.userToUpdate === currentUsername && !entry.executed && !isCancelled(entry)) {
                     isInHealingList = true;
                     break;
                 }
@@ -249,22 +334,22 @@ export async function checkRemoteHealingRequired(
         }
 
         if (!isInHealingList) {
-            debug("Current user not in healing list (or executed/deleted)");
-            return { required: false, reason: "User not in healing list", currentUsername };
+            debug("Current user not in updating list (or executed/cancelled)");
+            return { required: false, reason: "User not in updating list", currentUsername };
         }
 
-        // User is in remote healing list - healing required
+        // User is in remote updating list - updating required
         // Note: We don't check local metadata because users are automatically removed
-        // from the remote list after successful healing, so if they're in the remote
-        // list, they need to heal regardless of local state
-        debug("Remote healing required for user:", currentUsername);
+        // from the remote list after successful updating, so if they're in the remote
+        // list, they need to update regardless of local state
+        debug("Remote updating required for user:", currentUsername);
         return {
             required: true,
-            reason: "User in remote healing list",
+            reason: "User in remote updating list",
             currentUsername,
         };
     } catch (error) {
-        debug("Error checking remote healing requirement:", error);
+        debug("Error checking remote updating requirement:", error);
         return { required: false, reason: `Error: ${error}` };
     }
 }
@@ -363,53 +448,103 @@ export async function fetchProjectMembers(
 }
 
 /**
- * Mark a user as having completed remote healing
+ * Mark a user as having completed remote updating
  * This updates the local metadata.json setting 'executed' to true and pushes the changes
  * 
  * @param projectPath - Path to the project directory
- * @param username - Username to mark as healed
+ * @param username - Username to mark as updated
  */
-export async function markUserAsHealedInRemoteList(
+export async function markUserAsUpdatedInRemoteList(
     projectPath: string,
     username: string
 ): Promise<void> {
     try {
-        debug("Marking user as healed in remote list:", username);
+        debug("Marking user as updated in remote list:", username);
 
         const projectUri = vscode.Uri.file(projectPath);
 
-        // Read current metadata
+        // Read current metadata (local)
         const readResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(projectUri);
         if (!readResult.success || !readResult.metadata) {
             throw new Error("Failed to read metadata.json");
         }
 
-        const metadata = readResult.metadata;
-        const healingList = metadata.meta?.initiateRemoteHealingFor || [];
+        const localMetadata = readResult.metadata;
+        // Normalize entries on read to convert legacy field names
+        const rawLocalList = localMetadata.meta?.initiateRemoteUpdatingFor || [];
+        const localList = rawLocalList.map(entry => normalizeUpdateEntry(entry));
+
+        // Fetch remote metadata to merge the latest updating list (prevents dropping entries)
+        let remoteList: RemoteUpdatingEntry[] = [];
+        try {
+            const remotes = await git.listRemotes({ fs, dir: projectPath });
+            const origin = remotes.find((r) => r.remote === "origin");
+            if (origin?.url) {
+                const projectId = extractProjectIdFromUrl(origin.url);
+                if (projectId) {
+                    const remoteMetadata = await fetchRemoteMetadata(projectId, false);
+                    const rawRemoteList = remoteMetadata?.meta?.initiateRemoteUpdatingFor || [];
+                    // Normalize remote entries too
+                    remoteList = rawRemoteList.map(entry => normalizeUpdateEntry(entry));
+                }
+            }
+        } catch (e) {
+            debug("Could not fetch remote metadata for merge (will use local only)", e);
+        }
+
+        // Merge remote + local lists without deleting history; de-dup by JSON signature
+        // Merge remote + local lists preserving history; if an object for userToUpdate already exists,
+        // update that single entry instead of adding a new one.
+        const mergedList: any[] = [];
+        const seenKeys = new Set<string>();
+
+        const signature = (entry: any) => {
+            if (typeof entry === "object" && entry !== null) {
+                const obj = entry as any;
+                const user = typeof obj.userToUpdate === "string" ? obj.userToUpdate : "";
+                const addedBy = typeof obj.addedBy === "string" ? obj.addedBy : "";
+                const createdAt = typeof obj.createdAt === "number" ? obj.createdAt : 0;
+                return `obj:${user}:${addedBy}:${createdAt}`;
+            }
+            return `prim:${String(entry)}`;
+        };
+
+        // Add remote entries first (source of truth), then local entries if unseen
+        [...remoteList, ...localList].forEach((entry) => {
+            const key = signature(entry);
+            if (!seenKeys.has(key)) {
+                seenKeys.add(key);
+                mergedList.push(entry);
+            }
+        });
 
         let listChanged = false;
-
-        const updatedList = healingList
-            .filter((entry): entry is RemoteHealingEntry => typeof entry === 'object' && entry !== null)
-            .map(entry => {
-                // Update existing object
-                if (entry.userToHeal === username && !entry.executed) {
+        const updatedList = mergedList.map((entry) => {
+            if (typeof entry === "object" && entry !== null) {
+                const obj = entry as RemoteUpdatingEntry;
+                // Mark as executed even if cancelled (preserves cancelled flag)
+                if (obj.userToUpdate === username && !obj.executed) {
                     listChanged = true;
                     return {
-                        ...entry,
+                        ...obj,
                         executed: true,
-                        updatedAt: Date.now()
+                        updatedAt: Date.now(),
+                        // Explicitly preserve cancelled flag
+                        cancelled: obj.cancelled,
                     };
                 }
-                return entry;
-            });
+                return obj;
+            }
+            // Preserve primitive entries (shouldn't happen but just in case)
+            return entry;
+        });
 
         if (!listChanged) {
-            debug("User not pending in healing list, nothing to update");
+            debug("User not pending in updating list, nothing to update");
             return;
         }
 
-        debug("Updated healing list:", updatedList);
+        debug("Updated updating list:", updatedList);
 
         // Update metadata
         const updateResult = await MetadataManager.safeUpdateMetadata<ProjectMetadata>(
@@ -419,7 +554,7 @@ export async function markUserAsHealedInRemoteList(
                     meta.meta = {};
                 }
 
-                meta.meta.initiateRemoteHealingFor = updatedList;
+                meta.meta.initiateRemoteUpdatingFor = updatedList;
                 return meta;
             }
         );
@@ -431,13 +566,14 @@ export async function markUserAsHealedInRemoteList(
         debug("Metadata updated successfully, committing and pushing changes...");
 
         // Trigger sync using the same command as the manual sync button
-        const commitMessage = `Marked ${username} as healed in remote healing list`;
+        const commitMessage = `Marked ${username} as updated in remote updating list`;
         await vscode.commands.executeCommand(
             "codex-editor-extension.triggerSync",
-            commitMessage
+            commitMessage,
+            { bypassHealingCheck: true }
         );
 
-        debug("Successfully updated remote healing list and triggered sync");
+        debug("Successfully updated remote updating list and triggered sync");
 
         // Clear the cache for this project so future checks get the updated list
         const remotes = await git.listRemotes({ fs, dir: projectPath });
@@ -450,7 +586,7 @@ export async function markUserAsHealedInRemoteList(
             }
         }
     } catch (error) {
-        debug("Error marking user as healed:", error);
+        debug("Error marking user as updated:", error);
         throw error;
     }
 }

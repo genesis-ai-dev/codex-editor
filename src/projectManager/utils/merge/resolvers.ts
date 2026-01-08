@@ -4,6 +4,9 @@ import * as path from "path";
 import { ConflictResolutionStrategy, ConflictFile, SmartEdit } from "./types";
 import { determineStrategy } from "./strategies";
 import { getAuthApi } from "../../../extension";
+import { checkUpdatePermission } from "../../../utils/updatePermissionChecker";
+import { isFeatureEnabled } from "../../../utils/remoteUpdatingManager";
+import { normalizeUpdateEntry, RemoteUpdatingEntry } from "../../../utils/remoteUpdatingManager";
 import { NotebookCommentThread, NotebookComment, CustomNotebookCellData, CustomNotebookMetadata } from "../../../../types";
 import { CommentsMigrator } from "../../../utils/commentsMigrationUtils";
 import { CodexCell } from "@/utils/codexNotebookUtils";
@@ -1662,7 +1665,7 @@ async function resolveSmartEditsConflict(
 }
 
 /**
- * Resolves conflicts in metadata.json, specifically merging the remote healing list
+ * Resolves conflicts in metadata.json, specifically merging the remote updating list
  */
 async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<string> {
     try {
@@ -1759,16 +1762,24 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             resolvedMetadata = JSON.parse(JSON.stringify(ours));
         }
 
-        // 1. Resolve initiateRemoteHealingFor (Complex Merge Logic)
-        // Helper to extract healing list
-        const getList = (obj: any) => (obj?.meta?.initiateRemoteHealingFor || []) as any[];
+        // 1. Resolve initiateRemoteUpdatingFor (Complex Merge Logic)
+        // Helper to extract and normalize updating list
+        // Supports both old (initiateRemoteHealingFor) and new (initiateRemoteUpdatingFor) field names
+        // Automatically converts legacy field names to current terminology on read
+        const getList = (obj: any): RemoteUpdatingEntry[] => {
+            // Prefer new field name, fallback to old for backward compatibility
+            const rawList = (obj?.meta?.initiateRemoteUpdatingFor || obj?.meta?.initiateRemoteHealingFor || []) as any[];
+            // Normalize all entries to convert legacy field names (deleted → cancelled, etc.)
+            return rawList.map(entry => normalizeUpdateEntry(entry));
+        };
 
         const baseList = getList(base);
         const ourList = getList(ours);
         const theirList = getList(theirs);
 
-        // Map all entries by userToHeal
-        const allUsers = new Set<string>();
+        // Map all entries by signature (userToUpdate + addedBy + createdAt)
+        // This allows multiple entries per user (e.g., multiple update requirements over time)
+        const allSignatures = new Set<string>();
         const entryMap = new Map<string, { base?: any, ours?: any, theirs?: any; }>();
 
         // Helper to normalize entry to object (filtering out strings)
@@ -1779,19 +1790,35 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             return entry;
         };
 
-        // Populate map
-        const processList = (list: any[], source: 'base' | 'ours' | 'theirs') => {
-            if (!Array.isArray(list)) return;
-            for (const item of list) {
-                const entry = normalize(item);
-                if (!entry || !entry.userToHeal) continue;
+        // Generate signature for an entry (matches markUserAsUpdatedInRemoteList logic)
+        const generateSignature = (entry: RemoteUpdatingEntry): string => {
+            const user = entry?.userToUpdate || "";
+            const addedBy = entry?.addedBy || "";
+            const createdAt = entry?.createdAt || 0;
+            return `${user}:${addedBy}:${createdAt}`;
+        };
 
-                const username = entry.userToHeal;
-                allUsers.add(username);
-                if (!entryMap.has(username)) {
-                    entryMap.set(username, {});
+        // Populate map
+        const processList = (list: RemoteUpdatingEntry[], source: 'base' | 'ours' | 'theirs') => {
+            if (!Array.isArray(list)) return;
+            for (const entry of list) {
+                if (!entry || typeof entry !== 'object') continue;
+
+                const username = entry.userToUpdate;
+                if (!username) continue;
+
+                // Defensive: If createdAt is missing, use updatedAt as fallback and set it
+                if (!entry.createdAt && entry.updatedAt) {
+                    entry.createdAt = entry.updatedAt;
+                    console.warn(`[Merge] Entry missing createdAt, using updatedAt (${entry.updatedAt}) for user: ${username}`);
                 }
-                entryMap.get(username)![source] = entry;
+
+                const signature = generateSignature(entry);
+                allSignatures.add(signature);
+                if (!entryMap.has(signature)) {
+                    entryMap.set(signature, {});
+                }
+                entryMap.get(signature)![source] = entry;
             }
         };
 
@@ -1801,8 +1828,47 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
 
         const mergedHealingList: any[] = [];
 
-        for (const username of allUsers) {
-            const { base: baseEntry, ours: ourEntry, theirs: theirEntry } = entryMap.get(username)!;
+        // Helper to check if entry should be cleared (permanently removed)
+        // Only clear if: feature is enabled, clearEntry flag is true, and user has permission
+        const shouldClearEntry = async (entry: any): Promise<boolean> => {
+            // Check feature flag first
+            if (!isFeatureEnabled('ENABLE_ENTRY_CLEARING')) {
+                // Feature is disabled - remove any clearEntry flags
+                delete entry.clearEntry;
+                delete entry.obliterate; // TODO: Remove in 0.17.0 (legacy field)
+                return false;
+            }
+
+            if (entry?.clearEntry !== true) {
+                return false;
+            }
+
+            // Check if current user has permission to clear entries
+            try {
+                const permCheck = await checkUpdatePermission();
+
+                if (!permCheck.hasPermission) {
+                    console.warn(
+                        `[Merge] User lacks permission to clear entry for ${entry.userToUpdate}. ` +
+                        `Preserving entry and removing clearEntry flag. Reason: ${permCheck.error}`
+                    );
+                    // Remove clearEntry flag since user doesn't have permission
+                    delete entry.clearEntry;
+                    return false;
+                }
+
+                console.log(`[Merge] User ${permCheck.currentUser} has permission to clear entry for ${entry.userToUpdate}`);
+                return true;
+            } catch (error) {
+                console.error(`[Merge] Error checking clear entry permission:`, error);
+                // On error, preserve entry (safe default)
+                delete entry.clearEntry;
+                return false;
+            }
+        };
+
+        for (const signature of allSignatures) {
+            const { base: baseEntry, ours: ourEntry, theirs: theirEntry } = entryMap.get(signature)!;
 
             // If only one side exists/modified, take it. If both, resolve.
             let finalEntry: any;
@@ -1838,13 +1904,40 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
                     }
                 }
             } else {
-                // Both exist.
-                // Compare updated timestamps
+                // Both exist - need to merge boolean flags intelligently
+
+                // Start with the entry that has the latest updatedAt timestamp
                 if ((ourEntry.updatedAt || 0) >= (theirEntry.updatedAt || 0)) {
-                    finalEntry = ourEntry;
+                    finalEntry = { ...ourEntry };
                 } else {
-                    finalEntry = theirEntry;
+                    finalEntry = { ...theirEntry };
                 }
+
+                // 3-way merge for boolean flags: if ANY version (base, ours, theirs) has true, take true
+                // This ensures important state changes (executed, cancelled, clearEntry) are never lost
+                const booleanFields = ['executed', 'cancelled', 'clearEntry'];
+                for (const field of booleanFields) {
+                    if (baseEntry?.[field] === true || ourEntry?.[field] === true || theirEntry?.[field] === true) {
+                        finalEntry[field] = true;
+                    }
+                }
+
+                // For cancelledBy, take the value from whichever entry has cancelled: true
+                if (finalEntry.cancelled) {
+                    finalEntry.cancelledBy =
+                        (ourEntry?.cancelled ? ourEntry.cancelledBy : undefined) ||
+                        (theirEntry?.cancelled ? theirEntry.cancelledBy : undefined) ||
+                        (baseEntry?.cancelled ? baseEntry.cancelledBy : undefined) ||
+                        finalEntry.cancelledBy ||
+                        '';
+                }
+
+                // Use the latest updatedAt from any of the three versions
+                finalEntry.updatedAt = Math.max(
+                    baseEntry?.updatedAt || 0,
+                    ourEntry?.updatedAt || 0,
+                    theirEntry?.updatedAt || 0
+                );
 
                 // Ensure createdAt is preserved from base or oldest
                 const oldestCreated = Math.min(
@@ -1858,6 +1951,14 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             }
 
             if (finalEntry) {
+                // Check if entry should be cleared (permanently removed) - with permission check
+                if (await shouldClearEntry(finalEntry)) {
+                    // Skip this entry completely - no history preservation
+                    console.log(`[Merge] Clearing entry for ${finalEntry.userToUpdate} from history (clearEntry: true)`);
+                    continue;
+                }
+
+                // Entry is normalized, push to merged list
                 mergedHealingList.push(finalEntry);
             }
         }
@@ -1886,8 +1987,8 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             ]);
 
             for (const key of keys) {
-                // Skip initiateRemoteHealingFor - already handled above
-                if (path.length === 1 && path[0] === 'meta' && key === 'initiateRemoteHealingFor') {
+                // Skip initiateRemoteUpdatingFor (and old initiateRemoteHealingFor) - already handled above
+                if (path.length === 1 && path[0] === 'meta' && (key === 'initiateRemoteUpdatingFor' || key === 'initiateRemoteHealingFor')) {
                     continue; // Skip, already merged above
                 }
 
@@ -1921,25 +2022,33 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             return result;
         };
 
-        // Apply the merged healing list to resolved metadata
+        // Apply the merged updating list to resolved metadata
+        // TODO: Remove old field name support in 0.17.0
         if (!resolvedMetadata.meta) {
             resolvedMetadata.meta = {};
         }
-        resolvedMetadata.meta.initiateRemoteHealingFor = mergedHealingList;
+        // Use new field name for the merged result
+        resolvedMetadata.meta.initiateRemoteUpdatingFor = mergedHealingList;
+        // Clean up old field name if it exists
+        delete resolvedMetadata.meta.initiateRemoteHealingFor;
 
-        // Merge other fields (excluding edits and initiateRemoteHealingFor which are already handled)
+        // Merge other fields (excluding edits and initiateRemoteUpdatingFor which are already handled)
         const otherFieldsMerged = mergeObjects(base, ours, theirs);
 
         // Combine: use edit history result as base, then overlay other merged fields
-        // But preserve edits and initiateRemoteHealingFor from our specialized merges
+        // But preserve edits and initiateRemoteUpdatingFor from our specialized merges
         const finalResult = {
             ...otherFieldsMerged,
             edits: resolvedMetadata.edits, // From edit history merge
             meta: {
                 ...otherFieldsMerged.meta,
-                initiateRemoteHealingFor: mergedHealingList // From specialized merge
+                initiateRemoteUpdatingFor: mergedHealingList, // From specialized merge (new field name)
             }
         };
+        // Clean up old field name from final result
+        if (finalResult.meta) {
+            delete finalResult.meta.initiateRemoteHealingFor;
+        }
 
         return JSON.stringify(finalResult, null, 4);
 

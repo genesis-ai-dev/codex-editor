@@ -9,6 +9,33 @@ export type MediaFilesStrategy =
     | "stream-and-save"   // Stream media files and save in background
     | "stream-only";      // Stream media files without saving (read from network each time)
 
+export type UpdateStep =
+    | "backup_done"
+    | "moved_original"
+    | "clone_done"
+    | "merge_done"
+    | "swap_done"
+    | "cleanup_done";
+
+export interface PendingUpdateState {
+    required: boolean;
+    reason?: string;
+    detectedAt: number;
+}
+
+export interface UpdateState {
+    projectPath: string;
+    projectName: string;
+    backupZipPath?: string;
+    tempFolderPath?: string;
+    backupProjectPath?: string;
+    clonePath?: string;
+    step?: UpdateStep;
+    completedSteps?: UpdateStep[];
+    backupMode?: "full" | "data-only";
+    createdAt?: number;
+}
+
 export interface LocalProjectSettings {
     currentMediaFilesStrategy?: MediaFilesStrategy;
     lastMediaFileStrategyRun?: MediaFilesStrategy;
@@ -25,6 +52,10 @@ export interface LocalProjectSettings {
     autoDownloadAudioOnOpen?: boolean;
     /** When true, AI Metrics view shows detailed technical metrics instead of simple mode */
     detailedAIMetrics?: boolean;
+    /** Track in-progress update for restart-safe cleanup */
+    updateState?: UpdateState;
+    /** Track when an admin-triggered update is pending so the projects list can surface it */
+    pendingUpdate?: PendingUpdateState;
     // Legacy keys (read and mirrored for backward compatibility)
     mediaFilesStrategy?: MediaFilesStrategy;
     lastModeRun?: MediaFilesStrategy;
@@ -56,7 +87,7 @@ export async function readLocalProjectSettings(workspaceFolderUri?: vscode.Uri):
     try {
         const fileContent = await vscode.workspace.fs.readFile(settingsPath);
         const settings = JSON.parse(Buffer.from(fileContent).toString("utf-8"));
-        // Normalize to new canonical keys while keeping legacy fields mirrored in-memory
+        // Normalize to new canonical keys
         const normalized: LocalProjectSettings = { ...settings };
         if (normalized.currentMediaFilesStrategy === undefined && normalized.mediaFilesStrategy !== undefined) {
             normalized.currentMediaFilesStrategy = normalized.mediaFilesStrategy;
@@ -129,6 +160,8 @@ export async function writeLocalProjectSettings(
             mediaFileStrategySwitchStarted: settings.mediaFileStrategySwitchStarted,
             autoDownloadAudioOnOpen: settings.autoDownloadAudioOnOpen,
             detailedAIMetrics: settings.detailedAIMetrics,
+            updateState: settings.updateState,
+            pendingUpdate: settings.pendingUpdate,
         };
         const content = JSON.stringify(toWrite, null, 2);
         await vscode.workspace.fs.writeFile(settingsPath, Buffer.from(content, "utf-8"));
@@ -182,6 +215,29 @@ export async function setChangesApplied(
 export async function getFlags(workspaceFolderUri?: vscode.Uri): Promise<Pick<LocalProjectSettings, "lastModeRun" | "changesApplied">> {
     const settings = await readLocalProjectSettings(workspaceFolderUri);
     return { lastModeRun: settings.lastModeRun, changesApplied: settings.mediaFileStrategyApplyState === "applied" };
+}
+
+export async function markPendingUpdateRequired(
+    workspaceFolderUri?: vscode.Uri,
+    reason?: string
+): Promise<void> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    settings.pendingUpdate = {
+        required: true,
+        reason,
+        detectedAt: Date.now(),
+    };
+    await writeLocalProjectSettings(settings, workspaceFolderUri);
+}
+
+export async function clearPendingUpdate(
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    if (settings.pendingUpdate) {
+        settings.pendingUpdate = undefined;
+        await writeLocalProjectSettings(settings, workspaceFolderUri);
+    }
 }
 
 // New explicit helpers (preferred over legacy boolean)

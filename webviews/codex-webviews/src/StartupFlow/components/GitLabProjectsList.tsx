@@ -100,6 +100,17 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     const network = useNetworkState();
     const isOnline = network?.online;
     
+    const sortProjectsForDisplay = React.useCallback((list: ProjectWithSyncStatus[]) => {
+        return [...(list || [])].sort((a, b) => {
+            const aPending = a.pendingUpdate?.required ? 1 : 0;
+            const bPending = b.pendingUpdate?.required ? 1 : 0;
+            if (aPending !== bPending) {
+                return bPending - aPending; // pending updates first
+            }
+            return (a.name || "").localeCompare(b.name || "");
+        });
+    }, []);
+    
     // Track newly added projects for animation
     useEffect(() => {
         const currentProjectNames = new Set(projects.map((p) => p.name));
@@ -148,7 +159,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     useEffect(() => {
         if (!progressData || !progressData.projectSummaries || !projects) {
             // If no progress data yet, just use the original projects
-            setProjectsWithProgress([...projects]);
+            setProjectsWithProgress(sortProjectsForDisplay(projects));
             return;
         }
 
@@ -195,8 +206,8 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             return projectCopy;
         });
 
-        setProjectsWithProgress(updatedProjects);
-    }, [progressData, projects]);
+        setProjectsWithProgress(sortProjectsForDisplay(updatedProjects));
+    }, [progressData, projects, sortProjectsForDisplay]);
 
     const getStatusIcon = (syncStatus: ProjectSyncStatus) => {
         switch (syncStatus) {
@@ -268,8 +279,18 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         };
     };
 
-    const { hierarchy, ungrouped: ungroupedProjects } = React.useMemo(() => {
-        const groupProjectsByHierarchy = (projects: ProjectWithSyncStatus[]) => {
+    const pendingProjects = React.useMemo(
+        () => sortProjectsForDisplay((projectsWithProgress || []).filter((p) => p.pendingUpdate?.required)),
+        [projectsWithProgress, sortProjectsForDisplay]
+    );
+
+    const nonPendingProjects = React.useMemo(
+        () => (projectsWithProgress || []).filter((p) => !p.pendingUpdate?.required),
+        [projectsWithProgress]
+    );
+
+    const buildGroupedProjects = React.useCallback(
+        (projects: ProjectWithSyncStatus[]) => {
             const hierarchy: Record<string, ProjectGroup> = {};
             const ungrouped: ProjectWithSyncStatus[] = [];
 
@@ -304,16 +325,71 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 });
             });
 
-            return { hierarchy, ungrouped };
-        };
+            // Recursively sort projects and groups so pending updates rise to the top
+            const sortGroup = (group: ProjectGroup): { group: ProjectGroup; hasPending: boolean } => {
+                const sortedProjects = sortProjectsForDisplay(group.projects || []);
+                const sortedSubgroupsEntries = Object.entries(group.subgroups || {})
+                    .map(([name, sub]) => {
+                        const { group: sg, hasPending } = sortGroup(sub);
+                        return { name, group: sg, hasPending };
+                    })
+                    .sort((a, b) => {
+                        if (a.hasPending !== b.hasPending) {
+                            return a.hasPending ? -1 : 1;
+                        }
+                        return a.name.localeCompare(b.name);
+                    });
 
-        return groupProjectsByHierarchy(projectsWithProgress || []);
-    }, [projectsWithProgress]);
+                const rebuiltSubgroups: Record<string, ProjectGroup> = {};
+                sortedSubgroupsEntries.forEach(({ name, group }) => {
+                    rebuiltSubgroups[name] = group;
+                });
+
+                const hasPendingHere =
+                    sortedProjects.some((p) => p.pendingUpdate?.required) ||
+                    sortedSubgroupsEntries.some((s) => s.hasPending);
+
+                return {
+                    group: {
+                        ...group,
+                        projects: sortedProjects,
+                        subgroups: rebuiltSubgroups,
+                    },
+                    hasPending: hasPendingHere,
+                };
+            };
+
+            const sortedHierarchyEntries = Object.entries(hierarchy)
+                .map(([name, group]) => {
+                    const { group: g, hasPending } = sortGroup(group);
+                    return { name, group: g, hasPending };
+                })
+                .sort((a, b) => {
+                    if (a.hasPending !== b.hasPending) {
+                        return a.hasPending ? -1 : 1;
+                    }
+                    return a.name.localeCompare(b.name);
+                });
+
+            const sortedHierarchy: Record<string, ProjectGroup> = {};
+            sortedHierarchyEntries.forEach(({ name, group }) => {
+                sortedHierarchy[name] = group;
+            });
+
+            return { hierarchy: sortedHierarchy, ungrouped };
+        },
+        [parseProjectUrl, sortProjectsForDisplay]
+    );
+
+    const { hierarchy, ungrouped: ungroupedProjects } = React.useMemo(
+        () => buildGroupedProjects(nonPendingProjects || []),
+        [nonPendingProjects, buildGroupedProjects]
+    );
 
     const filterProjects = (projects: ProjectWithSyncStatus[]) => {
         if (!projects) return [];
 
-        return projects.filter((project) => {
+        const filtered = projects.filter((project) => {
             // Safe type comparison for filters
             const currentFilter = filter as string;
 
@@ -357,10 +433,27 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
 
             return true;
         });
+
+        return sortProjectsForDisplay(filtered);
     };
+
+    // For pinned "Needs Update" section: always show, ignore search/filter
+    const filterProjectsPinned = React.useCallback(
+        (projects: ProjectWithSyncStatus[]) => sortProjectsForDisplay(projects || []),
+        [sortProjectsForDisplay]
+    );
 
     // No list-level memoization; we pass shallow copies at usage sites where needed
 
+    // Always pin all pending projects, even if they wouldn't match the current filter/search
+    const filteredPendingProjects = React.useMemo(
+        () => sortProjectsForDisplay(pendingProjects || []),
+        [pendingProjects, sortProjectsForDisplay]
+    );
+    const filteredPendingGrouped = React.useMemo(() => {
+        const { hierarchy, ungrouped } = buildGroupedProjects(filteredPendingProjects || []);
+        return { hierarchy, ungrouped };
+    }, [filteredPendingProjects, buildGroupedProjects]);
     const filteredUngroupedProjects = filterProjects(ungroupedProjects || []);
 
     return (
@@ -383,6 +476,75 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 </div>
             ) : (
                 <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-2">
+                    {/* Pending updates pinned to top */}
+                    {filteredPendingProjects.length > 0 && (
+                        <Card className="overflow-hidden border-l-4 border-l-amber-500">
+                            <CardHeader className="py-2 px-3 bg-amber-50/70 border-b border-amber-100">
+                                <div className="flex items-center gap-2">
+                                    <i className="codicon codicon-warning text-sm text-amber-700" />
+                                    <h3 className="font-medium text-sm text-amber-800">Needs Update</h3>
+                                    <Badge
+                                        variant="outline"
+                                        className="ml-auto text-xs px-1.5 py-0.5 bg-amber-100 text-amber-800 border-amber-300"
+                                    >
+                                        {filteredPendingProjects.length}
+                                    </Badge>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="p-0">
+                                <div className="border-t border-amber-100">
+                                    {Object.entries(filteredPendingGrouped.hierarchy || {}).map(([groupName, group]) =>
+                                        group ? (
+                                            <GroupSection
+                                                key={`pending-${groupName}`}
+                                                group={{ ...group, projects: [...group.projects] }}
+                                                depth={0}
+                                                filter={filter}
+                                                searchQuery={searchQuery}
+                                                expandedGroups={expandedGroups}
+                                                setExpandedGroups={setExpandedGroups}
+                                                expandedProjects={expandedProjects}
+                                                setExpandedProjects={setExpandedProjects}
+                                                newlyAddedProjects={newlyAddedProjects}
+                                                statusChangedProjects={statusChangedProjects}
+                                                onCloneProject={onCloneProject}
+                                                onOpenProject={onOpenProject}
+                                                onDeleteProject={onDeleteProject}
+                                                vscode={vscode}
+                                                parseProjectUrl={parseProjectUrl}
+                                                getStatusIcon={getStatusIcon}
+                                            filterProjects={filterProjectsPinned}
+                                                isProgressDataLoaded={!!progressData}
+                                                isAnyOperationApplying={isAnyApplying}
+                                                isOnline={!!isOnline}
+                                            />
+                                        ) : null
+                                    )}
+                                    {filteredPendingGrouped.ungrouped.length > 0 &&
+                                        filteredPendingGrouped.ungrouped.map((project) => (
+                                            <ProjectCard
+                                                key={`pending-ungrouped-${project.name}-${project.gitOriginUrl || "no-url"}`}
+                                                project={project}
+                                                onCloneProject={onCloneProject}
+                                                onOpenProject={onOpenProject}
+                                                onDeleteProject={onDeleteProject}
+                                                vscode={vscode}
+                                                expandedProjects={expandedProjects}
+                                                setExpandedProjects={setExpandedProjects}
+                                                newlyAddedProjects={newlyAddedProjects}
+                                                statusChangedProjects={statusChangedProjects}
+                                                parseProjectUrl={parseProjectUrl}
+                                                getStatusIcon={getStatusIcon}
+                                                isProgressDataLoaded={!!progressData}
+                                                isAnyOperationApplying={isAnyApplying}
+                                                isOnline={!!isOnline}
+                                            />
+                                        ))}
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
+
                     {/* Group Hierarchy */}
                     {Object.entries(hierarchy || {}).map(([groupName, group]) =>
                         group ? (

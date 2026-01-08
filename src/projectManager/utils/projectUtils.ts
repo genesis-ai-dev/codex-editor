@@ -17,6 +17,8 @@ import { stageAndCommitAllAndSync } from "./merge";
 import { SyncManager } from "../syncManager";
 import { MetadataManager } from "../../utils/metadataManager";
 import { EditMapUtils, addProjectMetadataEdit } from "../../utils/editMapUtils";
+import { readLocalProjectSettings, clearPendingUpdate } from "../../utils/localProjectSettings";
+import { checkRemoteUpdatingRequired } from "../../utils/remoteUpdatingManager";
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[ProjectUtils]", ...args) : () => { };
@@ -1163,9 +1165,55 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
         }
     });
 
-
+    // Validate pending updates against remote metadata
+    await validatePendingUpdates(projects);
 
     return projects;
+}
+
+/**
+ * Validate all pending updates against remote metadata
+ * Clear any pending updates that are no longer required remotely
+ * Exception: If updateState exists (update in progress), keep everything
+ */
+async function validatePendingUpdates(projects: LocalProject[]): Promise<void> {
+    const projectsWithPendingUpdates = projects.filter(p => p.pendingUpdate?.required);
+    
+    if (projectsWithPendingUpdates.length === 0) {
+        return;
+    }
+
+    debug(`Validating ${projectsWithPendingUpdates.length} pending updates...`);
+
+    // Validate each project's pending update in parallel
+    await Promise.allSettled(
+        projectsWithPendingUpdates.map(async (project) => {
+            try {
+                const projectUri = vscode.Uri.file(project.path);
+                const localSettings = await readLocalProjectSettings(projectUri);
+
+                // If update is already in progress (updateState exists), don't clear anything
+                if (localSettings.updateState) {
+                    debug(`Update in progress for ${project.name}, keeping pendingUpdate`);
+                    return;
+                }
+
+                // Check if remote still requires update
+                const remoteCheck = await checkRemoteUpdatingRequired(project.path, project.gitOriginUrl);
+                
+                if (!remoteCheck.required && localSettings.pendingUpdate) {
+                    // Remote no longer requires update, clear the flag
+                    debug(`Clearing invalid pendingUpdate for ${project.name}`);
+                    await clearPendingUpdate(projectUri);
+                    // Update the project object so UI reflects the change
+                    project.pendingUpdate = undefined;
+                }
+            } catch (error) {
+                debug(`Error validating pending update for ${project.name}:`, error);
+                // Don't throw - we don't want one failed validation to stop the whole refresh
+            }
+        })
+    );
 }
 
 /**
@@ -1207,12 +1255,13 @@ async function processProjectDirectory(
 
     try {
         // Run project validation, metadata reading, git operations, stats, and local settings in parallel
-        const [projectStatus, projectName, gitOriginUrl, stats, mediaStrategy] = await Promise.allSettled([
+        const [projectStatus, projectName, gitOriginUrl, stats, mediaStrategy, localSettings] = await Promise.allSettled([
             isValidCodexProject(projectPath),
             getProjectNameFromMetadata(projectPath, name),
             getGitOriginUrl(projectPath),
             vscode.workspace.fs.stat(vscode.Uri.file(projectPath)),
-            getMediaFilesStrategyForProject(projectPath)
+            getMediaFilesStrategyForProject(projectPath),
+            readLocalProjectSettings(vscode.Uri.file(projectPath)),
         ]);
 
         // Check if project is valid
@@ -1226,6 +1275,7 @@ async function processProjectDirectory(
         const gitResult = gitOriginUrl.status === 'fulfilled' ? gitOriginUrl.value : undefined;
         const statsResult = stats.status === 'fulfilled' ? stats.value : null;
         const mediaStrategyResult = mediaStrategy.status === 'fulfilled' ? mediaStrategy.value : undefined;
+        const settingsResult = localSettings.status === 'fulfilled' ? localSettings.value : undefined;
 
         if (!statsResult) {
             debug(`Could not get stats for ${projectPath}`);
@@ -1244,6 +1294,7 @@ async function processProjectDirectory(
             gitOriginUrl: gitResult,
             description: "...",
             mediaStrategy: mediaStrategyResult,
+            pendingUpdate: settingsResult?.pendingUpdate,
         };
     } catch (error) {
         debug(`Error processing project directory ${projectPath}:`, error);

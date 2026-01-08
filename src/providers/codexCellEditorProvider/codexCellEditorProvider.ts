@@ -610,7 +610,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 if (isAuthenticated && userInfo?.username) {
                     const ws = vscode.workspace.getWorkspaceFolder(document.uri);
                     if (ws) {
-                        const { extractProjectIdFromUrl, fetchProjectMembers } = await import("../../utils/remoteHealingManager");
+                        const { extractProjectIdFromUrl, fetchProjectMembers } = await import("../../utils/remoteUpdatingManager");
                         const git = await import("isomorphic-git");
                         const fs = await import("fs");
                         const remotes = await git.listRemotes({ fs, dir: ws.uri.fsPath });

@@ -322,7 +322,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         {isHealing ? (
                             <>
                                 <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
-                                Healing...
+                                Updating...
                             </>
                         ) : isOpening ? (
                             <>
@@ -382,6 +382,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         const isExpanded = expandedProjects[project.name];
         const isNewlyAdded = newlyAddedProjects.has(project.name);
         const isStatusChanged = statusChangedProjects.has(project.name);
+        const isUpdateRequired = project.pendingUpdate?.required;
 
         const isApplyingForThisProject = isChangingStrategy;
         return (
@@ -429,6 +430,15 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                 className="text-xs bg-green-500 animate-pulse px-1 py-0"
                             >
                                 Updated
+                            </Badge>
+                        )}
+                        {isUpdateRequired && (
+                            <Badge
+                                variant="default"
+                                className="text-xs bg-amber-500 text-amber-50 border-amber-500"
+                                title={project.pendingUpdate?.reason || "Project administrator requires update"}
+                            >
+                                Update required
                             </Badge>
                         )}
                     </div>
@@ -563,37 +573,6 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                             )}
                                         </Button>
                                     )}
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                        vscode.postMessage({
-                                            command: "project.heal",
-                                            projectName: project.name,
-                                            projectPath: project.path,
-                                            gitOriginUrl: project.gitOriginUrl,
-                                        });
-                                    }}
-                                    className={cn(
-                                        "h-6 text-xs text-yellow-600 hover:text-yellow-700",
-                                        isHealing &&
-                                            "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
-                                    )}
-                                    disabled={disableControls || !isOnline}
-                                    title="Heal project by backing up, re-cloning, and merging local changes"
-                                >
-                                    {isHealing ? (
-                                        <>
-                                            <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
-                                            Cloning...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <i className="codicon codicon-heart mr-1" />
-                                            Heal
-                                        </>
-                                    )}
-                                </Button>
                                 <Button
                                     variant="outline"
                                     size="sm"

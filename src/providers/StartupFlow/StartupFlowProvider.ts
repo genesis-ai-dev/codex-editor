@@ -31,6 +31,15 @@ import * as fs from "fs";
 import git from "isomorphic-git";
 import { resolveConflictFiles } from "../../projectManager/utils/merge/resolvers";
 import { buildConflictsFromDirectories } from "../../projectManager/utils/merge/directoryConflicts";
+import {
+    readLocalProjectSettings,
+    writeLocalProjectSettings,
+    markPendingUpdateRequired,
+    clearPendingUpdate,
+    type UpdateState,
+    type UpdateStep
+} from "../../utils/localProjectSettings";
+import { ensureConnectivity, handleUpdateError, categorizeError, ErrorType } from "../../utils/connectivityChecker";
 
 // Add global state tracking for startup flow
 export class StartupFlowGlobalState {
@@ -170,7 +179,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     private metadataWatcher?: vscode.FileSystemWatcher;
     private _preflightPromise?: Promise<PreflightState>;
     private _forceLogin: boolean = false;
-    private static readonly PENDING_HEAL_SYNC_KEY = "codex.pendingHealSync";
+    private static readonly PENDING_UPDATE_SYNC_KEY = "codex.pendingUpdateSync";
 
     public setForceLogin(force: boolean) {
         this._forceLogin = force;
@@ -1144,23 +1153,58 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 break;
             }
             case "project.open": {
-                const projectPath = message.projectPath;
+                let projectPath = message.projectPath;
                 debugLog("Opening project", projectPath);
+                // If user selected a backup-named folder, normalize to canonical before proceeding
+                try {
+                    const normalized = await this.normalizeBackupPathForOpen(projectPath);
+                    if (normalized !== projectPath) {
+                        debugLog(`Normalized backup path to canonical: ${normalized}`);
+                        projectPath = normalized;
+                    }
+                } catch (e) {
+                    debugLog("Failed to normalize backup path for open", e);
+                }
 
                 try {
-                    // Check if remote healing is required before opening
-                    let remoteHealingWasPerformed = false;
+                    // Check if remote update is required before opening or if a local update is in-progress
+                    let remoteUpdateWasPerformed = false;
+                    let shouldHeal = false;
+                    let updatingReason = "Remote requirement";
                     try {
-                        debugLog("Checking remote healing requirement for project:", projectPath);
-                        const { checkRemoteHealingRequired } = await import("../../utils/remoteHealingManager");
+                        debugLog("Checking remote update requirement for project:", projectPath);
+                        const { checkRemoteUpdatingRequired } = await import("../../utils/remoteUpdatingManager");
                         // Pass true for bypassCache to ensure we verify connectivity before deciding to heal
-                        const healingCheck = await checkRemoteHealingRequired(projectPath, undefined, true);
+                        const updatingCheck = await checkRemoteUpdatingRequired(projectPath, undefined, true);
 
-                        if (healingCheck.required) {
-                            debugLog("Remote healing required for user:", healingCheck.currentUsername);
-                            remoteHealingWasPerformed = true;
+                        if (updatingCheck.required) {
+                            debugLog("Remote update required for user:", updatingCheck.currentUsername);
+                            try {
+                                await markPendingUpdateRequired(vscode.Uri.file(projectPath), "Remote requirement");
+                            } catch (e) {
+                                debugLog("Failed to persist pending update flag", e);
+                            }
+                            shouldHeal = true;
+                            updatingReason = "Remote requirement";
+                        } else {
+                            // If remote no longer requires update, still continue if local state indicates an in-progress update
+                            const hasLocalPending = await this.hasPendingLocalUpdate(projectPath);
+                            if (hasLocalPending) {
+                                debugLog("Local update state present; continuing update even though remote no longer requires it");
+                                try {
+                                    await markPendingUpdateRequired(vscode.Uri.file(projectPath), "Local pending update");
+                                } catch (e) {
+                                    debugLog("Failed to persist pending update flag for local pending state", e);
+                                }
+                                shouldHeal = true;
+                                updatingReason = "Local pending update";
+                            }
+                        }
 
-                            // Inform webview that healing is starting (not opening)
+                        if (shouldHeal) {
+                            remoteUpdateWasPerformed = true;
+
+                            // Inform webview that updating is starting (not opening)
                             try {
                                 this.safeSendMessage({
                                     command: "project.healingInProgress",
@@ -1171,15 +1215,17 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 // non-fatal
                             }
 
-                            // Show notification and perform healing
+                            // Show notification and perform update
                             await vscode.window.withProgress(
                                 {
                                     location: vscode.ProgressLocation.Notification,
-                                    title: "Project administrator requires healing",
+                                    title: updatingReason === "Remote requirement"
+                                        ? "Project administrator requires update"
+                                        : "Continuing update",
                                     cancellable: false,
                                 },
                                 async (progress) => {
-                                    progress.report({ message: "Healing project..." });
+                                    progress.report({ message: "Updating project..." });
 
                                     // Get project name for the healing process
                                     const projectName = projectPath.split(/[\\/]/).pop() || "project";
@@ -1194,8 +1240,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                         throw new Error("No git origin found for project");
                                     }
 
-                                    // Perform the healing operation (suppress success message, we'll show it after opening)
-                                    await this.performProjectHeal(
+                                    // Perform the update operation (suppress success message, we'll show it after opening)
+                                    await this.performProjectUpdate(
                                         progress,
                                         projectName,
                                         projectPath,
@@ -1203,26 +1249,38 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                         false // Don't show success message yet
                                     );
 
-                                    debugLog("Remote healing completed successfully");
+                                    debugLog("Remote update completed successfully");
 
-                                    // Remove current user from remote healing list
+                                    // Remove current user from remote update list
                                     try {
-                                        progress.report({ message: "Updating healing list..." });
-                                        const { markUserAsHealedInRemoteList } = await import("../../utils/remoteHealingManager");
-                                        await markUserAsHealedInRemoteList(
+                                        progress.report({ message: "Updating update list..." });
+                                        const { markUserAsUpdatedInRemoteList } = await import("../../utils/remoteUpdatingManager");
+                                        await markUserAsUpdatedInRemoteList(
                                             projectPath,
-                                            healingCheck.currentUsername!
+                                            updatingCheck.currentUsername!
                                         );
-                                        debugLog("User removed from remote healing list");
+                                        debugLog("User removed from remote update list");
+                                        try {
+                                            await clearPendingUpdate(vscode.Uri.file(projectPath));
+                                        } catch (clearErr) {
+                                            debugLog("Failed to clear pending update flag (non-fatal):", clearErr);
+                                        }
                                     } catch (removeErr) {
-                                        // Don't fail the healing if we can't update the list
-                                        debugLog("Failed to remove user from healing list (non-fatal):", removeErr);
-                                        console.error("Failed to remove user from healing list:", removeErr);
+                                        // Don't fail the update if we can't update the list
+                                        debugLog("Failed to remove user from update list (non-fatal):", removeErr);
+                                        console.error("Failed to remove user from update list:", removeErr);
                                     }
 
                                     progress.report({ message: "Opening project..." });
                                 }
                             );
+
+                            // Clear local pending flag after successful update run (even if remote no longer required it)
+                            try {
+                                await clearPendingUpdate(vscode.Uri.file(projectPath));
+                            } catch (clearErr) {
+                                debugLog("Failed to clear pending update flag after update run (non-fatal):", clearErr);
+                            }
 
                             // Inform webview that healing is complete
                             try {
@@ -1235,28 +1293,36 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 // non-fatal
                             }
                         } else {
-                            debugLog("No remote healing required:", healingCheck.reason);
+                            debugLog("No remote updating required:", updatingCheck.reason);
                         }
-                    } catch (healingCheckErr) {
-                        // Don't block project opening if healing check fails
-                        debugLog("Remote healing check failed (non-fatal):", healingCheckErr);
-                        console.error("Remote healing check error:", healingCheckErr);
+                    } catch (updatingCheckErr) {
+                        // If updating was attempted and failed/cancelled, DO NOT open the project.
+                        debugLog("Remote updating check failed:", updatingCheckErr);
+                        console.error("Remote updating check error:", updatingCheckErr);
 
-                        // Ensure healing state is cleared if there was an error
-                        if (remoteHealingWasPerformed) {
+                        if (remoteUpdateWasPerformed) {
+                            // Clear updating state for the UI
                             try {
                                 this.safeSendMessage({
                                     command: "project.healingInProgress",
                                     projectPath,
                                     healing: false,
                                 } as any);
-                            } catch (e) {
+                            } catch {
                                 // non-fatal
                             }
+
+                            // Tell the user and abort opening
+                            const msg = updatingCheckErr instanceof Error ? updatingCheckErr.message : String(updatingCheckErr);
+                            vscode.window.showWarningMessage(
+                                "Update was not completed. The project will remain closed. Please try updating again.\n\nDetails: " + msg,
+                                { modal: true }
+                            );
+                            return; // Abort opening flow
                         }
                     }
 
-                    // Now inform webview that opening is starting (after healing is complete)
+                    // Now inform webview that opening is starting (after updating is complete)
                     try {
                         this.safeSendMessage({
                             command: "project.openingInProgress",
@@ -2708,7 +2774,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
 
                 // Show notification first so user knows the process is starting
-                vscode.window.showInformationMessage("Heal process starting - check for confirmation dialog");
+                vscode.window.showInformationMessage("Update process starting - check for confirmation dialog");
 
                 const yesConfirm = "Yes, Heal Project";
 
@@ -2727,7 +2793,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     return;
                 }
 
-                // Inform webview that healing is starting for this project
+                // Inform webview that updating is starting for this project
                 try {
                     this.safeSendMessage({
                         command: "project.healingInProgress",
@@ -2738,20 +2804,20 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     // non-fatal
                 }
 
-                // Execute the healing process
+                // Execute the update process
                 try {
                     await vscode.window.withProgress(
                         {
                             location: vscode.ProgressLocation.Notification,
-                            title: `Healing project "${projectName}"...`,
+                            title: `Updating project "${projectName}"...`,
                             cancellable: false,
                         },
                         async (progress) => {
-                            await this.performProjectHeal(progress, projectName, projectPath, gitOriginUrl);
+                            await this.performProjectUpdate(progress, projectName, projectPath, gitOriginUrl);
                         }
                     );
 
-                    // Inform webview that healing is complete
+                    // Inform webview that updating is complete
                     try {
                         this.safeSendMessage({
                             command: "project.healingInProgress",
@@ -2762,9 +2828,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // non-fatal
                     }
                 } catch (error) {
-                    console.error("Project healing failed:", error);
+                    console.error("Project update failed:", error);
                     vscode.window.showErrorMessage(
-                        `Failed to heal project: ${error instanceof Error ? error.message : String(error)}`
+                        `Failed to update project: ${error instanceof Error ? error.message : String(error)}`
                     );
 
                     // Inform webview that healing failed/stopped
@@ -2893,13 +2959,25 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         return new Promise((resolve) => setTimeout(resolve, ms));
     }
 
-    private async performProjectHeal(
+    private async performProjectUpdate(
         progress: vscode.Progress<{ message?: string; increment?: number; }>,
         projectName: string,
         projectPath: string,
         gitOriginUrl: string,
         showSuccessMessage: boolean = true
     ): Promise<void> {
+        const cleanedPath = await this.cleanupStaleUpdateState(projectPath, projectName);
+        if (cleanedPath && cleanedPath !== projectPath) {
+            projectPath = cleanedPath;
+            projectName = path.basename(cleanedPath);
+        }
+
+        // CRITICAL: Ensure internet connectivity before starting update
+        // If offline, this will block with a modal until connectivity is restored
+        progress.report({ message: "Checking internet connectivity..." });
+        await ensureConnectivity("project update");
+        debugLog("✅ Internet connectivity confirmed");
+
         // Check if frontier extension is available and at required version
         const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
         if (!frontierExtension) {
@@ -2928,137 +3006,515 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             throw new Error(`Frontier Authentication extension version ${requiredVersion} or later is required. Current version: ${currentVersion}. Please update the extension.`);
         }
 
-        // Step 1: Create backup
-        progress.report({ increment: 10, message: "Creating backup..." });
-        const backupUri = await this.createProjectBackup(projectPath, projectName, false);
-        const backupFileName = path.basename(backupUri.fsPath);
-        debugLog(`Backup created at: ${backupUri.fsPath}`);
+        // Determine backup policy based on recent backups
+        const codexProjectsRoot = await getCodexProjectsDirectory();
+        const archivedProjectsDir = vscode.Uri.joinPath(codexProjectsRoot, "archived_projects");
+        await this.ensureDirectoryExists(archivedProjectsDir);
 
-        // Step 2: Copy files to temporary folder
-        progress.report({ increment: 20, message: "Saving local changes..." });
-        const timestamp = this.generateTimestamp();
-        const codexProjectsDir = await getCodexProjectsDirectory();
-        const tempFolderName = `${projectName}_temp_${timestamp}`;
-        const tempFolderUri = vscode.Uri.joinPath(codexProjectsDir, tempFolderName);
-
-        // Create temp directory and copy files
-        await vscode.workspace.fs.createDirectory(tempFolderUri);
+        // If a prior healing session exists, reuse its backup choice to avoid re-prompting.
         const projectUri = vscode.Uri.file(projectPath);
-        await this.copyDirectory(projectUri, tempFolderUri, { excludeGit: true });
-        debugLog(`Temporary files saved to: ${tempFolderUri.fsPath}`);
+        const priorSettings = await readLocalProjectSettings(projectUri);
+        const priorState = priorSettings.updateState;
+        const priorBackupMode = priorState?.backupMode;
+
+        let hasRecentBackup = false;
+        try {
+            const entries = await vscode.workspace.fs.readDirectory(archivedProjectsDir);
+            const oneHourMs = 30 * 60 * 1000;
+            const now = Date.now();
+            for (const [name, type] of entries) {
+                if (
+                    type === vscode.FileType.File &&
+                    name.toLowerCase().endsWith(".zip") &&
+                    name.startsWith(`${projectName}_backup_`)
+                ) {
+                    const stat = await vscode.workspace.fs.stat(vscode.Uri.joinPath(archivedProjectsDir, name));
+                    if (now - stat.mtime < oneHourMs) {
+                        hasRecentBackup = true;
+                        break;
+                    }
+                }
+            }
+        } catch (e) {
+            // If inspection fails (e.g., directory missing), treat as no recent backup
+            debugLog("Could not inspect archived_projects for recent backups", e);
+            hasRecentBackup = false;
+        }
+
+        // Ask user for backup preference unless a prior choice exists.
+        let backupOption: { includeGit: boolean; label?: string; };
+        if (priorBackupMode === "full") {
+            backupOption = { includeGit: true, label: "Full Backup (previous selection)" };
+        } else if (priorBackupMode === "data-only") {
+            backupOption = { includeGit: false, label: "Data Only (previous selection)" };
+        } else {
+            const backupChoices = hasRecentBackup
+                ? [
+                    {
+                        label: "Full Backup (Recommended)",
+                        description: "Includes .git folder and history",
+                        detail: "Safest option, but larger file size",
+                        includeGit: true,
+                    },
+                    {
+                        label: "Data Only (no .git)",
+                        description: "Excludes .git folder",
+                        detail: "Smaller file size (recent full backup found in the last hour)",
+                        includeGit: false,
+                    },
+                ]
+                : [
+                    {
+                        label: "Full Backup (Required)",
+                        description: "Includes .git folder and history",
+                        detail: "No recent full backup found in the last hour; data-only is unavailable",
+                        includeGit: true,
+                    },
+                ];
+
+            const picked = await vscode.window.showQuickPick(backupChoices, {
+                placeHolder: "Choose a backup method before healing",
+                ignoreFocusOut: true,
+            });
+
+            if (!picked) {
+                throw new Error("Update cancelled by user (no backup method selected)");
+            }
+            backupOption = picked;
+            await this.persistUpdateState(projectPath, {
+                backupMode: picked.includeGit ? "full" : "data-only",
+            });
+        }
+
+        // Step 1: Create or reuse backup
+        const priorBackupZipPath = priorState?.backupZipPath;
+        const priorCreatedAt = priorState?.createdAt;
+        let backupUri: vscode.Uri | undefined;
+        let reuseBackup = false;
+        let backupStat: vscode.FileStat | undefined;
+        if (priorBackupZipPath) {
+            try {
+                const priorZipUri = vscode.Uri.file(priorBackupZipPath);
+                const priorStat = await vscode.workspace.fs.stat(priorZipUri);
+                const toleranceMs = 30 * 60 * 1000; // 30 minutes tolerance
+                if (
+                    !priorCreatedAt ||
+                    Math.abs(priorStat.mtime - priorCreatedAt) <= toleranceMs
+                ) {
+                    reuseBackup = true;
+                    backupUri = priorZipUri;
+                    backupStat = priorStat;
+                    debugLog(`Reusing existing backup: ${priorBackupZipPath}, mtime=${priorStat.mtime}, createdAt=${priorCreatedAt}`);
+                    progress.report({ increment: 10, message: "Reusing existing backup ZIP..." });
+                } else {
+                    debugLog(
+                        `Backup ZIP timestamp mismatch, will recreate. mtime=${priorStat.mtime}, createdAt=${priorCreatedAt}`
+                    );
+                }
+            } catch {
+                reuseBackup = false;
+                backupUri = undefined;
+                backupStat = undefined;
+            }
+        }
+
+        if (!reuseBackup) {
+            progress.report({ increment: 2, message: "Preparing backup (scanning project)..." });
+            progress.report({
+                increment: 8,
+                message: backupOption.includeGit
+                    ? "Creating full backup (includes .git)..."
+                    : "Creating data-only backup (excluding .git)..."
+            });
+
+            try {
+                backupUri = await this.createProjectBackup(projectPath, projectName, backupOption.includeGit);
+                debugLog(`Backup created at: ${backupUri.fsPath}`);
+                try {
+                    backupStat = await vscode.workspace.fs.stat(backupUri);
+                } catch {
+                    backupStat = undefined;
+                }
+            } catch (backupError) {
+                const categorized = categorizeError(backupError);
+                if (categorized.type === ErrorType.DISK_FULL) {
+                    vscode.window.showErrorMessage(
+                        `Cannot create backup: ${categorized.userMessage}\n\nPlease free up disk space and try again.`,
+                        { modal: true }
+                    );
+                    throw backupError;
+                } else if (categorized.type === ErrorType.PERMISSION) {
+                    vscode.window.showErrorMessage(
+                        `Cannot create backup: ${categorized.userMessage}\n\nPlease check permissions for the archived_projects folder.`,
+                        { modal: true }
+                    );
+                    throw backupError;
+                } else {
+                    throw backupError;
+                }
+            }
+        } else {
+            // Reuse requested but backup file missing; recreate
+            if (!backupStat) {
+                progress.report({ increment: 2, message: "Preparing backup (scanning project)..." });
+                progress.report({
+                    increment: 8,
+                    message: backupOption.includeGit
+                        ? "Creating full backup (includes .git)..."
+                        : "Creating data-only backup (excluding .git)..."
+                });
+
+                try {
+                    backupUri = await this.createProjectBackup(projectPath, projectName, backupOption.includeGit);
+                    debugLog(`Backup recreated at: ${backupUri.fsPath}`);
+                    try {
+                        backupStat = await vscode.workspace.fs.stat(backupUri);
+                    } catch {
+                        backupStat = undefined;
+                    }
+                    reuseBackup = false;
+                } catch (backupError) {
+                    const categorized = categorizeError(backupError);
+                    if (categorized.type === ErrorType.DISK_FULL) {
+                        vscode.window.showErrorMessage(
+                            `Cannot create backup: ${categorized.userMessage}\n\nPlease free up disk space and try again.`,
+                            { modal: true }
+                        );
+                        throw backupError;
+                    } else if (categorized.type === ErrorType.PERMISSION) {
+                        vscode.window.showErrorMessage(
+                            `Cannot create backup: ${categorized.userMessage}\n\nPlease check permissions for the archived_projects folder.`,
+                            { modal: true }
+                        );
+                        throw backupError;
+                    } else {
+                        throw backupError;
+                    }
+                }
+            }
+        }
+
+        const backupFileName = path.basename(backupUri!.fsPath);
+        progress.report({ increment: 0, message: "Backup ready; preparing temp copy..." });
+        await this.persistUpdateState(projectPath, {
+            projectPath,
+            projectName,
+            backupZipPath: backupUri!.fsPath,
+            createdAt: reuseBackup && priorCreatedAt ? priorCreatedAt : (backupStat?.mtime ?? Date.now()),
+            step: "backup_done",
+            completedSteps: ["backup_done"],
+            backupMode: backupOption.includeGit ? "full" : "data-only",
+        });
+
+        // Step 2: Create or reuse temporary snapshot
+        progress.report({ increment: 20, message: "Saving local changes..." });
+        let tempFolderUri: vscode.Uri;
+        let reuseTemp = false;
+        if (priorState?.tempFolderPath) {
+            try {
+                await vscode.workspace.fs.stat(vscode.Uri.file(priorState.tempFolderPath));
+                tempFolderUri = vscode.Uri.file(priorState.tempFolderPath);
+                reuseTemp = true;
+                debugLog(`Reusing existing temp snapshot: ${priorState.tempFolderPath}`);
+            } catch {
+                reuseTemp = false;
+                const timestamp = this.generateTimestamp();
+                const tempFolderName = `${projectName}_temp_${timestamp}`;
+                tempFolderUri = vscode.Uri.joinPath(codexProjectsRoot, tempFolderName);
+            }
+        } else {
+            const timestamp = this.generateTimestamp();
+            const tempFolderName = `${projectName}_temp_${timestamp}`;
+            tempFolderUri = vscode.Uri.joinPath(codexProjectsRoot, tempFolderName);
+        }
+
+        if (!reuseTemp) {
+            try {
+                await vscode.workspace.fs.createDirectory(tempFolderUri);
+                await this.copyDirectory(projectUri, tempFolderUri, { excludeGit: true });
+                debugLog(`Temporary files saved to: ${tempFolderUri.fsPath}`);
+            } catch (tempError) {
+                const categorized = categorizeError(tempError);
+                if (categorized.type === ErrorType.DISK_FULL) {
+                    vscode.window.showErrorMessage(
+                        `Cannot create temporary snapshot: ${categorized.userMessage}\n\nPlease free up disk space and try again.`,
+                        { modal: true }
+                    );
+                    throw tempError;
+                } else if (categorized.type === ErrorType.PERMISSION) {
+                    vscode.window.showErrorMessage(
+                        `Cannot create temporary snapshot: ${categorized.userMessage}\n\nPlease check permissions for the project directory.`,
+                        { modal: true }
+                    );
+                    throw tempError;
+                } else {
+                    throw tempError;
+                }
+            }
+        } else {
+            progress.report({ increment: 0, message: "Reusing existing temp snapshot..." });
+        }
+
+        await this.persistUpdateState(projectPath, {
+            tempFolderPath: tempFolderUri.fsPath,
+            completedSteps: ["backup_done"],
+        });
 
         // Determine media strategy before deletion so re-clone respects user's choice
-        let healMediaStrategy: "auto-download" | "stream-and-save" | "stream-only" | undefined;
+        let updateMediaStrategy: "auto-download" | "stream-and-save" | "stream-only" | undefined;
         try {
             const { getMediaFilesStrategy } = await import("../../utils/localProjectSettings");
-            healMediaStrategy = await getMediaFilesStrategy(projectUri);
-            debugLog(`Heal using media strategy: ${healMediaStrategy || "(default)"}`);
+            updateMediaStrategy = await getMediaFilesStrategy(projectUri);
+            debugLog(`Heal using media strategy: ${updateMediaStrategy || "(default)"}`);
         } catch (e) {
             debugLog("Could not read media strategy before heal; default will be used", e);
         }
 
-        // Step 3: Delete the unhealthy project
-        progress.report({ increment: 10, message: "Removing corrupted project..." });
-        await vscode.workspace.fs.delete(projectUri, { recursive: true, useTrash: false });
-        debugLog(`Deleted project at: ${projectPath}`);
+        // Step 3: Prepare cloning target (canonical_cloning) and delete if stale
+        progress.report({ increment: 10, message: "Preparing cloning target..." });
+        const parentDir = vscode.Uri.file(path.dirname(projectPath));
+        const cloningFolderName = `${projectName}_cloning`;
+        const toDeleteFolderName = `${projectName}_toDelete`;
+        const cloningProjectUri = vscode.Uri.joinPath(parentDir, cloningFolderName);
+        const toDeleteProjectUri = vscode.Uri.joinPath(parentDir, toDeleteFolderName);
 
-        // Step 4: Re-clone the project
-        progress.report({ increment: 20, message: "Re-cloning from remote..." });
-        const cloneSuccess = await this.frontierApi?.cloneRepository(
-            gitOriginUrl,
-            projectPath,
-            false,
-            healMediaStrategy
-        );
-        if (!cloneSuccess) {
-            throw new Error("Failed to clone repository");
+        try {
+            await vscode.workspace.fs.delete(cloningProjectUri, { recursive: true, useTrash: false });
+        } catch {
+            // ok if missing
         }
+        await this.persistUpdateState(projectPath, {
+            clonePath: cloningProjectUri.fsPath,
+            step: "moved_original",
+            completedSteps: ["backup_done", "moved_original"],
+        });
 
-        // Wait for clone to complete
-        await this.sleep(3000);
+        try {
+            // Step 4: Re-clone the project into cloning target
+            // CRITICAL: This operation requires internet connectivity
+            // Errors are handled organically - network errors trigger wait/retry, server errors prompt user
+            progress.report({ increment: 20, message: "Re-cloning from remote..." });
 
-        // Step 5: Merge temporary files back
-        progress.report({ increment: 20, message: "Merging local changes..." });
-        const clonedProjectUri = vscode.Uri.file(projectPath);
+            const attemptClone = async (): Promise<void> => {
+                try {
+                    const result = await this.frontierApi?.cloneRepository(
+                        gitOriginUrl,
+                        cloningProjectUri.fsPath,
+                        false,
+                        updateMediaStrategy
+                    );
+                    if (!result) {
+                        throw new Error("Failed to clone repository");
+                    }
+                } catch (cloneError) {
+                    // Handle clone errors organically
+                    await handleUpdateError(cloneError, "project clone", attemptClone);
+                }
+            };
 
-        // Verify the cloned project exists
-        await vscode.workspace.fs.stat(clonedProjectUri);
-        debugLog("Cloned project directory exists");
+            await attemptClone();
 
-        // Build a full merge set from the saved snapshot (ours) vs the freshly-cloned project (theirs/base)
-        // Treat everything as a potential conflict, excluding .git/**. Do not delete files.
-        const { textConflicts, binaryCopies } = await buildConflictsFromDirectories({
-            oursRoot: tempFolderUri,
-            theirsRoot: clonedProjectUri,
-            exclude: (relativePath) => {
-                // Generated databases should not be preserved during heal
-                return (
-                    relativePath.endsWith(".sqlite") ||
-                    relativePath.endsWith(".sqlite3") ||
-                    relativePath.endsWith(".db")
+            await this.persistUpdateState(projectPath, {
+                step: "clone_done",
+                completedSteps: ["backup_done", "moved_original", "clone_done"],
+            });
+
+            // Wait for clone to complete
+            await this.sleep(3000);
+
+            // Step 5: Merge temporary files back into cloning target
+            progress.report({ increment: 20, message: "Merging local changes..." });
+
+            // Verify the cloned project exists
+            await vscode.workspace.fs.stat(cloningProjectUri);
+            debugLog("Cloned project directory exists");
+
+            // Build a full merge set from the saved snapshot (ours) vs the freshly-cloned project (theirs/base)
+            // Treat everything as a potential conflict, excluding .git/**. Do not delete files.
+            const { textConflicts, binaryCopies } = await buildConflictsFromDirectories({
+                oursRoot: tempFolderUri,
+                theirsRoot: cloningProjectUri,
+                exclude: (relativePath) => {
+                    // Generated databases should not be preserved during heal
+                    return (
+                        relativePath.endsWith(".sqlite") ||
+                        relativePath.endsWith(".sqlite3") ||
+                        relativePath.endsWith(".db")
+                    );
+                },
+                isBinary: (relativePath) => this.isBinaryFile(relativePath),
+            });
+
+            debugLog("Heal merge inputs prepared:", {
+                textConflicts: textConflicts.length,
+                binaryCopies: binaryCopies.length,
+            });
+
+            // Merge all text files using the same resolver pipeline as sync.
+            // IMPORTANT: do NOT refresh ours from disk during heal; ours is the snapshot content.
+            if (textConflicts.length > 0) {
+                debugLog(`Merging ${textConflicts.length} text files with shared merge engine...`);
+                await resolveConflictFiles(textConflicts, cloningProjectUri.fsPath, { refreshOursFromDisk: false });
+                debugLog("All text merges completed");
+            }
+
+            // Copy binary files from snapshot into the freshly-cloned project (no content merge).
+            if (binaryCopies.length > 0) {
+                debugLog(`Copying ${binaryCopies.length} binary files from snapshot...`);
+
+                // Ensure parent directories exist before writing
+                const uniqueDirs = new Set<string>();
+                for (const file of binaryCopies) {
+                    const dir = path.posix.dirname(file.filepath);
+                    if (dir && dir !== ".") {
+                        uniqueDirs.add(dir);
+                    }
+                }
+                const sortedDirs = Array.from(uniqueDirs).sort(
+                    (a, b) => a.split("/").length - b.split("/").length
                 );
-            },
-            isBinary: (relativePath) => this.isBinaryFile(relativePath),
-        });
+                for (const dir of sortedDirs) {
+                    const dirUri = vscode.Uri.joinPath(cloningProjectUri, ...dir.split("/"));
+                    const created = await this.ensureDirectoryExists(dirUri);
+                    if (!created) {
+                        throw new Error(`Failed to create directory: ${dir}`);
+                    }
+                }
 
-        debugLog("Heal merge inputs prepared:", {
-            textConflicts: textConflicts.length,
-            binaryCopies: binaryCopies.length,
-        });
+                for (const file of binaryCopies) {
+                    const targetUri = vscode.Uri.joinPath(cloningProjectUri, ...file.filepath.split("/"));
+                    await vscode.workspace.fs.writeFile(targetUri, file.content);
+                }
 
-        // Merge all text files using the same resolver pipeline as sync.
-        // IMPORTANT: do NOT refresh ours from disk during heal; ours is the snapshot content.
-        if (textConflicts.length > 0) {
-            debugLog(`Merging ${textConflicts.length} text files with shared merge engine...`);
-            await resolveConflictFiles(textConflicts, projectPath, { refreshOursFromDisk: false });
-            debugLog("All text merges completed");
-        }
+                debugLog("Binary copies completed");
+            }
 
-        // Copy binary files from snapshot into the freshly-cloned project (no content merge).
-        if (binaryCopies.length > 0) {
-            debugLog(`Copying ${binaryCopies.length} binary files from snapshot...`);
+            await this.persistUpdateState(projectPath, {
+                step: "merge_done",
+                completedSteps: ["backup_done", "moved_original", "clone_done", "merge_done"],
+            });
 
-            // Ensure parent directories exist before writing
-            const uniqueDirs = new Set<string>();
-            for (const file of binaryCopies) {
-                const dir = path.posix.dirname(file.filepath);
-                if (dir && dir !== ".") {
-                    uniqueDirs.add(dir);
+            // Step 6: Swap canonical with cloning target
+            progress.report({ increment: 10, message: "Swapping healed project into place..." });
+            const canonicalUri = vscode.Uri.file(projectPath);
+            // Move canonical aside
+            try {
+                await vscode.workspace.fs.rename(canonicalUri, toDeleteProjectUri);
+            } catch (e) {
+                debugLog("Failed to move canonical to toDelete; will attempt delete", e);
+                try {
+                    await vscode.workspace.fs.delete(canonicalUri, { recursive: true, useTrash: false });
+                } catch {
+                    // ignore
                 }
             }
-            const sortedDirs = Array.from(uniqueDirs).sort(
-                (a, b) => a.split("/").length - b.split("/").length
-            );
-            for (const dir of sortedDirs) {
-                const dirUri = vscode.Uri.joinPath(clonedProjectUri, ...dir.split("/"));
-                const created = await this.ensureDirectoryExists(dirUri);
-                if (!created) {
-                    throw new Error(`Failed to create directory: ${dir}`);
+            // Promote cloning to canonical
+            await vscode.workspace.fs.rename(cloningProjectUri, canonicalUri);
+            await this.persistUpdateState(projectPath, {
+                backupProjectPath: toDeleteProjectUri.fsPath,
+                step: "swap_done",
+                completedSteps: ["backup_done", "moved_original", "clone_done", "merge_done", "swap_done"],
+            });
+            // Remove the old canonical (now toDelete)
+            try {
+                await vscode.workspace.fs.delete(toDeleteProjectUri, { recursive: true, useTrash: false });
+            } catch {
+                // ignore
+            }
+
+        } catch (error) {
+            console.error("Update failed, attempting to restore original project:", error);
+            progress.report({ increment: 0, message: "Update failed, restoring..." });
+
+            // Categorize the error to understand what went wrong
+            const categorized = categorizeError(error);
+
+            // 1. Delete the partial/failed clone if it exists
+            try {
+                await vscode.workspace.fs.delete(cloningProjectUri, { recursive: true, useTrash: false });
+            } catch (e) {
+                // Ignore if it doesn't exist
+            }
+
+            // 2. If canonical was moved to toDelete, attempt to restore it
+            try {
+                const canonicalUri = vscode.Uri.file(projectPath);
+                const toDeleteUri = toDeleteProjectUri;
+                let exists = false;
+                try {
+                    await vscode.workspace.fs.stat(toDeleteUri);
+                    exists = true;
+                } catch {
+                    exists = false;
                 }
+                if (exists) {
+                    await vscode.workspace.fs.rename(toDeleteUri, canonicalUri);
+                    debugLog("Restored original project from toDelete backup");
+                }
+            } catch (restoreError) {
+                console.error("CRITICAL: Failed to restore project from toDelete backup:", restoreError);
+                vscode.window.showErrorMessage(`Update failed and restoration failed. Your project data may be in: ${toDeleteProjectUri.fsPath}`);
             }
 
-            for (const file of binaryCopies) {
-                const targetUri = vscode.Uri.joinPath(clonedProjectUri, ...file.filepath.split("/"));
-                await vscode.workspace.fs.writeFile(targetUri, file.content);
+            // Provide user-friendly error message based on error type
+            let errorMessage = `Project update failed: ${categorized.userMessage}`;
+
+            if (categorized.type === ErrorType.DISK_FULL) {
+                errorMessage += "\n\nYour original project has been restored. Please free up disk space and try again.";
+            } else if (categorized.type === ErrorType.PERMISSION) {
+                errorMessage += "\n\nYour original project has been restored. Please check file permissions and try again.";
+            } else if (categorized.type === ErrorType.SERVER_UNREACHABLE) {
+                errorMessage += "\n\nYour original project has been restored. The server may be temporarily unavailable. Please try again later.";
+            } else if (categorized.type === ErrorType.NETWORK) {
+                errorMessage += "\n\nYour original project has been restored. Please check your internet connection and try again.";
+            } else {
+                errorMessage += "\n\nYour original project has been restored.";
             }
 
-            debugLog("Binary copies completed");
+            vscode.window.showErrorMessage(errorMessage, { modal: true });
+
+            // Re-throw to stop the process
+            throw error;
+        } finally {
+            // Step 6: Clean up temporary files (Snapshot)
+            progress.report({ increment: 10, message: "Cleaning up..." });
+            try {
+                await vscode.workspace.fs.delete(tempFolderUri, { recursive: true, useTrash: false });
+                debugLog(`Cleaned up temp folder: ${tempFolderUri.fsPath}`);
+            } catch (e) {
+                console.warn("Failed to clean up temp folder:", e);
+            }
+            // Clean up lingering backup folder if it still exists
+            try {
+                const stat = await vscode.workspace.fs.stat(toDeleteProjectUri);
+                if (stat) {
+                    await vscode.workspace.fs.delete(toDeleteProjectUri, { recursive: true, useTrash: false });
+                    debugLog("Cleaned lingering toDelete folder in finally");
+                }
+            } catch {
+                // ignore if missing
+            }
+            // As a final guard, attempt to delete the .project/localProjectSettings.json
+            // if it exists in the backup folder to avoid stale state preserving backups.
+            try {
+                const lpsUri = vscode.Uri.joinPath(toDeleteProjectUri, ".project", "localProjectSettings.json");
+                await vscode.workspace.fs.delete(lpsUri, { recursive: false, useTrash: false });
+                debugLog("Removed lingering localProjectSettings.json from toDelete");
+            } catch {
+                // ignore if missing
+            }
+            await this.clearUpdateState(projectPath);
         }
-
-        // Step 6: Clean up temporary files
-        progress.report({ increment: 10, message: "Cleaning up..." });
-        await vscode.workspace.fs.delete(tempFolderUri, { recursive: true, useTrash: false });
-        debugLog(`Cleaned up temp folder: ${tempFolderUri.fsPath}`);
 
         // Step 7: Finalize by opening the healed project and running the LFS-aware sync on next activation.
         // Opening a folder from an empty window restarts extensions (VS Code prompts if Startup Flow is open),
         // so we persist a "pending heal sync" payload and complete it after reload.
         progress.report({ increment: 10, message: "Opening healed project to sync..." });
 
-        const healedUri = vscode.Uri.file(projectPath);
-        const commitMessage = "Healed project: merged local changes after re-clone";
+        const updatedUri = vscode.Uri.file(projectPath);
+        const commitMessage = "Updated project: merged local changes after re-clone";
 
-        await this.context.globalState.update(StartupFlowProvider.PENDING_HEAL_SYNC_KEY, {
+        await this.context.globalState.update(StartupFlowProvider.PENDING_UPDATE_SYNC_KEY, {
             projectPath,
             projectName,
             backupFileName,
@@ -3067,8 +3523,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             showSuccessMessage,
         });
 
+        await this.clearUpdateState(projectPath);
+
         // This will trigger a window reload; the extension will complete the sync in activate().
-        await vscode.commands.executeCommand("vscode.openFolder", healedUri, false);
+        await vscode.commands.executeCommand("vscode.openFolder", updatedUri, false);
         return;
     }
 
@@ -3120,6 +3578,265 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 } else {
                     debugLog(`Skipping directory: ${relativeFilePath}`);
                 }
+            }
+        }
+    }
+
+    // --- Update state helpers for restart-safe cleanup ---
+    private async persistUpdateState(projectPath: string, partial: Partial<UpdateState>): Promise<void> {
+        try {
+            const projectUri = vscode.Uri.file(projectPath);
+            const settings = await readLocalProjectSettings(projectUri);
+            const current: Partial<UpdateState> = settings.updateState || {};
+            const completed = new Set<UpdateStep>(current.completedSteps || []);
+            if (partial.completedSteps) {
+                partial.completedSteps.forEach((s) => completed.add(s as UpdateStep));
+            }
+            if (partial.step) {
+                completed.add(partial.step as UpdateStep);
+            }
+            settings.updateState = {
+                ...current,
+                ...partial,
+                projectPath: partial.projectPath ?? current.projectPath ?? projectPath,
+                projectName: partial.projectName ?? current.projectName ?? path.basename(projectPath),
+                completedSteps: Array.from(completed),
+            };
+            await writeLocalProjectSettings(settings, projectUri);
+        } catch (e) {
+            debugLog("Failed to update update state", e);
+        }
+    }
+
+    private async clearUpdateState(projectPath: string): Promise<void> {
+        try {
+            const projectUri = vscode.Uri.file(projectPath);
+            const settings = await readLocalProjectSettings(projectUri);
+            if (settings.updateState || settings.pendingUpdate) {
+                settings.updateState = undefined;
+                settings.pendingUpdate = undefined;
+                await writeLocalProjectSettings(settings, projectUri);
+            }
+        } catch (e) {
+            debugLog("Failed to clear update state", e);
+        }
+    }
+
+    private async cleanupStaleUpdateState(projectPath: string, projectName?: string): Promise<string | undefined> {
+        const projectUri = vscode.Uri.file(projectPath);
+        let state: UpdateState | undefined;
+        try {
+            const settings = await readLocalProjectSettings(projectUri);
+            state = settings.updateState;
+        } catch (e) {
+            debugLog("Could not read update state", e);
+            state = undefined;
+        }
+        const backupNamePattern = /_healing_backup_\d+$/;
+        const currentIsBackup = backupNamePattern.test(path.basename(projectPath));
+
+        // If no state and current folder is a backup-named folder, try reading state from canonical path
+        if (!state && currentIsBackup) {
+            const canonicalCandidate = path.join(
+                path.dirname(projectPath),
+                path.basename(projectPath).replace(backupNamePattern, "")
+            );
+            try {
+                const canonicalSettings = await readLocalProjectSettings(vscode.Uri.file(canonicalCandidate));
+                state = canonicalSettings.updateState;
+                if (state) {
+                    debugLog("Recovered healing state from canonical folder while in backup path");
+                }
+            } catch {
+                // ignore
+            }
+        }
+
+        if (!state) return undefined;
+
+        const canonicalFromState = state.projectPath ?? projectPath;
+        const derivedCanonicalPath = currentIsBackup
+            ? path.join(path.dirname(projectPath), path.basename(projectPath).replace(backupNamePattern, ""))
+            : canonicalFromState;
+        const canonicalProjectPath = derivedCanonicalPath;
+        const canonicalProjectUri = vscode.Uri.file(canonicalProjectPath);
+
+        // Ensure we only act on matching projects (by path or known derived names)
+        const candidateNames = new Set<string>();
+        candidateNames.add(path.basename(projectPath));
+        candidateNames.add(path.basename(canonicalProjectPath));
+        if (projectName) candidateNames.add(projectName);
+        if (state.projectName) candidateNames.add(state.projectName);
+        if (state.tempFolderPath) candidateNames.add(path.basename(state.tempFolderPath));
+        if (state.backupProjectPath) candidateNames.add(path.basename(state.backupProjectPath));
+        if (state.clonePath) candidateNames.add(path.basename(state.clonePath));
+
+        if (!candidateNames.has(path.basename(canonicalProjectPath))) {
+            // Not the same project; avoid cleaning unrelated entries
+            debugLog("Update state does not match current project; skipping cleanup");
+            return undefined;
+        }
+
+        const pathExists = async (uri: vscode.Uri): Promise<boolean> => {
+            try {
+                await vscode.workspace.fs.stat(uri);
+                return true;
+            } catch {
+                return false;
+            }
+        };
+        const safeDelete = async (uri?: vscode.Uri) => {
+            if (!uri) return;
+            try {
+                await vscode.workspace.fs.delete(uri, { recursive: true, useTrash: false });
+            } catch {
+                // ignore
+            }
+        };
+
+        const projectExists = await pathExists(canonicalProjectUri);
+        const backupProjectUri = state.backupProjectPath ? vscode.Uri.file(state.backupProjectPath) : undefined;
+        let backupExists = backupProjectUri ? await pathExists(backupProjectUri) : false;
+        const cloneProjectUri = state.clonePath ? vscode.Uri.file(state.clonePath) : undefined;
+        let cloneExists = cloneProjectUri ? await pathExists(cloneProjectUri) : false;
+
+        // If the currently opened path is a backup folder, try to restore it to canonical
+        if (currentIsBackup) {
+            if (projectExists && canonicalProjectUri.fsPath !== projectPath) {
+                await safeDelete(canonicalProjectUri);
+            }
+            try {
+                await vscode.workspace.fs.rename(projectUri, canonicalProjectUri);
+                debugLog("Restored backup-named folder back to canonical path");
+                state.backupProjectPath = undefined;
+                backupExists = false;
+            } catch (e) {
+                debugLog("Failed to rename backup-named folder to canonical", e);
+            }
+        } else if (backupExists) {
+            // If backup exists, restore it to canonical project path
+            if (projectExists && state.backupProjectPath !== canonicalProjectUri.fsPath) {
+                // Remove the current project (likely incomplete) then restore backup
+                await safeDelete(canonicalProjectUri);
+            }
+            if (state.backupProjectPath !== canonicalProjectUri.fsPath) {
+                try {
+                    await vscode.workspace.fs.rename(backupProjectUri!, canonicalProjectUri);
+                    backupExists = false;
+                } catch (e) {
+                    debugLog("Failed to restore from backup during cleanup", e);
+                }
+            }
+        } else if (!projectExists && cloneExists) {
+            // If canonical missing but cloning exists, promote clone to canonical
+            try {
+                await vscode.workspace.fs.rename(cloneProjectUri!, canonicalProjectUri);
+                cloneExists = false;
+                debugLog("Promoted cloning folder to canonical during cleanup");
+            } catch (e) {
+                debugLog("Failed to promote cloning folder to canonical", e);
+            }
+        }
+
+        // Remove temp folder
+        const tempUri = state.tempFolderPath ? vscode.Uri.file(state.tempFolderPath) : undefined;
+        await safeDelete(tempUri);
+        const tempExists = tempUri ? await pathExists(tempUri) : false;
+
+        // Remove clone folder if still present and not needed
+        if (cloneExists) {
+            await safeDelete(cloneProjectUri);
+            cloneExists = cloneProjectUri ? await pathExists(cloneProjectUri) : false;
+        }
+
+        // Sweep any orphan temp folders for this project name if current temp is gone
+        if (!tempExists) {
+            try {
+                const codexProjectsRoot = await getCodexProjectsDirectory();
+                const entries = await vscode.workspace.fs.readDirectory(codexProjectsRoot);
+                for (const [name, type] of entries) {
+                    if (
+                        type === vscode.FileType.Directory &&
+                        name.startsWith(`${path.basename(canonicalProjectPath)}_temp_`) &&
+                        (!tempUri || name !== path.basename(tempUri.fsPath))
+                    ) {
+                        try {
+                            await vscode.workspace.fs.delete(vscode.Uri.joinPath(codexProjectsRoot, name), {
+                                recursive: true,
+                                useTrash: false,
+                            });
+                            debugLog(`Deleted orphan temp folder: ${name}`);
+                        } catch (e) {
+                            debugLog(`Failed to delete orphan temp folder: ${name}`, e);
+                        }
+                    }
+                }
+            } catch (e) {
+                debugLog("Failed sweeping orphan temp folders", e);
+            }
+        }
+
+        // Retain backup choice and mark cleanup done; keep paths for potential resume logic
+        await this.persistUpdateState(canonicalProjectPath, {
+            projectPath: canonicalProjectPath,
+            projectName: state.projectName ?? path.basename(canonicalProjectPath),
+            backupMode: state.backupMode,
+            createdAt: state.createdAt,
+            step: "cleanup_done",
+            completedSteps: Array.from(new Set([...(state.completedSteps || []), "cleanup_done"])),
+            backupZipPath: state.backupZipPath,
+            tempFolderPath: tempExists ? state.tempFolderPath : undefined,
+            backupProjectPath: backupExists ? state.backupProjectPath : undefined,
+            clonePath: cloneExists ? state.clonePath : undefined,
+        });
+
+        return canonicalProjectPath;
+    }
+
+    private async hasPendingLocalUpdate(projectPath: string): Promise<boolean> {
+        try {
+            const projectUri = vscode.Uri.file(projectPath);
+            const settings = await readLocalProjectSettings(projectUri);
+            const state = settings.updateState;
+
+            // Only return true if updateState exists (update already in progress)
+            // pendingUpdate alone is just a UI hint - it requires remote validation
+            // and will be cleared by validatePendingUpdates() if remote doesn't confirm
+            if (!state) return false;
+            return Boolean(
+                state.backupProjectPath ||
+                state.tempFolderPath ||
+                state.backupZipPath ||
+                state.clonePath
+            );
+        } catch {
+            return false;
+        }
+    }
+
+    private async normalizeBackupPathForOpen(projectPath: string): Promise<string> {
+        const backupNamePattern = /_healing_backup_\d+$/;
+        const isBackup = backupNamePattern.test(path.basename(projectPath));
+        if (!isBackup) return projectPath;
+
+        const canonicalPath = path.join(
+            path.dirname(projectPath),
+            path.basename(projectPath).replace(backupNamePattern, "")
+        );
+        const canonicalUri = vscode.Uri.file(canonicalPath);
+        const backupUri = vscode.Uri.file(projectPath);
+
+        // If canonical already exists, prefer it (do not delete it here).
+        try {
+            await vscode.workspace.fs.stat(canonicalUri);
+            return canonicalPath;
+        } catch {
+            // canonical missing, try to rename backup to canonical
+            try {
+                await vscode.workspace.fs.rename(backupUri, canonicalUri);
+                return canonicalPath;
+            } catch {
+                return projectPath; // fallback
             }
         }
     }
@@ -3256,13 +3973,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             await git.commit({
                 fs,
                 dir: projectPath,
-                message: "Healed project: merged local changes after re-clone",
+                message: "Updated project: merged local changes after re-clone",
                 author
             });
 
-            debugLog("Committed healed project changes");
+            debugLog("Committed updated project changes");
         } catch (error) {
-            console.warn("Error committing healed changes (non-critical):", error);
+            console.warn("Error committing updated changes (non-critical):", error);
             // Non-critical error, don't fail the heal operation
         }
     }

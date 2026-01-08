@@ -12,6 +12,8 @@ import { getFrontierVersionStatus, checkVSCodeVersion } from "./utils/versionChe
 import { BookCompletionData } from "../progressReporting/progressReportingService";
 import { ProgressReportingService, registerProgressReportingCommands } from "../progressReporting/progressReportingService";
 import { CommentsMigrator } from "../utils/commentsMigrationUtils";
+import { checkRemoteUpdatingRequired } from "../utils/remoteUpdatingManager";
+import { markPendingUpdateRequired } from "../utils/localProjectSettings";
 // Define TranslationProgress interface locally since it's not exported from types
 interface BookProgress {
     bookId: string;
@@ -119,12 +121,72 @@ export class SyncManager {
     private pendingChanges: string[] = [];
     // Track active progress notification
     private activeProgressNotification: Promise<void> | undefined;
+    private updatingCheckInterval: NodeJS.Timeout | null = null;
 
     private constructor() {
         // Initialize with configuration values
         this.updateFromConfiguration();
         // Subscribe to Frontier sync events
         this.subscribeFrontierSyncEvents();
+        
+        // Start monitoring for updating requirements
+        this.startUpdatingMonitor();
+    }
+
+    // Start monitoring for updating requirements
+    private startUpdatingMonitor() {
+        if (this.updatingCheckInterval) {
+            clearInterval(this.updatingCheckInterval);
+        }
+        
+        // Check periodically (every hour) if updating is required
+        // This handles cases where the user is constantly working (resetting sync timer)
+        // or leaving the editor open without syncing
+        this.updatingCheckInterval = setInterval(async () => {
+            const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
+            if (hasWorkspace) {
+                const projectPath = vscode.workspace.workspaceFolders![0].uri.fsPath;
+                await this.checkUpdating(projectPath);
+            }
+        }, 60 * 60 * 1000); // 1 hour
+    }
+
+    // Check if updating is required and notify/block if so
+    private async checkUpdating(projectPath: string): Promise<boolean> {
+        try {
+            // Check if updating is required
+            // We force bypass cache to ensure we get the latest state from server
+            const result = await checkRemoteUpdatingRequired(projectPath, undefined, true);
+            
+            if (result.required) {
+                debug("Updating required for user, blocking sync and notifying");
+
+                // Persist pending update flag so the projects list can surface it after close
+                try {
+                    await markPendingUpdateRequired(vscode.Uri.file(projectPath), result.reason ?? "Remote update required");
+                } catch (e) {
+                    console.warn("Failed to persist pending update flag:", e);
+                }
+                
+                // Show modal dialog that cannot be missed (even if notifications are disabled)
+                const selection = await vscode.window.showWarningMessage(
+                    "Project Update Required\n\nA project administrator has initiated an update. Syncing has been disabled until you update.\n\nThe project must be closed to complete the update.",
+                    { modal: true },  // Modal dialog - appears in center, cannot be missed
+                    "Update Project"
+                );
+                
+                // Close and update if user chooses to, otherwise abort and return to project
+                if (selection === "Update Project") {
+                    await vscode.commands.executeCommand("workbench.action.closeFolder");
+                }
+                // If user clicks Cancel (default button) or Escape, selection will be undefined - stay in project
+                
+                return true;
+            }
+        } catch (error) {
+            console.error("Error checking updating requirement:", error);
+        }
+        return false;
     }
 
     public static getInstance(): SyncManager {
@@ -399,13 +461,24 @@ export class SyncManager {
         commitMessage: string = "Manual sync",
         showInfoOnConnectionIssues: boolean = false,
         context?: vscode.ExtensionContext,
-        isManualSync: boolean = false
+        isManualSync: boolean = false,
+        bypassUpdatingCheck: boolean = false
     ): Promise<void> {
         // Check if there's a workspace folder open (unless it's a manual sync which user explicitly requested)
         const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
         if (!hasWorkspace && !isManualSync) {
             debug("No workspace open, skipping sync operation");
             return;
+        }
+
+        // Check for updating requirement before proceeding (unless explicitly bypassed)
+        if (hasWorkspace && !bypassUpdatingCheck) {
+            const projectPath = vscode.workspace.workspaceFolders![0].uri.fsPath;
+            const isUpdatingRequired = await this.checkUpdating(projectPath);
+            if (isUpdatingRequired) {
+                debug("Sync blocked due to updating requirement");
+                return;
+            }
         }
 
         // RACE PREVENTION: Check and set in-memory flag atomically
@@ -1185,8 +1258,14 @@ export function registerSyncCommands(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "codex-editor-extension.triggerSync",
-            async (message?: string) => {
-                await syncManager.executeSync(message || "Manual sync triggered", true, context, true);
+            async (message?: string, options?: { bypassUpdatingCheck?: boolean }) => {
+                await syncManager.executeSync(
+                    message || "Manual sync triggered",
+                    true,
+                    context,
+                    true,
+                    options?.bypassUpdatingCheck
+                );
             }
         )
     );

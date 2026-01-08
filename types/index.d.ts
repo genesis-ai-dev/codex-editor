@@ -1372,6 +1372,11 @@ interface LocalProject {
     description: string;
     isOutdated?: boolean;
     mediaStrategy?: MediaFilesStrategy;
+    pendingUpdate?: {
+        required: boolean;
+        reason?: string;
+        detectedAt?: number;
+    };
 }
 
 export interface BiblePreview extends BasePreview {

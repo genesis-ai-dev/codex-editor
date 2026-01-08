@@ -59,6 +59,7 @@ import { initializeABTesting } from "./utils/abTestingSetup";
 import { migration_addValidationsForUserEdits, migration_moveTimestampsToMetadataData, migration_promoteCellTypeToTopLevel, migration_addImporterTypeToMetadata } from "./projectManager/utils/migrationUtils";
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
+import { markUserAsUpdatedInRemoteList } from "./utils/remoteUpdatingManager";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -225,7 +226,7 @@ async function restoreTabLayout(context: vscode.ExtensionContext) {
                         if (!(await fileExists(uri))) {
                             return; // Skip missing files
                         }
-                        
+
                         if (viewType && viewType !== "default") {
                             await vscode.commands.executeCommand(
                                 "vscode.openWith",
@@ -265,12 +266,12 @@ async function restoreTabLayout(context: vscode.ExtensionContext) {
     for (const tab of codexTabs) {
         try {
             const uri = vscode.Uri.parse(tab.uri);
-            
+
             // Check if file exists before trying to open
             if (!(await fileExists(uri))) {
                 continue; // Skip missing files
             }
-            
+
             await vscode.commands.executeCommand(
                 "vscode.openWith",
                 uri,
@@ -427,9 +428,9 @@ export async function activate(context: vscode.ExtensionContext) {
         await registerStartupFlowCommands(context);
         registerPreflightCommand(context);
 
-        // Register remote healing commands (for admins to force project healing)
-        const { registerRemoteHealingCommands } = await import("./commands/remoteHealingCommands");
-        registerRemoteHealingCommands(context);
+        // Register remote updating commands (for admins to force project updating)
+        const { registerRemoteUpdatingCommands } = await import("./commands/remoteUpdatingCommands");
+        registerRemoteUpdatingCommands(context);
 
         stepStart = trackTiming("Configuring Startup Workflow", startupStart);
 
@@ -902,13 +903,13 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
         const hasCodexProject = await checkIfMetadataAndGitIsInitialized();
 
         // If we just completed a heal, we may have a pending heal sync to run (with a specific commit message).
-        const pendingHealSync = context.globalState.get<any>("codex.pendingHealSync");
+        const pendingUpdateSync = context.globalState.get<any>("codex.pendingUpdateSync");
         const workspaceFolderPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        const isHealWorkspace =
-            !!pendingHealSync &&
-            typeof pendingHealSync.projectPath === "string" &&
+        const isUpdateWorkspace =
+            !!pendingUpdateSync &&
+            typeof pendingUpdateSync.projectPath === "string" &&
             typeof workspaceFolderPath === "string" &&
-            path.normalize(pendingHealSync.projectPath) === path.normalize(workspaceFolderPath);
+            path.normalize(pendingUpdateSync.projectPath) === path.normalize(workspaceFolderPath);
 
         // CRITICAL: Run migrations and disable VS Code's Git BEFORE first sync
         // This must happen after checking project exists but BEFORE any Git operations
@@ -919,6 +920,18 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
             // Migrate chatSystemMessage from settings.json to metadata.json
             await migration_chatSystemMessageToMetadata(context);
             debug("✅ [PRE-SYNC] Completed chatSystemMessage to metadata.json migration");
+
+            // Migrate healing→updating terminology in metadata.json (0.13.0-0.16.0 only, remove in 0.17.0)
+            console.log("🔄 [MIGRATION] Starting healing→updating migration...");
+            console.log("🔄 [MIGRATION] Workspace path:", workspaceFolderPath);
+            try {
+                const { migration_healingToUpdating } = await import("./utils/migration_healingToUpdating");
+                await migration_healingToUpdating(workspaceFolderPath!);
+                console.log("✅ [MIGRATION] Completed healing→updating terminology migration");
+            } catch (error) {
+                console.error("❌ [MIGRATION] Failed to run migration:", error);
+            }
+            debug("✅ [PRE-SYNC] Completed healing→updating terminology migration");
 
             const { ensureGitDisabledInSettings } = await import("./projectManager/utils/projectUtils");
             await ensureGitDisabledInSettings();
@@ -936,8 +949,9 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
                         const syncStart = globalThis.performance.now();
                         const syncManager = SyncManager.getInstance();
                         try {
-                            if (isHealWorkspace && pendingHealSync?.commitMessage) {
-                                await syncManager.executeSync(String(pendingHealSync.commitMessage), true, context, false);
+                            if (isUpdateWorkspace && pendingUpdateSync?.commitMessage) {
+                                // Bypass healing check for the initial merge sync after healing
+                                await syncManager.executeSync(String(pendingUpdateSync.commitMessage), true, context, false, true);
                             } else {
                                 await syncManager.executeSync("Initial workspace sync", true, context, false);
                             }
@@ -945,15 +959,30 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
                             debug(`✅ [POST-WORKSPACE] Sync completed after workspace load: ${syncDuration.toFixed(2)}ms`);
 
                             // If this was a heal-triggered sync, clear the pending flag and show success message.
-                            if (isHealWorkspace) {
-                                await context.globalState.update("codex.pendingHealSync", undefined);
-                                if (pendingHealSync?.showSuccessMessage) {
-                                    const projectName = pendingHealSync?.projectName || "Project";
-                                    const backupFileName = pendingHealSync?.backupFileName;
+                            if (isUpdateWorkspace) {
+                                // Mark the user as executed in the remote list
+                                try {
+                                    // Get user info directly since authStatus doesn't contain currentUser
+                                    const userInfo = await authApi.getUserInfo();
+                                    if (userInfo && userInfo.username) {
+                                        const username = userInfo.username;
+                                        await markUserAsUpdatedInRemoteList(workspaceFolderPath!, username);
+                                        debug(`✅ [POST-WORKSPACE] Marked user ${username} as updated in remote list`);
+                                    } else {
+                                        console.warn("⚠️ [POST-WORKSPACE] Could not mark user as updated: No current user info found");
+                                    }
+                                } catch (error) {
+                                    console.error("❌ [POST-WORKSPACE] Error marking user as updated:", error);
+                                }
+
+                                await context.globalState.update("codex.pendingUpdateSync", undefined);
+                                if (pendingUpdateSync?.showSuccessMessage) {
+                                    const projectName = pendingUpdateSync?.projectName || "Project";
+                                    const backupFileName = pendingUpdateSync?.backupFileName;
                                     vscode.window.showInformationMessage(
                                         backupFileName
-                                            ? `Project "${projectName}" has been healed and synced successfully! Backup saved to: ${backupFileName}`
-                                            : `Project "${projectName}" has been healed and synced successfully!`
+                                            ? `Project "${projectName}" has been updated and synced successfully! Backup saved to: ${backupFileName}`
+                                            : `Project "${projectName}" has been updated and synced successfully!`
                                     );
                                 }
                             }

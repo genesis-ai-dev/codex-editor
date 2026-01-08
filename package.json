@@ -151,13 +151,13 @@
                 "category": "Codex Editor"
             },
             {
-                "command": "codex-editor.initiateRemoteHealing",
-                "title": "Initiate Remote Healing",
+                "command": "codex-editor.initiateRemoteUpdating",
+                "title": "Initiate Remote Update",
                 "category": "Codex Editor"
             },
             {
-                "command": "codex-editor.viewRemoteHealingList",
-                "title": "View Remote Healing List",
+                "command": "codex-editor.viewRemoteUpdatingList",
+                "title": "View Remote Update List",
                 "category": "Codex Editor"
             },
             {
