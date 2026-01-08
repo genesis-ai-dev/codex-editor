@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 export interface UserPreferences {
     skipOnboarding?: boolean;
     lastOnboardingVersion?: string;
+    skipSampleProjectPrompt?: boolean;
 }
 
 const PREFERENCES_KEY = "codex-editor.userPreferences";
@@ -37,6 +38,14 @@ export async function setUserPreference<K extends keyof UserPreferences>(
 export async function shouldShowOnboarding(context: vscode.ExtensionContext): Promise<boolean> {
     const skipOnboarding = await getUserPreference(context, "skipOnboarding");
     return !skipOnboarding;
+}
+
+/**
+ * Check if sample project prompt should be shown
+ */
+export async function shouldShowSampleProjectPrompt(context: vscode.ExtensionContext): Promise<boolean> {
+    const skipSampleProjectPrompt = await getUserPreference(context, "skipSampleProjectPrompt");
+    return !skipSampleProjectPrompt;
 }
 
 /**

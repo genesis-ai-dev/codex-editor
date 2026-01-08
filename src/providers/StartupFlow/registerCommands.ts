@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import StartupFlowDocumentProvider from "./StartupFlowDocumentProvider";
 import { StartupFlowProvider } from "./StartupFlowProvider";
 import { getWorkSpaceFolder } from "../../utils";
+import { setUserPreference } from "../../utils/userPreferences";
 
 export const registerStartupFlowCommands = (context: vscode.ExtensionContext) => {
     // Register the content provider first
@@ -47,5 +48,17 @@ export const registerStartupFlowCommands = (context: vscode.ExtensionContext) =>
                 }, 100);
             }
         })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-project-manager.resetSampleProjectPrompt",
+            async () => {
+                await setUserPreference(context, "skipSampleProjectPrompt", false);
+                vscode.window.showInformationMessage(
+                    "Sample project prompt has been reset. You'll see it next time you create a project."
+                );
+            }
+        )
     );
 };

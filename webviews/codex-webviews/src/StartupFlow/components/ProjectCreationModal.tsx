@@ -25,7 +25,6 @@ import { MessagesToStartupFlowProvider } from "../types";
 import { Lock } from "lucide-react";
 
 type ProjectType = "bible" | "subtitles" | "obs" | "documents" | "other";
-type CreationMode = "generate" | "upload" | null;
 
 // English language metadata for auto-selection
 const ENGLISH_LANGUAGE: LanguageMetadata = {
@@ -42,50 +41,44 @@ interface ProjectCreationModalProps {
     isOpen: boolean;
     onClose: () => void;
     vscode: WebviewApi<any>;
+    mode: "generate" | "upload";
 }
 
 export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
     isOpen,
     onClose,
     vscode,
+    mode,
 }) => {
     // Form state
     const [projectName, setProjectName] = useState("");
     const [projectType, setProjectType] = useState<ProjectType | "">("");
     const [sourceLanguage, setSourceLanguage] = useState<LanguageMetadata | null>(null);
     const [targetLanguage, setTargetLanguage] = useState<LanguageMetadata | null>(null);
-    const [creationMode, setCreationMode] = useState<CreationMode>(null);
 
     // Validation state
     const [touched, setTouched] = useState(false);
     const [nameError, setNameError] = useState<string | null>(null);
 
-    // Auto-select Bible and English when Generate mode is selected
+    // Auto-select Bible and English when mode is "generate"
     useEffect(() => {
-        if (creationMode === "generate") {
+        if (mode === "generate") {
             setProjectType("bible");
             setSourceLanguage(ENGLISH_LANGUAGE);
-        } else if (creationMode === "upload") {
-            // Reset to empty when switching to upload mode
-            if (projectType === "bible" && sourceLanguage?.tag === "eng") {
-                setProjectType("");
-                setSourceLanguage(null);
-            }
         }
-    }, [creationMode]);
+    }, [mode]);
 
     // Reset form when modal closes
     useEffect(() => {
         if (!isOpen) {
             setProjectName("");
-            setProjectType("");
-            setSourceLanguage(null);
+            setProjectType(mode === "generate" ? "bible" : "");
+            setSourceLanguage(mode === "generate" ? ENGLISH_LANGUAGE : null);
             setTargetLanguage(null);
-            setCreationMode(null);
             setTouched(false);
             setNameError(null);
         }
-    }, [isOpen]);
+    }, [isOpen, mode]);
 
     // Validate project name
     useEffect(() => {
@@ -105,16 +98,17 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
     const isFormValid = (): boolean => {
         const trimmedName = projectName.trim();
         const hasValidName = trimmedName.length > 0 && trimmedName.length <= 256;
-        
-        if (!hasValidName || !creationMode) {
+
+        if (!hasValidName) {
             return false;
         }
-        
+
         // For generate mode, only need name and target language
-        if (creationMode === "generate") {
+        // (project type and source language are auto-filled)
+        if (mode === "generate") {
             return targetLanguage !== null;
         }
-        
+
         // For upload mode, need all fields
         return (
             projectType !== "" &&
@@ -128,15 +122,15 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
 
         const trimmedName = projectName.trim();
 
-        if (creationMode === "generate") {
+        if (mode === "generate") {
             vscode.postMessage({
                 command: "project.createWithSamples",
                 projectName: trimmedName,
-                projectType: projectType as ProjectType,
-                sourceLanguage: sourceLanguage!,
+                projectType: projectType as ProjectType,  // Will always be "bible"
+                sourceLanguage: sourceLanguage!,          // Will always be English
                 targetLanguage: targetLanguage!,
             } as MessagesToStartupFlowProvider);
-        } else if (creationMode === "upload") {
+        } else {
             vscode.postMessage({
                 command: "project.createForUpload",
                 projectName: trimmedName,
@@ -203,107 +197,22 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
                         )}
                     </div>
 
-                    {/* Creation Mode Selection */}
-                    <div className="space-y-2">
-                        <Label>
-                            Initial Content <span className="text-red-500">*</span>
-                        </Label>
-                        <p className="text-sm text-muted-foreground mb-3">
-                            Choose how to initialize your project (select one)
-                        </p>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Generate Samples Card */}
-                            <Card
-                                className={`cursor-pointer transition-all hover:shadow-md ${
-                                    creationMode === "generate"
-                                        ? "border-primary border-2 bg-primary/5"
-                                        : "hover:border-primary/50"
-                                }`}
-                                onClick={() => setCreationMode("generate")}
-                            >
-                                <CardHeader className="pb-3">
-                                    <div className="flex items-center gap-2">
-                                        <div
-                                            className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                                                creationMode === "generate"
-                                                    ? "border-primary"
-                                                    : "border-muted-foreground"
-                                            }`}
-                                        >
-                                            {creationMode === "generate" && (
-                                                <div className="w-2 h-2 rounded-full bg-primary" />
-                                            )}
-                                        </div>
-                                        <CardTitle className="text-base">Generate Sample Files</CardTitle>
-                                    </div>
-                                </CardHeader>
-                                <CardContent>
-                                    <CardDescription>
-                                        Sample Genesis (English) source text with empty target cells ready for translation
-                                    </CardDescription>
-                                </CardContent>
-                            </Card>
-
-                            {/* Upload Files Card */}
-                            <Card
-                                className={`cursor-pointer transition-all hover:shadow-md ${
-                                    creationMode === "upload"
-                                        ? "border-primary border-2 bg-primary/5"
-                                        : "hover:border-primary/50"
-                                }`}
-                                onClick={() => setCreationMode("upload")}
-                            >
-                                <CardHeader className="pb-3">
-                                    <div className="flex items-center gap-2">
-                                        <div
-                                            className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                                                creationMode === "upload"
-                                                    ? "border-primary"
-                                                    : "border-muted-foreground"
-                                            }`}
-                                        >
-                                            {creationMode === "upload" && (
-                                                <div className="w-2 h-2 rounded-full bg-primary" />
-                                            )}
-                                        </div>
-                                        <CardTitle className="text-base">
-                                            Upload Source & Target Texts
-                                        </CardTitle>
-                                    </div>
-                                </CardHeader>
-                                <CardContent>
-                                    <CardDescription>
-                                        Upload your own source files and optionally target translation
-                                        files to begin working
-                                    </CardDescription>
-                                </CardContent>
-                            </Card>
-                        </div>
-                        {creationMode === "generate" && (
-                            <p className="text-sm text-muted-foreground mt-2 flex items-center gap-1">
-                                <span>ℹ️</span>
-                                <span>Sample projects use Genesis (English) as the source text</span>
-                            </p>
-                        )}
-                    </div>
-
                     {/* Project Type */}
                     <div className="space-y-2">
                         <Label htmlFor="project-type" className="flex items-center gap-2">
                             <span>
                                 Project Type <span className="text-red-500">*</span>
                             </span>
-                            {creationMode === "generate" && (
+                            {mode === "generate" && (
                                 <Lock className="h-3 w-3 text-muted-foreground" />
                             )}
                         </Label>
                         <Select
                             value={projectType}
                             onValueChange={(value) => setProjectType(value as ProjectType)}
-                            disabled={creationMode === "generate"}
+                            disabled={mode === "generate"}
                         >
-                            <SelectTrigger id="project-type" className={creationMode === "generate" ? "opacity-60 cursor-not-allowed" : ""}>
+                            <SelectTrigger id="project-type" className={mode === "generate" ? "opacity-60 cursor-not-allowed" : ""}>
                                 <SelectValue placeholder="Select project type" />
                             </SelectTrigger>
                             <SelectContent>
@@ -322,19 +231,25 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
                             <span>
                                 Source Language <span className="text-red-500">*</span>
                             </span>
-                            {creationMode === "generate" && (
-                                <Lock className="h-3 w-3 text-muted-foreground" />
+                            {mode === "generate" && (
+                                <Lock
+                                    className="h-3 w-3 text-muted-foreground"
+                                    title="Locked to English for sample projects"
+                                />
                             )}
                         </Label>
-                        <div className={creationMode === "generate" ? "opacity-60 pointer-events-none" : ""}>
+                        {mode === "generate" ? (
+                            <div className="flex items-center h-10 px-3 py-2 border border-input bg-background rounded-md opacity-60 cursor-not-allowed text-sm">
+                                English
+                            </div>
+                        ) : (
                             <LanguagePicker
-                                key={creationMode === "generate" ? "source-locked" : "source-editable"}
                                 onLanguageSelect={handleLanguageSelect}
                                 projectStatus="source"
                                 label="Select Source Language"
-                                initialLanguage={creationMode === "generate" ? ENGLISH_LANGUAGE : (sourceLanguage || undefined)}
+                                initialLanguage={sourceLanguage || undefined}
                             />
-                        </div>
+                        )}
                     </div>
 
                     {/* Target Language */}

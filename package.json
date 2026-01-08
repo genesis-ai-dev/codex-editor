@@ -191,6 +191,11 @@
                 "command": "codex-project-manager.openStartupFlow"
             },
             {
+                "command": "codex-project-manager.resetSampleProjectPrompt",
+                "title": "Reset Sample Project Prompt",
+                "category": "Codex Project Manager"
+            },
+            {
                 "command": "codex-editor-extension.downloadSourceBible",
                 "title": "Download Source Bible"
             },

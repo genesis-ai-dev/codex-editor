@@ -303,7 +303,9 @@ export type MessagesToStartupFlowProvider =
         projectType: "bible" | "subtitles" | "obs" | "documents" | "other";
         sourceLanguage: LanguageMetadata;
         targetLanguage: LanguageMetadata;
-    };
+    }
+    | { command: "preference:getSamplePromptSetting"; }
+    | { command: "preference:setSamplePromptSetting"; data: { skipPrompt: boolean; }; };
 
 export type GitLabProject = {
     id: number;
@@ -401,7 +403,8 @@ export type MessagesFromStartupFlowProvider =
         success: boolean;
         projectPath?: string;
         error?: string;
-    };
+    }
+    | { command: "preference:samplePromptSetting"; data: { shouldShowPrompt: boolean; }; };
 
 type DictionaryPostMessages =
     | {

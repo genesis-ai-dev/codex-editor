@@ -30,7 +30,7 @@ import * as fs from "fs";
 import git from "isomorphic-git";
 import { resolveConflictFiles } from "../../projectManager/utils/merge/resolvers";
 import { buildConflictsFromDirectories } from "../../projectManager/utils/merge/directoryConflicts";
-import { shouldShowOnboarding, setUserPreference } from "../../utils/userPreferences";
+import { shouldShowOnboarding, setUserPreference, shouldShowSampleProjectPrompt } from "../../utils/userPreferences";
 import { createSampleContent, ProjectType } from "../../utils/sampleContent";
 import { LanguageMetadata, LanguageProjectStatus } from "codex-types";
 
@@ -161,9 +161,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         });
         this.disposables.push(visibilityDisposable);
 
-        // Dispose listener
+        // Dispose listener - ensure panel is properly cleaned up when closed
         webviewPanel.onDidDispose(() => {
-            this.webviewPanel = undefined;
+            debugLog("StartupFlow webview panel disposed");
+            // Clean up the webview panel reference
+            if (this.webviewPanel === webviewPanel) {
+                this.webviewPanel = undefined;
+            }
         });
     }
 
@@ -1359,6 +1363,22 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         });
                     }
                 }
+                break;
+            }
+            case "preference:getSamplePromptSetting": {
+                const shouldShow = await shouldShowSampleProjectPrompt(this.context);
+                this.safeSendMessage({
+                    command: "preference:samplePromptSetting",
+                    data: { shouldShowPrompt: shouldShow },
+                });
+                break;
+            }
+            case "preference:setSamplePromptSetting": {
+                await setUserPreference(
+                    this.context,
+                    "skipSampleProjectPrompt",
+                    message.data.skipPrompt
+                );
                 break;
             }
             case "webview.ready": {

@@ -10,11 +10,14 @@ import {
     ProjectWithSyncStatus,
 } from "types";
 import { ProjectCreationModal } from "./components/ProjectCreationModal";
+import { SampleProjectPromptModal } from "./components/SampleProjectPromptModal";
 
 const vscode = acquireVsCodeApi();
 
 export const StartupFlowView: React.FC = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [showSamplePrompt, setShowSamplePrompt] = useState(false);
+    const [creationMode, setCreationMode] = useState<"generate" | "upload">("upload");
     const [projectsList, setProjectsList] = useState<ProjectWithSyncStatus[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [showLogin, setShowLogin] = useState(false);
@@ -57,6 +60,17 @@ export const StartupFlowView: React.FC = () => {
                 }
                 case "forceLogin": {
                     setShowLogin(true);
+                    break;
+                }
+                case "preference:samplePromptSetting": {
+                    if (message.data.shouldShowPrompt) {
+                        setShowSamplePrompt(true);
+                    } else {
+                        // User has preference set to skip prompt
+                        // Default to upload mode
+                        setCreationMode("upload");
+                        setIsModalOpen(true);
+                    }
                     break;
                 }
                 default:
@@ -107,6 +121,37 @@ export const StartupFlowView: React.FC = () => {
         setShowLogin(true);
     };
 
+    const handleCreateProjectClick = () => {
+        // Request preference from backend
+        vscode.postMessage({
+            command: "preference:getSamplePromptSetting",
+        } as MessagesToStartupFlowProvider);
+    };
+
+    const handleSamplePromptYes = (dontShowAgain: boolean) => {
+        if (dontShowAgain) {
+            vscode.postMessage({
+                command: "preference:setSamplePromptSetting",
+                data: { skipPrompt: true },
+            } as MessagesToStartupFlowProvider);
+        }
+        setCreationMode("generate");
+        setShowSamplePrompt(false);
+        setIsModalOpen(true);
+    };
+
+    const handleSamplePromptNo = (dontShowAgain: boolean) => {
+        if (dontShowAgain) {
+            vscode.postMessage({
+                command: "preference:setSamplePromptSetting",
+                data: { skipPrompt: true },
+            } as MessagesToStartupFlowProvider);
+        }
+        setCreationMode("upload");
+        setShowSamplePrompt(false);
+        setIsModalOpen(true);
+    };
+
     // Show login if forced or user is not authenticated
     if (showLogin || (!authState.isAuthenticated && !authState.isLoading)) {
         return (
@@ -128,7 +173,7 @@ export const StartupFlowView: React.FC = () => {
 
             <div className="projects-section">
                 <ProjectSetupStep
-                    onCreateEmpty={() => setIsModalOpen(true)}
+                    onCreateEmpty={handleCreateProjectClick}
                     onCloneRepo={(repoUrl: string) => {
                         vscode.postMessage({
                             command: "project.clone",
@@ -142,10 +187,17 @@ export const StartupFlowView: React.FC = () => {
                 />
             </div>
 
+            <SampleProjectPromptModal
+                isOpen={showSamplePrompt}
+                onYes={handleSamplePromptYes}
+                onNo={handleSamplePromptNo}
+            />
+
             <ProjectCreationModal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
                 vscode={vscode}
+                mode={creationMode}
             />
         </div>
     );
