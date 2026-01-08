@@ -6,6 +6,7 @@ import {
     WriteNotebooksWithAttachmentsMessage,
 } from "../../types/plugin";
 import { NotebookPair } from "../../types/common";
+import { v4 as uuidv4 } from "uuid";
 import { Button } from "../../../components/ui/button";
 import {
     Card,
@@ -31,7 +32,6 @@ import {
     XCircle,
     ArrowLeft,
     FileSpreadsheet,
-    Hash,
     Type,
     Languages,
     Download,
@@ -83,9 +83,9 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
     const downloadTemplate = useCallback(() => {
         try {
             const csv = [
-                "ID,Source,Attachments",
-                "MyDoc 1:1,Hello world,https://example.com/audio1.mp3",
-                'MyDoc 1:2,Second row,"https://example.com/a1.mp3 https://example.com/a2.wav"',
+                "GlobalReferences,Source,Attachments",
+                "GEN 1:1,Hello world,https://example.com/audio1.mp3",
+                'GEN 1:2,Second row,"https://example.com/a1.mp3 https://example.com/a2.wav"',
             ].join("\n");
 
             // Try Blob + anchor click
@@ -186,7 +186,7 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
             data.columns.forEach((col) => {
                 const name = col.name.toLowerCase();
                 if (name.includes("id") || name.includes("key") || name.includes("reference")) {
-                    autoMapping[col.index] = "id";
+                    autoMapping[col.index] = "globalReferences";
                 } else if (
                     name.includes("source") ||
                     name.includes("original") ||
@@ -229,10 +229,104 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
         return Object.values(columnMapping).filter((t) => t === type).length;
     };
 
-    const createCellId = (docName: string, rowIndex: number): string => {
-        const cleanDocName = docName.replace(/\s+/g, "");
-        return `${cleanDocName} 1:${rowIndex + 1}`;
+    const parseGlobalReferencesField = (raw: unknown): string[] => {
+        if (raw === null || raw === undefined) return [];
+        const value = String(raw).trim();
+        if (!value) return [];
+
+        // Prefer explicit delimiters first to avoid splitting verse refs by spaces.
+        const primaryParts = value
+            .split(/[\n;|]+/g)
+            .map((s) => s.trim())
+            .filter(Boolean);
+
+        if (primaryParts.length > 1) return primaryParts;
+
+        // If only one part and commas are present, treat commas as delimiters.
+        if (value.includes(",")) {
+            return value
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean);
+        }
+
+        return primaryParts;
     };
+
+    const spreadsheetGlobalReferencesAligner = useCallback(
+        async (targetCells: any[], _sourceCells: any[], importedContent: ImportedContent[]): Promise<AlignedCell[]> => {
+            const aligned: AlignedCell[] = [];
+
+            // Map globalReference -> first matching target cell
+            const refToTarget = new Map<string, any>();
+            for (const cell of targetCells || []) {
+                const refs: unknown = cell?.metadata?.data?.globalReferences;
+                if (Array.isArray(refs)) {
+                    for (const r of refs) {
+                        const key = String(r ?? "").trim();
+                        if (key && !refToTarget.has(key)) {
+                            refToTarget.set(key, cell);
+                        }
+                    }
+                }
+            }
+
+            const usedTargetIds = new Set<string>();
+            const remainder: ImportedContent[] = [];
+
+            // Pass 1: match by globalReferences
+            for (const item of importedContent) {
+                const refs: unknown = (item as any).globalReferences ?? (item as any).data?.globalReferences;
+                const refList = Array.isArray(refs) ? refs.map((r) => String(r ?? "").trim()).filter(Boolean) : [];
+                const match = refList.map((r) => refToTarget.get(r)).find((c) => c);
+
+                const targetId = match?.metadata?.id ? String(match.metadata.id) : undefined;
+                if (match && targetId && !usedTargetIds.has(targetId)) {
+                    usedTargetIds.add(targetId);
+                    aligned.push({
+                        notebookCell: match,
+                        importedContent: item,
+                        alignmentMethod: "custom",
+                        confidence: 0.95,
+                    });
+                } else {
+                    remainder.push(item);
+                }
+            }
+
+            // Pass 2: fallback sequential into remaining empty target cells
+            const emptyTargets = (targetCells || []).filter((cell) => {
+                const id = cell?.metadata?.id ? String(cell.metadata.id) : "";
+                if (!id || usedTargetIds.has(id)) return false;
+                const v = typeof cell?.value === "string" ? cell.value.trim() : "";
+                return v === "";
+            });
+
+            let emptyIdx = 0;
+            for (const item of remainder) {
+                const next = emptyTargets[emptyIdx++];
+                if (next) {
+                    aligned.push({
+                        notebookCell: next,
+                        importedContent: item,
+                        alignmentMethod: "sequential",
+                        confidence: 0.6,
+                    });
+                } else {
+                    aligned.push({
+                        notebookCell: null,
+                        importedContent: item,
+                        isParatext: true,
+                        alignmentMethod: "sequential",
+                        confidence: 0.2,
+                    });
+                }
+            }
+
+            return aligned;
+        },
+        []
+    );
 
     const handleImport = async () => {
         if (!parsedData) return;
@@ -240,8 +334,8 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
         const sourceColumnIndex = Object.keys(columnMapping).find(
             (key) => columnMapping[parseInt(key)] === "source"
         );
-        const idColumnIndex = Object.keys(columnMapping).find(
-            (key) => columnMapping[parseInt(key)] === "id"
+        const globalReferencesColumnIndex = Object.keys(columnMapping).find(
+            (key) => columnMapping[parseInt(key)] === "globalReferences"
         );
         const targetColumnIndex = Object.keys(columnMapping).find(
             (key) => columnMapping[parseInt(key)] === "target"
@@ -271,20 +365,24 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                 const importedContent: ImportedContent[] = parsedData.rows
                     .filter((row) => row[parseInt(targetColumnIndex!)]?.trim())
                     .map((row, index) => {
-                        const id = idColumnIndex
-                            ? row[parseInt(idColumnIndex)]?.trim() ||
-                              createCellId(parsedData.filename, index)
-                            : createCellId(parsedData.filename, index);
+                        const globalReferences = globalReferencesColumnIndex
+                            ? parseGlobalReferencesField(row[parseInt(globalReferencesColumnIndex)])
+                            : [];
 
                         return {
-                            id,
+                            id: uuidv4(),
                             content: row[parseInt(targetColumnIndex!)],
                             rowIndex: index,
+                            globalReferences,
                         };
                     });
 
                 setIsAligning(true);
-                const aligned = await alignContent!(importedContent, selectedSource!.path);
+                const aligned = await alignContent!(
+                    importedContent,
+                    selectedSource!.path,
+                    spreadsheetGlobalReferencesAligner
+                );
                 setAlignedCells(aligned);
                 setShowPreview(true);
             } else {
@@ -292,18 +390,17 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                 const sourceCells = parsedData.rows
                     .filter((row) => row[parseInt(sourceColumnIndex!)]?.trim())
                     .map((row, index) => {
-                        // Get ID from spreadsheet ID column if available, otherwise will generate UUID in metadata
-                        const providedId = idColumnIndex
-                            ? row[parseInt(idColumnIndex)]?.trim() || undefined
-                            : undefined;
+                        const globalReferences = globalReferencesColumnIndex
+                            ? parseGlobalReferencesField(row[parseInt(globalReferencesColumnIndex)])
+                            : [];
 
-                        // Create cell metadata (generates UUID if no ID provided)
+                        // Create cell metadata (always generates UUID)
                         const { cellId, metadata: cellMetadata } = createSpreadsheetCellMetadata({
-                            cellId: providedId || '', // Will generate UUID if empty
                             originalContent: row[parseInt(sourceColumnIndex!)],
                             rowIndex: index,
-                            originalRow: row,
+                            originalRow: Object.keys(row),
                             fileName: selectedFile!.name,
+                            globalReferences,
                         });
 
                         return {
@@ -753,16 +850,10 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="unused">Not used</SelectItem>
-                                        <SelectItem
-                                            value="id"
-                                            disabled={
-                                                getColumnTypeCount("id") > 0 &&
-                                                columnMapping[column.index] !== "id"
-                                            }
-                                        >
+                                        <SelectItem value="globalReferences">
                                             <div className="flex items-center gap-2">
-                                                <Hash className="h-4 w-4" />
-                                                ID Column
+                                                <LinkIcon className="h-4 w-4" />
+                                                Global References
                                             </div>
                                         </SelectItem>
                                         {!isTranslationImport && (
@@ -815,10 +906,10 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
 
                     {/* Summary */}
                     <div className="flex gap-2 pt-4 border-t">
-                        {getColumnTypeCount("id") > 0 && (
+                        {getColumnTypeCount("globalReferences") > 0 && (
                             <Badge variant="secondary">
-                                <Hash className="h-3 w-3 mr-1" />
-                                ID Column
+                                <LinkIcon className="h-3 w-3 mr-1" />
+                                Global References
                             </Badge>
                         )}
                         {getColumnTypeCount("source") > 0 && (

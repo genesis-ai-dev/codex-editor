@@ -12,23 +12,21 @@ import { v4 as uuidv4 } from 'uuid';
  * Parameters for creating Spreadsheet cell metadata
  */
 export interface SpreadsheetCellMetadataParams {
-    cellId: string; // Can be from spreadsheet ID column or generated UUID
     originalContent: string;
     rowIndex: number;
     originalRow: string[];
     fileName: string;
+    globalReferences?: string[];
 }
 
 /**
  * Creates metadata for a Spreadsheet cell
- * Uses provided cellId (from spreadsheet ID column) or generates UUID if not provided
+ * Always generates a UUID for the cell ID.
  */
 export function createSpreadsheetCellMetadata(params: SpreadsheetCellMetadataParams): { metadata: any; cellId: string; } {
-    const { cellId, originalContent, rowIndex, originalRow, fileName } = params;
+    const { originalContent, rowIndex, originalRow, fileName, globalReferences } = params;
 
-    // Use provided cellId (from spreadsheet) or generate UUID
-    // If cellId is empty string or undefined, generate UUID
-    const finalCellId = cellId && cellId.trim() ? cellId.trim() : uuidv4();
+    const finalCellId = uuidv4();
 
     return {
         cellId: finalCellId,
@@ -40,7 +38,7 @@ export function createSpreadsheetCellMetadata(params: SpreadsheetCellMetadataPar
                 rowIndex,
                 originalRow,
                 originalContent,
-                globalReferences: [], // Empty for Spreadsheet files (no verse references)
+                globalReferences: (globalReferences || []).map((r) => String(r).trim()).filter(Boolean),
                 sourceFile: fileName,
             },
         }
