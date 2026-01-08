@@ -24,7 +24,6 @@ import {
 import { GlobalProvider } from "../../globalProvider";
 import { initializeStateStore } from "../../stateStore";
 import { SyncManager } from "../../projectManager/syncManager";
-import { isBiblicalImporterType } from "../../utils/bookNameUtils";
 
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 import { getNonce } from "../dictionaryTable/utilities/getNonce";
