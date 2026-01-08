@@ -915,8 +915,21 @@ const CodexCellEditor: React.FC = () => {
             let newChapterNumber = 1;
             let shouldFilterByChapter = false;
 
-            // Determine highlight method: globalReferences or cellId fallback
-            if (highlightedGlobalReferences && highlightedGlobalReferences.length > 0) {
+            // Prioritize cellId over globalReferences
+            if (highlightedCellId) {
+                firstRef = highlightedCellId;
+                // Check if the cellId follows Bible book format (e.g., "GEN 1:1")
+                // Format: "BOOK CHAPTER:VERSE" where BOOK is followed by space, then CHAPTER:VERSE
+                const cellIdBibleFormatMatch = highlightedCellId.match(/^[^\s]+\s+\d+:\d+/);
+                isBibleBookFormat = Boolean(cellIdBibleFormatMatch);
+
+                if (isBibleBookFormat) {
+                    const chapter = highlightedCellId.split(" ")[1]?.split(":")[0];
+                    newChapterNumber = parseInt(chapter) || 1;
+                    shouldFilterByChapter = true;
+                }
+            } else if (highlightedGlobalReferences && highlightedGlobalReferences.length > 0) {
+                // Fallback to globalReferences matching
                 firstRef = highlightedGlobalReferences[0];
                 // Check if the reference follows Bible book format (e.g., "GEN 1:1")
                 // Format: "BOOK CHAPTER:VERSE" where BOOK is followed by space, then CHAPTER:VERSE
@@ -926,16 +939,6 @@ const CodexCellEditor: React.FC = () => {
                 if (isBibleBookFormat) {
                     // Extract chapter number for Bible book format
                     const chapter = firstRef?.split(" ")[1]?.split(":")[0];
-                    newChapterNumber = parseInt(chapter) || 1;
-                    shouldFilterByChapter = true;
-                }
-            } else if (highlightedCellId) {
-                // When using cellId fallback, try to extract chapter from cellId if it's Bible format
-                const cellIdBibleFormatMatch = highlightedCellId.match(/^[^\s]+\s+\d+:\d+/);
-                isBibleBookFormat = Boolean(cellIdBibleFormatMatch);
-
-                if (isBibleBookFormat) {
-                    const chapter = highlightedCellId.split(" ")[1]?.split(":")[0];
                     newChapterNumber = parseInt(chapter) || 1;
                     shouldFilterByChapter = true;
                 }
@@ -990,17 +993,20 @@ const CodexCellEditor: React.FC = () => {
                 }
 
                 // Find the index of the highlighted cell within the cells to search
-                // First try matching by globalReferences, then fallback to cellId
+                // Prioritize cellId matching
                 const cellIndexInSearchSet = cellsToSearch.findIndex((verse) => {
-                    if (highlightedGlobalReferences && highlightedGlobalReferences.length > 0) {
-                        // Match by globalReferences
+                    // Prioritize cellId matching
+                    if (highlightedCellId) {
+                        return verse.cellMarkers && verse.cellMarkers.includes(highlightedCellId);
+                    } else if (
+                        highlightedGlobalReferences &&
+                        highlightedGlobalReferences.length > 0
+                    ) {
+                        // Fallback to globalReferences matching
                         const cellGlobalRefs = verse.data?.globalReferences || [];
                         return highlightedGlobalReferences.some((ref) =>
                             cellGlobalRefs.includes(ref)
                         );
-                    } else if (highlightedCellId) {
-                        // Fallback to cellId matching
-                        return verse.cellMarkers && verse.cellMarkers.includes(highlightedCellId);
                     }
                     return false;
                 });
@@ -1026,14 +1032,6 @@ const CodexCellEditor: React.FC = () => {
                         ) {
                             setCurrentSubsectionIndex(targetSubsectionIndex);
                         }
-                    }
-                } else {
-                    // For non-Bible book format, only update subsection if needed
-                    if (
-                        cellIndexInSearchSet >= 0 &&
-                        targetSubsectionIndex !== currentSubsectionIndex
-                    ) {
-                        setCurrentSubsectionIndex(targetSubsectionIndex);
                     }
                 }
             }
@@ -1508,19 +1506,8 @@ const CodexCellEditor: React.FC = () => {
                 cells: cells.length,
             });
 
-            // Ignore stale responses - only process if this matches the latest request
-            const latestRequest = latestRequestRef.current;
-            if (
-                latestRequest &&
-                (latestRequest.milestoneIdx !== milestoneIdx ||
-                    latestRequest.subsectionIdx !== subsectionIdx)
-            ) {
-                debug(
-                    "pagination",
-                    `Ignoring stale response for milestone ${milestoneIdx}, subsection ${subsectionIdx}. Latest request is milestone ${latestRequest.milestoneIdx}, subsection ${latestRequest.subsectionIdx}`
-                );
-                return;
-            }
+            // Always update latestRequestRef to track current position
+            latestRequestRef.current = { milestoneIdx, subsectionIdx };
 
             // Replace translation units with new cells
             setTranslationUnits(cells);

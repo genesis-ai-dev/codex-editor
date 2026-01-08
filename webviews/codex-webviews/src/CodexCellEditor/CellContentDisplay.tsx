@@ -513,20 +513,20 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         // Note: comments counts are provided by parent (`CellList`) to avoid per-cell fetches
 
         // Helper function to check if this cell should be highlighted
-        // Matches using globalReferences array, with fallback to cellId when globalReferences is empty
+        // Prioritizes cellId matching, with fallback to globalReferences
         const checkShouldHighlight = useCallback((): boolean => {
-            // First try matching by globalReferences if available
+            // Prioritize cellId matching
+            if (highlightedCellId && cellIds && cellIds.length > 0) {
+                // Check if the highlighted cellId matches any of this cell's markers
+                return cellIds.includes(highlightedCellId);
+            }
+
+            // Fallback to globalReferences matching
             if (highlightedGlobalReferences && highlightedGlobalReferences.length > 0) {
                 // Get globalReferences from this cell
                 const cellGlobalRefs = cell.data?.globalReferences || [];
                 // Check if any highlighted reference matches this cell's references
                 return highlightedGlobalReferences.some((ref) => cellGlobalRefs.includes(ref));
-            }
-
-            // Fallback to cellId matching when globalReferences is empty
-            if (highlightedCellId && cellIds && cellIds.length > 0) {
-                // Check if the highlighted cellId matches any of this cell's markers
-                return cellIds.includes(highlightedCellId);
             }
 
             return false;

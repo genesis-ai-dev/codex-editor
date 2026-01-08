@@ -319,18 +319,20 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 "cellId",
                 (value: CellIdGlobalState | undefined) => {
                     debug("Cell ID change detected:", value);
-                    if (value?.globalReferences && value.globalReferences.length > 0 && value?.uri) {
+                    if (value?.uri) {
                         // Only send highlight messages to source files when a codex file is active
                         const valueIsCodexFile = this.isCodexFile(value.uri);
                         if (valueIsCodexFile) {
                             debug("Processing codex file highlight");
+                            // Send highlight using cellId (primary) or globalReferences (if available)
                             for (const [panelUri, panel] of this.webviewPanels.entries()) {
                                 const isSourceFile = this.isSourceText(panelUri);
                                 if (isSourceFile) {
                                     debug("Sending highlight message to source file:", panelUri);
                                     safePostMessageToPanel(panel, {
                                         type: "highlightCell",
-                                        globalReferences: value.globalReferences,
+                                        globalReferences: value.globalReferences || [],
+                                        cellId: value.cellId,
                                     });
                                 }
                             }
@@ -2442,22 +2444,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         // Check if this is the matching source file
                         const isMatchingSource = sourceUri && panelUri === sourceUri.toString();
 
-                        if (globalReferences.length > 0) {
-                            // Set highlight using globalReferences
-                            debug("Sending highlight message to source file:", panelUri, "globalReferences:", globalReferences);
-                            safePostMessageToPanel(panel, {
-                                type: "highlightCell",
-                                globalReferences: globalReferences,
-                            });
-                        } else {
-                            // Fallback to cellId matching when globalReferences is empty
-                            debug("Sending highlight message to source file using cellId fallback:", panelUri, "cellId:", cellId);
-                            safePostMessageToPanel(panel, {
-                                type: "highlightCell",
-                                globalReferences: [],
-                                cellId: cellId,
-                            });
-                        }
+                        // Always use cellId for highlighting
+                        debug("Sending highlight message to source file:", panelUri, "cellId:", cellId);
+                        safePostMessageToPanel(panel, {
+                            type: "highlightCell",
+                            globalReferences: [],
+                            cellId: cellId,
+                        });
 
                         // If this is the matching source file, find the target position and jump to it
                         if (isMatchingSource && sourceUri) {
@@ -2465,19 +2458,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             const sourceDoc = this.documents.get(sourceUri.toString());
                             if (sourceDoc) {
                                 // Determine the target position in the source file by finding the matching cell
-                                // First try globalReferences, then fallback to cellId if globalReferences is empty
-                                let targetPosition: { milestoneIndex: number; subsectionIndex: number; } | null = null;
-
-                                if (globalReferences.length > 0) {
-                                    // Find the milestone/subsection for the matching cell in the source file by globalReferences
-                                    targetPosition = sourceDoc.findMilestoneAndSubsectionForCellByGlobalReferences(
-                                        globalReferences,
-                                        cellsPerPage
-                                    );
-                                } else {
-                                    // Fallback to cellId matching when globalReferences is empty
-                                    targetPosition = sourceDoc.findMilestoneAndSubsectionForCell(cellId, cellsPerPage);
-                                }
+                                // Always use cellId for navigation
+                                const targetPosition = sourceDoc.findMilestoneAndSubsectionForCell(cellId, cellsPerPage);
 
                                 if (targetPosition) {
                                     const { milestoneIndex: targetMilestoneIndex, subsectionIndex: targetSubsectionIndex } = targetPosition;
@@ -2517,7 +2499,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                         sourceCellMap,
                                     });
                                 } else {
-                                    debug("Could not find matching cell in source file by globalReferences:", globalReferences);
+                                    debug("Could not find matching cell in source file by cellId:", cellId);
                                 }
                             } else {
                                 debug("Source document not loaded, cannot jump to milestone");

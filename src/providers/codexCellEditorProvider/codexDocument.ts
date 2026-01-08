@@ -1284,64 +1284,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     /**
-     * Finds a cell by matching globalReferences and returns its milestone and subsection index.
-     * Useful for non-Bible formats where cells are matched by globalReferences rather than cellId.
-     */
-    public findMilestoneAndSubsectionForCellByGlobalReferences(
-        globalReferences: string[],
-        cellsPerPage: number = 50
-    ): { milestoneIndex: number; subsectionIndex: number; } | null {
-        if (!globalReferences || globalReferences.length === 0) {
-            return null;
-        }
-
-        const cells = this._documentData.cells || [];
-
-        // Find the cell that matches any of the globalReferences
-        const cellIndex = cells.findIndex((cell) => {
-            const cellGlobalRefs = cell.metadata?.data?.globalReferences || [];
-            return globalReferences.some((ref) => cellGlobalRefs.includes(ref));
-        });
-
-        if (cellIndex === -1) {
-            return null;
-        }
-
-        // Build milestone index to get milestone information
-        const milestoneInfo = this.buildMilestoneIndex(cellsPerPage);
-
-        // Find which milestone this cell belongs to
-        for (let i = 0; i < milestoneInfo.milestones.length; i++) {
-            const milestone = milestoneInfo.milestones[i];
-            const nextMilestone = milestoneInfo.milestones[i + 1];
-            const startCellIndex = milestone.cellIndex;
-            const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
-
-            if (cellIndex >= startCellIndex && cellIndex < endCellIndex) {
-                // Count content cells (excluding milestones and paratext) from the start of this milestone
-                // up to and including the clicked cell. This matches the logic in getCellsForMilestone.
-                let contentCellCount = 0;
-                for (let j = startCellIndex; j <= cellIndex; j++) {
-                    const cell = cells[j];
-                    // Skip milestone cells and paratext cells (matching getCellsForMilestone logic)
-                    if (cell.metadata?.type !== CodexCellTypes.MILESTONE &&
-                        cell.metadata?.type !== CodexCellTypes.PARATEXT) {
-                        contentCellCount++;
-                    }
-                }
-
-                // Calculate subsection index (0-based)
-                const subsectionIndex = Math.max(0, Math.floor((contentCellCount - 1) / cellsPerPage));
-
-                return { milestoneIndex: i, subsectionIndex };
-            }
-        }
-
-        // If cell is before first milestone, return milestone 0, subsection 0
-        return { milestoneIndex: 0, subsectionIndex: 0 };
-    }
-
-    /**
      * Calculates progress for all milestones in the document.
      * 
      * @param minimumValidationsRequired Minimum number of validations required for text (default: 1)
