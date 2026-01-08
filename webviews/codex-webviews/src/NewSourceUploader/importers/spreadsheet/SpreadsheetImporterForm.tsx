@@ -254,7 +254,11 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
     };
 
     const spreadsheetGlobalReferencesAligner = useCallback(
-        async (targetCells: any[], _sourceCells: any[], importedContent: ImportedContent[]): Promise<AlignedCell[]> => {
+        async (
+            targetCells: any[],
+            _sourceCells: any[],
+            importedContent: ImportedContent[]
+        ): Promise<AlignedCell[]> => {
             const aligned: AlignedCell[] = [];
 
             // Map globalReference -> first matching target cell
@@ -276,8 +280,11 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
 
             // Pass 1: match by globalReferences
             for (const item of importedContent) {
-                const refs: unknown = (item as any).globalReferences ?? (item as any).data?.globalReferences;
-                const refList = Array.isArray(refs) ? refs.map((r) => String(r ?? "").trim()).filter(Boolean) : [];
+                const refs: unknown =
+                    (item as any).globalReferences ?? (item as any).data?.globalReferences;
+                const refList = Array.isArray(refs)
+                    ? refs.map((r) => String(r ?? "").trim()).filter(Boolean)
+                    : [];
                 const match = refList.map((r) => refToTarget.get(r)).find((c) => c);
 
                 const targetId = match?.metadata?.id ? String(match.metadata.id) : undefined;
@@ -611,22 +618,25 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                         const correspondingCell = sourceCells.find(
                             (cell) => cell.metadata?.data?.rowIndex === i
                         );
-                        
+
                         if (!correspondingCell) {
-                            debugLog(`Skipping attachment for row ${i} - no corresponding cell found`);
+                            debugLog(
+                                `Skipping attachment for row ${i} - no corresponding cell found`
+                            );
                             continue;
                         }
-                        
+
                         const id = correspondingCell.id;
 
                         let firstAttachmentId: string | null = null;
                         for (const u of urls) {
                             // Validate that the URL appears to be an audio file before processing
                             const normalizedUrl = u.trim().replace(/^@+/, "");
-                            const isAudioUrl = isAudioByExt(normalizedUrl) || 
+                            const isAudioUrl =
+                                isAudioByExt(normalizedUrl) ||
                                 normalizedUrl.startsWith("data:audio/") ||
                                 /\.(mp3|wav|m4a|aac|ogg|webm|flac)(\?|#|$)/i.test(normalizedUrl);
-                            
+
                             if (!isAudioUrl) {
                                 debugLog(`Skipping non-audio URL: ${normalizedUrl}`);
                                 continue;
@@ -637,20 +647,20 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                                 .substr(2, 9)}`;
                             if (!firstAttachmentId) firstAttachmentId = attachmentId;
                             let fileName = fileNameFromUrl(u, attachmentId, row as any);
-                            
+
                             try {
                                 const { dataUrl, mime } = await fetchAsDataUrl(u);
-                                
+
                                 // Double-check that the fetched content is actually audio
                                 if (!mime.startsWith("audio/") && !isAudioByExt(fileName)) {
                                     debugLog(`Skipping non-audio content: ${u} (mime: ${mime})`);
                                     continue;
                                 }
-                                
+
                                 if (!/\.[a-z0-9]+$/i.test(fileName)) {
                                     fileName = `${attachmentId}.${mime.split("/").pop() || "mp3"}`;
                                 }
-                                
+
                                 allAttachments.push({
                                     cellId: id,
                                     attachmentId,
@@ -688,19 +698,28 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                                 const raw = u.trim().replace(/^@+/, "");
                                 const driveDirect = toGoogleDriveDirect(raw);
                                 const effectiveUrl = driveDirect || raw;
-                                
+
                                 // Only create fallback if URL looks like audio
-                                if (isAudioByExt(effectiveUrl) || effectiveUrl.startsWith("data:audio/")) {
-                                    debugLog(`FALLBACK remote download pointer for audio URL: ${effectiveUrl}`);
+                                if (
+                                    isAudioByExt(effectiveUrl) ||
+                                    effectiveUrl.startsWith("data:audio/")
+                                ) {
+                                    debugLog(
+                                        `FALLBACK remote download pointer for audio URL: ${effectiveUrl}`
+                                    );
                                     allAttachments.push({
                                         cellId: id,
                                         attachmentId,
-                                        fileName: fileNameFromUrl(effectiveUrl, attachmentId, row as any),
+                                        fileName: fileNameFromUrl(
+                                            effectiveUrl,
+                                            attachmentId,
+                                            row as any
+                                        ),
                                         remoteUrl: effectiveUrl,
                                         startTime: 0,
                                         endTime: Number.NaN,
                                     } as any);
-                                    
+
                                     const cell = notebookPair.source.cells.find(
                                         (c) => c.metadata?.id === id
                                     );
@@ -718,11 +737,14 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                                             },
                                         };
                                         (cell.metadata as any).selectedAudioId =
-                                            (cell.metadata as any).selectedAudioId || firstAttachmentId;
+                                            (cell.metadata as any).selectedAudioId ||
+                                            firstAttachmentId;
                                         (cell.metadata as any).selectionTimestamp = Date.now();
                                     }
                                 } else {
-                                    debugLog(`Skipping non-audio URL that failed to fetch: ${effectiveUrl}`);
+                                    debugLog(
+                                        `Skipping non-audio URL that failed to fetch: ${effectiveUrl}`
+                                    );
                                 }
                             }
                         }
