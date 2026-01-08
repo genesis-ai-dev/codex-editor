@@ -962,7 +962,7 @@ export async function resolveCodexCustomMerge(
     });
 
     const resultCells: CustomNotebookCellData[] = [];
-    
+
     // Process our cells in order
     ourCells.forEach((ourCell) => {
         const cellId = ourCell.metadata?.id;
