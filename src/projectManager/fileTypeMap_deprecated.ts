@@ -270,6 +270,7 @@ async function insertZeroDrafts(
                             endTime: alignedCell.importedContent.endTime,
                         },
                         edits: [],
+                        isLocked: alignedCell.notebookCell.metadata?.isLocked ?? false,
                     },
                 };
                 newCells.push(updatedCellData);

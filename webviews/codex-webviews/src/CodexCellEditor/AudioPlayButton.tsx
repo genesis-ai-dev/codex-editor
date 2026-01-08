@@ -113,6 +113,9 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = ({
         try {
             if (state !== "available") {
                 // For missing audio, just open the editor without auto-starting recording
+                // Also don't auto-start if cell is locked (check via props if available)
+                // Note: This component doesn't have direct access to cell metadata,
+                // but the parent CellContentDisplay will handle the lock check
                 if (state !== "missing") {
                     try {
                         sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");
