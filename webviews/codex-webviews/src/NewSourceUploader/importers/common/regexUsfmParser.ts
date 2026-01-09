@@ -52,9 +52,12 @@ export const countMarkersByTag = (usfm: string): Record<string, number> => {
 
 export const parseUsfmToJson = (usfm: string): RegexParsedUSFM => {
     const bookMatch = usfm.match(BOOK_CODE_REGEX);
-    const bookCode = bookMatch?.[1]?.toUpperCase();
+    let bookCode = bookMatch?.[1]?.toUpperCase();
+    
+    // For files without \id marker (like lectionaries), use a placeholder
     if (!bookCode) {
-        throw new Error('USFM missing \\id book code');
+        // Try to infer from filename or use a generic code
+        bookCode = 'XXX'; // Placeholder for files without \id
     }
 
     const lines = usfm.split(/\r?\n/);
@@ -112,8 +115,40 @@ export const parseUsfmToJson = (usfm: string): RegexParsedUSFM => {
         }
     }
 
+    // Handle files without chapters (e.g., lectionary readings, introductions)
+    // Create a virtual chapter 0 to hold all content
     if (chapters.length === 0) {
-        throw new Error('No chapters (\\c) found in USFM');
+        const virtualChapter: RegexUsfmChapter = { chapterNumber: 0, contents: [] };
+        let lastVerseEntry: RegexUsfmChapterContent | null = null;
+        
+        // Process all lines after header as content
+        for (const line of lines) {
+            // Skip header lines (already collected)
+            if (headerCollected.includes(line)) {
+                continue;
+            }
+            
+            const vMatch = line.match(VERSE_LINE_REGEX);
+            if (vMatch) {
+                const verseRaw = vMatch[1];
+                const verseNumber = /^\d+$/i.test(verseRaw) ? parseInt(verseRaw, 10) : (verseRaw as unknown as number);
+                const verseText = vMatch[2] ?? '';
+                const entry: RegexUsfmChapterContent = { verseNumber, verseText };
+                virtualChapter.contents.push(entry);
+                lastVerseEntry = entry;
+            } else if (line.startsWith('\\')) {
+                virtualChapter.contents.push({ marker: line });
+                lastVerseEntry = null;
+            } else if (line.trim().length > 0) {
+                // Plain text - attach to last verse if exists, otherwise add as separate text
+                if (lastVerseEntry && typeof lastVerseEntry.verseText !== 'undefined') {
+                    lastVerseEntry.verseText = `${lastVerseEntry.verseText} ${line}`.trim();
+                } else {
+                    virtualChapter.contents.push({ text: line });
+                }
+            }
+        }
+        chapters.push(virtualChapter);
     }
 
     const rawHeader = headerCollected.length > 0 ? headerCollected.join('\n') : undefined;

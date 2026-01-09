@@ -607,7 +607,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         try {
             // First, update the global state to set the current cell ID
             const uri = document.uri.toString();
-            provider.updateCellIdState(typedEvent.content.cellId, uri);
+            provider.updateCellIdState(typedEvent.content.cellId, uri, document);
 
             // Open the comments view and navigate to the specific cell
             await vscode.commands.executeCommand("codex-editor-extension.focusCommentsView");
@@ -712,7 +712,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             return;
         }
 
-        const oldContent = document.getCellContent(typedEvent.content.cellMarkers[0]);
+        const cellId = typedEvent.content.cellMarkers[0];
+        const oldContent = document.getCellContent(cellId);
+
+        // Block saveHtml operations on locked cells
+        if (oldContent?.metadata?.isLocked) {
+            console.warn(`Attempted to save locked cell ${cellId}. Operation blocked.`);
+            return;
+        }
+
         const oldText = oldContent?.cellContent || "";
         const newText = typedEvent.content.cellContent || "";
         const isSourceText = document.uri.toString().includes(".source");
@@ -733,12 +741,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         const finalContent = typedEvent.content.cellContent === "<span></span>" ? "" : typedEvent.content.cellContent;
 
-        const cellId = typedEvent.content.cellMarkers[0];
-
         // For source file transcriptions, wait for index update to complete
         // so that the source content is immediately available for translation
         if (isSourceText && isTranscription) {
-            document.updateCellContent(
+            await document.updateCellContent(
                 cellId,
                 finalContent,
                 EditType.USER_EDIT
@@ -746,7 +752,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // Wait for the index to be updated and verify it's available
             await document.ensureCellIndexed(cellId, 3000);
         } else {
-            document.updateCellContent(
+            await document.updateCellContent(
                 cellId,
                 finalContent,
                 EditType.USER_EDIT
@@ -761,7 +767,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     setCurrentIdToGlobalState: ({ event, document, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "setCurrentIdToGlobalState"; }>;
         const uri = document.uri.toString();
-        provider.updateCellIdState(typedEvent.content.currentLineId, uri);
+        provider.updateCellIdState(typedEvent.content.currentLineId, uri, document);
     },
 
     llmCompletion: async ({ event, document, webviewPanel, provider }) => {
@@ -1059,6 +1065,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellLabel"; }>;
         console.log("updateCellLabel message received", { event });
         document.updateCellLabel(typedEvent.content.cellId, typedEvent.content.cellLabel);
+    },
+
+    updateCellIsLocked: ({ event, document }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellIsLocked"; }>;
+        console.log("updateCellIsLocked message received", { event });
+        document.updateCellIsLocked(typedEvent.content.cellId, typedEvent.content.isLocked);
     },
 
     updateMilestoneValue: async ({ event, document, webviewPanel, provider }) => {
@@ -2271,6 +2283,19 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             audioId: typedEvent.content.audioId,
             fileExtension: typedEvent.content.fileExtension
         });
+
+        // Prevent saving audio if cell is locked
+        const cellId = typedEvent.content.cellId;
+        const cell = document.getCell(cellId);
+        if (cell?.metadata?.isLocked) {
+            console.warn(`Attempted to save audio to locked cell ${cellId}. Operation blocked.`);
+            safePostMessageToPanel(webviewPanel, {
+                type: "error",
+                content: { message: `Cannot save audio: cell ${cellId} is locked` }
+            });
+            return;
+        }
+
         try {
             const documentSegment = typedEvent.content.cellId.split(' ')[0];
             const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);

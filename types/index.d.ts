@@ -163,7 +163,8 @@ interface SmartEdit {
 }
 
 interface CellIdGlobalState {
-    cellId: string;
+    cellId: string; // UUID for internal cell reference
+    globalReferences: string[]; // Array of Bible references (e.g., ["GEN 1:1", "GEN 1:2"]) - primary mechanism for highlighting
     uri: string;
     timestamp?: string;
 }
@@ -183,7 +184,7 @@ type VerseRefGlobalState = {
 };
 type CommentPostMessages =
     | { command: "commentsFromWorkspace"; content: string; isLiveUpdate?: boolean; }
-    | { command: "reload"; data?: { cellId: string; uri?: string; }; }
+    | { command: "reload"; data?: { cellId: string; globalReferences: string[]; uri?: string; }; }
     | { command: "updateCommentThread"; commentThread: NotebookCommentThread; }
     | { command: "deleteCommentThread"; commentThreadId: string; }
     | { command: "deleteComment"; args: { commentId: string; commentThreadId: string; }; }
@@ -541,6 +542,7 @@ export type EditorPostMessages =
     | { command: "setCurrentIdToGlobalState"; content: { currentLineId: string; }; }
     | { command: "webviewFocused"; content: { uri: string; }; }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
+    | { command: "updateCellIsLocked"; content: { cellId: string; isLocked: boolean; }; }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata; }
     | { command: "updateCellDisplayMode"; mode: "inline" | "one-line-per-cell"; }
     | { command: "pickVideoFile"; }
@@ -817,6 +819,7 @@ type EditMapValueType<T extends readonly string[]> =
     : T extends readonly ["metadata", "milestone"] ? string
     : T extends readonly ["metadata", "selectedAudioId"] ? string
     : T extends readonly ["metadata", "selectionTimestamp"] ? number
+    : T extends readonly ["metadata", "isLocked"] ? boolean
     // File-level metadata fields
     : T extends readonly ["metadata", "videoUrl"] ? string
     : T extends readonly ["metadata", "textDirection"] ? "ltr" | "rtl"
@@ -895,6 +898,7 @@ type BaseCustomCellMetaData = {
     type: CodexCellTypes;
     edits: EditHistory[];
     parentId?: string; // UUID of parent cell (for child cells like cues, paratext, etc.)
+    isLocked?: boolean;
 };
 
 export type BaseCustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {
@@ -956,18 +960,90 @@ export interface CustomNotebookMetadata {
     fileDisplayName?: string;
     edits?: FileEditHistory[];
     importerType?: FileImporterType;
+    /**
+     * The original filename of the imported artifact (if any).
+     * Example: "MAT.idml", "mydoc.docx"
+     */
+    originalFileName?: string;
+    /**
+     * Canonical source identifier for the imported artifact.
+     * Stored at notebook-level (not per-cell). For most importers this matches originalFileName.
+     */
+    sourceFile?: string;
+    /**
+     * One-time import context derived from the import process.
+     * This is the canonical home for attributes that do not vary per-cell.
+     */
+    importContext?: NotebookImportContext;
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
     metadata: CustomNotebookMetadata;
 };
 
-type CodexNotebookAsJSONData = {
-    cells: CustomNotebookCellData[];
-    metadata: CustomNotebookMetadata;
+export type NotebookAsJSONData<TCells, TMetadata> = {
+    cells: TCells[];
+    metadata: TMetadata;
 };
 
-type FileImporterType = "smart-segmenter" | "audio" | "docx-roundtrip" | "markdown" | "subtitles" | "spreadsheet" | "tms" | "pdf" | "indesign" | "usfm" | "paratext" | "ebible" | "macula" | "biblica" | "obs";
+type CodexNotebookAsJSONData = NotebookAsJSONData<CustomNotebookCellData, CustomNotebookMetadata>;
+
+type FileImporterType =
+    | "smart-segmenter"
+    | "plaintext"
+    | "audio"
+    | "docx"
+    | "docx-roundtrip"
+    | "markdown"
+    | "subtitles"
+    | "spreadsheet"
+    | "tms"
+    | "pdf"
+    | "indesign"
+    | "usfm"
+    | "usfm-experimental"
+    | "paratext"
+    | "ebible"
+    | "ebibleCorpus"
+    | "macula"
+    | "biblica"
+    | "obs";
+
+/**
+ * Minimal notebook metadata shared by importer/webview DTOs and persisted notebook metadata.
+ * This avoids duplicating the same "import core" fields across webview and extension types.
+ */
+export type NotebookImportMetadataCore = Pick<
+    CustomNotebookMetadata,
+    | "id"
+    | "originalFileName"
+    | "sourceFile"
+    | "importerType"
+    | "importContext"
+    | "textDirection"
+    | "audioOnly"
+    | "videoUrl"
+    | "fileDisplayName"
+> & {
+    corpusMarker?: string;
+    /**
+     * Import-time timestamp (webview DTOs). The provider may map this into sourceCreatedAt.
+     */
+    createdAt?: string;
+    isCodex?: boolean;
+};
+
+export type NotebookImportContext = {
+    importerType?: FileImporterType | string;
+    fileName?: string;
+    originalFileName?: string;
+    originalHash?: string;
+    documentId?: string;
+    documentVersion?: string;
+    importTimestamp?: string;
+    fileSize?: number;
+    [key: string]: unknown;
+};
 
 /**
  * Represents information about a single milestone in a document.
@@ -1017,6 +1093,8 @@ interface QuillCellContent {
     attachments?: { [attachmentId: string]: { type: string; isDeleted?: boolean; isMissing?: boolean; url?: string; validatedBy?: ValidationEntry[]; }; };
     metadata?: {
         selectedAudioId?: string;
+        selectionTimestamp?: number;
+        isLocked?: boolean;
         [key: string]: any;
     };
 }
@@ -1694,6 +1772,7 @@ type EditorReceiveMessages =
         validationCount?: number;
         validationCountAudio?: number;
         isAuthenticated?: boolean;
+        userAccessLevel?: number;
     }
     | {
         type: "providerSendsInitialContentPaginated";
@@ -1707,6 +1786,7 @@ type EditorReceiveMessages =
         validationCount?: number;
         validationCountAudio?: number;
         isAuthenticated?: boolean;
+        userAccessLevel?: number;
     }
     | {
         type: "providerSendsCellPage";
@@ -1971,6 +2051,15 @@ type EditorReceiveMessages =
     | {
         type: "updateFileStatus";
         status: "dirty" | "syncing" | "synced" | "none";
+    }
+    | {
+        type: "highlightCell";
+        globalReferences: string[];
+        cellId?: string; // Optional cellId for fallback matching when globalReferences is empty
+    }
+    | {
+        type: "updateCellsPerPage";
+        cellsPerPage: number;
     }
     | {
         type: "editorPosition";

@@ -288,6 +288,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
 
+        // Block updates to locked cells (except for system operations like unlocking)
+        // Allow LLM_GENERATION previews (shouldUpdateValue=false) but block actual content updates
+        if (cellToUpdate.metadata?.isLocked && editType === EditType.USER_EDIT && shouldUpdateValue) {
+            console.warn(`Attempted to update locked cell ${cellId}. Operation blocked.`);
+            return;
+        }
+
         // For user edits, only add the edit if content has actually changed
         if (editType === EditType.USER_EDIT && cellToUpdate.value === newContent) {
             return; // Skip adding edit if normalized content hasn't changed
@@ -728,6 +735,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
             cellLabel: cell.metadata.cellLabel,
             data: cell.metadata.data,
             attachments: cell.metadata.attachments || {},
+            metadata: {
+                isLocked: cell.metadata.isLocked,
+            },
         };
     }
 
@@ -744,6 +754,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
+
+        // Block timestamp updates to locked cells
+        if (cellToUpdate.metadata?.isLocked) {
+            console.warn(`Attempted to update timestamps of locked cell ${cellId}. Operation blocked.`);
+            return;
+        }
 
         // Capture previous values before updating so comparisons are correct
         const previousStartTime = cellToUpdate.metadata.data?.startTime;
@@ -1086,6 +1102,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
         return this._documentData.metadata;
     }
 
+    // FIXME: Make this more efficient by mapping the milestone cells and allowing the map to be
+    // reused by other methods such as findMilestoneIndexForCell and findMilestoneAndSubsectionForCell.
+
     /**
      * Builds a milestone index from the document cells.
      * This index is used for milestone-based pagination.
@@ -1171,6 +1190,113 @@ export class CodexCellDocument implements vscode.CustomDocument {
             totalCells: totalContentCells,
             cellsPerPage,
         };
+    }
+
+    /**
+     * Finds the milestone index that a given cell belongs to.
+     * @param cellId The ID of the cell to find the milestone for
+     * @returns The milestone index (0-based), or null if not found
+     */
+    public findMilestoneIndexForCell(cellId: string): number | null {
+        const cells = this._documentData.cells || [];
+
+        // Find the index of the cell in the cells array
+        const cellIndex = cells.findIndex((cell) => cell.metadata?.id === cellId);
+        if (cellIndex === -1) {
+            return null;
+        }
+
+        // Find all milestone cells and their positions
+        const milestoneCellIndices: number[] = [];
+        for (let i = 0; i < cells.length; i++) {
+            const cell = cells[i];
+            if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
+                // Skip deleted milestone cells
+                if (cell.metadata?.data?.deleted === true) {
+                    continue;
+                }
+                milestoneCellIndices.push(i);
+            }
+        }
+
+        // If no milestones found, return 0 (virtual milestone)
+        if (milestoneCellIndices.length === 0) {
+            return 0;
+        }
+
+        // Find which milestone this cell belongs to
+        // A cell belongs to the last milestone that appears before it
+        let milestoneIndex = 0;
+        for (let i = 0; i < milestoneCellIndices.length; i++) {
+            if (milestoneCellIndices[i] <= cellIndex) {
+                milestoneIndex = i;
+            } else {
+                break;
+            }
+        }
+
+        return milestoneIndex;
+    }
+
+    /**
+     * Finds the subsection index that a given cell belongs to within its milestone.
+     * @param cellId The ID of the cell to find the subsection for
+     * @param cellsPerPage Number of cells per page for sub-pagination (default: 50)
+     * @returns An object with milestoneIndex and subsectionIndex, or null if not found
+     */
+    public findMilestoneAndSubsectionForCell(cellId: string, cellsPerPage: number = 50): { milestoneIndex: number; subsectionIndex: number; } | null {
+        const cells = this._documentData.cells || [];
+
+        // Normalize cellId by trimming whitespace
+        const normalizedCellId = cellId?.trim();
+
+        // Find the index of the cell in the cells array
+        // Match by metadata.id (trimmed for consistency)
+        const cellIndex = cells.findIndex((cell) => {
+            const cellMetadataId = cell.metadata?.id?.trim();
+            return cellMetadataId === normalizedCellId;
+        });
+
+        if (cellIndex === -1) {
+            return null;
+        }
+
+        // Build milestone index to get milestone information
+        const milestoneInfo = this.buildMilestoneIndex(cellsPerPage);
+
+        // Find which milestone this cell belongs to
+        for (let i = 0; i < milestoneInfo.milestones.length; i++) {
+            const milestone = milestoneInfo.milestones[i];
+            const nextMilestone = milestoneInfo.milestones[i + 1];
+            const startCellIndex = milestone.cellIndex;
+            const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
+
+            if (cellIndex >= startCellIndex && cellIndex < endCellIndex) {
+                // Count content cells (excluding milestones and paratext) from the start of this milestone
+                // up to and including the clicked cell. This matches the logic in getCellsForMilestone.
+                let contentCellCount = 0;
+                for (let j = startCellIndex; j <= cellIndex; j++) {
+                    const cell = cells[j];
+                    // Skip milestone cells and paratext cells (matching getCellsForMilestone logic)
+                    if (cell.metadata?.type !== CodexCellTypes.MILESTONE &&
+                        cell.metadata?.type !== CodexCellTypes.PARATEXT) {
+                        contentCellCount++;
+                    }
+                }
+
+                // Calculate subsection index (0-based)
+                // In getCellsForMilestone: startContentIndex = validSubsectionIndex * cellsPerPage
+                // So if a cell is at position N (1-indexed), it's in subsection floor((N-1) / cellsPerPage)
+                // Since contentCellCount is 1-indexed (count of cells including this one),
+                // we subtract 1 to get 0-indexed position, then divide by cellsPerPage
+                const subsectionIndex = Math.max(0, Math.floor((contentCellCount - 1) / cellsPerPage));
+
+                return { milestoneIndex: i, subsectionIndex };
+            }
+        }
+
+        // If cell is before first milestone, return milestone 0, subsection 0
+        return { milestoneIndex: 0, subsectionIndex: 0 };
     }
 
     /**
@@ -1603,6 +1729,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
 
+        // Block label updates to locked cells
+        if (cellToUpdate.metadata?.isLocked) {
+            console.warn(`Attempted to update label of locked cell ${cellId}. Operation blocked.`);
+            return;
+        }
+
         // Update cell label in memory
         cellToUpdate.metadata.cellLabel = newLabel;
 
@@ -1638,6 +1770,85 @@ export class CodexCellDocument implements vscode.CustomDocument {
         this._isDirty = true;
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, newLabel }],
+        });
+    }
+
+    public updateCellIsLocked(cellId: string, isLocked: boolean) {
+        const indexOfCellToUpdate = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error("Could not find cell to update");
+        }
+
+        const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
+
+        // Only persist isLocked when meaningful:
+        // - If locking: store `true`
+        // - If unlocking: store `false` only if the cell was previously locked at least once
+        //   (otherwise omit the field entirely to avoid noisy metadata)
+        const lockEditMap = EditMapUtils.isLocked();
+        const edits = cellToUpdate.metadata?.edits || [];
+        const wasEverLocked =
+            cellToUpdate.metadata?.isLocked === true ||
+            edits.some((e: any) => {
+                const map = e?.editMap;
+                const mapMatches =
+                    Array.isArray(map) &&
+                    map.length === lockEditMap.length &&
+                    map.every((v: any, i: number) => v === (lockEditMap as any)[i]);
+                return mapMatches && e?.value === true;
+            });
+
+        // If asked to "unlock" a cell that was never locked, treat as a no-op and
+        // also remove any legacy `isLocked: false` field if present.
+        if (!isLocked && !wasEverLocked) {
+            delete (cellToUpdate.metadata as any).isLocked;
+            return;
+        }
+
+        if (isLocked) {
+            cellToUpdate.metadata.isLocked = true;
+        } else if (wasEverLocked) {
+            cellToUpdate.metadata.isLocked = false;
+        } else {
+            // Never locked → keep field absent
+            delete (cellToUpdate.metadata as any).isLocked;
+        }
+
+        // Add edit to cell's edit history
+        if (!cellToUpdate.metadata.edits) {
+            cellToUpdate.metadata.edits = [];
+        }
+        const currentTimestamp = Date.now();
+        cellToUpdate.metadata.edits.push({
+            editMap: lockEditMap,
+            value: isLocked, // TypeScript infers: boolean
+            timestamp: currentTimestamp,
+            type: EditType.USER_EDIT,
+            author: this._author,
+            validatedBy: [
+                {
+                    username: this._author,
+                    creationTimestamp: currentTimestamp,
+                    updatedTimestamp: currentTimestamp,
+                    isDeleted: false,
+                },
+            ],
+        });
+
+        // Record the edit
+        this._edits.push({
+            type: "updateCellIsLocked",
+            cellId,
+            isLocked,
+        });
+
+        // Set dirty flag and notify listeners about the change
+        this._isDirty = true;
+        this._onDidChangeForVsCodeAndWebview.fire({
+            edits: [{ cellId, isLocked }],
         });
     }
 
@@ -2224,6 +2435,14 @@ export class CodexCellDocument implements vscode.CustomDocument {
             throw new Error(`Could not find cell ${cellId} to update data`);
         }
 
+        const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
+
+        // Block data updates to locked cells
+        if (cellToUpdate.metadata?.isLocked) {
+            console.warn(`Attempted to update data of locked cell ${cellId}. Operation blocked.`);
+            return;
+        }
+
         // Ensure metadata exists
         if (!this._documentData.cells[indexOfCellToUpdate].metadata) {
             this._documentData.cells[indexOfCellToUpdate].metadata = {
@@ -2276,6 +2495,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         const cell = this._documentData.cells[indexOfCellToUpdate];
+
+        // Block attachment updates to locked cells
+        if (cell.metadata?.isLocked) {
+            console.warn(`Attempted to update attachment of locked cell ${cellId}. Operation blocked.`);
+            return;
+        }
 
         // Ensure metadata exists
         if (!cell.metadata) {

@@ -20,7 +20,8 @@ import {
     // } from '../../utils/workflowHelpers';
 } from '../../../utils/workflowHelpers';
 import { DocxParser } from './docxParser';
-import { DocxDocument, DocxCellMetadata } from './docxTypes';
+import { DocxDocument, DocxParagraph } from './docxTypes';
+import { createDocxCellMetadata } from './cellMetadata';
 
 const SUPPORTED_EXTENSIONS = ['docx'];
 
@@ -112,15 +113,26 @@ export const parseFile = async (
 
         // Create notebook pair
         const baseName = file.name.replace(/\.[^/.]+$/, '');
+        const nowIso = new Date().toISOString();
         const sourceNotebook = {
             name: baseName,
             cells,
             metadata: {
                 id: `source-${Date.now()}`,
                 originalFileName: file.name,
+                sourceFile: file.name,
                 originalFileData: arrayBuffer, // Store original file for export
+                corpusMarker: 'Docx',
                 importerType: 'docx-roundtrip',
-                createdAt: new Date().toISOString(),
+                createdAt: nowIso,
+                importContext: {
+                    importerType: 'docx-roundtrip',
+                    fileName: file.name,
+                    originalFileName: file.name,
+                    originalHash: docxDoc.originalHash,
+                    documentId: docxDoc.id,
+                    importTimestamp: nowIso,
+                },
                 wordCount: countWordsInDocument(docxDoc),
                 paragraphCount: docxDoc.paragraphs.length,
                 // Store complete DOCX document structure for round-trip
@@ -206,52 +218,18 @@ const createCellsFromParagraphs = (docxDoc: DocxDocument, fileName: string): any
             continue;
         }
 
-        // Create cell ID
-        const cellId = createStandardCellId(fileName, 1, paragraph.paragraphIndex + 1);
-
         // Convert runs to HTML for display
         const htmlContent = convertParagraphToHtml(paragraph);
 
-        // Create cell metadata with complete structure for round-trip
-        const cellMetadata: DocxCellMetadata = {
-            cellId,
+        // Create cell metadata with complete structure for round-trip (generates UUID internally)
+        const { cellId, metadata: cellMetadata } = createDocxCellMetadata({
             paragraphId: paragraph.id,
             paragraphIndex: paragraph.paragraphIndex,
             originalContent: fullText,
-
-            // Complete structure preservation
-            docxStructure: {
-                paragraphProperties: paragraph.paragraphProperties,
-                beforeParagraphXml: paragraph.beforeParagraphXml,
-                afterParagraphXml: paragraph.afterParagraphXml,
-            },
-
-            // Document context for export
-            documentContext: {
-                documentId: docxDoc.id,
-                originalHash: docxDoc.originalHash,
-                fileName: fileName,
-                importerType: 'docx-roundtrip',
-                importTimestamp: new Date().toISOString(),
-            },
-
-            // Cell label (paragraph number)
-            cellLabel: `¶${paragraph.paragraphIndex + 1}`,
-        };
-
-        // Store complete run information in metadata for reconstruction
-        (cellMetadata as any).runs = paragraph.runs.map(run => ({
-            id: run.id,
-            runIndex: run.runIndex,
-            content: run.content,
-            runProperties: run.runProperties,
-            beforeRunXml: run.beforeRunXml,
-            afterRunXml: run.afterRunXml,
-            originalXml: run.metadata?.originalXml,
-        }));
-
-        // Store complete paragraph XML for perfect reconstruction
-        (cellMetadata as any).originalParagraphXml = paragraph.metadata?.originalXml;
+            paragraph,
+            docxDoc,
+            fileName,
+        });
 
         // Create the cell
         const cell = createProcessedCell(cellId, htmlContent, {

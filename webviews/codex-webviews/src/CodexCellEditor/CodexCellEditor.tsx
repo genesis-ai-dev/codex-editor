@@ -141,6 +141,7 @@ const CodexCellEditor: React.FC = () => {
     const [alertColorCodes, setAlertColorCodes] = useState<{
         [cellId: string]: number;
     }>({});
+    const [highlightedGlobalReferences, setHighlightedGlobalReferences] = useState<string[]>([]);
     const [highlightedCellId, setHighlightedCellId] = useState<string | null>(null);
     const [isWebviewReady, setIsWebviewReady] = useState(false);
     const [scrollSyncEnabled, setScrollSyncEnabled] = useState(true);
@@ -704,11 +705,17 @@ const CodexCellEditor: React.FC = () => {
         (event: MessageEvent) => {
             const message = event.data;
             if (message.type === "highlightCell") {
-                // Set the highlighted cell ID (null clears the highlight)
-                setHighlightedCellId(message.cellId);
+                // Set the highlighted global references
+                setHighlightedGlobalReferences(message.globalReferences || []);
+
+                // Set the highlighted cellId (used as fallback when globalReferences is empty)
+                setHighlightedCellId(message.cellId || null);
 
                 // Reset manual navigation tracking when highlight is cleared
-                if (!message.cellId) {
+                if (
+                    (!message.globalReferences || message.globalReferences.length === 0) &&
+                    !message.cellId
+                ) {
                     setHasManuallyNavigatedAway(false);
                     setLastHighlightedChapter(null);
                     setChapterWhenHighlighted(null);
@@ -897,10 +904,46 @@ const CodexCellEditor: React.FC = () => {
     );
 
     useEffect(() => {
-        if (highlightedCellId && scrollSyncEnabled && isSourceText) {
-            const cellId = highlightedCellId;
-            const chapter = cellId?.split(" ")[1]?.split(":")[0];
-            const newChapterNumber = parseInt(chapter) || 1;
+        // Check if we have either globalReferences or cellId to highlight
+        const hasHighlightData =
+            (highlightedGlobalReferences && highlightedGlobalReferences.length > 0) ||
+            highlightedCellId;
+
+        if (hasHighlightData && scrollSyncEnabled && isSourceText) {
+            let firstRef: string | undefined;
+            let isBibleBookFormat = false;
+            let newChapterNumber = 1;
+            let shouldFilterByChapter = false;
+
+            // Prioritize cellId over globalReferences
+            if (highlightedCellId) {
+                firstRef = highlightedCellId;
+                // Check if the cellId follows Bible book format (e.g., "GEN 1:1")
+                // Format: "BOOK CHAPTER:VERSE" where BOOK is followed by space, then CHAPTER:VERSE
+                const cellIdBibleFormatMatch = highlightedCellId.match(/^[^\s]+\s+\d+:\d+/);
+                isBibleBookFormat = Boolean(cellIdBibleFormatMatch);
+
+                if (isBibleBookFormat) {
+                    const chapter = highlightedCellId.split(" ")[1]?.split(":")[0];
+                    newChapterNumber = parseInt(chapter) || 1;
+                    shouldFilterByChapter = true;
+                }
+            } else if (highlightedGlobalReferences && highlightedGlobalReferences.length > 0) {
+                // Fallback to globalReferences matching
+                firstRef = highlightedGlobalReferences[0];
+                // Check if the reference follows Bible book format (e.g., "GEN 1:1")
+                // Format: "BOOK CHAPTER:VERSE" where BOOK is followed by space, then CHAPTER:VERSE
+                const bibleBookFormatMatch = firstRef?.match(/^[^\s]+\s+\d+:\d+/);
+                isBibleBookFormat = Boolean(bibleBookFormatMatch);
+
+                if (isBibleBookFormat) {
+                    // Extract chapter number for Bible book format
+                    const chapter = firstRef?.split(" ")[1]?.split(":")[0];
+                    newChapterNumber = parseInt(chapter) || 1;
+                    shouldFilterByChapter = true;
+                }
+            }
+            // If not Bible book format, don't filter by chapter - search all cells
 
             // Check if this is a new highlight (different chapter than last highlighted)
             const isNewHighlight = newChapterNumber !== lastHighlightedChapter;
@@ -920,52 +963,81 @@ const CodexCellEditor: React.FC = () => {
                 (isNewHighlight || chapterNumber === chapterWhenHighlighted);
 
             if (shouldAutoNavigate) {
-                // Get all cells for the target chapter
-                const allCellsForTargetChapter = translationUnits.filter((verse) => {
-                    // Include milestone cells for their chapter
-                    if (verse.cellType === CodexCellTypes.MILESTONE) {
-                        const milestoneChapter = extractChapterFromMilestoneValue(
-                            verse.cellContent
+                let cellsToSearch: QuillCellContent[];
+
+                if (shouldFilterByChapter) {
+                    // Get all cells for the target chapter (Bible book format)
+                    const allCellsForTargetChapter = translationUnits.filter((verse) => {
+                        // Include milestone cells for their chapter
+                        if (verse.cellType === CodexCellTypes.MILESTONE) {
+                            const milestoneChapter = extractChapterFromMilestoneValue(
+                                verse.cellContent
+                            );
+                            return milestoneChapter === newChapterNumber.toString();
+                        }
+                        const verseChapter = verse?.cellMarkers?.[0]
+                            ?.split(" ")?.[1]
+                            ?.split(":")[0];
+                        return verseChapter === newChapterNumber.toString();
+                    });
+
+                    // Filter out milestone cells for pagination calculations (they're excluded from the view)
+                    cellsToSearch = allCellsForTargetChapter.filter(
+                        (verse) => verse.cellType !== CodexCellTypes.MILESTONE
+                    );
+                } else {
+                    // For non-Bible book format, search all cells (excluding milestones)
+                    cellsToSearch = translationUnits.filter(
+                        (verse) => verse.cellType !== CodexCellTypes.MILESTONE
+                    );
+                }
+
+                // Find the index of the highlighted cell within the cells to search
+                // Prioritize cellId matching
+                const cellIndexInSearchSet = cellsToSearch.findIndex((verse) => {
+                    // Prioritize cellId matching
+                    if (highlightedCellId) {
+                        return verse.cellMarkers && verse.cellMarkers.includes(highlightedCellId);
+                    } else if (
+                        highlightedGlobalReferences &&
+                        highlightedGlobalReferences.length > 0
+                    ) {
+                        // Fallback to globalReferences matching
+                        const cellGlobalRefs = verse.data?.globalReferences || [];
+                        return highlightedGlobalReferences.some((ref) =>
+                            cellGlobalRefs.includes(ref)
                         );
-                        return milestoneChapter === newChapterNumber.toString();
                     }
-                    const verseChapter = verse?.cellMarkers?.[0]?.split(" ")?.[1]?.split(":")[0];
-                    return verseChapter === newChapterNumber.toString();
+                    return false;
                 });
-
-                // Filter out milestone cells for pagination calculations (they're excluded from the view)
-                const cellsForTargetChapterWithoutMilestones = allCellsForTargetChapter.filter(
-                    (verse) => verse.cellType !== CodexCellTypes.MILESTONE
-                );
-
-                // Find the index of the highlighted cell within the chapter (excluding milestones)
-                const cellIndexInChapter = cellsForTargetChapterWithoutMilestones.findIndex(
-                    (verse) => verse.cellMarkers[0] === cellId
-                );
 
                 // Calculate which subsection this cell belongs to
                 let targetSubsectionIndex = 0;
-                if (cellIndexInChapter >= 0 && cellsPerPage > 0) {
-                    targetSubsectionIndex = Math.floor(cellIndexInChapter / cellsPerPage);
+                if (cellIndexInSearchSet >= 0 && cellsPerPage > 0) {
+                    targetSubsectionIndex = Math.floor(cellIndexInSearchSet / cellsPerPage);
                 }
 
-                // If chapter is changing, update chapter and subsection
-                if (newChapterNumber !== chapterNumber) {
-                    setChapterNumber(newChapterNumber);
-                    setCurrentSubsectionIndex(targetSubsectionIndex);
-                } else {
-                    // Same chapter, but check if we need to change subsection
-                    // Check if chapter has multiple pages (subsections)
-                    if (
-                        cellsForTargetChapterWithoutMilestones.length > cellsPerPage &&
-                        targetSubsectionIndex !== currentSubsectionIndex
-                    ) {
+                // For Bible book format, update chapter navigation
+                if (shouldFilterByChapter) {
+                    // If chapter is changing, update chapter and subsection
+                    if (newChapterNumber !== chapterNumber) {
+                        setChapterNumber(newChapterNumber);
                         setCurrentSubsectionIndex(targetSubsectionIndex);
+                    } else {
+                        // Same chapter, but check if we need to change subsection
+                        // Check if chapter has multiple pages (subsections)
+                        if (
+                            cellsToSearch.length > cellsPerPage &&
+                            targetSubsectionIndex !== currentSubsectionIndex
+                        ) {
+                            setCurrentSubsectionIndex(targetSubsectionIndex);
+                        }
                     }
                 }
             }
         }
     }, [
+        highlightedGlobalReferences,
         highlightedCellId,
         scrollSyncEnabled,
         chapterNumber,
@@ -980,13 +1052,17 @@ const CodexCellEditor: React.FC = () => {
 
     // Track manual navigation away from highlighted chapter in source files
     useEffect(() => {
-        if (isSourceText && highlightedCellId && lastHighlightedChapter !== null) {
+        if (
+            isSourceText &&
+            highlightedGlobalReferences.length > 0 &&
+            lastHighlightedChapter !== null
+        ) {
             // If current chapter is different from the highlighted chapter, user navigated manually
             if (chapterNumber !== lastHighlightedChapter) {
                 setHasManuallyNavigatedAway(true);
             }
         }
-    }, [chapterNumber, isSourceText, highlightedCellId, lastHighlightedChapter]);
+    }, [chapterNumber, isSourceText, highlightedGlobalReferences, lastHighlightedChapter]);
 
     // A "temp" video URL that is used to update the video URL in the metadata modal.
     // We need to use the client-side file picker, so we need to then pass the picked
@@ -1430,19 +1506,8 @@ const CodexCellEditor: React.FC = () => {
                 cells: cells.length,
             });
 
-            // Ignore stale responses - only process if this matches the latest request
-            const latestRequest = latestRequestRef.current;
-            if (
-                latestRequest &&
-                (latestRequest.milestoneIdx !== milestoneIdx ||
-                    latestRequest.subsectionIdx !== subsectionIdx)
-            ) {
-                debug(
-                    "pagination",
-                    `Ignoring stale response for milestone ${milestoneIdx}, subsection ${subsectionIdx}. Latest request is milestone ${latestRequest.milestoneIdx}, subsection ${latestRequest.subsectionIdx}`
-                );
-                return;
-            }
+            // Always update latestRequestRef to track current position
+            latestRequestRef.current = { milestoneIdx, subsectionIdx };
 
             // Replace translation units with new cells
             setTranslationUnits(cells);
@@ -1932,6 +1997,7 @@ const CodexCellEditor: React.FC = () => {
     // State for current user - initialize with a default test username to ensure logic works
     const [username, setUsername] = useState<string | null>("test-user");
     const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+    const [userAccessLevel, setUserAccessLevel] = useState<number | undefined>(undefined);
 
     // Fetch username from extension and add extensive debugging
     useEffect(() => {
@@ -1986,6 +2052,9 @@ const CodexCellEditor: React.FC = () => {
                 }
                 if (event.data.isAuthenticated !== undefined) {
                     setIsAuthenticated(event.data.isAuthenticated);
+                }
+                if (event.data.userAccessLevel !== undefined) {
+                    setUserAccessLevel(event.data.userAccessLevel);
                 }
             }
         },
@@ -2895,6 +2964,7 @@ const CodexCellEditor: React.FC = () => {
                             windowHeight={windowHeight}
                             headerHeight={headerHeight}
                             alertColorCodes={alertColorCodes}
+                            highlightedGlobalReferences={highlightedGlobalReferences}
                             highlightedCellId={highlightedCellId}
                             scrollSyncEnabled={scrollSyncEnabled}
                             translationQueue={translationQueue}
@@ -2924,6 +2994,7 @@ const CodexCellEditor: React.FC = () => {
                             requiredValidations={requiredValidations ?? undefined}
                             requiredAudioValidations={requiredAudioValidations ?? undefined}
                             isAuthenticated={isAuthenticated}
+                            userAccessLevel={userAccessLevel}
                             transcribingCells={transcribingCells}
                             showInlineBacktranslations={showInlineBacktranslations}
                             backtranslationsMap={backtranslationsMap}

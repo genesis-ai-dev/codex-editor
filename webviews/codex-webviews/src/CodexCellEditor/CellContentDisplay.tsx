@@ -22,6 +22,7 @@ import {
     DialogTitle,
 } from "../components/ui/dialog";
 import AudioPlayButton from "./AudioPlayButton";
+import { MessageCircle } from "lucide-react";
 
 const SHOW_VALIDATION_BUTTON = true;
 interface CellContentDisplayProps {
@@ -31,7 +32,8 @@ interface CellContentDisplayProps {
     isSourceText: boolean;
     hasDuplicateId: boolean;
     alertColorCode: number | undefined;
-    highlightedCellId?: string | null;
+    highlightedGlobalReferences?: string[];
+    highlightedCellId?: string | null; // Optional cellId for fallback matching when globalReferences is empty
     scrollSyncEnabled: boolean;
     lineNumber: string;
     label?: string;
@@ -60,6 +62,7 @@ interface CellContentDisplayProps {
     requiredValidations?: number;
     requiredAudioValidations?: number;
     isAuthenticated?: boolean;
+    userAccessLevel?: number;
     isAudioOnly?: boolean;
     showInlineBacktranslations?: boolean;
     backtranslation?: any;
@@ -109,6 +112,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         isSourceText,
         hasDuplicateId,
         alertColorCode,
+        highlightedGlobalReferences,
         highlightedCellId,
         scrollSyncEnabled,
         lineNumber,
@@ -132,16 +136,21 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         requiredValidations,
         requiredAudioValidations,
         isAuthenticated = false,
+        userAccessLevel,
         isAudioOnly = false,
         showInlineBacktranslations = false,
         backtranslation,
         isOtherTypeAudioPlaying = false,
     }) => {
         const cellIds = cell.cellMarkers;
+        // Lock state is ONLY honored from top-level metadata.isLocked
+        const isCellLocked = !!cell.metadata?.isLocked;
         const [fadingOut, setFadingOut] = useState(false);
         const [showSparkleButton, setShowSparkleButton] = useState(false);
         const [showAuthModal, setShowAuthModal] = useState(false);
         const [showOfflineModal, setShowOfflineModal] = useState(false);
+        const [isLockButtonGlowing, setIsLockButtonGlowing] = useState(false);
+        const [isLockButtonFlashing, setIsLockButtonFlashing] = useState(false);
         const { showTooltip, hideTooltip } = useTooltip();
 
         const cellRef = useRef<HTMLDivElement>(null);
@@ -202,31 +211,28 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         // Note: comments counts are provided by parent (`CellList`) to avoid per-cell fetches
 
         // Helper function to check if this cell should be highlighted
-        // Handles parent/child cell matching: child cells in target should highlight parent cells in source
+        // Prioritizes cellId matching, with fallback to globalReferences
         const checkShouldHighlight = useCallback((): boolean => {
-            return cellIds.some((cellId) => {
-                if (!highlightedCellId || !cellId) return false;
+            // Prioritize cellId matching
+            if (highlightedCellId && cellIds && cellIds.length > 0) {
+                // Check if the highlighted cellId matches any of this cell's markers
+                return cellIds.includes(highlightedCellId);
+            }
 
-                // Exact match
-                if (highlightedCellId === cellId) return true;
+            // Fallback to globalReferences matching
+            if (highlightedGlobalReferences && highlightedGlobalReferences.length > 0) {
+                // Get globalReferences from this cell
+                const cellGlobalRefs = cell.data?.globalReferences || [];
+                // Check if any highlighted reference matches this cell's references
+                return highlightedGlobalReferences.some((ref) => cellGlobalRefs.includes(ref));
+            }
 
-                // If highlighted cell is a child (3+ parts), check if this is the parent
-                const highlightedParts = highlightedCellId.split(":");
-                const cellParts = cellId.split(":");
-
-                if (highlightedParts.length >= 3 && cellParts.length === 2) {
-                    // Compare parent portion: "BOOK CHAPTER:VERSE"
-                    const highlightedParent = highlightedParts.slice(0, 2).join(":");
-                    return highlightedParent === cellId;
-                }
-
-                return false;
-            });
-        }, [cellIds, highlightedCellId]);
+            return false;
+        }, [cell, highlightedGlobalReferences, highlightedCellId, cellIds]);
 
         useEffect(() => {
-            debug("Before Scrolling to content highlightedCellId", {
-                highlightedCellId,
+            debug("Before Scrolling to content highlightedGlobalReferences", {
+                highlightedGlobalReferences,
                 cellIds,
                 isSourceText,
                 scrollSyncEnabled,
@@ -235,14 +241,20 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             const shouldHighlight = checkShouldHighlight();
 
             if (shouldHighlight && cellRef.current && isSourceText && scrollSyncEnabled) {
-                debug("Scrolling to content highlightedCellId", {
-                    highlightedCellId,
+                debug("Scrolling to content highlightedGlobalReferences", {
+                    highlightedGlobalReferences,
                     cellIds,
                     isSourceText,
                 });
                 cellRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
             }
-        }, [cellIds, checkShouldHighlight, highlightedCellId, isSourceText, scrollSyncEnabled]);
+        }, [
+            cellIds,
+            checkShouldHighlight,
+            highlightedGlobalReferences,
+            isSourceText,
+            scrollSyncEnabled,
+        ]);
 
         // Handler for stopping translation when clicked on the spinner
         const handleStopTranslation = (e: React.MouseEvent) => {
@@ -469,7 +481,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             return cellDisplayMode !== CELL_DISPLAY_MODES.INLINE;
         };
 
-        const handleAuthModalSignIn = () => {
+        const handleAuthModalLogIn = () => {
             vscode.postMessage({
                 command: "openLoginFlow",
             });
@@ -480,6 +492,49 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         const handleAuthModalClose = () => {
             setShowAuthModal(false);
             setShowSparkleButton(false);
+        };
+
+        // TEMPORARILY DISABLED: Lock/unlock functionality hidden from all users
+        // Users can still see the lock icon when a cell is locked, but cannot toggle it
+        // const handleToggleCellLock = () => {
+        //     const cellId = cellIds[0];
+        //     const newIsLocked = !(cell.metadata?.isLocked ?? false);
+        //     vscode.postMessage({
+        //         command: "updateCellIsLocked",
+        //         content: {
+        //             cellId,
+        //             isLocked: newIsLocked,
+        //         },
+        //     } as EditorPostMessages);
+
+        //     // Trigger glow animation
+        //     setIsLockButtonGlowing(true);
+        //     setTimeout(() => {
+        //         setIsLockButtonGlowing(false);
+        //     }, 500);
+        // };
+
+        const handleCellContentClick = () => {
+            hideTooltip();
+            if (!isCellLocked) {
+                handleCellClick(cellIds[0]);
+            } else {
+                // Flash red around lock icon when clicking a locked cell
+                setIsLockButtonFlashing(true);
+                setTimeout(() => {
+                    setIsLockButtonFlashing(false);
+                }, 500);
+            }
+        };
+
+        const handleOpenComments = (cellId: string) => {
+            // Send message to open comments tab and navigate to this cell
+            vscode.postMessage({
+                command: "openCommentsForCell",
+                content: {
+                    cellId: cellId,
+                },
+            });
         };
 
         const handleOfflineModalClose = () => {
@@ -567,10 +622,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         dangerouslySetInnerHTML={{
                             __html: processedHtml,
                         }}
-                        onClick={() => {
-                            hideTooltip();
-                            handleCellClick(cellIds[0]);
-                        }}
+                        onClick={handleCellContentClick}
                     />
                 );
             }
@@ -601,7 +653,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         return (
             <div
                 ref={cellRef}
-                className={`cell-content-display my-4 ${getAnimationClassName()}`}
+                className={`cell-content-display my-4 group ${getAnimationClassName()}`}
                 style={{
                     backgroundColor: getBackgroundColor(),
                     direction: textDirection,
@@ -666,7 +718,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                     alignItems: "center",
                                                     justifyContent: "center",
                                                     position: "relative",
-                                                    opacity: showSparkleButton ? 1 : 0,
+                                                    opacity: showSparkleButton
+                                                        ? isCellLocked
+                                                            ? 0.5
+                                                            : 1
+                                                        : 0,
                                                     transform: `translateX(${
                                                         showSparkleButton ? "0" : "20px"
                                                     }) scale(${showSparkleButton ? 1 : 0})`,
@@ -675,9 +731,21 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                     visibility: showSparkleButton
                                                         ? "visible"
                                                         : "hidden",
+                                                    cursor: isCellLocked
+                                                        ? "not-allowed"
+                                                        : "pointer",
                                                 }}
+                                                disabled={false}
                                                 onClick={(e) => {
                                                     e.stopPropagation();
+                                                    if (isCellLocked) {
+                                                        // Flash red around lock icon when clicking disabled sparkle
+                                                        setIsLockButtonFlashing(true);
+                                                        setTimeout(() => {
+                                                            setIsLockButtonFlashing(false);
+                                                        }, 500);
+                                                        return;
+                                                    }
                                                     handleSparkleButtonClick(e);
                                                 }}
                                             >
@@ -687,7 +755,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                             ? "codicon-loading codicon-modifier-spin"
                                                             : "codicon-sparkle"
                                                     }`}
-                                                    style={{ fontSize: "12px" }}
+                                                    style={{
+                                                        fontSize: "12px",
+                                                        opacity: isCellLocked ? 0.5 : 1,
+                                                    }}
                                                 ></i>
                                             </Button>
                                             <Dialog
@@ -697,13 +768,13 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                 <DialogContent>
                                                     <DialogHeader className="sm:text-center">
                                                         <DialogTitle>
-                                                            Sign in to use AI translation
+                                                            Log in to translate using AI
                                                         </DialogTitle>
                                                         <DialogDescription></DialogDescription>
                                                     </DialogHeader>
                                                     <DialogFooter className="flex-col sm:justify-center sm:flex-col">
-                                                        <Button onClick={handleAuthModalSignIn}>
-                                                            Sign In
+                                                        <Button onClick={handleAuthModalLogIn}>
+                                                            Log In
                                                         </Button>
                                                         <Button
                                                             variant="secondary"
@@ -801,6 +872,14 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                     cellId={cellIds[0]}
                                                     vscode={vscode}
                                                     state={audioState}
+                                                    isCellLocked={isCellLocked}
+                                                    onLockedClick={() => {
+                                                        // Flash red around lock icon when trying to record on a locked cell
+                                                        setIsLockButtonFlashing(true);
+                                                        setTimeout(() => {
+                                                            setIsLockButtonFlashing(false);
+                                                        }, 500);
+                                                    }}
                                                     onOpenCell={(id) => {
                                                         // Use force variant to ensure editor opens even with unsaved state
                                                         const open =
@@ -910,13 +989,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
                 {/* Right side: wrappable label + content */}
                 <div
-                    className={`flex flex-wrap items-baseline gap-[0.25rem] flex-1 min-w-0 ${
+                    className={`relative flex flex-wrap items-baseline gap-[0.25rem] flex-1 min-w-0 ${
                         lineNumbersEnabled ? "flex-col" : "flex-row"
                     }`}
-                    onClick={() => {
-                        hideTooltip();
-                        handleCellClick(cellIds[0]);
-                    }}
+                    onClick={handleCellContentClick}
                 >
                     {/* Cell label - shown after line number when present */}
                     {label && (
@@ -931,11 +1007,12 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         className={`flex-1 min-w-0 min-h-[1rem] ${
                             lineNumbersEnabled ? "pr-[0.25rem]" : "px-[0.25rem]"
                         }`}
+                        title={!isCellLocked ? "Click to edit" : "Cell is locked"}
                         onKeyDown={(e) => {
+                            // Match click behavior for accessibility; also respects lock state
                             if (e.key === "Enter") {
                                 e.preventDefault();
-                                hideTooltip();
-                                handleCellClick(cellIds[0]);
+                                handleCellContentClick();
                             }
                         }}
                     >
@@ -968,11 +1045,72 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 </div>
 
                 {/* Comments Badge positioned at far right of row */}
-                <div style={{ flexShrink: 0, marginLeft: "0.5rem" }}>
-                    <CommentsBadge
-                        cellId={cellIds[0]}
-                        unresolvedCount={initialUnresolvedCommentsCount}
-                    />
+                <div
+                    className="flex flex-col items-center self-center gap-[2px] w-[2rem]"
+                    style={{ flexShrink: 0, marginLeft: "0.5rem" }}
+                >
+                    {initialUnresolvedCommentsCount > 0 ? (
+                        <CommentsBadge
+                            cellId={cellIds[0]}
+                            unresolvedCount={initialUnresolvedCommentsCount}
+                        />
+                    ) : (
+                        <Button
+                            title="Open comments"
+                            variant="ghost"
+                            className="invisible group-hover:visible hover:bg-secondary/80 p-1 rounded-md group-hover:transition-colors h-auto"
+                            onClick={() => handleOpenComments(cellIds[0])}
+                        >
+                            <MessageCircle className="w-4 h-4" />
+                        </Button>
+                    )}
+                    {/* TEMPORARILY DISABLED: Lock/unlock button functionality hidden from all users */}
+                    {/* Users can still see the lock icon when a cell is locked, but cannot toggle it */}
+                    {/* {(cell.metadata?.isLocked ?? false) ||
+                    (userAccessLevel !== undefined && userAccessLevel >= 40) ? (
+                        <Button
+                            title={
+                                userAccessLevel !== undefined && userAccessLevel >= 40
+                                    ? "Toggle cell lock"
+                                    : "Cell is locked"
+                            }
+                            variant="ghost"
+                            className={`p-1 h-[18px] ${
+                                isLockButtonGlowing ? "lock-button-glowing" : ""
+                            } ${isLockButtonFlashing ? "lock-button-flashing" : ""}`}
+                            onClick={
+                                userAccessLevel !== undefined && userAccessLevel >= 40
+                                    ? handleToggleCellLock
+                                    : undefined
+                            }
+                            disabled={userAccessLevel === undefined || userAccessLevel < 40}
+                        >
+                            {!(cell.metadata?.isLocked ?? false) ? (
+                                <i
+                                    className={`codicon codicon-unlock ${
+                                        isLockButtonGlowing
+                                            ? "visible"
+                                            : "invisible group-hover:visible"
+                                    }`}
+                                    style={{ fontSize: "1.2em" }}
+                                />
+                            ) : (
+                                <i className="codicon codicon-lock" style={{ fontSize: "1.2em" }} />
+                            )}
+                        </Button>
+                    ) : null} */}
+
+                    {/* Show lock icon (non-interactive) when cell is locked */}
+                    {isCellLocked ? (
+                        <div
+                            title="Cell is locked"
+                            className={`p-1 h-[18px] flex items-center ${
+                                isLockButtonFlashing ? "lock-button-flashing" : ""
+                            }`}
+                        >
+                            <i className="codicon codicon-lock" style={{ fontSize: "1.2em" }} />
+                        </div>
+                    ) : null}
                 </div>
             </div>
         );

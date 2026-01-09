@@ -35,7 +35,8 @@ export interface CellListProps {
     windowHeight: number;
     headerHeight: number;
     alertColorCodes: { [cellId: string]: number };
-    highlightedCellId: string | null;
+    highlightedGlobalReferences: string[];
+    highlightedCellId?: string | null; // Optional cellId for fallback matching when globalReferences is empty
     scrollSyncEnabled: boolean;
     translationQueue?: string[]; // Queue of cells waiting for translation
     currentProcessingCellId?: string; // Currently processing cell ID
@@ -61,6 +62,7 @@ export interface CellListProps {
     requiredValidations?: number;
     requiredAudioValidations?: number;
     isAuthenticated?: boolean;
+    userAccessLevel?: number;
     // Cells currently undergoing audio transcription
     transcribingCells?: Set<string>;
     isAudioOnly?: boolean;
@@ -101,6 +103,7 @@ const CellList: React.FC<CellListProps> = ({
     headerHeight,
     spellCheckResponse,
     alertColorCodes,
+    highlightedGlobalReferences,
     highlightedCellId,
     scrollSyncEnabled,
     translationQueue = [],
@@ -118,6 +121,7 @@ const CellList: React.FC<CellListProps> = ({
     requiredValidations,
     requiredAudioValidations,
     transcribingCells,
+    userAccessLevel,
     isAudioOnly = false,
     showInlineBacktranslations = false,
     backtranslationsMap = new Map(),
@@ -757,6 +761,7 @@ const CellList: React.FC<CellListProps> = ({
                                 isSourceText={isSourceText}
                                 hasDuplicateId={hasDuplicateId}
                                 alertColorCode={alertColorCodes[cellMarkers[0]]}
+                                highlightedGlobalReferences={highlightedGlobalReferences}
                                 highlightedCellId={highlightedCellId}
                                 scrollSyncEnabled={scrollSyncEnabled}
                                 isInTranslationProcess={isCellInTranslationProcess(cellMarkers[0])}
@@ -777,6 +782,7 @@ const CellList: React.FC<CellListProps> = ({
                                 videoUrl={videoUrl}
                                 requiredAudioValidations={requiredAudioValidations}
                                 isAuthenticated={isAuthenticated}
+                                userAccessLevel={userAccessLevel}
                                 isAudioOnly={isAudioOnly}
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
@@ -795,7 +801,7 @@ const CellList: React.FC<CellListProps> = ({
             vscode,
             isSourceText,
             duplicateCellIds,
-            highlightedCellId,
+            highlightedGlobalReferences,
             scrollSyncEnabled,
             alertColorCodes,
             generateCellLabel,
@@ -813,6 +819,7 @@ const CellList: React.FC<CellListProps> = ({
             requiredValidations,
             requiredAudioValidations,
             isAuthenticated,
+            userAccessLevel,
             isAudioOnly,
             lineNumbersEnabled,
         ]
@@ -949,6 +956,7 @@ const CellList: React.FC<CellListProps> = ({
                                 isSourceText={isSourceText}
                                 hasDuplicateId={false}
                                 alertColorCode={alertColorCodes[cellMarkers[0]]}
+                                highlightedGlobalReferences={highlightedGlobalReferences}
                                 highlightedCellId={highlightedCellId}
                                 scrollSyncEnabled={scrollSyncEnabled}
                                 isInTranslationProcess={isCellInTranslationProcess(cellMarkers[0])}
@@ -966,6 +974,7 @@ const CellList: React.FC<CellListProps> = ({
                                 requiredValidations={requiredValidations}
                                 requiredAudioValidations={requiredAudioValidations}
                                 isAuthenticated={isAuthenticated}
+                                userAccessLevel={userAccessLevel}
                                 isAudioOnly={isAudioOnly}
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
@@ -1010,7 +1019,7 @@ const CellList: React.FC<CellListProps> = ({
         lineNumbersEnabled,
         vscode,
         alertColorCodes,
-        highlightedCellId,
+        highlightedGlobalReferences,
         scrollSyncEnabled,
         isCellInTranslationProcess,
         getCellTranslationState,
