@@ -73,7 +73,9 @@ export function convertCellToQuillContent(cell: CustomNotebookCellData): QuillCe
         attachments: cell.metadata?.attachments || {},
         metadata: {
             selectedAudioId: cell.metadata?.selectedAudioId,
+            selectionTimestamp: cell.metadata?.selectionTimestamp,
             parentId: cell.metadata?.parentId,
+            isLocked: cell.metadata?.isLocked,
         },
     };
 }
