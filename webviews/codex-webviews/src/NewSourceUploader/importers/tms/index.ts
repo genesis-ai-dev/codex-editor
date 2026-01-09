@@ -12,6 +12,7 @@ import {
 } from '../../utils/workflowHelpers';
 import { XMLParser } from 'fast-xml-parser';
 import { CodexCellTypes } from 'types/enums';
+import { createTmsCellMetadata } from './cellMetadata';
 
 const SUPPORTED_EXTENSIONS = ['tmx', 'xliff', 'xlf'];
 
@@ -226,23 +227,37 @@ const escapeHtml = (text: string): string => {
  */
 const convertTranslationUnitsToCells = (
     units: TranslationUnit[],
+    fileName: string,
     extractTarget: boolean = false
 ) => {
     console.log(`Converting ${units.length} translation units to cells (extractTarget: ${extractTarget})`);
 
     const cells = units.map((unit, index) => {
-        // Use standard cell ID format to ensure all cells appear on the same page
-        const cellId = `tms 1:${index + 1}`;
         const text = extractTarget ? unit.target : unit.source;
         const targetText = extractTarget ? unit.source : unit.target;
 
         const cleanText = text.trim();
         const cleanTargetText = targetText.trim();
 
+        // Create cell metadata (generates UUID internally)
+        const { cellId, metadata: cellMetadata } = createTmsCellMetadata({
+            unitId: unit.id,
+            sourceLanguage: unit.sourceLanguage,
+            targetLanguage: unit.targetLanguage,
+            originalText: cleanText,
+            targetText: cleanTargetText,
+            note: unit.note,
+            fileName: fileName,
+            cellIndex: index + 1,
+        });
+
         // Create HTML markup
         const htmlContent = `<p class="translation-unit" data-unit-id="${escapeHtml(unit.id)}" data-source-language="${escapeHtml(unit.sourceLanguage)}" data-target-language="${escapeHtml(unit.targetLanguage)}">${escapeHtml(cleanText)}</p>`;
 
-        const cell = createProcessedCell(cellId, htmlContent);
+        const cell = createProcessedCell(cellId, htmlContent, {
+            type: 'text',
+            ...cellMetadata,
+        } as any);
 
         return cell;
     });
@@ -285,7 +300,7 @@ export const parseFile = async (
         onProgress?.(createProgress('Converting', 'Converting to codex cells...', 60));
 
         // Convert translation units to cells
-        const cells = convertTranslationUnitsToCells(translationUnits, extractTarget);
+        const cells = convertTranslationUnitsToCells(translationUnits, file.name, extractTarget);
 
         onProgress?.(createProgress('Creating Notebooks', 'Creating notebooks...', 80));
 
@@ -310,10 +325,20 @@ export const parseFile = async (
             metadata: {
                 id: `translation-source-${Date.now()}`,
                 originalFileName: file.name,
+                sourceFile: file.name,
                 originalFileData: arrayBuffer, // Store original file for round-trip export
                 corpusMarker: 'tms', // Use 'tms' for UI grouping, fileType stores the specific format
                 importerType: 'tms', // Set to 'tms' for consistent grouping
                 createdAt: new Date().toISOString(),
+                importContext: {
+                    importerType: 'tms',
+                    fileName: file.name,
+                    originalFileName: file.name,
+                    fileSize: file.size,
+                    fileType: fileType,
+                    fileFormat: corpusMarker,
+                    importTimestamp: new Date().toISOString(),
+                },
                 translationUnitCount: translationUnits.length,
                 sourceLanguage: translationUnits[0]?.sourceLanguage || '',
                 targetLanguage: translationUnits[0]?.targetLanguage || '',

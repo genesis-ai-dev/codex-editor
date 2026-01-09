@@ -5,7 +5,7 @@ export interface SpreadsheetColumn {
 }
 
 export interface ColumnMapping {
-    idColumn?: number;
+    globalReferencesColumn?: number;
     sourceColumn?: number;
     targetColumn?: number;
 }
@@ -28,7 +28,7 @@ export interface SpreadsheetCell {
     rowIndex: number;
 }
 
-export type ColumnType = 'id' | 'source' | 'target' | 'attachments' | 'unused';
+export type ColumnType = 'globalReferences' | 'source' | 'target' | 'attachments' | 'unused';
 
 export interface ColumnTypeSelection {
     [columnIndex: number]: ColumnType;
