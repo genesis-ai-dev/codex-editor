@@ -10,6 +10,20 @@ export type ProcessedNotebookMetadataBase = NotebookImportMetadataCore & {
     sourceFile: string;
     importerType: ImporterType;
     createdAt: string;
+
+    /**
+     * Import-time-only fields that the extension provider may need to persist or transform.
+     * These are optional across importers but should be part of the shared DTO contract
+     * so providers can access them without unsafe casts.
+     */
+    documentStructure?: string;
+    wordCount?: number;
+    mammothMessages?: unknown;
+    docxDocument?: string;
+    originalHash?: string;
+
+    /** Used by round-trip importers/exporters (stored in attachments/originals by the provider). */
+    originalFileData?: ArrayBuffer; // Fixme: this needs to be removed it's making files real big
 };
 
 export type MarkdownFeatures = {
@@ -71,7 +85,6 @@ export interface AudioNotebookMetadata extends ProcessedNotebookMetadataBase {
 
 export interface TmsNotebookMetadata extends ProcessedNotebookMetadataBase {
     importerType: "tms";
-    originalFileData?: ArrayBuffer;
     translationUnitCount?: number;
     sourceLanguage?: string;
     targetLanguage?: string;
@@ -81,7 +94,6 @@ export interface TmsNotebookMetadata extends ProcessedNotebookMetadataBase {
 
 export interface PdfNotebookMetadata extends ProcessedNotebookMetadataBase {
     importerType: "pdf";
-    originalFileData?: ArrayBuffer;
     fileType?: "pdf" | string;
     importDate?: string;
     totalCells?: number;
@@ -103,7 +115,6 @@ export interface PdfNotebookMetadata extends ProcessedNotebookMetadataBase {
 
 export interface ObsNotebookMetadata extends ProcessedNotebookMetadataBase {
     importerType: "obs";
-    originalFileData?: ArrayBuffer;
     storyNumber?: number;
     storyTitle?: string;
     totalSegments?: number;
@@ -155,7 +166,6 @@ export interface UsfmNotebookMetadata extends ProcessedNotebookMetadataBase {
 
 export interface UsfmExperimentalNotebookMetadata extends ProcessedNotebookMetadataBase {
     importerType: "usfm-experimental";
-    originalFileData?: ArrayBuffer;
     fileType?: "usfm" | string;
     bookCode?: string;
     bookName?: string;
@@ -171,20 +181,12 @@ export interface UsfmExperimentalNotebookMetadata extends ProcessedNotebookMetad
 
 export interface DocxNotebookMetadata extends ProcessedNotebookMetadataBase {
     importerType: "docx";
-    originalFileData?: ArrayBuffer;
-    wordCount?: number;
-    mammothMessages?: unknown;
-    documentStructure?: string;
 }
 
 export interface DocxRoundtripNotebookMetadata extends ProcessedNotebookMetadataBase {
     importerType: "docx-roundtrip";
-    originalFileData?: ArrayBuffer;
     corpusMarker?: string;
-    wordCount?: number;
     paragraphCount?: number;
-    docxDocument?: string;
-    originalHash?: string;
 }
 
 export interface IndesignNotebookMetadata extends ProcessedNotebookMetadataBase {

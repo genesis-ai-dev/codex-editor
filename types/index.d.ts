@@ -1024,6 +1024,7 @@ export type NotebookImportMetadataCore = Pick<
     | "importContext"
     | "textDirection"
     | "audioOnly"
+    | "videoUrl"
     | "fileDisplayName"
 > & {
     corpusMarker?: string;

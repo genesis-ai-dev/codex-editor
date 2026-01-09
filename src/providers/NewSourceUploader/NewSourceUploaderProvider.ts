@@ -374,7 +374,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
         // Basic normalization (trim whitespace) - full normalization with existing files 
         // happens in createNoteBookPair to preserve casing from existing files
-        const trimmedCorpusMarker = corpusMarker ? corpusMarker.trim() : undefined;
+        const trimmedCorpusMarker = corpusMarker?.trim();
 
         // Use fileDisplayName from metadata if it exists, otherwise derive from originalName
         // IMPORTANT: Always preserve fileDisplayName from metadata if it exists (e.g., "Hebrew Genesis", "Greek Matthew")
@@ -387,22 +387,22 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         if (isMaculaImporter && fileDisplayName && (fileDisplayName.startsWith("Hebrew ") || fileDisplayName.startsWith("Greek "))) {
             // Keep the existing fileDisplayName - don't override it
         } else if (!fileDisplayName) {
-        // Derive fileDisplayName from originalName without the file extension
-        const originalName = processedNotebook.metadata.originalFileName;
+            // Derive fileDisplayName from originalName without the file extension
+            const originalName = processedNotebook.metadata.originalFileName;
             fileDisplayName = originalName && typeof originalName === "string" && originalName.trim() !== ""
-            ? path.basename(originalName.trim(), path.extname(originalName.trim()))
-            : undefined;
+                ? path.basename(originalName.trim(), path.extname(originalName.trim()))
+                : undefined;
 
-        // For biblical books (NT/OT), convert USFM codes to full names during import
+            // For biblical books (NT/OT), convert USFM codes to full names during import
             // Also handle Macula corpus markers: "Hebrew Bible" and "Greek Bible"
             const isNTMarker = trimmedCorpusMarker === "NT" || trimmedCorpusMarker === "greek bible";
             const isOTMarker = trimmedCorpusMarker === "OT" || trimmedCorpusMarker === "hebrew bible";
 
             if (fileDisplayName && (isNTMarker || isOTMarker)) {
-            const usfmCode = extractUsfmCodeFromFilename(fileDisplayName);
-            if (usfmCode) {
-                // Convert USFM code to full book name
-                fileDisplayName = await getBookDisplayName(usfmCode);
+                const usfmCode = extractUsfmCodeFromFilename(fileDisplayName);
+                if (usfmCode) {
+                    // Convert USFM code to full book name
+                    fileDisplayName = await getBookDisplayName(usfmCode);
                     // Add language prefix for Macula importer: "Hebrew" for OT, "Greek" for NT
                     if (isMaculaImporter) {
                         const languagePrefix = isNTMarker ? "Greek" : "Hebrew";
@@ -432,28 +432,28 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             sourceCreatedAt: processedNotebook.metadata.createdAt,
             corpusMarker: trimmedCorpusMarker,
             textDirection: (processedNotebook.metadata.textDirection as "ltr" | "rtl" | undefined) || "ltr",
-            ...(fileDisplayName && { fileDisplayName }),
-            ...(processedNotebook.metadata.videoUrl && { videoUrl: processedNotebook.metadata.videoUrl }),
+            ...(fileDisplayName ? { fileDisplayName } : {}),
+            ...(processedNotebook.metadata.videoUrl ? { videoUrl: processedNotebook.metadata.videoUrl } : {}),
             ...(processedNotebook.metadata)?.audioOnly !== undefined
                 ? { audioOnly: processedNotebook.metadata.audioOnly as boolean }
                 : {},
             // Preserve document structure metadata and other custom fields
-            ...(processedNotebook.metadata.documentStructure && {
-                documentStructure: processedNotebook.metadata.documentStructure
-            }),
-            ...(processedNotebook.metadata.wordCount && {
-                wordCount: processedNotebook.metadata.wordCount
-            }),
-            ...(processedNotebook.metadata.mammothMessages && {
-                mammothMessages: processedNotebook.metadata.mammothMessages
-            }),
+            ...(processedNotebook.metadata.documentStructure
+                ? { documentStructure: processedNotebook.metadata.documentStructure }
+                : {}),
+            ...(processedNotebook.metadata.wordCount !== undefined
+                ? { wordCount: processedNotebook.metadata.wordCount }
+                : {}),
+            ...(processedNotebook.metadata.mammothMessages
+                ? { mammothMessages: processedNotebook.metadata.mammothMessages }
+                : {}),
             // Preserve DOCX round-trip structure
-            ...(processedNotebook.metadata?.docxDocument && {
-                docxDocument: processedNotebook.metadata.docxDocument
-            }),
-            ...(processedNotebook.metadata?.originalHash && {
-                originalHash: processedNotebook.metadata.originalHash
-            }),
+            ...(processedNotebook.metadata?.docxDocument
+                ? { docxDocument: processedNotebook.metadata.docxDocument }
+                : {}),
+            ...(processedNotebook.metadata?.originalHash
+                ? { originalHash: processedNotebook.metadata.originalHash }
+                : {}),
             ...(processedNotebook.metadata?.importerType && {
                 importerType: processedNotebook.metadata.importerType
             }),
@@ -504,7 +504,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (workspaceFolder) {
             for (const pair of message.notebookPairs) {
-                if (pair.source.metadata?.originalFileData) {
+                if ("originalFileData" in pair.source.metadata && pair.source.metadata.originalFileData) {
                     // Save the original file in attachments
                     const originalFileName = pair.source.metadata.originalFileName || 'document.docx';
                     const originalsDir = vscode.Uri.joinPath(
@@ -536,7 +536,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             message.notebookPairs.map(async pair => {
                 // For codex notebooks, remove the original file data to avoid duplication
                 const codexPair = { ...pair.codex };
-                if (codexPair.metadata?.originalFileData) {
+                if ("originalFileData" in codexPair.metadata && codexPair.metadata.originalFileData) {
                     codexPair.metadata = { ...codexPair.metadata };
                     delete codexPair.metadata.originalFileData;
                 }
