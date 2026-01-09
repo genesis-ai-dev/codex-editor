@@ -137,7 +137,19 @@ const validateFile = async (file: File): Promise<FileValidationResult> => {
 /**
  * Parses a subtitle file into notebook cells using proper libraries
  */
-const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<ImportResult> => {
+type SubtitleImportOptions = {
+    /**
+     * When true, include per-cell labels ("1", "2", "3", ...).
+     * When false (default), omit `cellLabel` entirely and rely on cue timings.
+     */
+    includeCellLabels?: boolean;
+};
+
+const parseFile = async (
+    file: File,
+    onProgress?: ProgressCallback,
+    options?: SubtitleImportOptions
+): Promise<ImportResult> => {
     console.log(
         '[RYDER] calling parseFile');
     try {
@@ -182,6 +194,8 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
         // Add cells using the ProcessedCell format
         for (let index = 0; index < parsed.cues.length; index++) {
             const cue = parsed.cues[index];
+            const includeCellLabels = options?.includeCellLabels ?? false;
+            const cellLabel = includeCellLabels ? String(index + 1) : null;
 
             // Create cell metadata with UUID, globalReferences, and chapterNumber
             const { cellId, metadata } = createSubtitleCellMetadata({
@@ -190,7 +204,7 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
                 endTime: cue.endTime,
                 format: format,
                 fileName: file.name,
-                cellLabel: `cue-${cue.startTime}-${cue.endTime}`,
+                cellLabel,
                 segmentIndex: index,
             });
 

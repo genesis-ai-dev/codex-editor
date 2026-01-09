@@ -3,6 +3,8 @@ import type { FileImporterType, NotebookImportContext, NotebookImportMetadataCor
 export type ImporterType = FileImporterType;
 export type ImportContext = NotebookImportContext;
 
+// Fixme: we need to audit all the fields to ensure we really need them all
+
 export type ProcessedNotebookMetadataBase = NotebookImportMetadataCore & {
     /** Required in import-time DTOs */
     id: string;

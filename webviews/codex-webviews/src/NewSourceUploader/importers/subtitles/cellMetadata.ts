@@ -17,7 +17,12 @@ export interface SubtitleCellMetadataParams {
     endTime: number | string; // End time in seconds (number) or timestamp string
     format: string; // Subtitle format (e.g., "VTT", "SRT")
     fileName?: string; // Optional file name
-    cellLabel?: string; // Optional cell label
+    /**
+     * Optional cell label.
+     * - If undefined, defaults to `cue-<start>-<end>` (backwards compatible).
+     * - If null, the label is omitted entirely.
+     */
+    cellLabel?: string | null;
     segmentIndex?: number; // Optional segment index for milestone detection
 }
 
@@ -67,8 +72,9 @@ export function createSubtitleCellMetadata(params: SubtitleCellMetadataParams): 
     // Determine chapter number for milestone detection
     const chapterNumber = getChapterNumber(params.segmentIndex, params.startTime);
 
-    // Determine cell label
-    const cellLabel = params.cellLabel || `cue-${params.startTime}-${params.endTime}`;
+    // Determine cell label (support explicit omission via null)
+    const defaultCueLabel = `cue-${params.startTime}-${params.endTime}`;
+    const cellLabel = params.cellLabel === null ? undefined : (params.cellLabel ?? defaultCueLabel);
 
     // Convert times to numbers for consistent storage
     const startTimeSeconds = convertToSeconds(params.startTime);
@@ -81,7 +87,7 @@ export function createSubtitleCellMetadata(params: SubtitleCellMetadataParams): 
             type: CodexCellTypes.TEXT,
             edits: [],
             chapterNumber: chapterNumber, // Chapter number for milestone detection
-            cellLabel: cellLabel,
+            ...(cellLabel ? { cellLabel } : {}),
             originalText: params.text,
             data: {
                 startTime: startTimeSeconds,
