@@ -130,6 +130,8 @@ const AudioPlayButton: React.FC<{
     videoUrl?: string;
     disabled?: boolean;
     isSourceText?: boolean;
+    isCellLocked?: boolean;
+    onLockedClick?: () => void;
 }> = React.memo(
     ({
         cellId,
@@ -142,6 +144,8 @@ const AudioPlayButton: React.FC<{
         videoUrl,
         disabled = false,
         isSourceText = false,
+        isCellLocked = false,
+        onLockedClick
     }) => {
         const [isPlaying, setIsPlaying] = useState(false);
         const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -415,8 +419,15 @@ const AudioPlayButton: React.FC<{
                     state !== "available-local" &&
                     state !== "available-pointer"
                 ) {
+                    // Locked cells: don't open editor to record/re-record.
+                    // (Playback is handled in available/available-local/available-pointer states.)
+                    if (isCellLocked && state !== "missing") {
+                        onLockedClick?.();
+                        return;
+                    }
+
                     // For missing audio, just open the editor without auto-starting recording
-                    if (state !== "missing") {
+                    if (state !== "missing" && !isCellLocked) {
                         try {
                             sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");
                         } catch (e) {
@@ -685,6 +696,8 @@ const AudioPlayButton: React.FC<{
                         ? "Play"
                         : state === "missing"
                         ? "Missing audio"
+                        : isCellLocked
+                        ? "Cell is locked"
                         : "Record"
                 }
                 disabled={disabled}
