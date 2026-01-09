@@ -158,7 +158,8 @@ interface SmartEdit {
 }
 
 interface CellIdGlobalState {
-    cellId: string;
+    cellId: string; // UUID for internal cell reference
+    globalReferences: string[]; // Array of Bible references (e.g., ["GEN 1:1", "GEN 1:2"]) - primary mechanism for highlighting
     uri: string;
     timestamp?: string;
 }
@@ -178,7 +179,7 @@ type VerseRefGlobalState = {
 };
 type CommentPostMessages =
     | { command: "commentsFromWorkspace"; content: string; isLiveUpdate?: boolean; }
-    | { command: "reload"; data?: { cellId: string; uri?: string; }; }
+    | { command: "reload"; data?: { cellId: string; globalReferences: string[]; uri?: string; }; }
     | { command: "updateCommentThread"; commentThread: NotebookCommentThread; }
     | { command: "deleteCommentThread"; commentThreadId: string; }
     | { command: "deleteComment"; args: { commentId: string; commentThreadId: string; }; }
@@ -2053,6 +2054,15 @@ type EditorReceiveMessages =
     | {
         type: "updateFileStatus";
         status: "dirty" | "syncing" | "synced" | "none";
+    }
+    | {
+        type: "highlightCell";
+        globalReferences: string[];
+        cellId?: string; // Optional cellId for fallback matching when globalReferences is empty
+    }
+    | {
+        type: "updateCellsPerPage";
+        cellsPerPage: number;
     }
     | {
         type: "editorPosition";
