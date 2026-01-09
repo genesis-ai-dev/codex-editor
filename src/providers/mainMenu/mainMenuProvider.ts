@@ -588,7 +588,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 }
                 break;
             case "createNewWorkspaceAndProject":
-                await createNewWorkspaceAndProject();
+                await createNewWorkspaceAndProject(this._context);
                 break;
             case "changeProjectName":
                 await this.handleChangeProjectName(message.projectName);

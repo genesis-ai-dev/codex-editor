@@ -285,6 +285,8 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
         format: "scripture burrito",
         projectName:
             details.projectName ||
+            // Fall back to workspace folder name (which includes UUID) if no name provided
+            (vscode.workspace.workspaceFolders?.[0]?.name) ||
             vscode.workspace.getConfiguration("codex-project-manager").get<string>("projectName") ||
             "", // previously "Codex Project"
         projectId: projectId,

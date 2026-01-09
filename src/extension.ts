@@ -510,6 +510,14 @@ export async function activate(context: vscode.ExtensionContext) {
                 await vscode.workspace.fs.stat(metadataUri);
                 metadataExists = true;
 
+                // Validate and fix projectId mismatches
+                try {
+                    const { validateAndFixProjectId } = await import("./utils/projectIdValidator");
+                    await validateAndFixProjectId(workspaceFolders[0].uri);
+                } catch (validationError) {
+                    console.error("[Extension] Error validating projectId:", validationError);
+                }
+
                 // Update extension version requirements for conflict-free metadata management
                 try {
                     const currentVersion = MetadataManager.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");

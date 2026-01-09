@@ -1776,7 +1776,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 break;
             case "project.createEmpty": {
                 debugLog("Creating empty project");
-                await createNewWorkspaceAndProject();
+                await createNewWorkspaceAndProject(this.context);
                 break;
             }
             case "project.createEmptyWithName": {
@@ -1797,7 +1797,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // Generate projectId immediately if no sanitization needed
                         const projectId = generateProjectId();
                         await this.context.globalState.update("pendingProjectCreate", true);
-                        await this.context.globalState.update("pendingProjectCreateName", sanitized);
+                        // Store full name with UUID for display
+                        await this.context.globalState.update("pendingProjectCreateName", `${sanitized}-${projectId}`);
+                        await this.context.globalState.update("pendingProjectCreateId", projectId);
                         await createWorkspaceWithProjectName(sanitized, projectId);
                     }
                 } catch (error) {
@@ -1809,9 +1811,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 const { proceed, projectName, projectId } = message;
                 if (proceed && projectName) {
                     await this.context.globalState.update("pendingProjectCreate", true);
-                    await this.context.globalState.update("pendingProjectCreateName", projectName);
                     // Use provided projectId or generate one if not provided (shouldn't happen in normal flow)
                     const finalProjectId = projectId || generateProjectId();
+                    // Store full name with UUID for display
+                    await this.context.globalState.update("pendingProjectCreateName", `${projectName}-${finalProjectId}`);
                     await this.context.globalState.update("pendingProjectCreateId", finalProjectId);
                     await createWorkspaceWithProjectName(projectName, finalProjectId);
                 }
@@ -4148,12 +4151,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         try {
             const remoteProjects = await this.frontierApi.listProjects(false);
 
-            // Clean up project names - remove unique IDs
-            remoteProjects.forEach((project) => {
-                if (project.name[project.name.length - 23] === "-") {
-                    project.name = project.name.slice(0, -23);
-                }
-            });
+            // Keep full project names with UUID for proper identification
+            // (Previously stripped the UUID suffix, but now keeping it for differentiation)
 
             return remoteProjects;
         } catch (error) {

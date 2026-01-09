@@ -38,18 +38,9 @@ export default function PublishProject() {
             if (m?.type === "init") {
                 if (m.defaults?.projectId) {
                     setProjectId(m.defaults.projectId);
-                    // Strip projectId from name if it's included
-                    if (m.defaults?.name) {
-                        const nameWithId = m.defaults.name;
-                        const nameWithoutId = nameWithId.endsWith(`-${m.defaults.projectId}`)
-                            ? nameWithId.slice(
-                                  0,
-                                  nameWithId.length - `-${m.defaults.projectId}`.length
-                              )
-                            : nameWithId;
-                        setName(nameWithoutId);
-                    }
-                } else if (m.defaults?.name) {
+                }
+                // Keep the full name with UUID for proper identification
+                if (m.defaults?.name) {
                     setName(m.defaults.name);
                 }
                 if (m.defaults?.visibility) setVisibility(m.defaults.visibility as Visibility);
@@ -138,20 +129,19 @@ export default function PublishProject() {
                             className="text-sm text-[var(--vscode-descriptionForeground)]"
                             htmlFor="name"
                         >
-                            Project name
+                            Project name (from workspace folder)
                         </label>
                         <input
                             id="name"
                             value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            className="w-full rounded-md px-2 py-1 text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]"
+                            readOnly
+                            className="w-full rounded-md px-2 py-1 text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-disabledForeground)] cursor-not-allowed"
                             placeholder="my-project"
+                            title="Project name is based on the workspace folder name and cannot be changed"
                         />
-                        {!isValidName && (
-                            <div className="text-sm text-[var(--vscode-errorForeground)]">
-                                Use only letters, numbers, underscore, dot, or hyphen.
-                            </div>
-                        )}
+                        <div className="text-xs text-[var(--vscode-descriptionForeground)]">
+                            Project name matches your workspace folder and includes a unique ID
+                        </div>
                     </div>
 
                     <div className="space-y-1">
