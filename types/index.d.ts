@@ -968,6 +968,11 @@ export interface CustomNotebookMetadata {
      */
     originalFileName?: string;
     /**
+     * Canonical source identifier for the imported artifact.
+     * Stored at notebook-level (not per-cell). For most importers this matches originalFileName.
+     */
+    sourceFile?: string;
+    /**
      * One-time import context derived from the import process.
      * This is the canonical home for attributes that do not vary per-cell.
      */
@@ -978,12 +983,56 @@ type CustomNotebookDocument = vscode.NotebookDocument & {
     metadata: CustomNotebookMetadata;
 };
 
-type CodexNotebookAsJSONData = {
-    cells: CustomNotebookCellData[];
-    metadata: CustomNotebookMetadata;
+export type NotebookAsJSONData<TCells, TMetadata> = {
+    cells: TCells[];
+    metadata: TMetadata;
 };
 
-type FileImporterType = "smart-segmenter" | "audio" | "docx-roundtrip" | "markdown" | "subtitles" | "spreadsheet" | "tms" | "pdf" | "indesign" | "usfm" | "paratext" | "ebible" | "macula" | "biblica" | "obs";
+type CodexNotebookAsJSONData = NotebookAsJSONData<CustomNotebookCellData, CustomNotebookMetadata>;
+
+type FileImporterType =
+    | "smart-segmenter"
+    | "plaintext"
+    | "audio"
+    | "docx"
+    | "docx-roundtrip"
+    | "markdown"
+    | "subtitles"
+    | "spreadsheet"
+    | "tms"
+    | "pdf"
+    | "indesign"
+    | "usfm"
+    | "usfm-experimental"
+    | "paratext"
+    | "ebible"
+    | "ebibleCorpus"
+    | "macula"
+    | "biblica"
+    | "obs";
+
+/**
+ * Minimal notebook metadata shared by importer/webview DTOs and persisted notebook metadata.
+ * This avoids duplicating the same "import core" fields across webview and extension types.
+ */
+export type NotebookImportMetadataCore = Pick<
+    CustomNotebookMetadata,
+    | "id"
+    | "originalFileName"
+    | "sourceFile"
+    | "importerType"
+    | "importContext"
+    | "textDirection"
+    | "audioOnly"
+    | "fileDisplayName"
+> & {
+    corpusMarker?: string;
+    /**
+     * Import-time timestamp (webview DTOs). The provider may map this into sourceCreatedAt.
+     */
+    createdAt?: string;
+    isCodex?: boolean;
+};
 
 export type NotebookImportContext = {
     importerType?: FileImporterType | string;

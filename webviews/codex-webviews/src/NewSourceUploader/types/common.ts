@@ -39,7 +39,7 @@ export type ProcessedNotebookForImporter<T extends ImporterType> = Omit<
     ProcessedNotebook,
     "metadata"
 > & {
-    metadata: ProcessedNotebookMetadataByImporter[T];
+    metadata: ProcessedNotebookMetadataByImporter[Extract<T, keyof ProcessedNotebookMetadataByImporter>];
 };
 
 export interface ImportProgress {

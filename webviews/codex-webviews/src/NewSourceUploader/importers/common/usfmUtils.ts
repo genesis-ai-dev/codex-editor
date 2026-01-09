@@ -4,7 +4,6 @@ import {
     NotebookPair,
 } from '../../types/common';
 import type {
-    ImportContext,
     ImporterType,
     ProcessedNotebookMetadataByImporter,
 } from '../../types/processedNotebookMetadata';
@@ -523,7 +522,7 @@ export const exportToUSFM = (processed: ProcessedUsfmBook): string => {
 /**
  * Creates a notebook pair from processed USFM content
  */
-export const createNotebookPair = <T extends ImporterType>(
+export const createNotebookPair = <T extends keyof ProcessedNotebookMetadataByImporter>(
     baseName: string,
     cells: ProcessedCell[],
     importerType: T,

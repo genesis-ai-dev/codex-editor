@@ -1,55 +1,16 @@
-export type ImporterType =
-    | "usfm"
-    | "usfm-experimental"
-    | "markdown"
-    | "subtitles"
-    | "plaintext"
-    | "pdf"
-    | "obs"
-    | "paratext"
-    | "ebibleCorpus"
-    | "docx"
-    | "docx-roundtrip"
-    | "spreadsheet"
-    | "smart-segmenter"
-    | "tms"
-    | "audio"
-    | "indesign"
-    | "biblica"
-    | "macula";
+import type { FileImporterType, NotebookImportContext, NotebookImportMetadataCore } from "types";
 
-export interface ImportContext {
-    importerType: ImporterType;
-    fileName: string;
-    originalFileName: string;
-    importTimestamp: string;
-    fileSize?: number;
-    fileType?: string;
-    fileFormat?: string;
-    originalHash?: string;
-    documentId?: string;
-    thresholdDb?: number;
-    minDuration?: number;
-    contentType?: "notes";
-}
+export type ImporterType = FileImporterType;
+export type ImportContext = NotebookImportContext;
 
-export interface ProcessedNotebookMetadataBase {
+export type ProcessedNotebookMetadataBase = NotebookImportMetadataCore & {
+    /** Required in import-time DTOs */
     id: string;
-    /** Original filename of the imported artifact (e.g. "mydoc.docx") */
     originalFileName: string;
-    /**
-     * Canonical source file identifier for the importer (kept at notebook-level, not per-cell).
-     * For most importers this matches originalFileName.
-     */
     sourceFile: string;
     importerType: ImporterType;
     createdAt: string;
-    importContext?: ImportContext;
-    corpusMarker?: string;
-    textDirection?: "ltr" | "rtl";
-    audioOnly?: boolean;
-    isCodex?: boolean;
-}
+};
 
 export type MarkdownFeatures = {
     hasImages: boolean;
@@ -188,7 +149,7 @@ export interface UsfmNotebookMetadata extends ProcessedNotebookMetadataBase {
     bookName?: string;
     totalVerses?: number;
     totalParatext?: number;
-    chapters?: Array<{ chapterNumber: number; verseCount: number }>;
+    chapters?: Array<{ chapterNumber: number; verseCount: number; }>;
     footnoteCount?: number;
 }
 
@@ -200,7 +161,7 @@ export interface UsfmExperimentalNotebookMetadata extends ProcessedNotebookMetad
     bookName?: string;
     totalVerses?: number;
     totalParatext?: number;
-    chapters?: Array<{ chapterNumber: number; verseCount: number }>;
+    chapters?: Array<{ chapterNumber: number; verseCount: number; }>;
     footnoteCount?: number;
     structureMetadata?: {
         originalUsfmContent: string;
