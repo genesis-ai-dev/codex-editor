@@ -3,6 +3,11 @@ import {
     ProcessedNotebook,
     NotebookPair,
 } from '../../types/common';
+import type {
+    ImportContext,
+    ImporterType,
+    ProcessedNotebookMetadataByImporter,
+} from '../../types/processedNotebookMetadata';
 import { getCorpusMarkerForBook } from '../../utils/corpusUtils';
 import {
     createVerseCellMetadata,
@@ -518,11 +523,14 @@ export const exportToUSFM = (processed: ProcessedUsfmBook): string => {
 /**
  * Creates a notebook pair from processed USFM content
  */
-export const createNotebookPair = (
+export const createNotebookPair = <T extends ImporterType>(
     baseName: string,
     cells: ProcessedCell[],
-    importerType: string,
-    metadata: Record<string, any> = {}
+    importerType: T,
+    metadata: Omit<
+        ProcessedNotebookMetadataByImporter[T],
+        'id' | 'importerType' | 'createdAt' | 'sourceFile'
+    >
 ): NotebookPair => {
     // Validate baseName to prevent empty filenames
     if (!baseName || baseName.trim() === '') {

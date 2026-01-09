@@ -1,3 +1,9 @@
+import type {
+    ImporterType,
+    ProcessedNotebookMetadata,
+    ProcessedNotebookMetadataByImporter,
+} from "./processedNotebookMetadata";
+
 export interface ProcessedImage {
     src: string;
     alt?: string;
@@ -17,18 +23,24 @@ export interface ProcessedCell {
 export interface ProcessedNotebook {
     name: string;
     cells: ProcessedCell[];
-    metadata: {
-        id: string;
-        originalFileName: string;
-        importerType: string;
-        createdAt: string;
-    };
+    metadata: ProcessedNotebookMetadata;
 }
 
 export interface NotebookPair {
     source: ProcessedNotebook;
     codex: ProcessedNotebook;
 }
+
+/**
+ * A typed variant of ProcessedNotebook that narrows metadata based on importerType.
+ * Use this in importer implementations to get full metadata type safety.
+ */
+export type ProcessedNotebookForImporter<T extends ImporterType> = Omit<
+    ProcessedNotebook,
+    "metadata"
+> & {
+    metadata: ProcessedNotebookMetadataByImporter[T];
+};
 
 export interface ImportProgress {
     stage: string;
