@@ -145,8 +145,6 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
     public postMessage(message: any): void {
         if (this._view) {
             safePostMessageToView(this._view, message, "Global");
-        } else {
-            console.error(`WebviewView ${this.getWebviewId()} is not initialized`);
         }
     }
 
@@ -200,14 +198,18 @@ export class GlobalProvider {
 
             const destination = message.destination;
             if (destination === "webview") {
-                this.postMessageToAllWebviews(message);
+                // Forward the message to all webviews, preserving the original structure
+                // Send the full GlobalMessage object so webviews receive command, destination, and content
+                this.providers.forEach((provider, _key) => {
+                    provider.postMessage(message as GlobalMessage);
+                });
             } else if (destination === "provider") {
                 this.postMessageToAllProviders(message);
             }
         }
     }
     public postMessageToAllProviders(message: any) {
-        this.providers.forEach((provider, key) => {
+        this.providers.forEach((provider, _key) => {
             provider.receiveMessage(message);
         });
     }
@@ -226,7 +228,7 @@ export class GlobalProvider {
             content,
         };
 
-        this.providers.forEach((provider, key) => {
+        this.providers.forEach((provider, _key) => {
             provider.postMessage(message);
         });
     }

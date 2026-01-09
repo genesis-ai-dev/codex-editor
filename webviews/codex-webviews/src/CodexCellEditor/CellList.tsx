@@ -75,6 +75,8 @@ export interface CellListProps {
     playerRef?: React.RefObject<ReactPlayerRef>;
     shouldShowVideoPlayer?: boolean;
     videoUrl?: string;
+    // Audio playback state from other webview type
+    isOtherTypeAudioPlaying?: boolean;
 }
 
 const DEBUG_ENABLED = false;
@@ -127,6 +129,7 @@ const CellList: React.FC<CellListProps> = ({
     currentMilestoneIndex = 0,
     currentSubsectionIndex = 0,
     cellsPerPage = 50,
+    isOtherTypeAudioPlaying = false,
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -777,6 +780,7 @@ const CellList: React.FC<CellListProps> = ({
                                 isAudioOnly={isAudioOnly}
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
+                                isOtherTypeAudioPlaying={isOtherTypeAudioPlaying}
                             />
                         </span>
                     );
@@ -968,6 +972,7 @@ const CellList: React.FC<CellListProps> = ({
                                 playerRef={playerRef}
                                 shouldShowVideoPlayer={shouldShowVideoPlayer}
                                 videoUrl={videoUrl}
+                                isOtherTypeAudioPlaying={isOtherTypeAudioPlaying}
                             />
                         </span>
                     );

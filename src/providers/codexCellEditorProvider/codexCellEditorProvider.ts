@@ -1213,8 +1213,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         debug("Posting message:", message);
         if (this.webviewPanels.size > 0) {
             this.webviewPanels.forEach((panel) => safePostMessageToPanel(panel, message));
-        } else {
-            console.error("No active webview panels");
         }
     }
 

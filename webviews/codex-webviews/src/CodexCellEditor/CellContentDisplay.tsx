@@ -67,6 +67,8 @@ interface CellContentDisplayProps {
     playerRef?: React.RefObject<ReactPlayerRef>;
     shouldShowVideoPlayer?: boolean;
     videoUrl?: string;
+    // Audio playback state from other webview type (source or target)
+    isOtherTypeAudioPlaying?: boolean;
 }
 
 const DEBUG_ENABLED = false;
@@ -133,6 +135,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         isAudioOnly = false,
         showInlineBacktranslations = false,
         backtranslation,
+        isOtherTypeAudioPlaying = false,
     }) => {
         const cellIds = cell.cellMarkers;
         const [fadingOut, setFadingOut] = useState(false);
@@ -809,6 +812,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                     cellTimestamps={cell.timestamps}
                                                     shouldShowVideoPlayer={shouldShowVideoPlayer}
                                                     videoUrl={videoUrl}
+                                                    disabled={isOtherTypeAudioPlaying}
+                                                    isSourceText={isSourceText}
                                                 />
                                             );
                                         })()}

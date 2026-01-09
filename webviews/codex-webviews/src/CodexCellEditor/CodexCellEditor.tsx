@@ -171,6 +171,7 @@ const CodexCellEditor: React.FC = () => {
     );
     const [isSourceText, setIsSourceText] = useState<boolean>(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
+    const [isOtherTypeAudioPlaying, setIsOtherTypeAudioPlaying] = useState<boolean>(false);
 
     // Track if user has manually navigated away from the highlighted chapter in source files
     const [hasManuallyNavigatedAway, setHasManuallyNavigatedAway] = useState<boolean>(false);
@@ -1499,6 +1500,29 @@ const CodexCellEditor: React.FC = () => {
         // Initialize Quill and register SpellChecker and SmartEdits only once
         registerQuillSpellChecker(Quill as any, vscode);
     }, []);
+
+    // Listen for audio state changes from other webview types
+    useMessageHandler(
+        "codexCellEditor-audioStateChanged",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (
+                message.command === "audioStateChanged" &&
+                message.destination === "webview" &&
+                message.content?.type === "audioPlaying"
+            ) {
+                const { webviewType, isPlaying } = message.content;
+                // If current webview is source and message indicates target is playing, or vice versa
+                if (
+                    (isSourceText && webviewType === "target") ||
+                    (!isSourceText && webviewType === "source")
+                ) {
+                    setIsOtherTypeAudioPlaying(isPlaying);
+                }
+            }
+        },
+        [isSourceText]
+    );
 
     const calculateTotalChapters = (units: QuillCellContent[]): number => {
         const sectionSet = new Set<string>();
@@ -2910,6 +2934,7 @@ const CodexCellEditor: React.FC = () => {
                             playerRef={playerRef}
                             shouldShowVideoPlayer={shouldShowVideoPlayer}
                             videoUrl={videoUrl}
+                            isOtherTypeAudioPlaying={isOtherTypeAudioPlaying}
                         />
                     </div>
                 </div>

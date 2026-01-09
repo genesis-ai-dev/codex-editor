@@ -104,6 +104,11 @@ type GlobalContentType =
     | {
         type: "commentsFileChanged";
         timestamp: string;
+    }
+    | {
+        type: "audioPlaying";
+        webviewType: "source" | "target";
+        isPlaying: boolean;
     };
 
 interface GlobalMessage {

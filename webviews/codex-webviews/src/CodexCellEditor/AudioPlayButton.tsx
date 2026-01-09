@@ -63,6 +63,8 @@ const AudioPlayButton: React.FC<{
     cellTimestamps?: Timestamps;
     shouldShowVideoPlayer?: boolean;
     videoUrl?: string;
+    disabled?: boolean;
+    isSourceText?: boolean;
 }> = React.memo(
     ({
         cellId,
@@ -73,6 +75,8 @@ const AudioPlayButton: React.FC<{
         cellTimestamps,
         shouldShowVideoPlayer = false,
         videoUrl,
+        disabled = false,
+        isSourceText = false,
     }) => {
         const [isPlaying, setIsPlaying] = useState(false);
         const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -326,6 +330,10 @@ const AudioPlayButton: React.FC<{
         }, [audioUrl, isPlaying]);
 
         const handlePlayAudio = async () => {
+            if (disabled) {
+                return;
+            }
+
             try {
                 // For any non-available state, open editor on audio tab and auto-start recording
                 if (
@@ -513,6 +521,20 @@ const AudioPlayButton: React.FC<{
             return () => globalAudioController.removeListener(handler);
         }, [stopVideoPlayback]);
 
+        // Broadcast audio state changes to other webviews
+        useEffect(() => {
+            const webviewType = isSourceText ? "source" : "target";
+            vscode.postMessage({
+                command: "audioStateChanged",
+                destination: "webview",
+                content: {
+                    type: "audioPlaying",
+                    webviewType,
+                    isPlaying,
+                },
+            } as any);
+        }, [isPlaying, isSourceText, vscode]);
+
         // Decide icon color/style based on state
         const { iconClass, color, titleSuffix } = (() => {
             // If we already have audio bytes (from cache or just streamed), show Play regardless of pointer/local state
@@ -569,7 +591,9 @@ const AudioPlayButton: React.FC<{
                 onClick={handlePlayAudio}
                 className="audio-play-button"
                 title={
-                    isLoading
+                    disabled
+                        ? "Audio playback disabled - other type is playing"
+                        : isLoading
                         ? "Preparing audio..."
                         : state === "available" || state === "available-pointer"
                         ? audioUrl || getCachedAudioDataUrl(cellId)
@@ -581,27 +605,29 @@ const AudioPlayButton: React.FC<{
                         ? "Missing audio"
                         : "Record"
                 }
-                disabled={false}
+                disabled={disabled}
                 style={{
                     background: "none",
                     border: "none",
-                    cursor: "pointer",
+                    cursor: disabled ? "not-allowed" : "pointer",
                     padding: "1px",
                     borderRadius: "4px",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
                     color,
-                    opacity: isPlaying ? 1 : 0.8,
+                    opacity: disabled ? 0.4 : isPlaying ? 1 : 0.8,
                     transition: "opacity 0.2s",
                 }}
                 onMouseEnter={(e) => {
                     e.stopPropagation();
-                    e.currentTarget.style.opacity = "1";
+                    if (!disabled) {
+                        e.currentTarget.style.opacity = "1";
+                    }
                 }}
                 onMouseLeave={(e) => {
                     e.stopPropagation();
-                    e.currentTarget.style.opacity = isPlaying ? "1" : "0.8";
+                    e.currentTarget.style.opacity = disabled ? "0.4" : isPlaying ? "1" : "0.8";
                 }}
             >
                 <i
