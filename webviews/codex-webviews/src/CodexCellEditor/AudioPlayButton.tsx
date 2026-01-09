@@ -48,6 +48,71 @@ const waitForVideoReady = (
     });
 };
 
+/**
+ * Safely revokes an old blob URL after ensuring the audio element has loaded the new one.
+ * This prevents ERR_FILE_NOT_FOUND errors when switching between cells quickly.
+ */
+const safelyRevokeOldBlobUrl = (
+    audioElement: HTMLAudioElement,
+    oldBlobUrl: string | null,
+    newBlobUrl: string
+): void => {
+    if (!oldBlobUrl || !oldBlobUrl.startsWith("blob:")) {
+        return;
+    }
+
+    // If the audio element is already using the new blob URL and it's loaded, revoke immediately
+    if (
+        audioElement.src === newBlobUrl &&
+        audioElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+    ) {
+        if (audioElement.src !== oldBlobUrl) {
+            URL.revokeObjectURL(oldBlobUrl);
+        }
+        return;
+    }
+
+    // Otherwise, wait for the audio element to load the new blob URL
+    const revokeOldBlobUrl = () => {
+        if (audioElement.src !== oldBlobUrl) {
+            URL.revokeObjectURL(oldBlobUrl);
+        }
+    };
+
+    const onLoadedData = () => {
+        audioElement.removeEventListener("loadeddata", onLoadedData);
+        audioElement.removeEventListener("canplay", onCanPlay);
+        audioElement.removeEventListener("error", onError);
+        revokeOldBlobUrl();
+    };
+
+    const onCanPlay = () => {
+        audioElement.removeEventListener("loadeddata", onLoadedData);
+        audioElement.removeEventListener("canplay", onCanPlay);
+        audioElement.removeEventListener("error", onError);
+        revokeOldBlobUrl();
+    };
+
+    const onError = () => {
+        audioElement.removeEventListener("loadeddata", onLoadedData);
+        audioElement.removeEventListener("canplay", onCanPlay);
+        audioElement.removeEventListener("error", onError);
+        // Don't revoke on error - the old blob URL might still be needed
+    };
+
+    audioElement.addEventListener("loadeddata", onLoadedData);
+    audioElement.addEventListener("canplay", onCanPlay);
+    audioElement.addEventListener("error", onError);
+
+    // Fallback timeout to prevent memory leaks
+    setTimeout(() => {
+        audioElement.removeEventListener("loadeddata", onLoadedData);
+        audioElement.removeEventListener("canplay", onCanPlay);
+        audioElement.removeEventListener("error", onError);
+        revokeOldBlobUrl();
+    }, 5000);
+};
+
 const AudioPlayButton: React.FC<{
     cellId: string;
     vscode: WebviewApi<unknown>;
@@ -271,10 +336,12 @@ const AudioPlayButton: React.FC<{
                                         // Set the new blob URL as src
                                         audioRef.current.src = blobUrl;
 
-                                        // Now safe to revoke the old blob URL if it exists and isn't being used
-                                        if (oldBlobUrl && audioRef.current.src !== oldBlobUrl) {
-                                            URL.revokeObjectURL(oldBlobUrl);
-                                        }
+                                        // Safely revoke the old blob URL after the new one is loaded
+                                        safelyRevokeOldBlobUrl(
+                                            audioRef.current,
+                                            oldBlobUrl,
+                                            blobUrl
+                                        );
 
                                         globalAudioController
                                             .playExclusive(audioRef.current)
@@ -290,11 +357,18 @@ const AudioPlayButton: React.FC<{
                                         pendingPlayRef.current = false;
                                     }
                                 } else {
-                                    // Not auto-playing, safe to revoke old blob URL now
-                                    if (
-                                        oldBlobUrl &&
-                                        (!audioRef.current || audioRef.current.src !== oldBlobUrl)
-                                    ) {
+                                    // Not auto-playing, but still wait for audio to load before revoking old blob URL
+                                    if (oldBlobUrl && audioRef.current) {
+                                        // Set the new blob URL as src
+                                        audioRef.current.src = blobUrl;
+                                        // Safely revoke the old blob URL after the new one is loaded
+                                        safelyRevokeOldBlobUrl(
+                                            audioRef.current,
+                                            oldBlobUrl,
+                                            blobUrl
+                                        );
+                                    } else if (oldBlobUrl) {
+                                        // No audio element, safe to revoke immediately
                                         URL.revokeObjectURL(oldBlobUrl);
                                     }
                                 }
@@ -368,6 +442,7 @@ const AudioPlayButton: React.FC<{
                 } else {
                     // If we don't have audio yet, try cached data first; only request if not cached
                     let effectiveUrl: string | null = audioUrl;
+                    const oldBlobUrl = audioUrl && audioUrl.startsWith("blob:") ? audioUrl : null;
                     if (!effectiveUrl) {
                         const cached = getCachedAudioDataUrl(cellId);
                         if (cached) {
@@ -499,7 +574,14 @@ const AudioPlayButton: React.FC<{
                         };
                     }
 
-                    audioRef.current.src = effectiveUrl || audioUrl || "";
+                    const newBlobUrl = effectiveUrl || audioUrl || "";
+                    audioRef.current.src = newBlobUrl;
+
+                    // Safely revoke the old blob URL after the new one is loaded (if we're switching blob URLs)
+                    if (oldBlobUrl && oldBlobUrl !== newBlobUrl && newBlobUrl.startsWith("blob:")) {
+                        safelyRevokeOldBlobUrl(audioRef.current, oldBlobUrl, newBlobUrl);
+                    }
+
                     await globalAudioController.playExclusive(audioRef.current);
                     setIsPlaying(true);
                 }
