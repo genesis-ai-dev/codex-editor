@@ -317,6 +317,7 @@ export const parseFile = async (
             metadata: {
                 id: `source-${Date.now()}`,
                 originalFileName: file.name,
+                sourceFile: file.name,
                 importerType: 'markdown',
                 createdAt: new Date().toISOString(),
                 importContext: {

@@ -209,6 +209,7 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
             metadata: {
                 id: baseNameAsId,
                 originalFileName: file.name,
+                sourceFile: file.name,
                 importerType: 'subtitles',
                 createdAt: new Date().toISOString(),
                 importContext: {

@@ -39,7 +39,6 @@ export function createSpreadsheetCellMetadata(params: SpreadsheetCellMetadataPar
                 originalRow,
                 originalContent,
                 globalReferences: (globalReferences || []).map((r) => String(r).trim()).filter(Boolean),
-                sourceFile: fileName,
             },
         }
     };

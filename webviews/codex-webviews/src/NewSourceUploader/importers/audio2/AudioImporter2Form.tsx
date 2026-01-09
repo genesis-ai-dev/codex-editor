@@ -660,6 +660,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                     metadata: {
                         id: docId,
                         originalFileName: file.fileName,
+                        sourceFile: file.fileName,
                         importerType: "audio",
                         createdAt: nowIso,
                         audioOnly: true,
@@ -679,6 +680,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                     metadata: {
                         id: docId,
                         originalFileName: file.fileName,
+                        sourceFile: file.fileName,
                         importerType: "audio",
                         createdAt: nowIso,
                         audioOnly: true,

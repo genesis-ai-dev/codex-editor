@@ -425,6 +425,7 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                         metadata: {
                             id: parsedData.filename,
                             originalFileName: selectedFile!.name,
+                            sourceFile: selectedFile!.name,
                             importerType: "spreadsheet",
                             createdAt: new Date().toISOString(),
                             importContext: {
@@ -448,6 +449,7 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                         metadata: {
                             id: parsedData.filename,
                             originalFileName: selectedFile!.name,
+                            sourceFile: selectedFile!.name,
                             importerType: "spreadsheet",
                             createdAt: new Date().toISOString(),
                             importContext: {

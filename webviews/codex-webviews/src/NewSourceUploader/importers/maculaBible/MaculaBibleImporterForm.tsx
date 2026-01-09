@@ -247,6 +247,7 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                         metadata: {
                             id: notebookName,
                             originalFileName: `${fullBookName}.macula`, // Use full name instead of code
+                            sourceFile: `${fullBookName}.macula`,
                             importerType: "macula",
                             createdAt: new Date().toISOString(),
                             importContext: {

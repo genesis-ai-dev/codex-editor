@@ -61,7 +61,6 @@ export function createMaculaVerseCellMetadata(params: MaculaVerseCellMetadataPar
                 data: {
                     originalText: params.text,
                     globalReferences: [], // Empty if parsing fails
-                    sourceFile: params.fileName,
                 },
             }
         };
@@ -94,7 +93,6 @@ export function createMaculaVerseCellMetadata(params: MaculaVerseCellMetadataPar
             data: {
                 originalText: params.text,
                 globalReferences: globalReferences,
-                sourceFile: params.fileName,
             },
         }
     };

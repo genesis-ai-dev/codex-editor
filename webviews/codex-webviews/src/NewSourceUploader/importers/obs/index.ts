@@ -280,6 +280,7 @@ const downloadObsRepository = async (
                 metadata: {
                     id: `obs-${obsStory.storyNumber.toString().padStart(2, '0')}-source`,
                     originalFileName: storyFile.name,
+                    sourceFile: storyFile.name,
                     corpusMarker: 'obs', // Enable round-trip export
                     importerType: 'obs',
                     createdAt: new Date().toISOString(),
@@ -309,6 +310,7 @@ const downloadObsRepository = async (
                 metadata: {
                     id: `obs-${obsStory.storyNumber.toString().padStart(2, '0')}-codex`,
                     originalFileName: storyFile.name,
+                    sourceFile: storyFile.name,
                     corpusMarker: 'obs', // Enable round-trip export
                     importerType: 'obs',
                     createdAt: new Date().toISOString(),
@@ -535,6 +537,7 @@ const parseObsMarkdown = async (
         metadata: {
             id: `obs-source-${Date.now()}`,
             originalFileName: file.name,
+            sourceFile: file.name,
             originalFileData: arrayBuffer, // Store original file for export - system will save to .project/attachments/originals/
             corpusMarker: 'obs', // Enable round-trip export
             importerType: 'obs',
@@ -817,6 +820,7 @@ const parseObsZip = async (
                 metadata: {
                     id: `obs-${obsStory.storyNumber.toString().padStart(2, '0')}-source`,
                     originalFileName: markdownFile.name,
+                    sourceFile: markdownFile.name,
                     corpusMarker: 'obs', // Enable round-trip export
                     importerType: 'obs',
                     createdAt: new Date().toISOString(),
@@ -840,6 +844,7 @@ const parseObsZip = async (
                 metadata: {
                     id: `obs-${obsStory.storyNumber.toString().padStart(2, '0')}-codex`,
                     originalFileName: markdownFile.name,
+                    sourceFile: markdownFile.name,
                     corpusMarker: 'obs', // Enable round-trip export
                     importerType: 'obs',
                     createdAt: new Date().toISOString(),

@@ -152,6 +152,7 @@ export const parseFile = async (file: File, onProgress?: ProgressCallback, optio
             metadata: {
                 id: `plaintext-source-${Date.now()}`,
                 originalFileName: file.name,
+                sourceFile: file.name,
                 importerType: 'plaintext',
                 createdAt: new Date().toISOString(),
                 importContext: {

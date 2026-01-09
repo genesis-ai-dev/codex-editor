@@ -22,7 +22,6 @@ export interface ProcessedNotebook {
         originalFileName: string;
         importerType: string;
         createdAt: string;
-        [key: string]: any;
     };
 }
 

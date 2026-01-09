@@ -120,6 +120,7 @@ export const parseFile = async (
             metadata: {
                 id: `source-${Date.now()}`,
                 originalFileName: file.name,
+                sourceFile: file.name,
                 originalFileData: arrayBuffer, // Store original file for export
                 corpusMarker: 'Docx',
                 importerType: 'docx-roundtrip',

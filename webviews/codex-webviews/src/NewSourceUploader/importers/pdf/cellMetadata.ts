@@ -48,7 +48,6 @@ export function createPdfCellMetadata(params: PdfCellMetadataParams): { metadata
                 segmentType: 'sentence',
                 sentenceIndex: segmentIndex,
                 originalContent: cleanText,
-                sourceFile: fileName,
                 globalReferences: [], // Empty for PDF files (no verse references)
 
                 // Round-trip export metadata

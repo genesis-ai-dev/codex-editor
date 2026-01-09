@@ -222,6 +222,7 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
                             metadata: {
                                 id: `indesign-source-${Date.now()}`,
                                 originalFileName: selectedFile.name,
+                                sourceFile: selectedFile.name,
                                 // Pass the original file bytes so the provider can persist it under .project/attachments/originals
                                 originalFileData: arrayBuffer,
                                 importerType: 'indesign',
@@ -254,6 +255,7 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
                             metadata: {
                                 id: `indesign-codex-${Date.now()}`,
                                 originalFileName: selectedFile.name,
+                                sourceFile: selectedFile.name,
                                 importerType: 'indesign',
                                 createdAt: new Date().toISOString(),
                                 importContext: {

@@ -101,6 +101,7 @@ const parseFile = async (
             metadata: {
                 id: `ebible-corpus-source-${Date.now()}`,
                 originalFileName: file.name,
+                sourceFile: file.name,
                 importerType: 'ebibleCorpus',
                 createdAt: new Date().toISOString(),
                 importContext: {

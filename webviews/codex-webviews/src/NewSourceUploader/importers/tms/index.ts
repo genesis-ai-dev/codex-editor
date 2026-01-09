@@ -325,6 +325,7 @@ export const parseFile = async (
             metadata: {
                 id: `translation-source-${Date.now()}`,
                 originalFileName: file.name,
+                sourceFile: file.name,
                 originalFileData: arrayBuffer, // Store original file for round-trip export
                 corpusMarker: 'tms', // Use 'tms' for UI grouping, fileType stores the specific format
                 importerType: 'tms', // Set to 'tms' for consistent grouping

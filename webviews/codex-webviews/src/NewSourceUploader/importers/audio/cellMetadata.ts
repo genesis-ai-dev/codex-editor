@@ -60,7 +60,6 @@ export function createAudioCellMetadata(params: AudioCellMetadataParams): { meta
                 startTime: params.startTime,
                 endTime: params.endTime,
                 globalReferences: [], // Empty for audio files (no verse references)
-                sourceFile: params.fileName,
             },
             attachments: {
                 [params.attachmentId]: {

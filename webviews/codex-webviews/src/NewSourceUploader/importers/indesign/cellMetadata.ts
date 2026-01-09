@@ -68,7 +68,6 @@ export function createIndesignVerseCellMetadata(params: IndesignVerseCellMetadat
             data: {
                 originalContent,
                 verseNumber,
-                sourceFile: fileName,
                 globalReferences: [], // Empty for now (can be populated later if verse references are detected)
                 // Minimal structure needed for export
                 idmlStructure: {
@@ -113,7 +112,6 @@ export function createIndesignParagraphCellMetadata(params: IndesignParagraphCel
             appliedParagraphStyle,
             data: {
                 originalContent,
-                sourceFile: fileName,
                 globalReferences: [], // Empty for InDesign files (no verse references)
                 // Minimal structure needed for export
                 idmlStructure: {

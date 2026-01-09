@@ -347,6 +347,7 @@ export const parseFile = async (
             metadata: {
                 id: `source-${Date.now()}`,
                 originalFileName: file.name,
+                sourceFile: file.name,
                 originalFileData: arrayBuffer, // Store original file to be saved in attachments
                 importerType: 'docx',
                 createdAt: new Date().toISOString(),

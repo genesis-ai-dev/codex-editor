@@ -89,7 +89,6 @@ export function createSubtitleCellMetadata(params: SubtitleCellMetadataParams): 
                 format: params.format,
                 originalText: params.text,
                 globalReferences: [], // Empty for subtitle files (no verse references)
-                sourceFile: params.fileName || '',
             },
         }
     };

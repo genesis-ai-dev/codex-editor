@@ -512,6 +512,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                     metadata: {
                         id: `source-${Date.now()}`,
                         originalFileName: file.name,
+                        sourceFile: file.name,
                         importerType: "smart-segmenter",
                         createdAt: new Date().toISOString(),
                         importContext: {
@@ -529,6 +530,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                     metadata: {
                         id: `codex-${Date.now()}`,
                         originalFileName: file.name,
+                        sourceFile: file.name,
                         importerType: "smart-segmenter",
                         createdAt: new Date().toISOString(),
                         importContext: {

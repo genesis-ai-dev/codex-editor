@@ -211,7 +211,6 @@ export function createMarkdownCellMetadata(params: MarkdownCellMetadataParams): 
             data: {
                 originalText: params.originalMarkdown,
                 globalReferences: globalReferences,
-                sourceFile: params.fileName,
             },
         }
     };

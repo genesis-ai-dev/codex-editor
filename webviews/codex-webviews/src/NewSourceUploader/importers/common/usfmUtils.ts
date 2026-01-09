@@ -539,6 +539,7 @@ export const createNotebookPair = (
             ...metadata,
             id: `${importerType}-source-${Date.now()}`,
             originalFileName,
+            sourceFile: originalFileName,
             importerType,
             createdAt: nowIso,
             importContext: metadata.importContext || {

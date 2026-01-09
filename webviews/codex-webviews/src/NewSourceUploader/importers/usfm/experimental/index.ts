@@ -99,6 +99,7 @@ export const parseFile = async (
             metadata: {
                 id: `usfm-experimental-source-${Date.now()}`,
                 originalFileName: file.name,
+                sourceFile: file.name,
                 // Store original file data as ArrayBuffer for saving to attachments/originals
                 originalFileData: arrayBuffer,
                 importerType: 'usfm-experimental',

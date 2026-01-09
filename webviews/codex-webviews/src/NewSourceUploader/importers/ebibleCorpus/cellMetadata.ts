@@ -107,7 +107,6 @@ export function createEbibleVerseCellMetadata(params: EbibleVerseCellMetadataPar
             data: {
                 originalText: params.text,
                 globalReferences: globalReferences,
-                sourceFile: params.fileName || '',
             },
         }
     };

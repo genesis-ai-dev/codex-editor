@@ -201,7 +201,6 @@ export function createObsTextCellMetadata(params: ObsTextCellMetadataParams): { 
             data: {
                 originalText: params.originalText,
                 globalReferences: globalReferences,
-                sourceFile: params.fileName,
             },
         }
     };
@@ -239,7 +238,6 @@ export function createObsImageCellMetadata(params: ObsImageCellMetadataParams): 
             chapterNumber: String(params.storyNumber), // Use story number as chapter number for milestone detection
             data: {
                 globalReferences: globalReferences,
-                sourceFile: params.fileName,
             },
         }
     };

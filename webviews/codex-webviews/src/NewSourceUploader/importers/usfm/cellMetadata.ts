@@ -78,7 +78,6 @@ export function createVerseCellMetadata(params: VerseCellMetadataParams): { meta
             data: {
                 originalText: params.originalText,
                 globalReferences: globalReferences,
-                sourceFile: params.fileName,
             },
         }
     };
@@ -111,7 +110,6 @@ export function createParatextCellMetadata(params: ParatextCellMetadataParams): 
             data: {
                 originalText: params.originalText,
                 globalReferences: [], // Empty for paratext cells (no verse references)
-                sourceFile: params.fileName,
             },
         }
     };
@@ -142,7 +140,6 @@ export function createHeaderCellMetadata(params: HeaderCellMetadataParams): { me
             data: {
                 originalText: params.originalText,
                 globalReferences: [], // Empty for header cells (no verse references)
-                sourceFile: params.fileName,
             },
         }
     };

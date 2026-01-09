@@ -749,6 +749,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                                 metadata: {
                                     id: `biblica-notes-source-${Date.now()}`,
                                     originalFileName: originalFileName,
+                                    sourceFile: originalFileName,
                                     originalFileData: arrayBuffer,
                                     importerType: 'biblica',
                                     createdAt: new Date().toISOString(),
@@ -783,6 +784,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                                 metadata: {
                                     id: `biblica-notes-codex-${Date.now()}`,
                                     originalFileName: originalFileName,
+                                    sourceFile: originalFileName,
                                     importerType: 'biblica',
                                     createdAt: new Date().toISOString(),
                                     importContext: {

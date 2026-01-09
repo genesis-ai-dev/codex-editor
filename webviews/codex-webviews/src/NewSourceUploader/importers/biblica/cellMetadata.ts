@@ -54,7 +54,6 @@ export function createNoteCellMetadata(params: NoteCellMetadataParams): { metada
             data: {
                 originalText: params.originalText,
                 globalReferences: params.globalReferences,
-                sourceFile: params.sourceFileName,
                 // Minimal structure needed for export
                 idmlStructure: {
                     storyId: params.storyId,
