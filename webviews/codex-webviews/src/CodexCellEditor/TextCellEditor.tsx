@@ -3266,32 +3266,36 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             {typeof prevStartTime === "number" &&
                                                 typeof prevEndTime === "number" &&
                                                 prevStartTime < prevEndTime && (
-                                                    <div className="space-y-2 opacity-60">
-                                                        <label className="text-sm font-medium text-muted-foreground">
-                                                            Previous cell range
-                                                        </label>
-                                                        <Slider
-                                                            disabled
-                                                            min={Math.max(0, prevStartTime)}
-                                                            max={Math.max(
-                                                                prevEndTime,
-                                                                prevStartTime + 0.001
-                                                            )}
-                                                            value={[prevStartTime, prevEndTime]}
-                                                            step={0.001}
-                                                        />
-                                                        <div className="flex justify-between text-xs text-muted-foreground">
-                                                            <span>{formatTime(prevStartTime)}</span>
-                                                            <span>{formatTime(prevEndTime)}</span>
+                                                    <div className="flex space-y-2 w-full">
+                                                        <div className="w-1/3 flex flex-col">
+                                                            <label className="text-sm font-medium text-muted-foreground">
+                                                                Previous cell range
+                                                            </label>
+                                                            <Slider
+                                                                disabled
+                                                                min={Math.max(0, prevStartTime)}
+                                                                max={Math.max(
+                                                                    prevEndTime,
+                                                                    prevStartTime + 0.001
+                                                                )}
+                                                                value={[prevStartTime, prevEndTime]}
+                                                                step={0.001}
+                                                                className="opacity-60"
+                                                            />
+                                                            <div className="flex justify-between text-xs text-muted-foreground">
+                                                                <span>
+                                                                    Min: {formatTime(prevStartTime)}
+                                                                </span>
+                                                                <span>
+                                                                    {formatTime(prevEndTime)}
+                                                                </span>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 )}
 
                                             {/* Current cell slider */}
-                                            <div className="space-y-2">
-                                                <label className="text-sm font-medium">
-                                                    Adjust range
-                                                </label>
+                                            <div className="flex flex-col justify-center space-y-2 w-full">
                                                 <Slider
                                                     min={extendedMinBound}
                                                     max={Math.max(
@@ -3348,23 +3352,27 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             {typeof nextStartTime === "number" &&
                                                 typeof nextEndTime === "number" &&
                                                 nextStartTime < nextEndTime && (
-                                                    <div className="space-y-2 opacity-60">
-                                                        <label className="text-sm font-medium text-muted-foreground">
-                                                            Next cell range
-                                                        </label>
-                                                        <Slider
-                                                            disabled
-                                                            min={Math.max(0, nextStartTime)}
-                                                            max={Math.max(
-                                                                nextEndTime,
-                                                                nextStartTime + 0.001
-                                                            )}
-                                                            value={[nextStartTime, nextEndTime]}
-                                                            step={0.001}
-                                                        />
-                                                        <div className="flex justify-between text-xs text-muted-foreground">
-                                                            <span>{formatTime(nextStartTime)}</span>
-                                                            <span>{formatTime(nextEndTime)}</span>
+                                                    <div className="flex justify-end space-y-2 w-full">
+                                                        <div className="w-1/3 flex flex-col">
+                                                            <label className="text-sm font-medium text-muted-foreground">
+                                                                Next cell range
+                                                            </label>
+                                                            <Slider
+                                                                disabled
+                                                                min={Math.max(0, nextStartTime)}
+                                                                max={Math.max(
+                                                                    nextEndTime,
+                                                                    nextStartTime + 0.001
+                                                                )}
+                                                                value={[nextStartTime, nextEndTime]}
+                                                                step={0.001}
+                                                                className="opacity-60"
+                                                            />
+                                                            <div className="flex justify-end text-xs text-muted-foreground">
+                                                                <span>
+                                                                    {formatTime(nextEndTime)}
+                                                                </span>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 )}

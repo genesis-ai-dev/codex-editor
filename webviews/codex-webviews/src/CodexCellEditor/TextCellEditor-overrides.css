@@ -3,3 +3,8 @@
     word-break: break-word;
     overflow-wrap: break-word;
   }
+
+/* Hide slider handles on disabled sliders */
+[data-disabled][data-slot="slider"] [data-slot="slider-thumb"] {
+  display: none;
+}
