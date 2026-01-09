@@ -303,13 +303,14 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     const renderProjectActions = (project: ProjectWithSyncStatus) => {
         const isLocal = ["downloadedAndSynced", "localOnlyNotSynced"].includes(project.syncStatus);
         const isRemote = project.syncStatus === "cloudOnlyNotSynced";
+        const hasPendingUpdate = project.pendingUpdate?.required;
 
         if (isLocal) {
             return (
                 <div className="flex gap-1 items-center">
                     {renderMediaStrategyDropdown()}
                     <Button
-                        variant="ghost"
+                        variant="outline"
                         size="sm"
                         onClick={() => onOpenProject(project)}
                         className={cn(
@@ -328,6 +329,11 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                             <>
                                 <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
                                 Opening...
+                            </>
+                        ) : hasPendingUpdate ? (
+                            <>
+                                <i className="codicon codicon-sync mr-1" />
+                                Update
                             </>
                         ) : (
                             <>
@@ -349,7 +355,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         size="sm"
                         onClick={() => onCloneProject({ ...project, mediaStrategy })}
                         className={cn(
-                            "h-6 text-xs px-2",
+                            "h-6 text-xs px-2 border",
                             (isChangingStrategy || isCloning) &&
                                 "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
                         )}
