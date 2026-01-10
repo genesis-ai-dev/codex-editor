@@ -3290,6 +3290,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // Send the cell page to the webview
             safePostMessageToPanel(webviewPanel, {
                 type: "providerSendsCellPage",
+                rev: provider.getDocumentRevision(document.uri.toString()),
                 milestoneIndex,
                 subsectionIndex,
                 cells: processedCells,

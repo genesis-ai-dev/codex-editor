@@ -102,6 +102,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private documentLoadTimes: Map<string, number> = new Map(); // Track when documents were last loaded from disk
     private refreshInFlight: Set<string> = new Set(); // Prevent overlapping refreshes per document
     private pendingRefresh: Set<string> = new Set(); // Queue one follow-up refresh if needed
+    // Provider-side monotonic revisions for each open document URI (used to tag messages and ignore stale UI updates)
+    private documentRevisions: Map<string, number> = new Map();
     private userInfo: { username: string; email: string; } | undefined;
     private stateStore: StateStore | undefined;
     private stateStoreListener: (() => void) | undefined;
@@ -116,6 +118,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private get CELLS_PER_PAGE(): number {
         const config = vscode.workspace.getConfiguration("codex-editor-extension");
         return config.get("cellsPerPage", 50); // Default to 50 cells per page
+    }
+
+    private bumpDocumentRevision(documentUri: string): number {
+        const next = (this.documentRevisions.get(documentUri) ?? 0) + 1;
+        this.documentRevisions.set(documentUri, next);
+        return next;
+    }
+
+    public getDocumentRevision(documentUri: string): number {
+        return this.documentRevisions.get(documentUri) ?? 0;
     }
 
     // Translation queue system
@@ -668,6 +680,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const updateWebview = async () => {
             debug("Updating webview");
             const docUri = document.uri.toString();
+            const rev = this.getDocumentRevision(docUri);
             const isWebviewReady = this.webviewReadyState.get(docUri) ?? false;
             const currentPosition = this.currentMilestoneSubsectionMap.get(docUri);
 
@@ -680,6 +693,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 });
                 safePostMessageToPanel(webviewPanel, {
                     type: "refreshCurrentPage",
+                    rev,
                 });
                 // Still send metadata updates below, but skip the initial content reset
             } else {
@@ -800,6 +814,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                 this.postMessageToWebview(webviewPanel, {
                     type: "providerSendsInitialContentPaginated",
+                    rev,
                     milestoneIndex: milestoneIndex,
                     cells: processedInitialCells,
                     currentMilestoneIndex: initialMilestoneIndex,
@@ -1020,6 +1035,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         listeners.push(
             document.onDidChangeForVsCodeAndWebview((e) => {
                 debug("Document changed for VS Code and webview");
+                const docUri = document.uri.toString();
+                const rev = this.bumpDocumentRevision(docUri);
 
                 // Check if this is a validation update
                 if (e.edits && e.edits.length > 0 && e.edits[0].type === "validation") {
@@ -1074,6 +1091,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 debug(`Sending refreshCurrentPage to webview for ${docUri}`);
                                 safePostMessageToPanel(panel, {
                                     type: "refreshCurrentPage",
+                                    rev,
                                 });
                             }
                         });
@@ -1093,6 +1111,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         listeners.push(
             document.onDidChangeForWebview((e) => {
                 debug("Document changed for webview only");
+                // Webview-only change still represents a content change relevant to UI ordering.
+                this.bumpDocumentRevision(document.uri.toString());
                 updateWebview();
             })
         );

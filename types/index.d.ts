@@ -1779,6 +1779,11 @@ type EditorReceiveMessages =
     }
     | {
         type: "providerSendsInitialContentPaginated";
+        /**
+         * Monotonic revision number for the document content as observed by the provider.
+         * Used by the webview to ignore out-of-order / stale payloads.
+         */
+        rev?: number;
         milestoneIndex: MilestoneIndex;
         cells: QuillCellContent[];
         currentMilestoneIndex: number;
@@ -1793,6 +1798,11 @@ type EditorReceiveMessages =
     }
     | {
         type: "providerSendsCellPage";
+        /**
+         * Monotonic revision number for the document content as observed by the provider.
+         * Used by the webview to ignore out-of-order / stale payloads.
+         */
+        rev?: number;
         milestoneIndex: number;
         subsectionIndex: number;
         cells: QuillCellContent[];
@@ -1979,7 +1989,13 @@ type EditorReceiveMessages =
     }
     | { type: "refreshFontSizes"; }
     | { type: "refreshMetadata"; }
-    | { type: "refreshCurrentPage"; }
+    | {
+        type: "refreshCurrentPage";
+        /**
+         * Optional rev for correlation; refresh is a pull-trigger, so the response payload rev is authoritative.
+         */
+        rev?: number;
+    }
     | { type: "asrConfig"; content: { endpoint: string; authToken?: string; }; }
     | { type: "startBatchTranscription"; content: { count: number; }; }
     | {

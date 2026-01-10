@@ -5,8 +5,8 @@ import * as path from "path";
 import * as os from "os";
 import * as fs from "fs";
 import { CodexCellEditorProvider } from "../../providers/codexCellEditorProvider/codexCellEditorProvider";
-import { CodexCellDocument } from "../../providers/codexCellEditorProvider/codexDocument";
 import { handleMessages } from "../../providers/codexCellEditorProvider/codexCellEditorMessagehandling";
+import { CodexCellDocument } from "../../providers/codexCellEditorProvider/codexDocument";
 import { codexSubtitleContent } from "./mocks/codexSubtitleContent";
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { CodexNotebookAsJSONData, QuillCellContent, Timestamps, FileEditHistory, TranslationPair, MinimalCellResult } from "../../../types";
@@ -268,6 +268,81 @@ suite("CodexCellEditorProvider Test Suite", () => {
         assert.ok(
             allowedInitialMessages.includes(receivedMessage.type),
             `Initial message should be one of ${allowedInitialMessages.join(", ")}`
+        );
+    });
+
+    test("providerSendsCellPage includes rev and rev increases after edits", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        const messages: any[] = [];
+
+        const webviewPanel = {
+            webview: {
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                html: "",
+                options: {},
+                onDidReceiveMessage: (callback: (message: any) => void) => {
+                    return { dispose: () => { } };
+                },
+                postMessage: (message: any) => {
+                    messages.push(message);
+                    return Promise.resolve();
+                },
+            },
+            onDidDispose: () => ({ dispose: () => { } }),
+            onDidChangeViewState: (cb: any) => ({ dispose: () => { } }),
+            active: true,
+        } as any as vscode.WebviewPanel;
+
+        await provider.resolveCustomEditor(
+            document,
+            webviewPanel,
+            new vscode.CancellationTokenSource().token
+        );
+
+        // Request a page; should include rev (initially 0)
+        await handleMessages(
+            { command: "requestCellsForMilestone", content: { milestoneIndex: 0, subsectionIndex: 0 } },
+            webviewPanel,
+            document,
+            () => { },
+            provider
+        );
+
+        await sleep(50);
+        const firstPageMsg = messages.find((m) => m?.type === "providerSendsCellPage");
+        assert.ok(firstPageMsg, "Expected providerSendsCellPage message");
+        assert.ok(typeof firstPageMsg.rev === "number", "Expected providerSendsCellPage.rev to be a number");
+        const rev0 = firstPageMsg.rev as number;
+
+        // Trigger an edit to bump rev (listener is installed via resolveCustomEditor)
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+        await (document as any).updateCellContent(cellId, "<span>rev bump</span>", EditType.USER_EDIT);
+
+        await sleep(100);
+
+        // Request again and ensure rev increased
+        await handleMessages(
+            { command: "requestCellsForMilestone", content: { milestoneIndex: 0, subsectionIndex: 0 } },
+            webviewPanel,
+            document,
+            () => { },
+            provider
+        );
+
+        await sleep(50);
+        const pageMsgs = messages.filter((m) => m?.type === "providerSendsCellPage");
+        assert.ok(pageMsgs.length >= 2, "Expected at least two providerSendsCellPage messages");
+        const last = pageMsgs[pageMsgs.length - 1];
+        assert.ok(typeof last.rev === "number", "Expected providerSendsCellPage.rev to be a number (after edit)");
+        assert.ok(
+            (last.rev as number) > rev0,
+            `Expected rev to increase after edit (before=${rev0}, after=${last.rev})`
         );
     });
 
