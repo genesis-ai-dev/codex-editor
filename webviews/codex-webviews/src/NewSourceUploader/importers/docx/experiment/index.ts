@@ -20,7 +20,7 @@ import {
     // } from '../../utils/workflowHelpers';
 } from '../../../utils/workflowHelpers';
 import { DocxParser } from './docxParser';
-import { DocxDocument, DocxParagraph } from './docxTypes';
+import type { DocxDocument, DocxParagraph, DocxRun } from './docxTypes';
 import { createDocxCellMetadata } from './cellMetadata';
 
 const SUPPORTED_EXTENSIONS = ['docx'];
@@ -122,11 +122,12 @@ export const parseFile = async (
                 originalFileName: file.name,
                 sourceFile: file.name,
                 originalFileData: arrayBuffer, // Store original file for export
-                corpusMarker: 'Docx',
-                importerType: 'docx-roundtrip',
+                // Use importerType as corpusMarker for export routing / rebuild-export detection
+                corpusMarker: 'docx-roundtrip',
+                importerType: 'docx-roundtrip' as const,
                 createdAt: nowIso,
                 importContext: {
-                    importerType: 'docx-roundtrip',
+                    importerType: 'docx-roundtrip' as const,
                     fileName: file.name,
                     originalFileName: file.name,
                     originalHash: docxDoc.originalHash,
@@ -135,8 +136,7 @@ export const parseFile = async (
                 },
                 wordCount: countWordsInDocument(docxDoc),
                 paragraphCount: docxDoc.paragraphs.length,
-                // Store complete DOCX document structure for round-trip
-                docxDocument: JSON.stringify(docxDoc),
+                // Keep originalHash for traceability/debugging (small).
                 originalHash: docxDoc.originalHash,
             },
         };
@@ -156,8 +156,7 @@ export const parseFile = async (
             metadata: {
                 ...sourceNotebook.metadata,
                 id: `codex-${Date.now()}`,
-                importerType: 'docx-roundtrip', // Explicitly set again
-                docxDocument: JSON.stringify(docxDoc), // Explicitly include docxDocument
+                importerType: 'docx-roundtrip' as const, // Explicitly set again
                 // Don't duplicate the original file data in codex
                 originalFileData: undefined,
             },
@@ -177,8 +176,6 @@ export const parseFile = async (
         console.log(`[DOCX Round-Trip Importer] - ${docxDoc.paragraphs.length} paragraphs preserved`);
         console.log(`[DOCX Round-Trip Importer] - Original hash: ${docxDoc.originalHash}`);
         console.log(`[DOCX Round-Trip Importer] - ImporterType: ${codexNotebook.metadata.importerType}`);
-        console.log(`[DOCX Round-Trip Importer] - DocxDocument present: ${codexNotebook.metadata.docxDocument ? 'YES' : 'NO'}`);
-        console.log(`[DOCX Round-Trip Importer] - DocxDocument size: ${codexNotebook.metadata.docxDocument?.length || 0} chars`);
         console.log(`[DOCX Round-Trip Importer] - Original file data: ${sourceNotebook.metadata.originalFileData ? 'preserved' : 'missing'}`);
 
         onProgress?.(createProgress('Complete', 'DOCX processing complete', 100));
@@ -348,9 +345,14 @@ const convertRunToHtml = (run: DocxRun): string => {
  * Escape HTML special characters
  */
 const escapeHtml = (text: string): string => {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    // Must work in both webview (browser) and extension-test (node) contexts.
+    // Avoid relying on `document` which isn't available in node-based tests.
+    return (text ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
 };
 
 /**

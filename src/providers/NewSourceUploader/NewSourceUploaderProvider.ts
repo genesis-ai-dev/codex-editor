@@ -447,10 +447,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             ...(processedNotebook.metadata.mammothMessages
                 ? { mammothMessages: processedNotebook.metadata.mammothMessages }
                 : {}),
-            // Preserve DOCX round-trip structure
-            ...(processedNotebook.metadata?.docxDocument
-                ? { docxDocument: processedNotebook.metadata.docxDocument }
-                : {}),
             ...(processedNotebook.metadata?.originalHash
                 ? { originalHash: processedNotebook.metadata.originalHash }
                 : {}),
@@ -507,10 +503,13 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 if ("originalFileData" in pair.source.metadata && pair.source.metadata.originalFileData) {
                     // Save the original file in attachments
                     const originalFileName = pair.source.metadata.originalFileName || 'document.docx';
+                    // Store originals under attachments/files/originals for consistency with other attachment storage.
+                    // (Some existing projects may have originals under attachments/originals; exporter will fallback.)
                     const originalsDir = vscode.Uri.joinPath(
                         workspaceFolder.uri,
                         '.project',
                         'attachments',
+                        'files',
                         'originals'
                     );
                     await vscode.workspace.fs.createDirectory(originalsDir);
@@ -524,6 +523,10 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         : Buffer.from(fileData);
 
                     await vscode.workspace.fs.writeFile(originalFileUri, buffer);
+
+                    // CRITICAL: Do not persist original binary content into JSON notebooks.
+                    // The original template is stored in `.project/attachments/originals/<originalFileName>`.
+                    delete pair.source.metadata.originalFileData;
                 }
             }
         }
