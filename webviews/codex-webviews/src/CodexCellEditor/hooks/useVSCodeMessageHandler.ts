@@ -69,13 +69,13 @@ interface UseVSCodeMessageHandlerProps {
         currentMilestoneIndex: number,
         currentSubsectionIndex: number,
         isSourceText: boolean,
-        sourceCellMap: { [k: string]: { content: string; versions: string[] } }
+        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; }
     ) => void;
     handleCellPage?: (
         milestoneIndex: number,
         subsectionIndex: number,
         cells: QuillCellContent[],
-        sourceCellMap: { [k: string]: { content: string; versions: string[] } }
+        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; }
     ) => void;
 }
 
