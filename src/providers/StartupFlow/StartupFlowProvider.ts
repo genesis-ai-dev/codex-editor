@@ -20,6 +20,7 @@ import {
 } from "../../utils/projectCreationUtils/projectCreationUtils";
 import { generateProjectId } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
+import { MetadataManager } from "../../utils/metadataManager";
 import { createMachine, assign, createActor } from "xstate";
 import { getCodexProjectsDirectory } from "../../utils/projectLocationUtils";
 import JSZip from "jszip";
@@ -1241,34 +1242,24 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     }
 
                                     // Perform the update operation (suppress success message, we'll show it after opening)
+                                    // Username is passed so local flag can be set BEFORE window reload
                                     await this.performProjectUpdate(
                                         progress,
                                         projectName,
                                         projectPath,
                                         origin.url,
-                                        false // Don't show success message yet
+                                        false, // Don't show success message yet
+                                        updatingCheck.currentUsername // Pass username for local flag
                                     );
 
-                                    debugLog("Remote update completed successfully");
-
-                                    // Remove current user from remote update list
+                                    // Update flags are now set INSIDE performProjectUpdate (before window reload)
+                                    // This ensures metadata.json has executed:true before sync runs on restart
+                                    
+                                    // Clear pending update flag
                                     try {
-                                        progress.report({ message: "Updating update list..." });
-                                        const { markUserAsUpdatedInRemoteList } = await import("../../utils/remoteUpdatingManager");
-                                        await markUserAsUpdatedInRemoteList(
-                                            projectPath,
-                                            updatingCheck.currentUsername!
-                                        );
-                                        debugLog("User removed from remote update list");
-                                        try {
-                                            await clearPendingUpdate(vscode.Uri.file(projectPath));
-                                        } catch (clearErr) {
-                                            debugLog("Failed to clear pending update flag (non-fatal):", clearErr);
-                                        }
-                                    } catch (removeErr) {
-                                        // Don't fail the update if we can't update the list
-                                        debugLog("Failed to remove user from update list (non-fatal):", removeErr);
-                                        console.error("Failed to remove user from update list:", removeErr);
+                                        await clearPendingUpdate(vscode.Uri.file(projectPath));
+                                    } catch {
+                                        // Non-fatal error
                                     }
 
                                     progress.report({ message: "Opening project..." });
@@ -1278,8 +1269,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             // Clear local pending flag after successful update run (even if remote no longer required it)
                             try {
                                 await clearPendingUpdate(vscode.Uri.file(projectPath));
-                            } catch (clearErr) {
-                                debugLog("Failed to clear pending update flag after update run (non-fatal):", clearErr);
+                            } catch {
+                                // Non-fatal error
                             }
 
                             // Inform webview that healing is complete
@@ -2809,6 +2800,16 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                 // Execute the update process
                 try {
+                    // Get current username for local flag
+                    let username: string | undefined;
+                    try {
+                        const authApi = getAuthApi();
+                        const userInfo = await authApi?.getUserInfo();
+                        username = userInfo?.username;
+                    } catch (e) {
+                        debugLog("Could not get username for local flag:", e);
+                    }
+
                     await vscode.window.withProgress(
                         {
                             location: vscode.ProgressLocation.Notification,
@@ -2816,7 +2817,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             cancellable: false,
                         },
                         async (progress) => {
-                            await this.performProjectUpdate(progress, projectName, projectPath, gitOriginUrl);
+                            await this.performProjectUpdate(progress, projectName, projectPath, gitOriginUrl, true, username);
                         }
                     );
 
@@ -2967,7 +2968,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         projectName: string,
         projectPath: string,
         gitOriginUrl: string,
-        showSuccessMessage: boolean = true
+        showSuccessMessage: boolean = true,
+        currentUsername?: string
     ): Promise<void> {
         const cleanedPath = await this.cleanupStaleUpdateState(projectPath, projectName);
         if (cleanedPath && cleanedPath !== projectPath) {
@@ -3023,7 +3025,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         let hasRecentBackup = false;
         try {
             const entries = await vscode.workspace.fs.readDirectory(archivedProjectsDir);
-            const oneHourMs = 30 * 60 * 1000;
+            const oneHourMs = 60 * 60 * 1000; // 1 hour (3,600,000 ms)
             const now = Date.now();
             for (const [name, type] of entries) {
                 if (
@@ -3528,7 +3530,43 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
         await this.clearUpdateState(projectPath);
 
-        // This will trigger a window reload; the extension will complete the sync in activate().
+        // CRITICAL: Update metadata.json AND set local flag BEFORE window reload
+        // DO NOT call markUserAsUpdatedInRemoteList here - it triggers a sync that gets interrupted!
+        // Instead, update metadata directly and let the post-reload sync push the changes
+        if (currentUsername) {
+            try {
+                // Update metadata.json directly to set executed: true (NO sync triggered)
+                const { normalizeUpdateEntry } = await import("../../utils/remoteUpdatingManager");
+                await MetadataManager.safeUpdateMetadata(
+                    updatedUri,
+                    (meta: any) => {
+                        const rawList = meta.meta?.initiateRemoteUpdatingFor || [];
+                        // Normalize entries and update the matching one
+                        const updatedList = rawList.map((entry: any) => {
+                            const normalized = normalizeUpdateEntry(entry);
+                            if (normalized.userToUpdate === currentUsername && !normalized.executed) {
+                                return {
+                                    ...normalized,
+                                    executed: true,
+                                    updatedAt: Date.now(),
+                                };
+                            }
+                            return normalized;
+                        });
+                        
+                        if (!meta.meta) meta.meta = {};
+                        meta.meta.initiateRemoteUpdatingFor = updatedList;
+                        return meta;
+                    }
+                );
+                
+                // Set local completion flag to prevent re-prompting before sync
+                const { markUpdateCompletedLocally } = await import("../../utils/localProjectSettings");
+                await markUpdateCompletedLocally(currentUsername, updatedUri);
+            } catch (flagErr) {
+                console.error("Failed to set update flags:", flagErr);
+            }
+        }
         await vscode.commands.executeCommand("vscode.openFolder", updatedUri, false);
         return;
     }

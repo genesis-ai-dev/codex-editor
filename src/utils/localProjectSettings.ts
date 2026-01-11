@@ -56,6 +56,15 @@ export interface LocalProjectSettings {
     updateState?: UpdateState;
     /** Track when an admin-triggered update is pending so the projects list can surface it */
     pendingUpdate?: PendingUpdateState;
+    /** 
+     * Track that update was completed locally but not yet synced to remote.
+     * Prevents showing "update required" modal again before sync completes.
+     * Cleared after successful sync pushes the executed flag to remote.
+     */
+    updateCompletedLocally?: {
+        username: string;
+        completedAt: number;
+    };
     // Legacy keys (read and mirrored for backward compatibility)
     mediaFilesStrategy?: MediaFilesStrategy;
     lastModeRun?: MediaFilesStrategy;
@@ -162,6 +171,7 @@ export async function writeLocalProjectSettings(
             detailedAIMetrics: settings.detailedAIMetrics,
             updateState: settings.updateState,
             pendingUpdate: settings.pendingUpdate,
+            updateCompletedLocally: settings.updateCompletedLocally,
         };
         const content = JSON.stringify(toWrite, null, 2);
         await vscode.workspace.fs.writeFile(settingsPath, Buffer.from(content, "utf-8"));
@@ -330,6 +340,37 @@ export async function setSwitchStarted(
     const settings = await readLocalProjectSettings(workspaceFolderUri);
     settings.mediaFileStrategySwitchStarted = !!value;
     await writeLocalProjectSettings(settings, workspaceFolderUri);
+}
+
+/**
+ * Mark that an update was completed locally but not yet synced to remote
+ * This prevents showing "update required" modal before sync completes
+ */
+export async function markUpdateCompletedLocally(
+    username: string,
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    settings.updateCompletedLocally = {
+        username,
+        completedAt: Date.now(),
+    };
+    await writeLocalProjectSettings(settings, workspaceFolderUri);
+    debug("Marked update as completed locally for user:", username);
+}
+
+/**
+ * Clear the local update completion flag after successful sync
+ */
+export async function clearUpdateCompletedLocally(
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    if (settings.updateCompletedLocally) {
+        settings.updateCompletedLocally = undefined;
+        await writeLocalProjectSettings(settings, workspaceFolderUri);
+        debug("Cleared local update completion flag");
+    }
 }
 
 

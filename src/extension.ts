@@ -59,7 +59,7 @@ import { initializeABTesting } from "./utils/abTestingSetup";
 import { migration_addValidationsForUserEdits, migration_moveTimestampsToMetadataData, migration_promoteCellTypeToTopLevel, migration_addImporterTypeToMetadata } from "./projectManager/utils/migrationUtils";
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
-import { markUserAsUpdatedInRemoteList } from "./utils/remoteUpdatingManager";
+// markUserAsUpdatedInRemoteList is now called in performProjectUpdate before window reload
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -958,7 +958,7 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
                         const syncManager = SyncManager.getInstance();
                         try {
                             if (isUpdateWorkspace && pendingUpdateSync?.commitMessage) {
-                                // Bypass healing check for the initial merge sync after healing
+                                // Bypass healing check for the initial merge sync after update
                                 await syncManager.executeSync(String(pendingUpdateSync.commitMessage), true, context, false, true);
                             } else {
                                 await syncManager.executeSync("Initial workspace sync", true, context, false);
@@ -968,21 +968,9 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
 
                             // If this was a heal-triggered sync, clear the pending flag and show success message.
                             if (isUpdateWorkspace) {
-                                // Mark the user as executed in the remote list
-                                try {
-                                    // Get user info directly since authStatus doesn't contain currentUser
-                                    const userInfo = await authApi.getUserInfo();
-                                    if (userInfo && userInfo.username) {
-                                        const username = userInfo.username;
-                                        await markUserAsUpdatedInRemoteList(workspaceFolderPath!, username);
-                                        debug(`✅ [POST-WORKSPACE] Marked user ${username} as updated in remote list`);
-                                    } else {
-                                        console.warn("⚠️ [POST-WORKSPACE] Could not mark user as updated: No current user info found");
-                                    }
-                                } catch (error) {
-                                    console.error("❌ [POST-WORKSPACE] Error marking user as updated:", error);
-                                }
-
+                                // User is already marked as executed in metadata.json (done in performProjectUpdate before reload)
+                                // The sync above has now pushed that to remote
+                                
                                 await context.globalState.update("codex.pendingUpdateSync", undefined);
                                 if (pendingUpdateSync?.showSuccessMessage) {
                                     const projectName = pendingUpdateSync?.projectName || "Project";

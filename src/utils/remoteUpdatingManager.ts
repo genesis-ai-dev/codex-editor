@@ -291,6 +291,23 @@ export async function checkRemoteUpdatingRequired(
             return { required: false, reason: "No current username" };
         }
 
+        // Check if update was completed locally but not yet synced to remote
+        // This prevents showing "update required" modal again before sync completes
+        try {
+            const { readLocalProjectSettings } = await import("./localProjectSettings");
+            const localSettings = await readLocalProjectSettings(vscode.Uri.file(projectPath));
+            if (localSettings.updateCompletedLocally?.username === currentUsername) {
+                debug("Update already completed locally, waiting for sync. Skipping remote check.");
+                return {
+                    required: false,
+                    reason: "Update completed locally, waiting for sync",
+                    currentUsername,
+                };
+            }
+        } catch (localCheckErr) {
+            debug("Error checking local update completion (non-fatal):", localCheckErr);
+        }
+
         // Get git origin URL if not provided
         if (!gitOriginUrl) {
             const fetchedUrl = await getGitOriginUrl(projectPath);

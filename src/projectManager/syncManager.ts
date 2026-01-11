@@ -807,6 +807,14 @@ export class SyncManager {
             this.notifySyncStatusListeners();
             updateSplashScreenSync(100, "Synchronization complete");
 
+            // Clear local update completion flag now that sync has pushed changes to remote
+            try {
+                const { clearUpdateCompletedLocally } = await import("../utils/localProjectSettings");
+                await clearUpdateCompletedLocally(workspaceFolders?.[0]?.uri);
+            } catch (clearErr) {
+                // Non-fatal error
+            }
+
             // Schedule progress report after successful sync (when there are actual changes)
             const progressReportingService = ProgressReportingService.getInstance();
             progressReportingService.scheduleProgressReport();
