@@ -336,21 +336,21 @@ export async function checkRemoteUpdatingRequired(
         // Check if current user is in the updating list
         // Normalize entries on read to convert legacy field names
         const rawList = remoteMetadata.meta?.initiateRemoteUpdatingFor || [];
-        const healingList = rawList.map(entry => normalizeUpdateEntry(entry));
+        const updatingList = rawList.map(entry => normalizeUpdateEntry(entry));
 
-        let isInHealingList = false;
+        let isInUpdatingList = false;
 
         // Check for new objects
-        for (const entry of healingList) {
+        for (const entry of updatingList) {
             if (typeof entry === 'object' && entry !== null) {
                 if (entry.userToUpdate === currentUsername && !entry.executed && !isCancelled(entry)) {
-                    isInHealingList = true;
+                    isInUpdatingList = true;
                     break;
                 }
             }
         }
 
-        if (!isInHealingList) {
+        if (!isInUpdatingList) {
             debug("Current user not in updating list (or executed/cancelled)");
             return { required: false, reason: "User not in updating list", currentUsername };
         }
@@ -587,7 +587,7 @@ export async function markUserAsUpdatedInRemoteList(
         await vscode.commands.executeCommand(
             "codex-editor-extension.triggerSync",
             commitMessage,
-            { bypassHealingCheck: true }
+            { bypassUpdatingCheck: true }
         );
 
         debug("Successfully updated remote updating list and triggered sync");

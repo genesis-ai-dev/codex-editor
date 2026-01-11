@@ -70,8 +70,8 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             if (msg?.command === "project.mediaStrategyApplying") {
                 setIsAnyApplying(!!msg.applying);
             }
-            if (msg?.command === "project.healingInProgress") {
-                setIsAnyApplying(!!msg.healing);
+            if (msg?.command === "project.updatingInProgress") {
+                setIsAnyApplying(!!msg.updating);
             }
             if (msg?.command === "project.cloningInProgress") {
                 setIsAnyApplying(!!msg.cloning);

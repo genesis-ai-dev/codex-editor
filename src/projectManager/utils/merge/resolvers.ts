@@ -1826,7 +1826,7 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
         processList(ourList, 'ours');
         processList(theirList, 'theirs');
 
-        const mergedHealingList: any[] = [];
+        const mergedUpdatingList: any[] = [];
 
         // Helper to check if entry should be cleared (permanently removed)
         // Only clear if: feature is enabled, clearEntry flag is true, and user has permission
@@ -1959,7 +1959,7 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
                 }
 
                 // Entry is normalized, push to merged list
-                mergedHealingList.push(finalEntry);
+                mergedUpdatingList.push(finalEntry);
             }
         }
 
@@ -2028,7 +2028,7 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             resolvedMetadata.meta = {};
         }
         // Use new field name for the merged result
-        resolvedMetadata.meta.initiateRemoteUpdatingFor = mergedHealingList;
+        resolvedMetadata.meta.initiateRemoteUpdatingFor = mergedUpdatingList;
         // Clean up old field name if it exists
         delete resolvedMetadata.meta.initiateRemoteHealingFor;
 
@@ -2042,7 +2042,7 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             edits: resolvedMetadata.edits, // From edit history merge
             meta: {
                 ...otherFieldsMerged.meta,
-                initiateRemoteUpdatingFor: mergedHealingList, // From specialized merge (new field name)
+                initiateRemoteUpdatingFor: mergedUpdatingList, // From specialized merge (new field name)
             }
         };
         // Clean up old field name from final result

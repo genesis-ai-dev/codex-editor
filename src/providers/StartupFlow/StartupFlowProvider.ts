@@ -1208,9 +1208,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             // Inform webview that updating is starting (not opening)
                             try {
                                 this.safeSendMessage({
-                                    command: "project.healingInProgress",
+                                    command: "project.updatingInProgress",
                                     projectPath,
-                                    healing: true,
+                                    updating: true,
                                 } as any);
                             } catch (e) {
                                 // non-fatal
@@ -1228,7 +1228,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 async (progress) => {
                                     progress.report({ message: "Updating project..." });
 
-                                    // Get project name for the healing process
+                                    // Get project name for the update process
                                     const projectName = projectPath.split(/[\\/]/).pop() || "project";
 
                                     // Get git origin URL
@@ -1273,12 +1273,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 // Non-fatal error
                             }
 
-                            // Inform webview that healing is complete
+                            // Inform webview that update is complete
                             try {
                                 this.safeSendMessage({
-                                    command: "project.healingInProgress",
+                                    command: "project.updatingInProgress",
                                     projectPath,
-                                    healing: false,
+                                    updating: false,
                                 } as any);
                             } catch (e) {
                                 // non-fatal
@@ -1295,9 +1295,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             // Clear updating state for the UI
                             try {
                                 this.safeSendMessage({
-                                    command: "project.healingInProgress",
+                                    command: "project.updatingInProgress",
                                     projectPath,
-                                    healing: false,
+                                    updating: false,
                                 } as any);
                             } catch {
                                 // non-fatal
@@ -2790,9 +2790,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 // Inform webview that updating is starting for this project
                 try {
                     this.safeSendMessage({
-                        command: "project.healingInProgress",
+                        command: "project.updatingInProgress",
                         projectPath,
-                        healing: true,
+                        updating: true,
                     } as any);
                 } catch (e) {
                     // non-fatal
@@ -2824,9 +2824,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     // Inform webview that updating is complete
                     try {
                         this.safeSendMessage({
-                            command: "project.healingInProgress",
+                            command: "project.updatingInProgress",
                             projectPath,
-                            healing: false,
+                            updating: false,
                         } as any);
                     } catch (e) {
                         // non-fatal
@@ -2837,12 +2837,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         `Failed to update project: ${error instanceof Error ? error.message : String(error)}`
                     );
 
-                    // Inform webview that healing failed/stopped
+                    // Inform webview that update failed/stopped
                     try {
                         this.safeSendMessage({
-                            command: "project.healingInProgress",
+                            command: "project.updatingInProgress",
                             projectPath,
-                            healing: false,
+                            updating: false,
                         } as any);
                     } catch (e) {
                         // non-fatal
@@ -2957,7 +2957,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     }
 
     /**
-     * Perform project healing operation
+     * Perform project update operation
      */
     private sleep(ms: number): Promise<void> {
         return new Promise((resolve) => setTimeout(resolve, ms));
@@ -3016,7 +3016,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         const archivedProjectsDir = vscode.Uri.joinPath(codexProjectsRoot, "archived_projects");
         await this.ensureDirectoryExists(archivedProjectsDir);
 
-        // If a prior healing session exists, reuse its backup choice to avoid re-prompting.
+        // If a prior update session exists, reuse its backup choice to avoid re-prompting.
         const projectUri = vscode.Uri.file(projectPath);
         const priorSettings = await readLocalProjectSettings(projectUri);
         const priorState = priorSettings.updateState;
@@ -3078,7 +3078,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 ];
 
             const picked = await vscode.window.showQuickPick(backupChoices, {
-                placeHolder: "Choose a backup method before healing",
+                placeHolder: "Choose a backup method before updating",
                 ignoreFocusOut: true,
             });
 
@@ -3673,7 +3673,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             debugLog("Could not read update state", e);
             state = undefined;
         }
-        const backupNamePattern = /_healing_backup_\d+$/;
+        const backupNamePattern = /_updating_backup_\d+$/;
         const currentIsBackup = backupNamePattern.test(path.basename(projectPath));
 
         // If no state and current folder is a backup-named folder, try reading state from canonical path
@@ -3686,7 +3686,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 const canonicalSettings = await readLocalProjectSettings(vscode.Uri.file(canonicalCandidate));
                 state = canonicalSettings.updateState;
                 if (state) {
-                    debugLog("Recovered healing state from canonical folder while in backup path");
+                    debugLog("Recovered update state from canonical folder while in backup path");
                 }
             } catch {
                 // ignore
@@ -3856,7 +3856,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     }
 
     private async normalizeBackupPathForOpen(projectPath: string): Promise<string> {
-        const backupNamePattern = /_healing_backup_\d+$/;
+        const backupNamePattern = /_updating_backup_\d+$/;
         const isBackup = backupNamePattern.test(path.basename(projectPath));
         if (!isBackup) return projectPath;
 

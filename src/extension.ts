@@ -958,7 +958,7 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
                         const syncManager = SyncManager.getInstance();
                         try {
                             if (isUpdateWorkspace && pendingUpdateSync?.commitMessage) {
-                                // Bypass healing check for the initial merge sync after update
+                                // Bypass updating check for the initial merge sync after update
                                 await syncManager.executeSync(String(pendingUpdateSync.commitMessage), true, context, false, true);
                             } else {
                                 await syncManager.executeSync("Initial workspace sync", true, context, false);

@@ -60,7 +60,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     );
     const [pendingStrategy, setPendingStrategy] = useState<MediaFilesStrategy | null>(null);
     const [previousStrategy, setPreviousStrategy] = useState<MediaFilesStrategy | null>(null);
-    const [isHealing, setIsHealing] = useState<boolean>(false);
+    const [isUpdating, setIsUpdating] = useState<boolean>(false);
     const [isCloning, setIsCloning] = useState<boolean>(false);
     const [isOpening, setIsOpening] = useState<boolean>(false);
     const [isZipping, setIsZipping] = useState<boolean>(false);
@@ -76,7 +76,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     const disableControls =
         isAnyOperationApplying ||
         isChangingStrategy ||
-        isHealing ||
+        isUpdating ||
         isCloning ||
         isOpening ||
         isZipping ||
@@ -173,9 +173,9 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                 setPreviousStrategy(null); // Clear previous strategy after handling result
                 userInitiatedStrategyChangeRef.current = false;
             }
-            if (msg?.command === "project.healingInProgress") {
+            if (msg?.command === "project.updatingInProgress") {
                 if (msg.projectPath === project.path) {
-                    setIsHealing(msg.healing);
+                    setIsUpdating(msg.updating);
                 }
                 return;
             }
@@ -315,12 +315,12 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         onClick={() => onOpenProject(project)}
                         className={cn(
                             "h-6 text-xs px-2",
-                            (isChangingStrategy || isOpening || isHealing) &&
+                            (isChangingStrategy || isOpening || isUpdating) &&
                                 "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
                         )}
                         disabled={disableControls}
                     >
-                        {isHealing ? (
+                        {isUpdating ? (
                             <>
                                 <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
                                 Updating...

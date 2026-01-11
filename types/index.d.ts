@@ -371,7 +371,7 @@ export type MessagesFromStartupFlowProvider =
     | { command: "aggregatedProgressData"; data: any; }
     | { command: "project.nameWillBeSanitized"; original: string; sanitized: string; projectId?: string; }
     | { command: "project.nameExistsCheck"; exists: boolean; isCodexProject: boolean; errorMessage?: string; }
-    | { command: "project.healingInProgress"; projectPath: string; healing: boolean; }
+    | { command: "project.updatingInProgress"; projectPath: string; updating: boolean; }
     | { command: "project.cloningInProgress"; projectPath: string; gitOriginUrl?: string; cloning: boolean; }
     | { command: "project.openingInProgress"; projectPath: string; opening: boolean; }
     | { command: "project.zippingInProgress"; projectPath: string; zipType: "full" | "mini"; zipping: boolean; }
@@ -1034,8 +1034,10 @@ type ProjectMetadata = {
             codexEditor?: string;
             frontierAuthentication?: string;
         };
-        /** List of users that should be forced to restore/heal their project when opening */
-        initiateRemoteHealingFor?: RemoteHealingEntry[];
+        /** List of users that should be forced to restore/update their project when opening */
+        initiateRemoteUpdatingFor?: RemoteUpdatingEntry[];
+        /** @deprecated Use initiateRemoteUpdatingFor instead - kept for backward compatibility during migration */
+        initiateRemoteHealingFor?: RemoteUpdatingEntry[];
         abbreviation?: string;
     };
     idAuthorities: {
@@ -1175,14 +1177,20 @@ export interface FileTypeMap {
     codex: "codex";
 }
 
-export interface RemoteHealingEntry {
-    userToHeal: string;
+export interface RemoteUpdatingEntry {
+    userToUpdate: string;
     addedBy: string;
     createdAt: number;
     updatedAt: number;
     deleted: boolean;
     deletedBy: string;
     executed: boolean;
+}
+
+/** @deprecated Use RemoteUpdatingEntry instead - kept for backward compatibility during migration */
+export interface RemoteHealingEntry extends RemoteUpdatingEntry {
+    /** @deprecated Use userToUpdate instead */
+    userToHeal?: string;
 }
 
 export interface AggregatedMetadata {
