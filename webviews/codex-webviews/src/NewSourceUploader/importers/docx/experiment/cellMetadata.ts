@@ -6,7 +6,7 @@
  */
 
 import { CodexCellTypes } from 'types/enums';
-import { DocxParagraph, DocxDocument } from './docxTypes';
+import type { DocxParagraph, DocxDocument } from './docxTypes';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -31,15 +31,21 @@ export function createDocxCellMetadata(params: DocxCellMetadataParams): { metada
     // Generate UUID for cell ID
     const cellId = uuidv4();
 
-    // Create base cell metadata with complete structure for round-trip
-    const cellMetadata: any = {
+    /**
+     * IMPORTANT: Keep DOCX cell metadata minimal.
+     *
+     * Round-trip export uses the original DOCX template stored under:
+     *   `.project/attachments/originals/<originalFileName>`
+     *
+     * To keep `.source`/`.codex` small, we only persist what we need to map a Codex cell
+     * back to a paragraph in `word/document.xml`.
+     */
+    const cellMetadata = {
         id: cellId,
         type: CodexCellTypes.TEXT,
         edits: [],
-        cellId,
         paragraphId,
         paragraphIndex,
-        originalContent,
 
         // Data object for consistency with other importers
         data: {
@@ -47,30 +53,9 @@ export function createDocxCellMetadata(params: DocxCellMetadataParams): { metada
             globalReferences: [], // Empty for DOCX files (no verse references)
         },
 
-        // Complete structure preservation
-        docxStructure: {
-            paragraphProperties: paragraph.paragraphProperties,
-            beforeParagraphXml: paragraph.beforeParagraphXml,
-            afterParagraphXml: paragraph.afterParagraphXml,
-        },
-
         // Cell label (paragraph number)
         cellLabel: `¶${paragraphIndex + 1}`,
     };
-
-    // Store complete run information in metadata for reconstruction
-    cellMetadata.runs = paragraph.runs.map(run => ({
-        id: run.id,
-        runIndex: run.runIndex,
-        content: run.content,
-        runProperties: run.runProperties,
-        beforeRunXml: run.beforeRunXml,
-        afterRunXml: run.afterRunXml,
-        originalXml: run.metadata?.originalXml,
-    }));
-
-    // Store complete paragraph XML for perfect reconstruction
-    cellMetadata.originalParagraphXml = paragraph.metadata?.originalXml;
 
     return {
         cellId,

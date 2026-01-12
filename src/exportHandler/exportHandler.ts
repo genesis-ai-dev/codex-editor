@@ -465,28 +465,37 @@ async function exportCodexContentAsDocxRoundtrip(
 
                     // Lookup original attachment by originalFileName metadata
                     const originalFileName = (codexNotebook.metadata as any)?.originalFileName || `${bookCode}.docx`;
-                    const originalsDir = vscode.Uri.joinPath(
+                    // Originals are stored under `.project/attachments/files/originals/` (preferred).
+                    // Fallback to legacy `.project/attachments/originals/` if needed.
+                    const originalsDirPreferred = vscode.Uri.joinPath(
+                        workspaceFolders[0].uri,
+                        ".project",
+                        "attachments",
+                        "files",
+                        "originals"
+                    );
+                    const originalsDirLegacy = vscode.Uri.joinPath(
                         workspaceFolders[0].uri,
                         ".project",
                         "attachments",
                         "originals"
                     );
-                    const originalFileUri = vscode.Uri.joinPath(originalsDir, originalFileName);
+                    const preferredUri = vscode.Uri.joinPath(originalsDirPreferred, originalFileName);
+                    const legacyUri = vscode.Uri.joinPath(originalsDirLegacy, originalFileName);
+                    let originalFileUri = preferredUri;
+                    try {
+                        await vscode.workspace.fs.stat(preferredUri);
+                    } catch {
+                        originalFileUri = legacyUri;
+                    }
 
                     // Load original DOCX
                     const docxData = await vscode.workspace.fs.readFile(originalFileUri);
 
-                    // Get the stored DOCX document structure
-                    const docxDocument = (codexNotebook.metadata as any)?.docxDocument;
-                    if (!docxDocument) {
-                        throw new Error(`No DOCX document structure found in metadata for ${fileName}`);
-                    }
-
                     // Export with translations
                     const updatedDocxData = await exportDocxWithTranslations(
                         docxData.buffer as ArrayBuffer,
-                        codexNotebook.cells,
-                        docxDocument
+                        codexNotebook.cells
                     );
 
                     // Save translated DOCX into the chosen export folder

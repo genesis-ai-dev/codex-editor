@@ -274,21 +274,19 @@ if (result.success) {
   // Access metadata
   const firstCell = codex.cells[0];
   console.log('Paragraph index:', firstCell.metadata.paragraphIndex);
-  console.log('Original content:', firstCell.metadata.originalContent);
-  console.log('Runs:', firstCell.metadata.runs);
+  console.log('Original text:', firstCell.metadata.data?.originalText);
 }
 ```
 
-### Export with Translations (TODO)
+### Export with Translations
 
 ```typescript
 import { exportDocxWithTranslations } from './experiment/docxExporter';
 
-// Export
+// Export (use original template DOCX bytes, e.g. read from `.project/attachments/originals/<originalFileName>`)
 const exportedDocx = await exportDocxWithTranslations(
-  originalFileData,  // From notebook.metadata.originalFileData
-  codexCells,        // Cells with translations
-  docxDocument       // Parsed from notebook.metadata.docxDocument
+  originalFileData,  // ArrayBuffer of the original .docx template
+  codexCells         // Cells with translations (must include metadata.paragraphIndex)
 );
 
 // Save file
@@ -330,8 +328,8 @@ saveAs(blob, 'translated.docx');
 ┌─────────────────────────┐
 │  Codex Notebook         │
 │  - cells with metadata  │
-│  - originalFileData     │
-│  - docxDocument JSON    │
+│  - importerType         │
+│  - originalFileName     │
 └──────┬──────────────────┘
        │
   [Translation happens in Codex]
