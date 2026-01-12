@@ -11,6 +11,10 @@ import { CodexCellTypes, EditType } from "../../../../types/enums";
 import { EditHistory, ValidationEntry, FileEditHistory, ProjectEditHistory } from "../../../../types/index.d";
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../../utils/editMapUtils";
 import { normalizeAttachmentUrl } from "@/utils/pathUtils";
+import {
+    buildCellPositionContextMap,
+    insertUniqueCellsPreservingRelativePositions,
+} from "./utils/positionPreservationUtils";
 
 const DEBUG_MODE = false;
 function debugLog(...args: any[]): void {
@@ -749,113 +753,6 @@ function migrateEditHistoryInContent(content: string): string {
 }
 
 /**
- * Represents the position context of a cell in its original array.
- * Used to preserve relative positioning when merging cells from different versions.
- */
-interface CellPositionContext {
-    /** The ID of the cell that came before this cell (null if first cell) */
-    previousCellId: string | null;
-    /** The ID of the cell that came after this cell (null if last cell) */
-    nextCellId: string | null;
-}
-
-/**
- * Builds a map of cell position context for each cell in the array.
- * This tracks what cell came before and after each cell, enabling
- * position-preserving merges.
- *
- * @param cells Array of cells to build position context for
- * @returns Map from cell ID to its position context
- */
-function buildCellPositionContextMap(cells: CustomNotebookCellData[]): Map<string, CellPositionContext> {
-    const positionMap = new Map<string, CellPositionContext>();
-
-    for (let i = 0; i < cells.length; i++) {
-        const cell = cells[i];
-        const cellId = cell.metadata?.id;
-        if (!cellId) continue;
-
-        const previousCellId = i > 0 ? (cells[i - 1].metadata?.id || null) : null;
-        const nextCellId = i < cells.length - 1 ? (cells[i + 1].metadata?.id || null) : null;
-
-        positionMap.set(cellId, { previousCellId, nextCellId });
-    }
-
-    return positionMap;
-}
-
-/**
- * Finds the best insertion index for a cell based on its position context.
- * Tries to find the previous or next neighbor in the result array and insert
- * relative to that position. If direct neighbors aren't found, traverses
- * indirect neighbors through the position context map.
- *
- * @param cellId The ID of the cell to insert
- * @param positionContext The cell's position context from its original array
- * @param resultCells The current result array
- * @param resultCellIndexMap Map from cell ID to index in resultCells for quick lookup
- * @param positionContextMap Full position context map for traversing indirect neighbors
- * @returns The index at which to insert the cell
- */
-function findInsertionIndex(
-    cellId: string,
-    positionContext: CellPositionContext,
-    resultCells: CustomNotebookCellData[],
-    resultCellIndexMap: Map<string, number>,
-    positionContextMap: Map<string, CellPositionContext>
-): number {
-    // First, try to find the previous cell and insert after it
-    if (positionContext.previousCellId) {
-        const prevIndex = resultCellIndexMap.get(positionContext.previousCellId);
-        if (prevIndex !== undefined) {
-            debugLog(`Cell ${cellId}: found previous neighbor ${positionContext.previousCellId} at index ${prevIndex}, inserting after`);
-            return prevIndex + 1;
-        }
-    }
-
-    // If previous cell not found, try to find the next cell and insert before it
-    if (positionContext.nextCellId) {
-        const nextIndex = resultCellIndexMap.get(positionContext.nextCellId);
-        if (nextIndex !== undefined) {
-            debugLog(`Cell ${cellId}: found next neighbor ${positionContext.nextCellId} at index ${nextIndex}, inserting before`);
-            return nextIndex;
-        }
-
-        // If next neighbor not found, try to find an indirect neighbor
-        // Check if the next neighbor has a next neighbor that IS in the result
-        const nextNeighborContext = positionContextMap.get(positionContext.nextCellId);
-        if (nextNeighborContext?.nextCellId) {
-            const indirectNextIndex = resultCellIndexMap.get(nextNeighborContext.nextCellId);
-            if (indirectNextIndex !== undefined) {
-                debugLog(`Cell ${cellId}: found indirect next neighbor ${nextNeighborContext.nextCellId} (via ${positionContext.nextCellId}) at index ${indirectNextIndex}, inserting before`);
-                return indirectNextIndex;
-            }
-        }
-    }
-
-    // If neither neighbor found, append at the end
-    debugLog(`Cell ${cellId}: no neighbors found in result, appending at end`);
-    return resultCells.length;
-}
-
-/**
- * Rebuilds the index map after an insertion
- *
- * @param resultCells The result array
- * @returns Updated map from cell ID to index
- */
-function rebuildIndexMap(resultCells: CustomNotebookCellData[]): Map<string, number> {
-    const indexMap = new Map<string, number>();
-    for (let i = 0; i < resultCells.length; i++) {
-        const cellId = resultCells[i].metadata?.id;
-        if (cellId) {
-            indexMap.set(cellId, i);
-        }
-    }
-    return indexMap;
-}
-
-/**
  * Custom merge resolution for Codex files
  * Merges cells from two versions of a notebook, preserving edit history and metadata
  *
@@ -1054,35 +951,24 @@ export async function resolveCodexCustomMerge(
     if (theirCellsMap.size > 0) {
         debugLog(`Processing ${theirCellsMap.size} unique cells from their version with position preservation`);
 
-        // Convert remaining cells to an array and sort by their original position in theirCells
-        // This ensures we process them in their original order
-        const theirUniqueCellIds = Array.from(theirCellsMap.keys());
+        // Keep the original order from "their" side, but place each unique cell near its closest neighbor
+        // that exists in our merged base list. This avoids repeated splice/reindex loops (O(n^2) behavior).
+        const theirUniqueCellIdSet = new Set<string>(theirCellsMap.keys());
         const theirCellsOriginalOrder = theirCells
-            .filter(cell => cell.metadata?.id && theirUniqueCellIds.includes(cell.metadata.id))
-            .map(cell => cell.metadata!.id!);
+            .map((c) => c.metadata?.id)
+            .filter((id): id is string => typeof id === "string" && theirUniqueCellIdSet.has(id));
 
-        // Process cells in their original order to maintain relative positioning
-        for (const cellId of theirCellsOriginalOrder) {
-            const cell = theirCellsMap.get(cellId);
-            if (!cell) continue;
+        const mergedWithUnique = insertUniqueCellsPreservingRelativePositions({
+            baseCells: resultCells,
+            theirUniqueCellIdsInOrder: theirCellsOriginalOrder,
+            theirUniqueCellsById: theirCellsMap,
+            theirPositionContextMap,
+            debugLog,
+        });
 
-            const positionContext = theirPositionContextMap.get(cellId);
-            if (!positionContext) {
-                // No position context, append at end
-                debugLog(`Adding their unique cell ${cellId} at end (no position context)`);
-                resultCells.push(cell);
-                continue;
-            }
-
-            // Build current index map for lookup
-            const resultCellIndexMap = rebuildIndexMap(resultCells);
-
-            // Find the best insertion index based on position context
-            const insertionIndex = findInsertionIndex(cellId, positionContext, resultCells, resultCellIndexMap, theirPositionContextMap);
-
-            debugLog(`Inserting their unique cell ${cellId} at index ${insertionIndex}`);
-            resultCells.splice(insertionIndex, 0, cell);
-        }
+        // Replace contents in-place for downstream logic that may still reference resultCells
+        resultCells.length = 0;
+        resultCells.push(...mergedWithUnique);
     }
 
     debugLog(`Merge complete. Final cell count: ${resultCells.length}`);
