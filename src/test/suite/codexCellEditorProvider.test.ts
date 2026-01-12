@@ -13,6 +13,7 @@ import { CodexNotebookAsJSONData, QuillCellContent, Timestamps, FileEditHistory,
 import { EditMapUtils } from "../../utils/editMapUtils";
 import { CodexContentSerializer } from "../../serializer";
 import { MetadataManager } from "../../utils/metadataManager";
+import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
 import { swallowDuplicateCommandRegistrations, createTempCodexFile, deleteIfExists, createMockExtensionContext, primeProviderWorkspaceStateForHtml, sleep, createMockWebviewPanel } from "../testUtils";
 
 suite("CodexCellEditorProvider Test Suite", () => {
@@ -2145,7 +2146,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         assert.ok(stat.size >= dummyBytes.length, "Saved file should exist and have size");
 
         // Also assert that the pointer copy exists in the pointers folder
-        const documentSegment = cellId.split(" ")[0];
+        const documentSegment = getAttachmentDocumentSegmentFromUri(document.uri);
         const savedAudioId = savedMsg.content.audioId || audioId;
         const pointerAbsPath = path.join(
             os.tmpdir(),
