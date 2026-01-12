@@ -22,7 +22,7 @@ import {
 import { DocxParser } from './docxParser';
 import type { DocxDocument, DocxParagraph, DocxRun } from './docxTypes';
 import { createDocxCellMetadata } from './cellMetadata';
-
+import { ProcessedNotebook } from '../../../types/common';
 const SUPPORTED_EXTENSIONS = ['docx'];
 
 /**
@@ -114,7 +114,7 @@ export const parseFile = async (
         // Create notebook pair
         const baseName = file.name.replace(/\.[^/.]+$/, '');
         const nowIso = new Date().toISOString();
-        const sourceNotebook = {
+        const sourceNotebook: ProcessedNotebook = {
             name: baseName,
             cells,
             metadata: {
@@ -124,10 +124,10 @@ export const parseFile = async (
                 originalFileData: arrayBuffer, // Store original file for export
                 // Use importerType as corpusMarker for export routing / rebuild-export detection
                 corpusMarker: 'docx-roundtrip',
-                importerType: 'docx-roundtrip' as const,
+                importerType: 'docx-roundtrip',
                 createdAt: nowIso,
                 importContext: {
-                    importerType: 'docx-roundtrip' as const,
+                    importerType: 'docx-roundtrip',
                     fileName: file.name,
                     originalFileName: file.name,
                     originalHash: docxDoc.originalHash,
@@ -150,13 +150,13 @@ export const parseFile = async (
             },
         }));
 
-        const codexNotebook = {
+        const codexNotebook: ProcessedNotebook = {
             name: baseName,
             cells: codexCells,
             metadata: {
                 ...sourceNotebook.metadata,
                 id: `codex-${Date.now()}`,
-                importerType: 'docx-roundtrip' as const, // Explicitly set again
+                importerType: 'docx-roundtrip', // Explicitly set again
                 // Don't duplicate the original file data in codex
                 originalFileData: undefined,
             },
