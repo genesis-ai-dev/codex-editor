@@ -6,6 +6,7 @@ import {
     EditHistory,
     SpellCheckResponse,
     Timestamps,
+    CustomNotebookMetadata,
 } from "../../../../types";
 import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 import Editor, { EditorHandles } from "./Editor";
@@ -147,6 +148,7 @@ interface CellEditorProps {
     playerRef?: React.RefObject<ReactPlayerRef>;
     videoUrl?: string;
     shouldShowVideoPlayer?: boolean;
+    metadata?: CustomNotebookMetadata;
 }
 
 // Simple ISO-639-1 to ISO-639-3 mapping for common languages; default to 'eng'
@@ -260,6 +262,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     playerRef,
     videoUrl,
     shouldShowVideoPlayer,
+    metadata,
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
@@ -3295,7 +3298,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         {/* Scrubber with clamped handles */}
                                         <div className="space-y-4">
                                             {/* Previous cell slider - read-only */}
-                                            {typeof prevStartTime === "number" &&
+                                            {metadata?.importerType === "subtitles" &&
+                                                typeof prevStartTime === "number" &&
                                                 typeof prevEndTime === "number" &&
                                                 prevStartTime < prevEndTime && (
                                                     <div className="flex space-y-2 w-full">
@@ -3381,7 +3385,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             </div>
 
                                             {/* Next cell slider - read-only */}
-                                            {typeof nextStartTime === "number" &&
+                                            {metadata?.importerType === "subtitles" &&
+                                                typeof nextStartTime === "number" &&
                                                 typeof nextEndTime === "number" &&
                                                 nextStartTime < nextEndTime && (
                                                     <div className="flex justify-end space-y-2 w-full">

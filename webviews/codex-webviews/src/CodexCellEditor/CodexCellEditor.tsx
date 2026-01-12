@@ -3006,6 +3006,7 @@ const CodexCellEditor: React.FC = () => {
                             shouldShowVideoPlayer={shouldShowVideoPlayer}
                             videoUrl={videoUrl}
                             isOtherTypeAudioPlaying={isOtherTypeAudioPlaying}
+                            metadata={metadata}
                         />
                     </div>
                 </div>

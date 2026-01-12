@@ -4,6 +4,7 @@ import {
     QuillCellContent,
     SpellCheckResponse,
     MilestoneIndex,
+    CustomNotebookMetadata,
 } from "../../../../types";
 import React, { useMemo, useCallback, useState, useEffect, useRef, useContext } from "react";
 import CellEditor from "./TextCellEditor";
@@ -79,6 +80,7 @@ export interface CellListProps {
     videoUrl?: string;
     // Audio playback state from other webview type
     isOtherTypeAudioPlaying?: boolean;
+    metadata?: CustomNotebookMetadata;
 }
 
 const DEBUG_ENABLED = false;
@@ -134,6 +136,7 @@ const CellList: React.FC<CellListProps> = ({
     currentSubsectionIndex = 0,
     cellsPerPage = 50,
     isOtherTypeAudioPlaying = false,
+    metadata,
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -909,6 +912,7 @@ const CellList: React.FC<CellListProps> = ({
                             playerRef={playerRef}
                             videoUrl={videoUrl}
                             shouldShowVideoPlayer={shouldShowVideoPlayer}
+                            metadata={metadata}
                         />
                     </span>
                 );
