@@ -636,7 +636,18 @@ export class CodexCellDocument implements vscode.CustomDocument {
         } else {
             const { resolveCodexCustomMerge } = await import("../../projectManager/utils/merge/resolvers");
             const mergedContent = await resolveCodexCustomMerge(ourContent, currentFileContent);
-            await vscode.workspace.fs.writeFile(this.uri, new TextEncoder().encode(mergedContent));
+
+            // Safety: never write empty/invalid JSON to disk (can happen if merge returns a blank/whitespace string)
+            let finalContent = typeof mergedContent === "string" && mergedContent.trim().length > 0
+                ? mergedContent
+                : ourContent;
+            try {
+                JSON.parse(finalContent);
+            } catch {
+                finalContent = ourContent;
+            }
+
+            await vscode.workspace.fs.writeFile(this.uri, new TextEncoder().encode(finalContent));
         }
 
         // Record save timestamp to prevent file watcher from reverting our own save
