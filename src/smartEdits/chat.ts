@@ -106,18 +106,16 @@ class Chatbot {
                 await this.initializeOpenAI();
             }
 
-            let model = this.config.get("model") as string;
-            if (model === "custom") {
-                model = this.config.get("customModel") as string;
-            }
+            const model = "default";
 
             const completion = await this.openai.chat.completions.create({
-                model: model,
+                model,
                 messages: messages.map((message) => ({
                     role: this.mapMessageRole(message.role),
                     content: message.content,
                 })) as ChatCompletionMessageParam[],
-                ...(model?.toLowerCase?.() === "gpt-5" ? { temperature: 1 } : { temperature: this.config.get("temperature") || 0.8 }),
+                // Let the server decide temperature for the default model.
+                ...(model.toLowerCase() === "default" ? {} : (model.toLowerCase() === "gpt-5" ? { temperature: 1 } : { temperature: this.config.get("temperature") || 0.8 })),
                 stream: false,
             });
 
@@ -167,18 +165,15 @@ class Chatbot {
                 await this.initializeOpenAI();
             }
 
-            let model = this.config.get("model") as string;
-            if (model === "custom") {
-                model = this.config.get("customModel") as string;
-            }
+            const model = "default";
 
             const stream = await this.openai.chat.completions.create({
-                model: model,
+                model,
                 messages: messages.map((message) => ({
                     role: this.mapMessageRole(message.role),
                     content: message.content,
                 })) as ChatCompletionMessageParam[],
-                ...(model?.toLowerCase?.() === "gpt-5" ? { temperature: 1 } : { temperature: this.config.get("temperature") || 0.8 }),
+                ...(model.toLowerCase() === "default" ? {} : (model.toLowerCase() === "gpt-5" ? { temperature: 1 } : { temperature: this.config.get("temperature") || 0.8 })),
                 stream: true,
             });
 
