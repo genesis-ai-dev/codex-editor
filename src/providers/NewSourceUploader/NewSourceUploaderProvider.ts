@@ -24,6 +24,7 @@ import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { migrateLocalizedBooksToMetadata as migrateLocalizedBooks } from "./localizedBooksMigration/localizedBooksMigration";
 import { removeLocalizedBooksJsonIfPresent as removeLocalizedBooksJson } from "./localizedBooksMigration/removeLocalizedBooksJson";
+import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
 // import { parseRtfWithPandoc as parseRtfNode } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/pandocNodeBridge";
 
 const execAsync = promisify(exec);
@@ -123,7 +124,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 } else if (message.command === "writeNotebooks") {
                     await this.handleWriteNotebooks(message as WriteNotebooksMessage, token, webviewPanel);
                 } else if (message.command === "writeNotebooksWithAttachments") {
-                    await this.handleWriteNotebooksWithAttachments(message as WriteNotebooksWithAttachmentsMessage, token, webviewPanel);
+                    await this.handleWriteNotebooksWithAttachments(message as WriteNotebooksWithAttachmentsMessage, document, token, webviewPanel);
                     // Success notification and inventory update are now handled in handleWriteNotebooks
                 } else if (message.command === "overwriteResponse") {
                     const response = message as OverwriteResponseMessage;
@@ -611,6 +612,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
      */
     private async handleWriteNotebooksWithAttachments(
         message: WriteNotebooksWithAttachmentsMessage,
+        document: vscode.TextDocument,
         token: vscode.CancellationToken,
         webviewPanel: vscode.WebviewPanel
     ): Promise<void> {
@@ -780,7 +782,11 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     // Process batch in parallel
                     await Promise.all(batch.map(async (attachment) => {
                         const { cellId, attachmentId, fileName, dataBase64, sourceFileId, isFromVideo, remoteUrl } = attachment as any;
-                        const docSegment = (cellId || "").split(" ")[0] || "UNKNOWN";
+
+
+                        const docSegment =
+                            getAttachmentDocumentSegmentFromUri(document.uri) ||
+                            "UNKNOWN";
                         const filesDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "attachments", "files", docSegment);
                         const pointersDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "attachments", "pointers", docSegment);
                         await vscode.workspace.fs.createDirectory(filesDir);

@@ -106,7 +106,8 @@ interface MessageHandlerContext {
 async function getAudioFilePathForCell(
     cell: any,
     cellId: string,
-    workspaceFolder: vscode.WorkspaceFolder
+    workspaceFolder: vscode.WorkspaceFolder,
+    documentUri: vscode.Uri,
 ): Promise<string | null> {
     // First, check if cell has audio attachments in metadata
     if (cell?.metadata?.attachments) {
@@ -145,7 +146,8 @@ async function getAudioFilePathForCell(
 
     // Fallback to parsing cell ID if globalReferences not available (legacy support)
     if (!bookAbbr) {
-        bookAbbr = cellId.split(' ')[0];
+        // Cell IDs may be UUIDs; avoid deriving book from them.
+        bookAbbr = getAttachmentDocumentSegmentFromUri(documentUri);
     }
 
     const parseCellIdToBookChapterVerse = (refId: string): { book: string; chapter?: number; verse?: number; } => {
@@ -2085,7 +2087,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
 
         // If no attachment in metadata, check filesystem for legacy files
-        const bookAbbr = cellId.split(' ')[0];
+        const bookAbbr = getAttachmentDocumentSegmentFromUri(document.uri);
         const attachmentsFilesPath = path.join(
             workspaceFolder.uri.fsPath,
             ".project",
@@ -2912,7 +2914,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
                         // Fallback to legacy parsing if globalReferences not available
                         if (!bookAbbr) {
-                            bookAbbr = previousCellId.split(' ')[0];
+                            bookAbbr = getAttachmentDocumentSegmentFromUri(document.uri);
                         }
                         if (!basename) {
                             const parseCellIdToBookChapterVerse = (cellId: string): { book: string; chapter?: number; verse?: number; } => {
@@ -3518,6 +3520,8 @@ export async function scanForAudioAttachments(
         const documentText = document.getText();
         const notebookData = JSON.parse(documentText);
 
+        const docSegment = getAttachmentDocumentSegmentFromUri(document.uri);
+
         // Process each cell in the document
         if (notebookData.cells && Array.isArray(notebookData.cells)) {
             for (const cell of notebookData.cells) {
@@ -3554,7 +3558,7 @@ export async function scanForAudioAttachments(
                     }
 
                     // Also check the filesystem for legacy audio files
-                    const bookAbbr = cellId.split(' ')[0];
+                    const bookAbbr = docSegment;
                     const attachmentsFilesPath = path.join(
                         workspaceFolder.uri.fsPath,
                         ".project",
