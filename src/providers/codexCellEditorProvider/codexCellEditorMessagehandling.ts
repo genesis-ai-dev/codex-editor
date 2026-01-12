@@ -31,6 +31,7 @@ import { toPosixPath } from "../../utils/pathUtils";
 import { revalidateCellMissingFlags } from "../../utils/audioMissingUtils";
 import { mergeAudioFiles } from "../../utils/audioMerger";
 import { getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
+import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
 // Comment out problematic imports
 // import { getAddWordToSpellcheckApi } from "../../extension";
 // import { getSimilarCellIds } from "@/utils/semanticSearch";
@@ -2171,7 +2172,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
 
         try {
-            const documentSegment = typedEvent.content.cellId.split(' ')[0];
+            const documentSegment = getAttachmentDocumentSegmentFromUri(document.uri);
             const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
             if (!workspaceFolder) {
                 throw new Error("No workspace folder found");
