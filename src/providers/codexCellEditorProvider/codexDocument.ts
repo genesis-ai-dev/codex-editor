@@ -1348,7 +1348,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
                 // Skip paratext and merged cells
                 const cellId = cell.metadata?.id;
-                if (!cellId || cellId.includes(":paratext-") || cell.metadata?.data?.merged) {
+                if (!cellId || cellId.includes(":paratext-") || cell.metadata?.type === CodexCellTypes.PARATEXT || cell.metadata?.data?.merged) {
                     continue;
                 }
 
@@ -1478,7 +1478,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
             // Skip paratext and merged cells
             const cellId = cell.metadata?.id;
-            if (!cellId || cellId.includes(":paratext-") || cell.metadata?.data?.merged) {
+            if (!cellId || cellId.includes(":paratext-") || cell.metadata?.type === CodexCellTypes.PARATEXT || cell.metadata?.data?.merged) {
                 continue;
             }
 
