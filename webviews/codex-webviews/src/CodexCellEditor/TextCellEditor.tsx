@@ -2676,7 +2676,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             setUnsavedChanges(true);
                         }}
                     />
-                    <div className="flex justify-between text-xs text-muted-foreground">
+                    <div className="flex justify-between text-xs text-muted-foreground mt-1">
                         <span>Min: {formatTime(extendedMinBound)}</span>
                         <span>Max: {formatTime(extendedMaxBound)}</span>
                     </div>
@@ -2690,10 +2690,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
         ) {
             return (
                 <>
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Min: {formatTime(Math.max(0, previousEndBound))}</span>
-                        <span>Max: {formatTime(computedMaxBound)}</span>
-                    </div>
                     <Slider
                         min={Math.max(0, previousEndBound)}
                         max={Math.max(computedMaxBound, effectiveTimestamps.endTime ?? 0)}
@@ -2731,6 +2727,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             setUnsavedChanges(true);
                         }}
                     />
+                    <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                        <span>Min: {formatTime(Math.max(0, previousEndBound))}</span>
+                        <span>Max: {formatTime(computedMaxBound)}</span>
+                    </div>
                 </>
             );
         } else {
@@ -3406,36 +3406,40 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 {effectiveTimestamps &&
                                 (effectiveTimestamps.startTime !== undefined ||
                                     effectiveTimestamps.endTime !== undefined) ? (
-                                    <div className="space-y-4">
+                                    <div className="space-y-8">
                                         {/* Scrubber with clamped handles */}
-                                        <div className="space-y-4">
+                                        <div className="space-y-4 mt-1">
                                             {/* Previous cell slider - read-only */}
                                             {isSubtitlesType &&
                                                 typeof prevStartTime === "number" &&
                                                 typeof prevEndTime === "number" &&
                                                 prevStartTime < prevEndTime && (
-                                                    <div className="flex space-y-2 w-full">
-                                                        <div className="w-1/3 flex flex-col">
-                                                            <label className="text-sm font-medium text-muted-foreground">
-                                                                Previous cell range
-                                                            </label>
+                                                    <div className="flex flex-col items-start space-y-1 w-full">
+                                                        <label className="text-sm font-medium text-muted-foreground">
+                                                            Previous cell range
+                                                        </label>
+                                                        <div
+                                                            className="flex flex-col relative"
+                                                            style={{
+                                                                width: `${
+                                                                    ((prevEndTime - prevStartTime) /
+                                                                        (extendedMaxBound -
+                                                                            extendedMinBound)) *
+                                                                    100
+                                                                }%`,
+                                                            }}
+                                                        >
                                                             <Slider
                                                                 disabled
-                                                                min={Math.max(0, prevStartTime)}
-                                                                max={Math.max(
-                                                                    prevEndTime,
-                                                                    prevStartTime + 0.001
-                                                                )}
+                                                                min={prevStartTime}
+                                                                max={prevEndTime}
                                                                 value={[prevStartTime, prevEndTime]}
                                                                 step={0.001}
                                                                 className="opacity-60"
                                                             />
-                                                            <div className="flex justify-between text-xs text-muted-foreground">
+                                                            <div className="absolute left-0 top-[0.25rem] mt-2 flex min-w-max justify-end text-xs text-muted-foreground">
                                                                 <span>
-                                                                    Min: {formatTime(prevStartTime)}
-                                                                </span>
-                                                                <span>
-                                                                    {formatTime(prevEndTime)}
+                                                                    End: {formatTime(prevEndTime)}
                                                                 </span>
                                                             </div>
                                                         </div>
@@ -3443,7 +3447,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 )}
 
                                             {/* Current cell slider */}
-                                            <div className="flex flex-col justify-center space-y-2 w-full">
+                                            <div className="flex flex-col justify-center space-y-2 mt-8 w-full">
                                                 {currentTimestampSlider()}
                                             </div>
 
@@ -3452,11 +3456,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 typeof nextStartTime === "number" &&
                                                 typeof nextEndTime === "number" &&
                                                 nextStartTime < nextEndTime && (
-                                                    <div className="flex justify-end space-y-2 w-full">
-                                                        <div className="w-1/3 flex flex-col">
-                                                            <label className="text-sm font-medium text-muted-foreground">
-                                                                Next cell range
-                                                            </label>
+                                                    <div className="flex flex-col justify-end items-end space-y-1 w-full">
+                                                        <label className="text-sm font-medium text-muted-foreground">
+                                                            Next cell range
+                                                        </label>
+                                                        <div
+                                                            className="flex flex-col relative"
+                                                            style={{
+                                                                width: `${
+                                                                    ((nextEndTime - nextStartTime) /
+                                                                        (extendedMaxBound -
+                                                                            extendedMinBound)) *
+                                                                    100
+                                                                }%`,
+                                                            }}
+                                                        >
                                                             <Slider
                                                                 disabled
                                                                 min={Math.max(0, nextStartTime)}
@@ -3468,9 +3482,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 step={0.001}
                                                                 className="opacity-60"
                                                             />
-                                                            <div className="flex justify-end text-xs text-muted-foreground">
+                                                            <div className="absolute right-0 top-[0.25rem] mt-2 flex min-w-max text-xs text-muted-foreground">
                                                                 <span>
-                                                                    {formatTime(nextEndTime)}
+                                                                    Start:{" "}
+                                                                    {formatTime(nextStartTime)}
                                                                 </span>
                                                             </div>
                                                         </div>
@@ -3478,7 +3493,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 )}
                                         </div>
 
-                                        <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                                        <div className="flex items-center justify-between p-3 my-4 bg-muted rounded-lg">
                                             <div className="text-sm">
                                                 <span className="font-medium">Duration:</span>{" "}
                                                 {effectiveTimestamps.startTime !== undefined &&
