@@ -57,6 +57,7 @@ import { fileExists } from "./utils/webviewUtils";
 import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 import { migrateAudioAttachments } from "./utils/audioAttachmentsMigrationUtils";
+import { areCodexProjectMigrationsComplete } from "./projectManager/utils/migrationCompletionUtils";
 import { registerTestingCommands } from "./evaluation/testingCommands";
 import { initializeABTesting } from "./utils/abTestingSetup";
 import {
@@ -946,6 +947,68 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
                     debug("🔄 [POST-WORKSPACE] Codex project detected and user authenticated, proceeding to sync...");
 
                     {
+                        // Safety gate: don't run the initial workspace sync until *all* project migrations
+                        // have marked completion flags in `.vscode/settings.json`.
+                        const migrationStatus = areCodexProjectMigrationsComplete(context);
+                        if (!migrationStatus.complete) {
+                            const missing = migrationStatus.incompleteKeys.join(", ");
+                            debug(
+                                `⏳ [POST-WORKSPACE] Delaying initial sync: migrations incomplete (${missing})`
+                            );
+
+                            // When migrations finish, they update workspace settings; hook that event and run initial sync once.
+                            let didStartDelayedInitialSync = false;
+                            const delayedSyncDeadlineMs = Date.now() + 2 * 60 * 1000; // 2 minutes
+
+                            const maybeRunDelayedInitialSync = async (reason: string) => {
+                                if (didStartDelayedInitialSync) return;
+                                if (Date.now() > delayedSyncDeadlineMs) {
+                                    debug(
+                                        `⏭️ [POST-WORKSPACE] Skipping delayed initial sync: timed out waiting for migrations (${reason})`
+                                    );
+                                    return;
+                                }
+
+                                const retryStatus = areCodexProjectMigrationsComplete(context);
+                                if (!retryStatus.complete) {
+                                    debug(
+                                        `⏳ [POST-WORKSPACE] Still waiting on migrations (${reason}): ${retryStatus.incompleteKeys.join(", ")}`
+                                    );
+                                    return;
+                                }
+
+                                didStartDelayedInitialSync = true;
+                                try {
+                                    debug(`🔄 [POST-WORKSPACE] Migrations complete (${reason}); running initial sync...`);
+                                    const syncManager = SyncManager.getInstance();
+                                    if (isHealWorkspace && pendingHealSync?.commitMessage) {
+                                        await syncManager.executeSync(String(pendingHealSync.commitMessage), true, context, false);
+                                    } else {
+                                        await syncManager.executeSync("Initial workspace sync", true, context, false);
+                                    }
+                                } catch (error) {
+                                    console.error("❌ [POST-WORKSPACE] Error during delayed post-workspace sync:", error);
+                                } finally {
+                                    delayedSyncListener.dispose();
+                                }
+                            };
+
+                            const delayedSyncListener = vscode.workspace.onDidChangeConfiguration(async (e) => {
+                                if (!e.affectsConfiguration("codex-project-manager")) return;
+                                await maybeRunDelayedInitialSync("settings changed");
+                            });
+                            context.subscriptions.push(delayedSyncListener);
+
+                            // Kick off a first retry shortly in case completion already happened but settings event won't fire again.
+                            setTimeout(() => {
+                                maybeRunDelayedInitialSync("initial retry").catch((error) => {
+                                    console.error("❌ [POST-WORKSPACE] Error during delayed sync precheck:", error);
+                                });
+                            }, 2500);
+
+                            return;
+                        }
+
                         const syncStart = globalThis.performance.now();
                         const syncManager = SyncManager.getInstance();
                         try {
