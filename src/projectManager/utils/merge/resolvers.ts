@@ -2137,6 +2137,12 @@ export async function resolveConflictFiles(
         async (progress) => {
             const totalConflicts = conflicts.length;
             let processedConflicts = 0;
+            const reportProgress = (): void => {
+                progress.report({
+                    increment: (1 / totalConflicts) * 100,
+                    message: `Processing file ${processedConflicts}/${totalConflicts}`,
+                });
+            };
 
             // Ensure all parent directories exist before resolving/writing files.
             // This is critical for heal, where locally-created directories may not exist in a fresh clone.
@@ -2161,17 +2167,16 @@ export async function resolveConflictFiles(
                 // Continue; individual writes will still attempt and report errors.
             }
 
-            for (const conflict of conflicts) {
-                console.log("conflict", { conflict });
+            // Process conflicts with limited concurrency to reduce end-to-end delay on large conflict sets.
+            // This avoids long sequential runs (and avoids noisy per-conflict console logging).
+            const MAX_CONCURRENCY = 4;
+            let nextIndex = 0;
+
+            const processOne = async (conflict: ConflictFile): Promise<void> => {
                 // Validate conflict object structure
                 if (!isValidConflict(conflict)) {
                     console.error("Invalid conflict object:", conflict);
-                    processedConflicts++;
-                    progress.report({
-                        increment: (1 / totalConflicts) * 100,
-                        message: `Processing file ${processedConflicts}/${totalConflicts}`,
-                    });
-                    continue;
+                    return;
                 }
 
                 const normalizedFilepath = conflict.filepath.replace(/\\/g, "/").replace(/^\/+/, "");
@@ -2192,12 +2197,7 @@ export async function resolveConflictFiles(
                     } catch (e) {
                         console.error(`Error deleting file ${conflict.filepath}:`, e);
                     }
-                    processedConflicts++;
-                    progress.report({
-                        increment: (1 / totalConflicts) * 100,
-                        message: `Processing file ${processedConflicts}/${totalConflicts}`,
-                    });
-                    continue;
+                    return;
                 }
 
                 // Handle new file
@@ -2246,12 +2246,7 @@ export async function resolveConflictFiles(
                     } catch (e) {
                         console.error(`Error creating new file ${conflict.filepath}:`, e);
                     }
-                    processedConflicts++;
-                    progress.report({
-                        increment: (1 / totalConflicts) * 100,
-                        message: `Processing file ${processedConflicts}/${totalConflicts}`,
-                    });
-                    continue;
+                    return;
                 }
 
                 // Handle existing file with conflicts
@@ -2259,12 +2254,7 @@ export async function resolveConflictFiles(
                     await vscode.workspace.fs.stat(filePath);
                 } catch {
                     debugLog(`Skipping conflict resolution for missing file: ${conflict.filepath}`);
-                    processedConflicts++;
-                    progress.report({
-                        increment: (1 / totalConflicts) * 100,
-                        message: `Processing file ${processedConflicts}/${totalConflicts}`,
-                    });
-                    continue;
+                    return;
                 }
 
                 const resolvedFile = await resolveConflictFile(conflict, workspaceDir, options);
@@ -2274,12 +2264,24 @@ export async function resolveConflictFiles(
                         resolution: "modified",
                     });
                 }
-                processedConflicts++;
-                progress.report({
-                    increment: (1 / totalConflicts) * 100,
-                    message: `Processing file ${processedConflicts}/${totalConflicts}`,
-                });
-            }
+            };
+
+            const worker = async (): Promise<void> => {
+                while (nextIndex < conflicts.length) {
+                    const i = nextIndex++;
+                    const conflict = conflicts[i];
+
+                    try {
+                        await processOne(conflict);
+                    } finally {
+                        processedConflicts++;
+                        reportProgress();
+                    }
+                }
+            };
+
+            const workerCount = Math.min(MAX_CONCURRENCY, conflicts.length);
+            await Promise.all(Array.from({ length: workerCount }, () => worker()));
         }
     );
 

@@ -587,8 +587,15 @@ export class SyncManager {
             // Migrate comments before sync if needed
             const workspaceFolders = vscode.workspace.workspaceFolders;
             if (workspaceFolders && workspaceFolders.length > 0) {
-                const needsMigration = await CommentsMigrator.needsMigration(workspaceFolders[0].uri);
-                const inSourceControl = await CommentsMigrator.areCommentsFilesInSourceControl(workspaceFolders[0].uri);
+                const workspaceUri = workspaceFolders[0].uri;
+                const workspaceFsPath = workspaceUri.fsPath;
+
+                // These checks are independent and can be expensive on large projects; run in parallel.
+                const [needsMigration, inSourceControl, commentsHasLocalChanges] = await Promise.all([
+                    CommentsMigrator.needsMigration(workspaceUri),
+                    CommentsMigrator.areCommentsFilesInSourceControl(workspaceUri),
+                    hasLocalModifications(workspaceFsPath, ".project/comments.json"),
+                ]);
 
                 if (needsMigration && inSourceControl) {
                     this.currentSyncStage = "Migrating legacy comments...";
@@ -603,12 +610,6 @@ export class SyncManager {
                         // Don't fail sync due to migration errors
                     }
                 }
-
-                // Check if comments.json has local modifications that would be committed
-                const commentsHasLocalChanges = await hasLocalModifications(
-                    workspaceFolders[0].uri.fsPath,
-                    '.project/comments.json'
-                );
 
                 if (commentsHasLocalChanges) {
                     // Only run pre-sync repair if comments.json has local modifications
@@ -658,8 +659,11 @@ export class SyncManager {
 
             // Migrate comments after sync if new legacy files were pulled
             if (workspaceFolders && workspaceFolders.length > 0) {
-                const needsPostSyncMigration = await CommentsMigrator.needsMigration(workspaceFolders[0].uri);
-                const inSourceControl = await CommentsMigrator.areCommentsFilesInSourceControl(workspaceFolders[0].uri);
+                const workspaceUri = workspaceFolders[0].uri;
+                const [needsPostSyncMigration, inSourceControl] = await Promise.all([
+                    CommentsMigrator.needsMigration(workspaceUri),
+                    CommentsMigrator.areCommentsFilesInSourceControl(workspaceUri),
+                ]);
 
                 if (needsPostSyncMigration && inSourceControl) {
                     this.currentSyncStage = "Cleaning up legacy files...";
