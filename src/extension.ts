@@ -56,7 +56,6 @@ import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/update
 import { fileExists } from "./utils/webviewUtils";
 import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
-import { migrateAudioAttachments } from "./utils/audioAttachmentsMigrationUtils";
 import { areCodexProjectMigrationsComplete } from "./projectManager/utils/migrationCompletionUtils";
 import { registerTestingCommands } from "./evaluation/testingCommands";
 import { initializeABTesting } from "./utils/abTestingSetup";
@@ -235,7 +234,7 @@ async function restoreTabLayout(context: vscode.ExtensionContext) {
                         if (!(await fileExists(uri))) {
                             return; // Skip missing files
                         }
-                        
+
                         if (viewType && viewType !== "default") {
                             await vscode.commands.executeCommand(
                                 "vscode.openWith",
@@ -275,12 +274,12 @@ async function restoreTabLayout(context: vscode.ExtensionContext) {
     for (const tab of codexTabs) {
         try {
             const uri = vscode.Uri.parse(tab.uri);
-            
+
             // Check if file exists before trying to open
             if (!(await fileExists(uri))) {
                 continue; // Skip missing files
             }
-            
+
             await vscode.commands.executeCommand(
                 "vscode.openWith",
                 uri,
@@ -377,16 +376,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 // Don't fail startup due to migration errors
             }
 
-            // Migrate audio attachments to new folder structure (async, don't block startup)
-            try {
-                migrateAudioAttachments(vscode.workspace.workspaceFolders[0]).catch(error => {
-                    console.error("[Extension] Error during audio attachments migration:", error);
-                    // Silent fallback - don't block startup if migration fails
-                });
-            } catch (error) {
-                console.error("[Extension] Error during audio attachments migration:", error);
-                // Don't fail startup due to migration errors
-            }
         }
         stepStart = trackTiming("Migrating Legacy Comments", migrationStart);
 
@@ -412,13 +401,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 // Don't fail startup due to git config update errors
             }
 
-            // Auto-migrate legacy .x-m4a audio files silently (non-blocking)
-            // Similar to database corruption repair - runs automatically without user notification
-            import("./utils/audioFileValidation")
-                .then(({ autoMigrateLegacyAudioFiles }) => autoMigrateLegacyAudioFiles())
-                .catch(error => {
-                    console.error("[Extension] Error auto-migrating legacy audio files:", error);
-                });
         }
         stepStart = trackTiming("Updating Git Configuration", gitConfigStart);
 
