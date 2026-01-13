@@ -655,11 +655,22 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
-    saveHtml: async ({ event, document, provider }) => {
+    saveHtml: async ({ event, document, provider, webviewPanel }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "saveHtml"; }>;
+        const requestId = typedEvent.requestId;
 
         if (document.uri.toString() !== (typedEvent.content.uri || document.uri.toString())) {
             console.warn("Attempted to update content in a different file. This operation is not allowed.");
+            // Always ack so the webview doesn't spin indefinitely
+            safePostMessageToPanel(webviewPanel, {
+                type: "saveHtmlSaved",
+                content: {
+                    requestId,
+                    cellId: typedEvent.content.cellMarkers?.[0] || "",
+                    success: false,
+                    error: "Attempted to update content in a different file.",
+                },
+            });
             return;
         }
 
@@ -669,6 +680,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         // Block saveHtml operations on locked cells
         if (oldContent?.metadata?.isLocked) {
             console.warn(`Attempted to save locked cell ${cellId}. Operation blocked.`);
+            safePostMessageToPanel(webviewPanel, {
+                type: "saveHtmlSaved",
+                content: {
+                    requestId,
+                    cellId,
+                    success: false,
+                    error: `Cell ${cellId} is locked`,
+                },
+            });
             return;
         }
 
@@ -694,20 +714,34 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         // For source file transcriptions, wait for index update to complete
         // so that the source content is immediately available for translation
-        if (isSourceText && isTranscription) {
-            await document.updateCellContent(
-                cellId,
-                finalContent,
-                EditType.USER_EDIT
-            );
-            // Wait for the index to be updated and verify it's available
-            await document.ensureCellIndexed(cellId, 3000);
-        } else {
-            await document.updateCellContent(
-                cellId,
-                finalContent,
-                EditType.USER_EDIT
-            );
+        try {
+            if (isSourceText && isTranscription) {
+                await document.updateCellContent(cellId, finalContent, EditType.USER_EDIT);
+                // Wait for the index to be updated and verify it's available
+                await document.ensureCellIndexed(cellId, 3000);
+            } else {
+                await document.updateCellContent(cellId, finalContent, EditType.USER_EDIT);
+            }
+
+            // Persist the change all the way to disk before acknowledging completion to the webview.
+            // This ensures UI "Save complete" state truly reflects the full round-trip.
+            await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+
+            safePostMessageToPanel(webviewPanel, {
+                type: "saveHtmlSaved",
+                content: { requestId, cellId, success: true },
+            });
+        } catch (error) {
+            console.error("Error persisting saveHtml:", error);
+            safePostMessageToPanel(webviewPanel, {
+                type: "saveHtmlSaved",
+                content: {
+                    requestId,
+                    cellId,
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error),
+                },
+            });
         }
     },
 
@@ -2155,6 +2189,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     saveAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "saveAudioAttachment"; }>;
+        const requestId = typedEvent.requestId;
         console.log("saveAudioAttachment message received", {
             cellId: typedEvent.content.cellId,
             audioId: typedEvent.content.audioId,
@@ -2166,9 +2201,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const cell = document.getCell(cellId);
         if (cell?.metadata?.isLocked) {
             console.warn(`Attempted to save audio to locked cell ${cellId}. Operation blocked.`);
-            safePostMessageToPanel(webviewPanel, {
-                type: "error",
-                content: { message: `Cannot save audio: cell ${cellId} is locked` }
+            provider.postMessageToWebview(webviewPanel, {
+                type: "audioAttachmentSaved",
+                content: {
+                    cellId,
+                    audioId: typedEvent.content.audioId,
+                    requestId,
+                    success: false,
+                    savedToCodexFile: false,
+                    error: `Cannot save audio: cell ${cellId} is locked`,
+                },
             });
             return;
         }
@@ -2258,13 +2300,18 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 ...(typedEvent.content.metadata ? { metadata: typedEvent.content.metadata } : {}),
             } as any);
 
+            // Persist metadata update to the .codex/.source file before we show "saved" in the webview.
+            await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+
             provider.postMessageToWebview(webviewPanel, {
                 type: "audioAttachmentSaved",
                 content: {
                     cellId: typedEvent.content.cellId,
                     audioId: sanitizedAudioId,
-                    success: true
-                }
+                    requestId,
+                    success: true,
+                    savedToCodexFile: true,
+                },
             });
 
             // Send targeted audio attachment update instead of full refresh to preserve tab state
@@ -2397,7 +2444,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 content: {
                     cellId: typedEvent.content.cellId,
                     audioId: typedEvent.content.audioId,
+                    requestId,
                     success: false,
+                    savedToCodexFile: false,
                     error: error instanceof Error ? error.message : String(error)
                 }
             });

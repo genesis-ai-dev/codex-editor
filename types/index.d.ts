@@ -587,7 +587,7 @@ export type EditorPostMessages =
             data: CustomNotebookCellData["metadata"]["data"];
         };
     }
-    | { command: "saveHtml"; content: EditorCellContent; }
+    | { command: "saveHtml"; requestId?: string; content: EditorCellContent; }
     | { command: "saveTimeBlocks"; content: TimeBlock[]; }
     | { command: "replaceDuplicateCells"; content: QuillCellContent; }
     | { command: "getContent"; }
@@ -666,6 +666,7 @@ export type EditorPostMessages =
     | { command: "openCommentsForCell"; content: { cellId: string; }; }
     | {
         command: "saveAudioAttachment";
+        requestId?: string;
         content: {
             cellId: string;
             audioData: string; // base64 encoded audio data
@@ -1767,6 +1768,15 @@ interface CodexItem {
 }
 type EditorReceiveMessages =
     | {
+        type: "saveHtmlSaved";
+        content: {
+            requestId?: string;
+            cellId: string;
+            success: boolean;
+            error?: string;
+        };
+    }
+    | {
         type: "providerSendsInitialContent";
         content: QuillCellContent[];
         isSourceText: boolean;
@@ -2117,7 +2127,13 @@ type EditorReceiveMessages =
         content: {
             cellId: string;
             audioId: string;
+            requestId?: string;
             success: boolean;
+            /**
+             * True when the attachment metadata has been persisted to the .codex/.source file
+             * (in addition to the audio file itself being written).
+             */
+            savedToCodexFile?: boolean;
             error?: string;
         };
     }

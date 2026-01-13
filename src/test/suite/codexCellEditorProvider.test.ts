@@ -2420,6 +2420,97 @@ suite("CodexCellEditorProvider Test Suite", () => {
         (vscode.workspace as any).getWorkspaceFolder = originalGetWorkspaceFolder;
     });
 
+    test("saveHtml posts saveHtmlSaved only after provider.saveCustomDocument completes (requestId round-trip)", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        const postedMessages: any[] = [];
+        const webviewPanel = {
+            webview: {
+                html: "",
+                options: { enableScripts: true },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: "https://example.com",
+                onDidReceiveMessage: (_cb: any) => ({ dispose: () => { } }),
+                postMessage: (message: any) => {
+                    postedMessages.push(message);
+                    return Promise.resolve();
+                },
+            },
+            onDidDispose: () => ({ dispose: () => { } }),
+            onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+        } as any as vscode.WebviewPanel;
+
+        // Stub command used by saveHtml handler (recordIceEdit)
+        const originalExecuteCommand = vscode.commands.executeCommand;
+        // @ts-expect-error test stub
+        vscode.commands.executeCommand = async (command: string, ...args: any[]) => {
+            if (command === "codex-smart-edits.recordIceEdit") return undefined;
+            return originalExecuteCommand(command, ...args);
+        };
+
+        // Gate saveCustomDocument so we can assert ack is only posted after it resolves
+        const originalSaveCustomDocument = (provider as any).saveCustomDocument;
+        let saveResolve: (() => void) | null = null;
+        const savePromise = new Promise<void>((resolve) => {
+            saveResolve = resolve;
+        });
+        let saveCalled = false;
+        (provider as any).saveCustomDocument = async () => {
+            saveCalled = true;
+            await savePromise;
+        };
+
+        const cellId = JSON.parse(document.getText()).cells[0].metadata.id as string;
+        const requestId = `req-${Date.now()}`;
+        const newContent = "Updated HTML content (roundtrip)";
+
+        const run = handleMessages(
+            {
+                command: "saveHtml",
+                requestId,
+                content: {
+                    cellMarkers: [cellId],
+                    cellContent: newContent,
+                    cellChanged: true,
+                },
+            } as any,
+            webviewPanel,
+            document,
+            () => { },
+            provider as any
+        );
+
+        // Wait briefly so updateCellContent runs and saveCustomDocument is awaited
+        await sleep(30);
+        assert.ok(saveCalled, "saveCustomDocument should be invoked for saveHtml");
+
+        const ackBefore = postedMessages.find((m) => m?.type === "saveHtmlSaved");
+        assert.ok(!ackBefore, "saveHtmlSaved should NOT be posted before saveCustomDocument completes");
+
+        // Complete the gated save
+        saveResolve?.();
+        await run;
+
+        const parsed = JSON.parse(document.getText());
+        const updatedCell = parsed.cells.find((c: any) => c.metadata.id === cellId);
+        assert.strictEqual(updatedCell.value, newContent, "Document content should be updated after saveHtml");
+
+        const ack = postedMessages.find((m) => m?.type === "saveHtmlSaved");
+        assert.ok(ack, "saveHtmlSaved should be posted after saveCustomDocument completes");
+        assert.strictEqual(ack.content.requestId, requestId);
+        assert.strictEqual(ack.content.cellId, cellId);
+        assert.strictEqual(ack.content.success, true);
+
+        // Restore stubs
+        (provider as any).saveCustomDocument = originalSaveCustomDocument;
+        vscode.commands.executeCommand = originalExecuteCommand;
+    });
+
     test("mergeMatchingCellsInTargetFile marks target current cell merged and logs merged edit", async function () {
         this.timeout(15000);
         const provider = new CodexCellEditorProvider(context);
