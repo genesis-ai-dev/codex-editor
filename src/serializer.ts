@@ -3,6 +3,7 @@
 import * as vscode from "vscode";
 import { TextDecoder, TextEncoder } from "util";
 import { CodexNotebookAsJSONData, CustomNotebookCellData } from "../types";
+import { formatJsonForNotebookFile } from "./utils/notebookFileFormattingUtils";
 
 export interface CodexNotebookDocument extends vscode.NotebookDocument {
     cells: CustomNotebookCellData[];
@@ -95,7 +96,7 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
         }
 
         debug("Notebook serialization complete", { cellCount: contents.cells.length });
-        return new TextEncoder().encode(JSON.stringify(contents, null, 4));
+        return new TextEncoder().encode(formatJsonForNotebookFile(contents, 2));
     }
 }
 

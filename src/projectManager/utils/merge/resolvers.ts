@@ -11,6 +11,7 @@ import { CodexCellTypes, EditType } from "../../../../types/enums";
 import { EditHistory, ValidationEntry, FileEditHistory, ProjectEditHistory } from "../../../../types/index.d";
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../../utils/editMapUtils";
 import { normalizeAttachmentUrl } from "@/utils/pathUtils";
+import { formatJsonForNotebookFile } from "../../../utils/notebookFileFormattingUtils";
 import {
     buildCellPositionContextMap,
     insertUniqueCellsPreservingRelativePositions,
@@ -986,13 +987,13 @@ export async function resolveCodexCustomMerge(
     }
 
     // Return the full notebook structure with merged cells and metadata
-    return JSON.stringify(
+    // (formatted consistently for `.codex`/`.source` file writes)
+    return formatJsonForNotebookFile(
         {
             ...ourNotebook,
             cells: resultCells,
             metadata: mergedMetadata,
         },
-        null,
         2
     );
 }

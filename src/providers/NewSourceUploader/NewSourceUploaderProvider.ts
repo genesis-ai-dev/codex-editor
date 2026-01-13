@@ -19,6 +19,7 @@ import { CodexCell } from "../../utils/codexNotebookUtils";
 import { CodexCellTypes } from "../../../types/enums";
 import { importBookNamesFromXmlContent } from "../../bookNameSettings/bookNameSettings";
 import { createStandardizedFilename, extractUsfmCodeFromFilename, getBookDisplayName } from "../../utils/bookNameUtils";
+import { formatJsonForNotebookFile } from "../../utils/notebookFileFormattingUtils";
 import { CodexContentSerializer } from "../../serializer";
 import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
@@ -1051,7 +1052,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             // Write the updated notebook back to disk
             await vscode.workspace.fs.writeFile(
                 targetFileUri,
-                Buffer.from(JSON.stringify(updatedNotebook, null, 2))
+                Buffer.from(formatJsonForNotebookFile(updatedNotebook, 2))
             );
 
             // Show success message with statistics

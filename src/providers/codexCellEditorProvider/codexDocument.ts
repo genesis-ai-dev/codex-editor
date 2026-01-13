@@ -25,6 +25,7 @@ import { debounce } from "lodash";
 import { getSQLiteIndexManager } from "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
 import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents } from "../../../sharedUtils";
 import { extractParentCellIdFromParatext, convertCellToQuillContent } from "./utils/cellUtils";
+import { formatJsonForNotebookFile, normalizeNotebookFileText } from "../../utils/notebookFileFormattingUtils";
 
 // Define debug function locally
 const DEBUG_MODE = false;
@@ -640,7 +641,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
     public async save(cancellation: vscode.CancellationToken): Promise<void> {
         const currentFileContent = await this.readCurrentFileContent();
-        const ourContent = JSON.stringify(this._documentData, null, 2);
+        const ourContent = formatJsonForNotebookFile(this._documentData, 2);
 
         if (!currentFileContent) {
             // Initial write when file does not yet exist or cannot be read
@@ -648,7 +649,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
         } else {
             const { resolveCodexCustomMerge } = await import("../../projectManager/utils/merge/resolvers");
             const mergedContent = await resolveCodexCustomMerge(ourContent, currentFileContent);
-            await vscode.workspace.fs.writeFile(this.uri, new TextEncoder().encode(mergedContent));
+            await vscode.workspace.fs.writeFile(
+                this.uri,
+                new TextEncoder().encode(normalizeNotebookFileText(mergedContent))
+            );
         }
 
         // Record save timestamp to prevent file watcher from reverting our own save
@@ -682,7 +686,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         cancellation: vscode.CancellationToken,
         backup: boolean = false
     ): Promise<void> {
-        const text = JSON.stringify(this._documentData, null, 2);
+        const text = formatJsonForNotebookFile(this._documentData, 2);
         await vscode.workspace.fs.writeFile(targetResource, new TextEncoder().encode(text));
 
         // IMMEDIATE AI LEARNING for non-backup saves
@@ -718,7 +722,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     public getText(): string {
-        return JSON.stringify(this._documentData, null, 2);
+        return formatJsonForNotebookFile(this._documentData, 2);
     }
 
     public getCellContent(cellId: string): QuillCellContent | undefined {
