@@ -2455,9 +2455,9 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
         // Gate saveCustomDocument so we can assert ack is only posted after it resolves
         const originalSaveCustomDocument = (provider as any).saveCustomDocument;
-        let saveResolve: (() => void) | null = null;
+        let saveResolve!: () => void;
         const savePromise = new Promise<void>((resolve) => {
-            saveResolve = resolve;
+            saveResolve = () => resolve();
         });
         let saveCalled = false;
         (provider as any).saveCustomDocument = async () => {
@@ -2493,7 +2493,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         assert.ok(!ackBefore, "saveHtmlSaved should NOT be posted before saveCustomDocument completes");
 
         // Complete the gated save
-        saveResolve?.();
+        saveResolve();
         await run;
 
         const parsed = JSON.parse(document.getText());
