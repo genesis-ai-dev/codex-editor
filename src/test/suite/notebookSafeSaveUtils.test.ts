@@ -1,7 +1,11 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import sinon from "sinon";
-import { atomicWriteUriText, readExistingFileOrThrow } from "../../utils/notebookSafeSaveUtils";
+import {
+    atomicWriteUriTextWithFs,
+    readExistingFileOrThrowWithFs,
+    type NotebookFs,
+} from "../../utils/notebookSafeSaveUtils";
 
 suite("notebookSafeSaveUtils", () => {
     teardown(() => {
@@ -10,44 +14,66 @@ suite("notebookSafeSaveUtils", () => {
 
     test("readExistingFileOrThrow returns missing when stat/read indicate missing", async () => {
         const uri = vscode.Uri.file("/tmp/does-not-exist.codex");
-        sinon.stub(vscode.workspace.fs, "readFile").rejects(new Error("ENOENT"));
-        sinon.stub(vscode.workspace.fs, "stat").rejects(new Error("ENOENT"));
+        const fs: NotebookFs = {
+            readFile: sinon.stub().rejects(new Error("ENOENT")),
+            stat: sinon.stub().rejects(new Error("ENOENT")),
+            writeFile: sinon.stub().resolves(),
+            rename: sinon.stub().resolves(),
+        };
 
-        const result = await readExistingFileOrThrow(uri);
+        const result = await readExistingFileOrThrowWithFs(fs, uri);
         assert.strictEqual(result.kind, "missing");
     });
 
     test("readExistingFileOrThrow throws when file exists but read fails", async () => {
         const uri = vscode.Uri.file("/tmp/exists-but-unreadable.codex");
-        sinon.stub(vscode.workspace.fs, "readFile").rejects(new Error("EIO"));
-        sinon.stub(vscode.workspace.fs, "stat").resolves({ type: vscode.FileType.File, ctime: 0, mtime: 0, size: 10 });
+        const fs: NotebookFs = {
+            readFile: sinon.stub().rejects(new Error("EIO")),
+            stat: sinon.stub().resolves({ type: vscode.FileType.File, ctime: 0, mtime: 0, size: 10 }),
+            writeFile: sinon.stub().resolves(),
+            rename: sinon.stub().resolves(),
+        };
 
-        await assert.rejects(async () => readExistingFileOrThrow(uri));
+        await assert.rejects(async () => readExistingFileOrThrowWithFs(fs, uri));
     });
 
     test("readExistingFileOrThrow throws when it reads whitespace but file size is non-zero", async () => {
         const uri = vscode.Uri.file("/tmp/exists-but-read-empty.codex");
-        sinon.stub(vscode.workspace.fs, "readFile").resolves(Buffer.from("   \n\t", "utf-8"));
-        sinon.stub(vscode.workspace.fs, "stat").resolves({ type: vscode.FileType.File, ctime: 0, mtime: 0, size: 10 });
+        const fs: NotebookFs = {
+            readFile: sinon.stub().resolves(Buffer.from("   \n\t", "utf-8")),
+            stat: sinon.stub().resolves({ type: vscode.FileType.File, ctime: 0, mtime: 0, size: 10 }),
+            writeFile: sinon.stub().resolves(),
+            rename: sinon.stub().resolves(),
+        };
 
-        await assert.rejects(async () => readExistingFileOrThrow(uri));
+        await assert.rejects(async () => readExistingFileOrThrowWithFs(fs, uri));
     });
 
     test("readExistingFileOrThrow returns missing when it reads empty and file size is zero", async () => {
         const uri = vscode.Uri.file("/tmp/empty-file.codex");
-        sinon.stub(vscode.workspace.fs, "readFile").resolves(Buffer.from("", "utf-8"));
-        sinon.stub(vscode.workspace.fs, "stat").resolves({ type: vscode.FileType.File, ctime: 0, mtime: 0, size: 0 });
+        const fs: NotebookFs = {
+            readFile: sinon.stub().resolves(Buffer.from("", "utf-8")),
+            stat: sinon.stub().resolves({ type: vscode.FileType.File, ctime: 0, mtime: 0, size: 0 }),
+            writeFile: sinon.stub().resolves(),
+            rename: sinon.stub().resolves(),
+        };
 
-        const result = await readExistingFileOrThrow(uri);
+        const result = await readExistingFileOrThrowWithFs(fs, uri);
         assert.strictEqual(result.kind, "missing");
     });
 
     test("atomicWriteUriText writes temp then renames over target", async () => {
         const uri = vscode.Uri.file("/tmp/atomic-write-target.codex");
-        const writeStub = sinon.stub(vscode.workspace.fs, "writeFile").resolves();
-        const renameStub = sinon.stub(vscode.workspace.fs, "rename").resolves();
+        const writeStub = sinon.stub().resolves();
+        const renameStub = sinon.stub().resolves();
+        const fs: NotebookFs = {
+            readFile: sinon.stub().rejects(new Error("unused")),
+            stat: sinon.stub().rejects(new Error("unused")),
+            writeFile: writeStub,
+            rename: renameStub,
+        };
 
-        await atomicWriteUriText(uri, "{\n  \"cells\": []\n}\n");
+        await atomicWriteUriTextWithFs(fs, uri, "{\n  \"cells\": []\n}\n");
 
         assert.strictEqual(writeStub.callCount, 1);
         assert.strictEqual(renameStub.callCount, 1);
