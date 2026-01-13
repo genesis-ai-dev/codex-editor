@@ -1052,7 +1052,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             // Write the updated notebook back to disk
             await vscode.workspace.fs.writeFile(
                 targetFileUri,
-                Buffer.from(formatJsonForNotebookFile(updatedNotebook, 2))
+                Buffer.from(formatJsonForNotebookFile(updatedNotebook))
             );
 
             // Show success message with statistics

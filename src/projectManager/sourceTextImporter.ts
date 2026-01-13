@@ -53,7 +53,7 @@ async function addMetadataToSourceFile(sourceUri: vscode.Uri, metadata: any): Pr
         // Write the updated content back to the file
         await vscode.workspace.fs.writeFile(
             sourceUri,
-            new TextEncoder().encode(formatJsonForNotebookFile(sourceData, 2))
+            new TextEncoder().encode(formatJsonForNotebookFile(sourceData))
         );
     } catch (error) {
         console.error("Error adding metadata to source file:", error);

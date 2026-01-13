@@ -993,9 +993,8 @@ export async function resolveCodexCustomMerge(
             ...ourNotebook,
             cells: resultCells,
             metadata: mergedMetadata,
-        },
-        2
-    );
+        }
+    );  
 }
 
 /**

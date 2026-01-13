@@ -555,7 +555,7 @@ async function processUsfmFile(fileUri: vscode.Uri, notebookId?: string): Promis
 
         await vscode.workspace.fs.writeFile(
             bookFilePath,
-            new TextEncoder().encode(formatJsonForNotebookFile(bookData, 2))
+            new TextEncoder().encode(formatJsonForNotebookFile(bookData))
         );
 
         console.log(`Created .source file for ${bookCode}`);
@@ -820,7 +820,7 @@ export async function splitSourceFileByBook(
 
         await vscode.workspace.fs.writeFile(
             sourceFilePath,
-            Buffer.from(formatJsonForNotebookFile(notebookData, 2), "utf-8")
+            Buffer.from(formatJsonForNotebookFile(notebookData), "utf-8")
         );
 
         createdFiles.push(sourceFilePath);

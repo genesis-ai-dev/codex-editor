@@ -641,7 +641,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
     public async save(cancellation: vscode.CancellationToken): Promise<void> {
         const currentFileContent = await this.readCurrentFileContent();
-        const ourContent = formatJsonForNotebookFile(this._documentData, 2);
+        const ourContent = formatJsonForNotebookFile(this._documentData);
 
         if (!currentFileContent) {
             // Initial write when file does not yet exist or cannot be read
@@ -686,7 +686,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         cancellation: vscode.CancellationToken,
         backup: boolean = false
     ): Promise<void> {
-        const text = formatJsonForNotebookFile(this._documentData, 2);
+        const text = formatJsonForNotebookFile(this._documentData);
         await vscode.workspace.fs.writeFile(targetResource, new TextEncoder().encode(text));
 
         // IMMEDIATE AI LEARNING for non-backup saves
@@ -722,7 +722,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     public getText(): string {
-        return formatJsonForNotebookFile(this._documentData, 2);
+        return formatJsonForNotebookFile(this._documentData);
     }
 
     public getCellContent(cellId: string): QuillCellContent | undefined {

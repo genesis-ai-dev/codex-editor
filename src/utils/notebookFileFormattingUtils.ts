@@ -19,8 +19,8 @@ export function ensureSingleTrailingNewline(text: string): string {
     return `${withoutTrailing}\n`;
 }
 
-export function formatJsonForNotebookFile(value: unknown, indent: JsonIndent = 2): string {
-    const json = JSON.stringify(value, null, indent);
+export function formatJsonForNotebookFile(value: unknown): string {
+    const json = JSON.stringify(value, null, 2);
     return ensureSingleTrailingNewline(normalizeNewlines(json));
 }
 

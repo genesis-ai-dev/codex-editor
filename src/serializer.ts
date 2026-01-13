@@ -96,7 +96,7 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
         }
 
         debug("Notebook serialization complete", { cellCount: contents.cells.length });
-        return new TextEncoder().encode(formatJsonForNotebookFile(contents, 2));
+        return new TextEncoder().encode(formatJsonForNotebookFile(contents));
     }
 }
 

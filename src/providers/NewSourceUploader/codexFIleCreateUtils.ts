@@ -41,8 +41,7 @@ export async function writeNotebook(uri: vscode.Uri, notebook: CodexNotebookAsJS
                 edits: notebook.metadata.edits || [],
                 ...notebook.metadata,
             },
-        },
-        2
+        }
     );
 
     if (!serializedData) {
