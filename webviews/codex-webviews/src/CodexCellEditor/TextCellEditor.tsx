@@ -401,6 +401,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const scrollTimeoutRef = useRef<number | null>(null);
     const scrollRafRef = useRef<number | null>(null);
 
+    const isSubtitlesType = metadata?.importerType === "subtitles";
+
     // Compute audio validation icon props once for this render (after audio state is declared)
     const { iconProps: audioValidationIconProps } = useAudioValidationStatus({
         cell: cell as any,
@@ -2626,6 +2628,116 @@ const CellEditor: React.FC<CellEditorProps> = ({
         };
     }, [mediaRecorder]);
 
+    const currentTimestampSlider = () => {
+        if (
+            isSubtitlesType &&
+            effectiveTimestamps &&
+            (effectiveTimestamps.startTime !== undefined ||
+                effectiveTimestamps.endTime !== undefined)
+        ) {
+            return (
+                <>
+                    <Slider
+                        min={extendedMinBound}
+                        max={Math.max(
+                            extendedMaxBound,
+                            effectiveTimestamps.endTime ?? extendedMinBound
+                        )}
+                        value={[
+                            Math.max(
+                                extendedMinBound,
+                                effectiveTimestamps.startTime ?? extendedMinBound
+                            ),
+                            Math.min(
+                                extendedMaxBound,
+                                effectiveTimestamps.endTime ??
+                                    effectiveTimestamps.startTime ??
+                                    extendedMaxBound
+                            ),
+                        ]}
+                        step={0.001}
+                        onValueChange={(vals: number[]) => {
+                            const [start, end] = vals;
+                            const clampedStart = Math.max(extendedMinBound, Math.min(start, end));
+                            const clampedEnd = Math.min(
+                                extendedMaxBound,
+                                Math.max(end, clampedStart)
+                            );
+                            const updatedTimestamps: Timestamps = {
+                                ...effectiveTimestamps,
+                                startTime: Number(clampedStart.toFixed(3)),
+                                endTime: Number(clampedEnd.toFixed(3)),
+                            };
+                            setContentBeingUpdated({
+                                ...contentBeingUpdated,
+                                cellTimestamps: updatedTimestamps,
+                                cellChanged: true,
+                            });
+                            setUnsavedChanges(true);
+                        }}
+                    />
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Min: {formatTime(extendedMinBound)}</span>
+                        <span>Max: {formatTime(extendedMaxBound)}</span>
+                    </div>
+                </>
+            );
+        } else if (
+            !isSubtitlesType &&
+            effectiveTimestamps &&
+            (effectiveTimestamps.startTime !== undefined ||
+                effectiveTimestamps.endTime !== undefined)
+        ) {
+            return (
+                <>
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Min: {formatTime(Math.max(0, previousEndBound))}</span>
+                        <span>Max: {formatTime(computedMaxBound)}</span>
+                    </div>
+                    <Slider
+                        min={Math.max(0, previousEndBound)}
+                        max={Math.max(computedMaxBound, effectiveTimestamps.endTime ?? 0)}
+                        value={[
+                            Math.max(
+                                Math.max(0, previousEndBound),
+                                effectiveTimestamps.startTime ?? 0
+                            ),
+                            Math.min(
+                                nextStartBound,
+                                effectiveTimestamps.endTime ?? effectiveTimestamps.startTime ?? 0
+                            ),
+                        ]}
+                        step={0.001}
+                        onValueChange={(vals: number[]) => {
+                            const [start, end] = vals;
+                            const clampedStart = Math.max(
+                                Math.max(0, previousEndBound),
+                                Math.min(start, end)
+                            );
+                            const clampedEnd = Math.min(
+                                nextStartBound,
+                                Math.max(end, clampedStart)
+                            );
+                            const updatedTimestamps: Timestamps = {
+                                ...effectiveTimestamps,
+                                startTime: Number(clampedStart.toFixed(3)),
+                                endTime: Number(clampedEnd.toFixed(3)),
+                            };
+                            setContentBeingUpdated({
+                                ...contentBeingUpdated,
+                                cellTimestamps: updatedTimestamps,
+                                cellChanged: true,
+                            });
+                            setUnsavedChanges(true);
+                        }}
+                    />
+                </>
+            );
+        } else {
+            return null;
+        }
+    };
+
     return (
         <Card className="w-full max-w-4xl shadow-xl" style={{ direction: textDirection }}>
             <CardHeader className="border-b p-4 flex flex-row flex-nowrap items-center justify-between gap-3 space-y-0">
@@ -3298,7 +3410,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         {/* Scrubber with clamped handles */}
                                         <div className="space-y-4">
                                             {/* Previous cell slider - read-only */}
-                                            {metadata?.importerType === "subtitles" &&
+                                            {isSubtitlesType &&
                                                 typeof prevStartTime === "number" &&
                                                 typeof prevEndTime === "number" &&
                                                 prevStartTime < prevEndTime && (
@@ -3332,60 +3444,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                                             {/* Current cell slider */}
                                             <div className="flex flex-col justify-center space-y-2 w-full">
-                                                <Slider
-                                                    min={extendedMinBound}
-                                                    max={Math.max(
-                                                        extendedMaxBound,
-                                                        effectiveTimestamps.endTime ??
-                                                            extendedMinBound
-                                                    )}
-                                                    value={[
-                                                        Math.max(
-                                                            extendedMinBound,
-                                                            effectiveTimestamps.startTime ??
-                                                                extendedMinBound
-                                                        ),
-                                                        Math.min(
-                                                            extendedMaxBound,
-                                                            effectiveTimestamps.endTime ??
-                                                                effectiveTimestamps.startTime ??
-                                                                extendedMaxBound
-                                                        ),
-                                                    ]}
-                                                    step={0.001}
-                                                    onValueChange={(vals: number[]) => {
-                                                        const [start, end] = vals;
-                                                        const clampedStart = Math.max(
-                                                            extendedMinBound,
-                                                            Math.min(start, end)
-                                                        );
-                                                        const clampedEnd = Math.min(
-                                                            extendedMaxBound,
-                                                            Math.max(end, clampedStart)
-                                                        );
-                                                        const updatedTimestamps: Timestamps = {
-                                                            ...effectiveTimestamps,
-                                                            startTime: Number(
-                                                                clampedStart.toFixed(3)
-                                                            ),
-                                                            endTime: Number(clampedEnd.toFixed(3)),
-                                                        };
-                                                        setContentBeingUpdated({
-                                                            ...contentBeingUpdated,
-                                                            cellTimestamps: updatedTimestamps,
-                                                            cellChanged: true,
-                                                        });
-                                                        setUnsavedChanges(true);
-                                                    }}
-                                                />
-                                                <div className="flex justify-between text-xs text-muted-foreground">
-                                                    <span>Min: {formatTime(extendedMinBound)}</span>
-                                                    <span>Max: {formatTime(extendedMaxBound)}</span>
-                                                </div>
+                                                {currentTimestampSlider()}
                                             </div>
 
                                             {/* Next cell slider - read-only */}
-                                            {metadata?.importerType === "subtitles" &&
+                                            {isSubtitlesType &&
                                                 typeof nextStartTime === "number" &&
                                                 typeof nextEndTime === "number" &&
                                                 nextStartTime < nextEndTime && (
@@ -3444,26 +3507,29 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                                         <div className="flex justify-between">
                                             <div className="flex gap-2">
-                                                <Button
-                                                    onClick={handlePlayAudioWithVideo}
-                                                    variant="default"
-                                                    size="sm"
-                                                    disabled={
-                                                        !audioBlob ||
-                                                        (effectiveTimestamps?.endTime ?? 0) -
-                                                            (effectiveTimestamps?.startTime ?? 0) <=
-                                                            0 ||
-                                                        !shouldShowVideoPlayer ||
-                                                        isPlayAudioLoading
-                                                    }
-                                                >
-                                                    {isPlayAudioLoading ? (
-                                                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                                                    ) : (
-                                                        <Play className="mr-1 h-4 w-4" />
-                                                    )}
-                                                    Play
-                                                </Button>
+                                                {isSubtitlesType && (
+                                                    <Button
+                                                        onClick={handlePlayAudioWithVideo}
+                                                        variant="default"
+                                                        size="sm"
+                                                        disabled={
+                                                            !audioBlob ||
+                                                            (effectiveTimestamps?.endTime ?? 0) -
+                                                                (effectiveTimestamps?.startTime ??
+                                                                    0) <=
+                                                                0 ||
+                                                            !shouldShowVideoPlayer ||
+                                                            isPlayAudioLoading
+                                                        }
+                                                    >
+                                                        {isPlayAudioLoading ? (
+                                                            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                                                        ) : (
+                                                            <Play className="mr-1 h-4 w-4" />
+                                                        )}
+                                                        Play
+                                                    </Button>
+                                                )}
                                                 <Button
                                                     onClick={() => {
                                                         // Clear timestamps
@@ -3479,23 +3545,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     Revert
                                                 </Button>
                                             </div>
-                                            <div className="flex items-center gap-2">
-                                                <Checkbox
-                                                    id="mute-video-audio-during-playback"
-                                                    checked={muteVideoAudioDuringPlayback}
-                                                    onCheckedChange={(checked) =>
-                                                        setMuteVideoAudioDuringPlayback(
-                                                            checked === true
-                                                        )
-                                                    }
-                                                />
-                                                <label
-                                                    htmlFor="mute-video-audio-during-playback"
-                                                    className="text-sm cursor-pointer"
-                                                >
-                                                    Mute video
-                                                </label>
-                                            </div>
+                                            {isSubtitlesType && (
+                                                <div className="flex items-center gap-2">
+                                                    <Checkbox
+                                                        id="mute-video-audio-during-playback"
+                                                        checked={muteVideoAudioDuringPlayback}
+                                                        onCheckedChange={(checked) =>
+                                                            setMuteVideoAudioDuringPlayback(
+                                                                checked === true
+                                                            )
+                                                        }
+                                                    />
+                                                    <label
+                                                        htmlFor="mute-video-audio-during-playback"
+                                                        className="text-sm cursor-pointer"
+                                                    >
+                                                        Mute video
+                                                    </label>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 ) : (
