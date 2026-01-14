@@ -8,15 +8,12 @@ import {
     AccordionTrigger,
 } from "../../components/ui/accordion";
 import { ProgressDots } from "./ProgressDots";
-import {
-    deriveSubsectionPercentages,
-    getProgressColor,
-    getProgressDisplay,
-} from "../utils/progressUtils";
+import { deriveSubsectionPercentages, getProgressDisplay } from "../utils/progressUtils";
 import MicrophoneIcon from "../../components/ui/icons/MicrophoneIcon";
 import { Languages } from "lucide-react";
 import type { Subsection, ProgressPercentages } from "../../lib/types";
 import type { MilestoneIndex, MilestoneInfo } from "../../../../../types";
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 
 const MAX_VALIDATION_LEVELS = 15;
 
@@ -30,6 +27,7 @@ interface MilestoneAccordionProps {
     requestCellsForMilestone: (milestoneIdx: number, subsectionIdx?: number) => void;
     allSubsectionProgress?: Record<number, Record<number, ProgressPercentages>>;
     unsavedChanges: boolean;
+    isSourceText: boolean;
     anchorRef: React.RefObject<HTMLDivElement>;
     calculateSubsectionProgress: (
         subsection: Subsection,
@@ -47,6 +45,7 @@ interface MilestoneAccordionProps {
         requiredAudioValidations?: number;
     };
     requestSubsectionProgress?: (milestoneIdx: number) => void;
+    handleEditMilestoneModalOpen: () => void;
 }
 
 export function MilestoneAccordion({
@@ -59,9 +58,11 @@ export function MilestoneAccordion({
     requestCellsForMilestone,
     allSubsectionProgress,
     unsavedChanges,
+    isSourceText,
     anchorRef,
     calculateSubsectionProgress,
     requestSubsectionProgress,
+    handleEditMilestoneModalOpen,
 }: MilestoneAccordionProps) {
     // Layout constants
     const DROPDOWN_MAX_HEIGHT_VIEWPORT_PERCENT = 60; // 60vh
@@ -405,6 +406,15 @@ export function MilestoneAccordion({
         }
     };
 
+    const handleEditMilestoneModalOpenClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+        e.stopPropagation();
+        const currentMilestone = milestoneIndex?.milestones[currentMilestoneIndex];
+        if (currentMilestone && handleEditMilestoneModalOpen) {
+            onClose();
+            handleEditMilestoneModalOpen();
+        }
+    };
+
     return (
         <div
             ref={accordionRef}
@@ -436,11 +446,25 @@ export function MilestoneAccordion({
                         ? milestoneIndex.milestones[parseInt(expandedMilestone)].value
                         : milestoneIndex.milestones[currentMilestoneIndex]?.value}
                 </h2>
-                <div
-                    className="flex items-center cursor-pointer hover:bg-secondary rounded-md p-1"
-                    onClick={onClose}
-                >
-                    <i className="codicon codicon-close" />
+                <div className="flex gap-2">
+                    {!isSourceText && (
+                        <div className="flex items-center justify-center -ml-2">
+                            <VSCodeButton
+                                aria-label="Edit Milestone"
+                                appearance="icon"
+                                title="Edit Milestone"
+                                onClick={handleEditMilestoneModalOpenClick}
+                            >
+                                <i className="codicon codicon-edit"></i>
+                            </VSCodeButton>
+                        </div>
+                    )}
+                    <div
+                        className="flex items-center cursor-pointer hover:bg-secondary rounded-md p-1"
+                        onClick={onClose}
+                    >
+                        <i className="codicon codicon-close" />
+                    </div>
                 </div>
             </div>
             <div
@@ -524,9 +548,7 @@ export function MilestoneAccordion({
                                     >
                                         <AccordionTrigger
                                             className={`hover:no-underline p-2 cursor-pointer [&>svg]:hidden ${
-                                                isCurrentMilestone
-                                                    ? "bg-accent font-semibold"
-                                                    : ""
+                                                isCurrentMilestone ? "bg-accent font-semibold" : ""
                                             }`}
                                         >
                                             <div className="flex items-center justify-between w-full">

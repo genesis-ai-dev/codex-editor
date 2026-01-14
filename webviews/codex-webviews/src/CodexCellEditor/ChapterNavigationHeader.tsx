@@ -5,7 +5,6 @@ import NotebookMetadataModal from "./NotebookMetadataModal";
 import { AutocompleteModal } from "./modals/AutocompleteModal";
 import { MobileHeaderMenu } from "./components/MobileHeaderMenu";
 import { MilestoneAccordion } from "./components/MilestoneAccordion";
-import { RenameModal } from "../components/RenameModal";
 import {
     type QuillCellContent,
     type CustomNotebookMetadata,
@@ -26,7 +25,7 @@ import {
 } from "../components/ui/dropdown-menu";
 import { Slider } from "../components/ui/slider";
 import { Alert, AlertDescription } from "../components/ui/alert";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { RenameModal } from "../components/RenameModal";
 
 interface ChapterNavigationHeaderProps {
     chapterNumber: number;
@@ -162,8 +161,8 @@ ChapterNavigationHeaderProps) {
     const [autoDownloadAudioOnOpen, setAutoDownloadAudioOnOpenState] = useState<boolean>(false);
     const [showMilestoneAccordion, setShowMilestoneAccordion] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-    const [showEditMilestoneModal, setShowEditMilestoneModal] = useState(false);
     const [milestoneNewName, setMilestoneNewName] = useState("");
+    const [showEditMilestoneModal, setShowEditMilestoneModal] = useState(false);
     const chapterTitleRef = useRef<HTMLDivElement>(null);
     const headerContainerRef = useRef<HTMLDivElement>(null);
     const [truncatedBookName, setTruncatedBookName] = useState<string | null>(null);
@@ -540,6 +539,45 @@ ChapterNavigationHeaderProps) {
         }
     };
 
+    const handleEditMilestoneModalOpen = () => {
+        const currentMilestone = milestoneIndex?.milestones[currentMilestoneIndex];
+        if (currentMilestone) {
+            setMilestoneNewName(currentMilestone.value);
+            setShowEditMilestoneModal(true);
+        }
+    };
+
+    const handleEditMilestoneModalClose = () => {
+        setShowEditMilestoneModal(false);
+        setMilestoneNewName("");
+    };
+
+    const handleEditMilestoneModalConfirm = () => {
+        const currentMilestone = milestoneIndex?.milestones[currentMilestoneIndex];
+        if (
+            currentMilestone &&
+            milestoneNewName.trim() !== "" &&
+            milestoneNewName.trim() !== currentMilestone.value
+        ) {
+            // Send message to update milestone value
+            vscode.postMessage({
+                command: "updateMilestoneValue",
+                content: {
+                    milestoneIndex: currentMilestoneIndex,
+                    newValue: milestoneNewName.trim(),
+                },
+            });
+        }
+        handleEditMilestoneModalClose();
+    };
+
+    // Close accordion when rename modal opens
+    useEffect(() => {
+        if (showEditMilestoneModal) {
+            setShowMilestoneAccordion(false);
+        }
+    }, [showEditMilestoneModal]);
+
     const handleFontSizeChange = (value: number[]) => {
         const newFontSize = value[0];
         setFontSize(newFontSize);
@@ -571,39 +609,6 @@ ChapterNavigationHeaderProps) {
 
             setPendingFontSize(null);
         }
-    };
-
-    const handleEditMilestoneModalOpen = (e: React.MouseEvent<HTMLButtonElement>) => {
-        e.stopPropagation();
-        const currentMilestone = milestoneIndex?.milestones[currentMilestoneIndex];
-        if (currentMilestone) {
-            setMilestoneNewName(currentMilestone.value);
-            setShowEditMilestoneModal(true);
-        }
-    };
-
-    const handleEditMilestoneModalClose = () => {
-        setShowEditMilestoneModal(false);
-        setMilestoneNewName("");
-    };
-
-    const handleEditMilestoneModalConfirm = () => {
-        const currentMilestone = milestoneIndex?.milestones[currentMilestoneIndex];
-        if (
-            currentMilestone &&
-            milestoneNewName.trim() !== "" &&
-            milestoneNewName.trim() !== currentMilestone.value
-        ) {
-            // Send message to update milestone value
-            vscode.postMessage({
-                command: "updateMilestoneValue",
-                content: {
-                    milestoneIndex: currentMilestoneIndex,
-                    newValue: milestoneNewName.trim(),
-                },
-            });
-        }
-        handleEditMilestoneModalClose();
     };
 
     // Add CSS for rotation animation
@@ -904,19 +909,10 @@ ChapterNavigationHeaderProps) {
                             </span>
                         )}
                     </h1>
-                </div>
-                {!isSourceText && (
-                    <div className="flex items-center justify-center -ml-2">
-                        <VSCodeButton
-                            aria-label="Edit Milestone"
-                            appearance="icon"
-                            title="Edit Milestone"
-                            onClick={handleEditMilestoneModalOpen}
-                        >
-                            <i className="codicon codicon-edit"></i>
-                        </VSCodeButton>
+                    <div className="flex items-center justify-center">
+                        <i className="codicon codicon-chevron-down"></i>
                     </div>
-                )}
+                </div>
 
                 {!shouldHideNavButtons && (
                     <Button
@@ -1296,9 +1292,11 @@ ChapterNavigationHeaderProps) {
                 requestCellsForMilestone={requestCellsForMilestone}
                 allSubsectionProgress={allSubsectionProgress}
                 unsavedChanges={unsavedChanges}
+                isSourceText={isSourceText}
                 anchorRef={chapterTitleRef}
                 calculateSubsectionProgress={calculateSubsectionProgress}
                 requestSubsectionProgress={requestSubsectionProgress}
+                handleEditMilestoneModalOpen={handleEditMilestoneModalOpen}
             />
 
             <RenameModal
