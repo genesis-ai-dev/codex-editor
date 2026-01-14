@@ -495,6 +495,26 @@
                         "default": false,
                         "description": "Internal flag indicating the importerType migration has completed."
                     },
+                    "codex-project-manager.timestampsDataMigrationCompleted": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Internal flag indicating the timestamps data migration has completed."
+                    },
+                    "codex-project-manager.cellTypePromotionMigrationCompleted": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Internal flag indicating the cell type promotion migration has completed."
+                    },
+                    "codex-project-manager.editHistoryFormatMigrationCompleted": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Internal flag indicating the edit history format migration has completed."
+                    },
+                    "codex-project-manager.documentContextHoistMigrationCompleted": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Internal flag indicating the documentContext hoist migration has completed."
+                    },
                     "codex-project-manager.projectName": {
                         "type": "string",
                         "default": "",

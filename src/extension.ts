@@ -596,7 +596,14 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Execute post-activation tasks
         const postActivationStart = globalThis.performance.now();
-        await executeCommandsAfter(context);
+
+        // Store a reference to the delayed sync trigger function so we can call it after migrations complete
+        const delayedSyncTriggers: Array<(reason: string) => Promise<void>> = [];
+        const setDelayedSyncTrigger = (trigger: (reason: string) => Promise<void>) => {
+            delayedSyncTriggers.push(trigger);
+        };
+
+        await executeCommandsAfter(context, setDelayedSyncTrigger);
         // NOTE: migration_chatSystemMessageSetting() now runs BEFORE sync (see line ~768)
         await temporaryMigrationScript_checkMatthewNotebook();
         await migration_changeDraftFolderToFilesFolder();
@@ -610,6 +617,55 @@ export async function activate(context: vscode.ExtensionContext) {
         await migration_reorderMisplacedParatextCells(context);
         await migration_addGlobalReferences(context);
         await migration_cellIdsToUuid(context);
+
+        // After migrations complete, check if initial sync needs to run
+        // This handles the case where migrations completed but the configuration change event didn't fire
+        // We check directly here rather than relying on stored triggers, since the splash screen callback
+        // might not have executed yet (race condition)
+        try {
+            const hasCodexProject = await checkIfMetadataAndGitIsInitialized();
+            if (hasCodexProject) {
+                const migrationStatus = areCodexProjectMigrationsComplete(context);
+
+                if (migrationStatus.complete) {
+                    const authApi = getAuthApi();
+                    if (authApi && typeof (authApi as any).getAuthStatus === "function") {
+                        const authStatus = authApi.getAuthStatus();
+                        if (authStatus.isAuthenticated) {
+                            // Check if this is a heal workspace
+                            const pendingHealSync = context.globalState.get<any>("codex.pendingHealSync");
+                            const workspaceFolderPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                            const isHealWorkspace =
+                                !!pendingHealSync &&
+                                typeof pendingHealSync.projectPath === "string" &&
+                                typeof workspaceFolderPath === "string" &&
+                                path.normalize(pendingHealSync.projectPath) === path.normalize(workspaceFolderPath);
+
+                            const syncManager = SyncManager.getInstance();
+                            if (isHealWorkspace && pendingHealSync?.commitMessage) {
+                                await syncManager.executeSync(String(pendingHealSync.commitMessage), true, context, false);
+                            } else {
+                                await syncManager.executeSync("Initial workspace sync", true, context, false);
+                            }
+                        }
+                    }
+                } else {
+                    // Also try stored triggers as backup
+                    if (delayedSyncTriggers.length > 0) {
+                        for (const trigger of delayedSyncTriggers) {
+                            try {
+                                await trigger("migrations completed (backup check)");
+                            } catch (error) {
+                                console.error("❌ [POST-MIGRATIONS] Error in backup trigger:", error);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error("❌ [POST-MIGRATIONS] Error checking/triggering sync after migrations:", error);
+        }
+
         trackTiming("Running Post-activation Tasks", postActivationStart);
 
         // Register update commands and check for updates (non-blocking)
@@ -853,7 +909,10 @@ async function executeCommandsBefore(context: vscode.ExtensionContext) {
     registerCommandsBefore(context);
 }
 
-async function executeCommandsAfter(context: vscode.ExtensionContext) {
+async function executeCommandsAfter(
+    context: vscode.ExtensionContext,
+    setDelayedSyncTrigger?: (trigger: (reason: string) => Promise<void>) => void
+) {
     try {
         // Update splash screen for post-activation tasks
         updateSplashScreenSync(90, "Configuring editor settings...");
@@ -944,6 +1003,7 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
 
                             const maybeRunDelayedInitialSync = async (reason: string) => {
                                 if (didStartDelayedInitialSync) return;
+
                                 if (Date.now() > delayedSyncDeadlineMs) {
                                     debug(
                                         `⏭️ [POST-WORKSPACE] Skipping delayed initial sync: timed out waiting for migrations (${reason})`
@@ -952,6 +1012,7 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
                                 }
 
                                 const retryStatus = areCodexProjectMigrationsComplete(context);
+
                                 if (!retryStatus.complete) {
                                     debug(
                                         `⏳ [POST-WORKSPACE] Still waiting on migrations (${reason}): ${retryStatus.incompleteKeys.join(", ")}`
@@ -974,6 +1035,11 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
                                     delayedSyncListener.dispose();
                                 }
                             };
+
+                            // Expose the trigger function so it can be called after migrations complete
+                            if (setDelayedSyncTrigger) {
+                                setDelayedSyncTrigger(maybeRunDelayedInitialSync);
+                            }
 
                             const delayedSyncListener = vscode.workspace.onDidChangeConfiguration(async (e) => {
                                 if (!e.affectsConfiguration("codex-project-manager")) return;

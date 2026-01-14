@@ -66,7 +66,12 @@ export const migration_moveTimestampsToMetadataData = async (context?: vscode.Ex
         const allFiles = [...codexFiles, ...sourceFiles];
 
         if (allFiles.length === 0) {
-            console.log("No codex or source files found, skipping timestamps migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
@@ -160,7 +165,12 @@ export const migration_promoteCellTypeToTopLevel = async (context?: vscode.Exten
         );
         const allFiles = [...codexFiles, ...sourceFiles];
         if (allFiles.length === 0) {
-            console.log("No codex or source files found, skipping cell type promotion migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
@@ -636,7 +646,12 @@ export const migration_editHistoryFormat = async (context?: vscode.ExtensionCont
         const allFiles = [...codexFiles, ...sourceFiles];
 
         if (allFiles.length === 0) {
-            console.log("No codex or source files found, skipping migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
@@ -1684,7 +1699,12 @@ export const migration_hoistDocumentContextToNotebookMetadata = async (
 
         const allFiles = [...codexFiles, ...sourceFiles];
         if (allFiles.length === 0) {
-            console.log("No codex or source files found, skipping documentContext hoist migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
