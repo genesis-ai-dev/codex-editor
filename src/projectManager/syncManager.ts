@@ -12,7 +12,8 @@ import { getFrontierVersionStatus, checkVSCodeVersion } from "./utils/versionChe
 import { BookCompletionData } from "../progressReporting/progressReportingService";
 import { ProgressReportingService, registerProgressReportingCommands } from "../progressReporting/progressReportingService";
 import { CommentsMigrator } from "../utils/commentsMigrationUtils";
-import { deduplicateConsecutiveMilestoneCells } from "./utils/migrationUtils";
+// COMMENTED OUT: Milestone deduplication disabled
+// import { deduplicateConsecutiveMilestoneCells } from "./utils/migrationUtils";
 // Define TranslationProgress interface locally since it's not exported from types
 interface BookProgress {
     bookId: string;
@@ -749,12 +750,13 @@ export class SyncManager {
             this.rebuildIndexesInBackground(syncResult);
 
             // Deduplicate consecutive milestone cells after successful sync (runs only once)
-            try {
-                await deduplicateConsecutiveMilestoneCells(undefined);
-            } catch (error) {
-                console.error("[SyncManager] Error during milestone cells deduplication:", error);
-                // Don't fail sync if deduplication fails
-            }
+            // COMMENTED OUT: Milestone deduplication disabled
+            // try {
+            //     await deduplicateConsecutiveMilestoneCells(undefined);
+            // } catch (error) {
+            //     console.error("[SyncManager] Error during milestone cells deduplication:", error);
+            //     // Don't fail sync if deduplication fails
+            // }
 
             // Refresh webviews for affected codex files to show newly added cells
             try {

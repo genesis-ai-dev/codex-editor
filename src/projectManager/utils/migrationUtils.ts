@@ -2117,6 +2117,11 @@ async function migrateMilestoneCellsForFilePair(
             return result;
         }
 
+        // Extract basename for deterministic UUID generation
+        // Use sourceUri first, fallback to codexUri, then extract basename without extension
+        const filePath = sourceUri?.fsPath || codexUri?.fsPath || '';
+        const basename = filePath ? path.basename(filePath, path.extname(filePath)) : 'unknown';
+
         // Map to store UUIDs for each chapter to ensure consistency across source and codex
         const chapterUuids = new Map<string, string>();
 
@@ -2133,7 +2138,8 @@ async function migrateMilestoneCellsForFilePair(
         // Handle first milestone
         const firstCellId = firstCell.metadata?.id;
         const firstChapter = firstCellId ? extractChapterFromCellId(firstCellId) : null;
-        const firstMilestoneUuid = randomUUID();
+        const firstMilestoneKey = firstChapter || `milestone-${milestoneIndex}`;
+        const firstMilestoneUuid = await generateCellIdFromHash(`milestone:${basename}:${firstMilestoneKey}`);
         if (firstChapter) {
             chapterUuids.set(firstChapter, firstMilestoneUuid);
             chapterMilestoneIndex.set(firstChapter, milestoneIndex);
@@ -2151,7 +2157,7 @@ async function migrateMilestoneCellsForFilePair(
             if (cellId) {
                 const chapter = extractChapterFromCellId(cellId);
                 if (chapter && !seenChapters.has(chapter)) {
-                    const chapterUuid = randomUUID();
+                    const chapterUuid = await generateCellIdFromHash(`milestone:${basename}:${chapter}`);
                     chapterUuids.set(chapter, chapterUuid);
                     chapterMilestoneIndex.set(chapter, milestoneIndex);
                     seenChapters.add(chapter);
