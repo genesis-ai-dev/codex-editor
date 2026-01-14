@@ -1619,7 +1619,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
         const currentContent = (document as any).getCellContent(currentCellId)?.cellContent || "";
 
         // Create test audio files
-        const bookAbbr = previousCellId.split(' ')[0];
+        // Use document segment from URI (same as code does) instead of cellId
+        const bookAbbr = getAttachmentDocumentSegmentFromUri(document.uri);
         const attachmentsDir = path.join(workspaceFolder.uri.fsPath, ".project", "attachments", "files", bookAbbr);
         if (!fs.existsSync(attachmentsDir)) {
             fs.mkdirSync(attachmentsDir, { recursive: true });
