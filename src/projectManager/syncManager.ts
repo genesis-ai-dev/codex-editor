@@ -417,8 +417,25 @@ export class SyncManager {
                 this.pendingChanges.push(commitMessage);
             }
             if (showInfoOnConnectionIssues) {
-                vscode.window.showInformationMessage(
-                    "Sync already in progress. Your changes will sync automatically after completion."
+                // Use withProgress instead of showInformationMessage so it auto-dismisses when sync completes
+                vscode.window.withProgress(
+                    {
+                        location: vscode.ProgressLocation.Notification,
+                        title: "Sync in Progress",
+                        cancellable: false,
+                    },
+                    async (progress) => {
+                        progress.report({
+                            increment: 0,
+                            message: "Your changes will sync automatically after completion."
+                        });
+                        // Wait for sync to complete
+                        while (this.isSyncInProgress) {
+                            await new Promise(resolve => setTimeout(resolve, 200));
+                        }
+                        // Brief delay before auto-dismissing
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
                 );
             }
             return;

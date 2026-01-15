@@ -767,7 +767,6 @@ export async function splitSourceFileByBook(
 
     for (const cell of sourceData.cells) {
         // Skip milestone cells - they have UUIDs as IDs, not book references
-        // If we don't skip them, it will create .source.combined files that we don't want.
         if (
             cell.metadata?.type === CodexCellTypes.MILESTONE ||
             cell.metadata?.type === CodexCellTypes.STYLE ||
