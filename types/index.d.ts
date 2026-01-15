@@ -916,12 +916,12 @@ type CustomCellMetaData = BaseCustomCellMetaData & {
         [key: string]: {
             url: string;
             type: string;
-            createdBy: string;
             createdAt: number;
             updatedAt: number;
             isDeleted: boolean;
             isMissing?: boolean;
             validatedBy?: ValidationEntry[];
+            createdBy?: string;
         };
     };
     cellLabel?: string;
