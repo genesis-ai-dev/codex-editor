@@ -949,6 +949,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 debugLog("Requesting password reset");
 
                 try {
+                    /*
+                    // Legacy flow: POST to password reset endpoint and parse response.
                     const response = await fetch(
                         "https://api.frontierrnd.com/api/v1/auth/password-reset/request",
                         {
@@ -964,36 +966,61 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         safePostMessageToPanel(webviewPanel, {
                             command: "passwordReset.success",
                         });
-                    } else {
-                        const data = await response.json();
-                        // Handle error response - detail might be a string or an object (validation error)
-                        let errorMessage = "Failed to send reset link";
-                        if (data.detail) {
-                            if (typeof data.detail === "string") {
-                                errorMessage = data.detail;
-                            } else if (Array.isArray(data.detail)) {
-                                // Handle array of validation errors
-                                errorMessage = data.detail.map((err: any) => {
+                        break;
+                    }
+
+                    const data = await response.json();
+                    // Handle error response - detail might be a string or an object (validation error)
+                    let errorMessage = "Failed to send reset link";
+                    if (data.detail) {
+                        if (typeof data.detail === "string") {
+                            errorMessage = data.detail;
+                        } else if (Array.isArray(data.detail)) {
+                            // Handle array of validation errors
+                            errorMessage = data.detail
+                                .map((err: any) => {
                                     if (typeof err === "string") return err;
                                     if (err.msg) return err.msg;
                                     return JSON.stringify(err);
-                                }).join(", ");
-                            } else if (typeof data.detail === "object") {
-                                // Handle object validation error
-                                if (data.detail.msg) {
-                                    errorMessage = data.detail.msg;
-                                } else {
-                                    errorMessage = JSON.stringify(data.detail);
-                                }
+                                })
+                                .join(", ");
+                        } else if (typeof data.detail === "object") {
+                            // Handle object validation error
+                            if (data.detail.msg) {
+                                errorMessage = data.detail.msg;
+                            } else {
+                                errorMessage = JSON.stringify(data.detail);
                             }
-                        } else if (data.message) {
-                            errorMessage = typeof data.message === "string" ? data.message : JSON.stringify(data.message);
-                        } else if (data.error) {
-                            errorMessage = typeof data.error === "string" ? data.error : JSON.stringify(data.error);
                         }
+                    } else if (data.message) {
+                        errorMessage =
+                            typeof data.message === "string"
+                                ? data.message
+                                : JSON.stringify(data.message);
+                    } else if (data.error) {
+                        errorMessage =
+                            typeof data.error === "string"
+                                ? data.error
+                                : JSON.stringify(data.error);
+                    }
+                    safePostMessageToPanel(webviewPanel, {
+                        command: "passwordReset.error",
+                        error: errorMessage,
+                    });
+                    break;
+                    */
+
+                    const resetUrl = "https://api.frontierrnd.com/login";
+                    const didOpen = await vscode.env.openExternal(vscode.Uri.parse(resetUrl));
+
+                    if (didOpen) {
+                        safePostMessageToPanel(webviewPanel, {
+                            command: "passwordReset.success",
+                        });
+                    } else {
                         safePostMessageToPanel(webviewPanel, {
                             command: "passwordReset.error",
-                            error: errorMessage,
+                            error: `Unable to open the browser. Please visit ${resetUrl}.`,
                         });
                     }
                 } catch (error) {
