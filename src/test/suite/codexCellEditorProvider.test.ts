@@ -862,6 +862,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             document.updateCellAttachment(cellId, "attachment-1", {
                 url: "test-url",
                 type: "audio",
+                createdBy: "anonymous",
                 createdAt: Date.now(),
                 updatedAt: Date.now(),
                 isDeleted: false,
@@ -1666,13 +1667,17 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
         previousCell.metadata.attachments["audio1"] = {
             type: "audio",
+            createdBy: "anonymous",
             url: relativePreviousPath.startsWith('.') ? relativePreviousPath : `.${path.sep}${relativePreviousPath}`,
+            createdAt: Date.now(),
             updatedAt: Date.now(),
             isDeleted: false
         };
         currentCell.metadata.attachments["audio2"] = {
             type: "audio",
+            createdBy: "anonymous",
             url: relativeCurrentPath.startsWith('.') ? relativeCurrentPath : `.${path.sep}${relativeCurrentPath}`,
+            createdAt: Date.now(),
             updatedAt: Date.now(),
             isDeleted: false
         };
@@ -1791,7 +1796,9 @@ suite("CodexCellEditorProvider Test Suite", () => {
         const relativePath = path.relative(workspaceFolder.uri.fsPath, previousAudioPath);
         previousCell.metadata.attachments["audio1"] = {
             type: "audio",
+            createdBy: "anonymous",
             url: relativePath.startsWith('.') ? relativePath : `.${path.sep}${relativePath}`,
+            createdAt: Date.now(),
             updatedAt: Date.now(),
             isDeleted: false
         };
@@ -1934,13 +1941,17 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
         previousCell.metadata.attachments["audio1"] = {
             type: "audio",
+            createdBy: "anonymous",
             url: relPrev.startsWith('.') ? relPrev : `.${path.sep}${relPrev}`,
+            createdAt: Date.now(),
             updatedAt: Date.now(),
             isDeleted: false
         };
         currentCell.metadata.attachments["audio2"] = {
             type: "audio",
+            createdBy: "anonymous",
             url: relCurr.startsWith('.') ? relCurr : `.${path.sep}${relCurr}`,
+            createdAt: Date.now(),
             updatedAt: Date.now(),
             isDeleted: false
         };
@@ -2024,13 +2035,17 @@ suite("CodexCellEditorProvider Test Suite", () => {
         const bookAbbr = previousCellId.split(' ')[0];
         previousCell.metadata.attachments["audio1"] = {
             type: "audio",
+            createdBy: "anonymous",
             url: `.project/attachments/files/${bookAbbr}/test1.wav`,
+            createdAt: Date.now(),
             updatedAt: Date.now(),
             isDeleted: false
         };
         currentCell.metadata.attachments["audio2"] = {
             type: "audio",
+            createdBy: "anonymous",
             url: `.project/attachments/files/${bookAbbr}/test2.wav`,
+            createdAt: Date.now(),
             updatedAt: Date.now(),
             isDeleted: false
         };
@@ -2290,6 +2305,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         (document as any).updateCellAttachment(cellId, audioId, {
             url: relFiles,
             type: "audio",
+            createdBy: "anonymous",
             createdAt: initialUpdatedAt,
             updatedAt: initialUpdatedAt,
             isDeleted: false,
