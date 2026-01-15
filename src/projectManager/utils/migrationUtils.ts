@@ -66,7 +66,12 @@ export const migration_moveTimestampsToMetadataData = async (context?: vscode.Ex
         const allFiles = [...codexFiles, ...sourceFiles];
 
         if (allFiles.length === 0) {
-            console.log("No codex or source files found, skipping timestamps migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
@@ -160,7 +165,12 @@ export const migration_promoteCellTypeToTopLevel = async (context?: vscode.Exten
         );
         const allFiles = [...codexFiles, ...sourceFiles];
         if (allFiles.length === 0) {
-            console.log("No codex or source files found, skipping cell type promotion migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
@@ -636,7 +646,12 @@ export const migration_editHistoryFormat = async (context?: vscode.ExtensionCont
         const allFiles = [...codexFiles, ...sourceFiles];
 
         if (allFiles.length === 0) {
-            console.log("No codex or source files found, skipping migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
@@ -1684,7 +1699,12 @@ export const migration_hoistDocumentContextToNotebookMetadata = async (
 
         const allFiles = [...codexFiles, ...sourceFiles];
         if (allFiles.length === 0) {
-            console.log("No codex or source files found, skipping documentContext hoist migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
@@ -2117,6 +2137,11 @@ async function migrateMilestoneCellsForFilePair(
             return result;
         }
 
+        // Extract basename for deterministic UUID generation
+        // Use sourceUri first, fallback to codexUri, then extract basename without extension
+        const filePath = sourceUri?.fsPath || codexUri?.fsPath || '';
+        const basename = filePath ? path.basename(filePath, path.extname(filePath)) : 'unknown';
+
         // Map to store UUIDs for each chapter to ensure consistency across source and codex
         const chapterUuids = new Map<string, string>();
 
@@ -2133,7 +2158,8 @@ async function migrateMilestoneCellsForFilePair(
         // Handle first milestone
         const firstCellId = firstCell.metadata?.id;
         const firstChapter = firstCellId ? extractChapterFromCellId(firstCellId) : null;
-        const firstMilestoneUuid = randomUUID();
+        const firstMilestoneKey = firstChapter || `milestone-${milestoneIndex}`;
+        const firstMilestoneUuid = await generateCellIdFromHash(`milestone:${basename}:${firstMilestoneKey}`);
         if (firstChapter) {
             chapterUuids.set(firstChapter, firstMilestoneUuid);
             chapterMilestoneIndex.set(firstChapter, milestoneIndex);
@@ -2151,7 +2177,7 @@ async function migrateMilestoneCellsForFilePair(
             if (cellId) {
                 const chapter = extractChapterFromCellId(cellId);
                 if (chapter && !seenChapters.has(chapter)) {
-                    const chapterUuid = randomUUID();
+                    const chapterUuid = await generateCellIdFromHash(`milestone:${basename}:${chapter}`);
                     chapterUuids.set(chapter, chapterUuid);
                     chapterMilestoneIndex.set(chapter, milestoneIndex);
                     seenChapters.add(chapter);
@@ -2404,248 +2430,6 @@ export const migration_addMilestoneCells = async (context?: vscode.ExtensionCont
 
     } catch (error) {
         console.error("Error running milestone cells migration:", error);
-    }
-};
-
-/**
- * Deduplicates consecutive milestone cells that both have INITIAL_IMPORT edits.
- * Keeps the one with the latest timestamp and soft-deletes the other.
- * This should run only once after syncing the project.
- */
-export const deduplicateConsecutiveMilestoneCells = async (context?: vscode.ExtensionContext) => {
-    try {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders || workspaceFolders.length === 0) {
-            return;
-        }
-
-        const workspaceFolder = workspaceFolders[0];
-
-        // Find all codex and source files
-        const codexFiles = await vscode.workspace.findFiles(
-            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
-        );
-        const sourceFiles = await vscode.workspace.findFiles(
-            new vscode.RelativePattern(workspaceFolder, "**/*.source")
-        );
-
-        const allFiles = [...codexFiles, ...sourceFiles];
-
-        if (allFiles.length === 0) {
-            console.log("No codex or source files found, skipping milestone cells deduplication");
-            return;
-        }
-
-        // Scan for duplicates first - if duplicates exist, proceed with deduplication
-        const serializer = new CodexContentSerializer();
-        let hasDuplicates = false;
-
-        for (const fileUri of allFiles) {
-            try {
-                const fileContent = await vscode.workspace.fs.readFile(fileUri);
-                const notebookData: any = await serializer.deserializeNotebook(
-                    fileContent,
-                    new vscode.CancellationTokenSource().token
-                );
-
-                const cells: any[] = notebookData.cells || [];
-                if (cells.length === 0) {
-                    continue;
-                }
-
-                // Check for consecutive milestone cells with matching values and initial_import edits
-                for (let i = 0; i < cells.length - 1; i++) {
-                    const currentCell = cells[i];
-                    const nextCell = cells[i + 1];
-
-                    // Skip if either cell is already deleted
-                    if (currentCell?.metadata?.data?.deleted || nextCell?.metadata?.data?.deleted) {
-                        continue;
-                    }
-
-                    // Check that both are milestone cells
-                    const currentIsMilestone = currentCell?.metadata?.type === CodexCellTypes.MILESTONE;
-                    const nextIsMilestone = nextCell?.metadata?.type === CodexCellTypes.MILESTONE;
-
-                    if (!currentIsMilestone || !nextIsMilestone) {
-                        continue;
-                    }
-
-                    // Check if values match
-                    if (currentCell.value !== nextCell.value) {
-                        continue;
-                    }
-
-                    // Check if both have INITIAL_IMPORT edits
-                    const currentEdits = currentCell.metadata?.edits || [];
-                    const nextEdits = nextCell.metadata?.edits || [];
-
-                    const currentInitialEdit = currentEdits.find(
-                        (edit: any) => edit.type === EditType.INITIAL_IMPORT
-                    );
-                    const nextInitialEdit = nextEdits.find(
-                        (edit: any) => edit.type === EditType.INITIAL_IMPORT
-                    );
-
-                    if (currentInitialEdit && nextInitialEdit) {
-                        hasDuplicates = true;
-                        break;
-                    }
-                }
-
-                if (hasDuplicates) {
-                    break;
-                }
-            } catch (error) {
-                // Continue scanning other files even if one fails
-                continue;
-            }
-        }
-
-        // If no duplicates found, skip deduplication
-        if (!hasDuplicates) {
-            console.log("No duplicate milestone cells found, skipping deduplication");
-            return;
-        }
-
-        console.log("Running milestone cells deduplication...");
-
-        const author = await getCurrentUserName();
-
-        let processedFiles = 0;
-        let deduplicatedFiles = 0;
-
-        // Process files
-        for (const fileUri of allFiles) {
-            try {
-                const fileContent = await vscode.workspace.fs.readFile(fileUri);
-                const notebookData: any = await serializer.deserializeNotebook(
-                    fileContent,
-                    new vscode.CancellationTokenSource().token
-                );
-
-                const cells: any[] = notebookData.cells || [];
-                if (cells.length === 0) {
-                    processedFiles++;
-                    continue;
-                }
-
-                let fileWasModified = false;
-
-                // Iterate through cells to find consecutive milestone cells
-                for (let i = 0; i < cells.length - 1; i++) {
-                    const currentCell = cells[i];
-                    const nextCell = cells[i + 1];
-
-                    // Skip if either cell is already deleted
-                    if (currentCell?.metadata?.data?.deleted || nextCell?.metadata?.data?.deleted) {
-                        continue;
-                    }
-
-                    // Explicitly check that both are milestone cells - skip if not
-                    const currentIsMilestone = currentCell?.metadata?.type === CodexCellTypes.MILESTONE;
-                    const nextIsMilestone = nextCell?.metadata?.type === CodexCellTypes.MILESTONE;
-
-                    if (!currentIsMilestone || !nextIsMilestone) {
-                        // Skip non-milestone cells - we only process milestone cells
-                        continue;
-                    }
-
-                    // Both are milestone cells - proceed with deduplication check
-                    // Check if values match (only deduplicate when milestone values are the same)
-                    if (currentCell.value !== nextCell.value) {
-                        continue;
-                    }
-
-                    // Check if both have INITIAL_IMPORT edits
-                    const currentEdits = currentCell.metadata?.edits || [];
-                    const nextEdits = nextCell.metadata?.edits || [];
-
-                    const currentInitialEdit = currentEdits.find(
-                        (edit: any) => edit.type === EditType.INITIAL_IMPORT
-                    );
-                    const nextInitialEdit = nextEdits.find(
-                        (edit: any) => edit.type === EditType.INITIAL_IMPORT
-                    );
-
-                    if (currentInitialEdit && nextInitialEdit) {
-                        // Compare timestamps - keep the one with latest timestamp, delete the other
-                        const cellToDelete =
-                            currentInitialEdit.timestamp < nextInitialEdit.timestamp
-                                ? currentCell
-                                : nextCell;
-
-                        // Double-check that we're only modifying milestone cells
-                        if (cellToDelete?.metadata?.type !== CodexCellTypes.MILESTONE) {
-                            console.warn(
-                                `Skipping non-milestone cell during deduplication: ${cellToDelete?.metadata?.id}`
-                            );
-                            continue;
-                        }
-
-                        // Ensure metadata exists
-                        if (!cellToDelete.metadata) {
-                            cellToDelete.metadata = {
-                                id: cellToDelete.metadata?.id || randomUUID(),
-                                type: CodexCellTypes.MILESTONE,
-                                edits: [],
-                                data: {}
-                            };
-                        }
-
-                        // Preserve the cell type - ensure it remains MILESTONE
-                        const preservedType = cellToDelete.metadata.type || CodexCellTypes.MILESTONE;
-
-                        // Soft delete the cell with earlier timestamp
-                        if (!cellToDelete.metadata.data) {
-                            cellToDelete.metadata.data = {};
-                        }
-                        cellToDelete.metadata.data.deleted = true;
-
-                        // Ensure edits array exists
-                        if (!cellToDelete.metadata.edits) {
-                            cellToDelete.metadata.edits = [];
-                        }
-
-                        // Add deletion edit
-                        const currentTimestamp = Date.now();
-                        cellToDelete.metadata.edits.push({
-                            editMap: EditMapUtils.dataDeleted(),
-                            value: true,
-                            timestamp: currentTimestamp,
-                            type: EditType.USER_EDIT,
-                            author: author,
-                            validatedBy: []
-                        });
-
-                        // Explicitly preserve the cell type
-                        cellToDelete.metadata.type = preservedType;
-
-                        fileWasModified = true;
-                    }
-                }
-
-                // Save file if modified
-                if (fileWasModified) {
-                    const updatedContent = await serializer.serializeNotebook(
-                        notebookData,
-                        new vscode.CancellationTokenSource().token
-                    );
-                    await vscode.workspace.fs.writeFile(fileUri, updatedContent);
-                    deduplicatedFiles++;
-                }
-
-                processedFiles++;
-            } catch (error) {
-                console.error(`Error processing ${fileUri.fsPath} during deduplication:`, error);
-            }
-        }
-
-        console.log(
-            `Milestone cells deduplication completed: ${processedFiles} files processed, ${deduplicatedFiles} files deduplicated`
-        );
-    } catch (error) {
-        console.error("Error running milestone cells deduplication:", error);
     }
 };
 

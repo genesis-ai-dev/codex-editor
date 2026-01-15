@@ -271,6 +271,7 @@ const CodexCellEditor: React.FC = () => {
     const [saveError, setSaveError] = useState(false);
     const [saveRetryCount, setSaveRetryCount] = useState(0);
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const pendingSaveRequestIdRef = useRef<string | null>(null);
     const SAVE_TIMEOUT_MS = 10000; // 10 seconds
     const MAX_SAVE_RETRIES = 3; // Maximum number of retry attempts
     const [editorPosition, setEditorPosition] = useState<
@@ -1219,23 +1220,6 @@ const CodexCellEditor: React.FC = () => {
             setTranslationUnits(content);
             setIsSourceText(isSourceText);
             setSourceCellMap(sourceCellMap);
-
-            // If we're currently saving, this content update likely means the save completed
-            if (isSaving) {
-                debug("editor", "Content updated during save - save completed");
-
-                // Clear the timeout timer
-                if (saveTimeoutRef.current) {
-                    clearTimeout(saveTimeoutRef.current);
-                    saveTimeoutRef.current = null;
-                }
-
-                // Reset save state
-                setIsSaving(false);
-                setSaveError(false);
-                setSaveRetryCount(0);
-                handleCloseEditor();
-            }
         },
         setSpellCheckResponse: setSpellCheckResponse,
         jumpToCell: (cellId) => {
@@ -1479,19 +1463,6 @@ const CodexCellEditor: React.FC = () => {
             loadedPagesRef.current.add(pageKey);
             setCachedCells(pageKey, cells);
             setIsLoadingCells(false);
-
-            // If we're currently saving, this content update likely means the save completed
-            if (isSaving) {
-                debug("editor", "Content updated during save - save completed");
-                if (saveTimeoutRef.current) {
-                    clearTimeout(saveTimeoutRef.current);
-                    saveTimeoutRef.current = null;
-                }
-                setIsSaving(false);
-                setSaveError(false);
-                setSaveRetryCount(0);
-                handleCloseEditor();
-            }
         },
 
         handleCellPage: (
@@ -1522,19 +1493,6 @@ const CodexCellEditor: React.FC = () => {
             loadedPagesRef.current.add(pageKey);
             setCachedCells(pageKey, cells);
             setIsLoadingCells(false);
-
-            // If we're currently saving, this content update likely means the save completed
-            if (isSaving) {
-                debug("editor", "Content updated during save - save completed (handleCellPage)");
-                if (saveTimeoutRef.current) {
-                    clearTimeout(saveTimeoutRef.current);
-                    saveTimeoutRef.current = null;
-                }
-                setIsSaving(false);
-                setSaveError(false);
-                setSaveRetryCount(0);
-                handleCloseEditor();
-            }
         },
     });
 
@@ -1979,6 +1937,13 @@ const CodexCellEditor: React.FC = () => {
         setSaveError(false);
         setIsSaving(true);
 
+        // Track this save so we can wait for the provider's explicit ack (after disk persistence)
+        const requestId =
+            typeof crypto !== "undefined" && typeof (crypto as any).randomUUID === "function"
+                ? (crypto as any).randomUUID()
+                : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        pendingSaveRequestIdRef.current = requestId;
+
         // Start timeout timer
         saveTimeoutRef.current = setTimeout(() => {
             debug("editor", "Save operation timed out", { cellId, attempt: currentRetryCount + 1 });
@@ -1989,10 +1954,45 @@ const CodexCellEditor: React.FC = () => {
 
         vscode.postMessage({
             command: "saveHtml",
+            requestId,
             content: content,
         } as EditorPostMessages);
         checkAlertCodes();
     };
+
+    // Provider ack: only mark the save as complete once the provider confirms the file write finished.
+    useMessageHandler(
+        "codexCellEditor-saveHtmlSaved",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message?.type !== "saveHtmlSaved") return;
+
+            const requestId = message?.content?.requestId;
+            const pending = pendingSaveRequestIdRef.current;
+            if (!pending || !requestId || requestId !== pending) return;
+
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
+                saveTimeoutRef.current = null;
+            }
+
+            const success = !!message?.content?.success;
+            if (success) {
+                pendingSaveRequestIdRef.current = null;
+                setIsSaving(false);
+                setSaveError(false);
+                setSaveRetryCount(0);
+                handleCloseEditor();
+                return;
+            }
+
+            // Save failed: keep editor open for manual retry
+            setIsSaving(false);
+            setSaveError(true);
+            setSaveRetryCount((prev) => prev + 1);
+        },
+        []
+    );
 
     // State for current user - initialize with a default test username to ensure logic works
     const [username, setUsername] = useState<string | null>("test-user");

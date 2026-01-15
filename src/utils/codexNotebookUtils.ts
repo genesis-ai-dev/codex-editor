@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { CodexContentSerializer } from "../serializer";
+import { formatJsonForNotebookFile } from "./notebookFileFormattingUtils";
 import { getProjectMetadata, getWorkSpaceFolder } from ".";
 import { generateFiles as generateFile } from "./fileUtils";
 import { getAllBookRefs, getAllBookChapterRefs, getAllVrefs } from ".";
@@ -554,7 +555,7 @@ async function processUsfmFile(fileUri: vscode.Uri, notebookId?: string): Promis
 
         await vscode.workspace.fs.writeFile(
             bookFilePath,
-            new TextEncoder().encode(JSON.stringify(bookData, null, 2))
+            new TextEncoder().encode(formatJsonForNotebookFile(bookData))
         );
 
         console.log(`Created .source file for ${bookCode}`);
@@ -766,7 +767,6 @@ export async function splitSourceFileByBook(
 
     for (const cell of sourceData.cells) {
         // Skip milestone cells - they have UUIDs as IDs, not book references
-        // If we don't skip them, it will create .source.combined files that we don't want.
         if (
             cell.metadata?.type === CodexCellTypes.MILESTONE ||
             cell.metadata?.type === CodexCellTypes.STYLE ||
@@ -819,7 +819,7 @@ export async function splitSourceFileByBook(
 
         await vscode.workspace.fs.writeFile(
             sourceFilePath,
-            Buffer.from(JSON.stringify(notebookData, null, 2), "utf-8")
+            Buffer.from(formatJsonForNotebookFile(notebookData), "utf-8")
         );
 
         createdFiles.push(sourceFilePath);

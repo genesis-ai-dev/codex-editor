@@ -19,11 +19,13 @@ import { CodexCell } from "../../utils/codexNotebookUtils";
 import { CodexCellTypes } from "../../../types/enums";
 import { importBookNamesFromXmlContent } from "../../bookNameSettings/bookNameSettings";
 import { createStandardizedFilename, extractUsfmCodeFromFilename, getBookDisplayName } from "../../utils/bookNameUtils";
+import { formatJsonForNotebookFile } from "../../utils/notebookFileFormattingUtils";
 import { CodexContentSerializer } from "../../serializer";
 import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { migrateLocalizedBooksToMetadata as migrateLocalizedBooks } from "./localizedBooksMigration/localizedBooksMigration";
 import { removeLocalizedBooksJsonIfPresent as removeLocalizedBooksJson } from "./localizedBooksMigration/removeLocalizedBooksJson";
+import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
 // import { parseRtfWithPandoc as parseRtfNode } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/pandocNodeBridge";
 
 const execAsync = promisify(exec);
@@ -123,7 +125,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 } else if (message.command === "writeNotebooks") {
                     await this.handleWriteNotebooks(message as WriteNotebooksMessage, token, webviewPanel);
                 } else if (message.command === "writeNotebooksWithAttachments") {
-                    await this.handleWriteNotebooksWithAttachments(message as WriteNotebooksWithAttachmentsMessage, token, webviewPanel);
+                    await this.handleWriteNotebooksWithAttachments(message as WriteNotebooksWithAttachmentsMessage, document, token, webviewPanel);
                     // Success notification and inventory update are now handled in handleWriteNotebooks
                 } else if (message.command === "overwriteResponse") {
                     const response = message as OverwriteResponseMessage;
@@ -447,10 +449,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             ...(processedNotebook.metadata.mammothMessages
                 ? { mammothMessages: processedNotebook.metadata.mammothMessages }
                 : {}),
-            // Preserve DOCX round-trip structure
-            ...(processedNotebook.metadata?.docxDocument
-                ? { docxDocument: processedNotebook.metadata.docxDocument }
-                : {}),
             ...(processedNotebook.metadata?.originalHash
                 ? { originalHash: processedNotebook.metadata.originalHash }
                 : {}),
@@ -507,10 +505,13 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 if ("originalFileData" in pair.source.metadata && pair.source.metadata.originalFileData) {
                     // Save the original file in attachments
                     const originalFileName = pair.source.metadata.originalFileName || 'document.docx';
+                    // Store originals under attachments/files/originals for consistency with other attachment storage.
+                    // (Some existing projects may have originals under attachments/originals; exporter will fallback.)
                     const originalsDir = vscode.Uri.joinPath(
                         workspaceFolder.uri,
                         '.project',
                         'attachments',
+                        'files',
                         'originals'
                     );
                     await vscode.workspace.fs.createDirectory(originalsDir);
@@ -524,6 +525,10 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         : Buffer.from(fileData);
 
                     await vscode.workspace.fs.writeFile(originalFileUri, buffer);
+
+                    // CRITICAL: Do not persist original binary content into JSON notebooks.
+                    // The original template is stored in `.project/attachments/originals/<originalFileName>`.
+                    delete pair.source.metadata.originalFileData;
                 }
             }
         }
@@ -608,6 +613,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
      */
     private async handleWriteNotebooksWithAttachments(
         message: WriteNotebooksWithAttachmentsMessage,
+        document: vscode.TextDocument,
         token: vscode.CancellationToken,
         webviewPanel: vscode.WebviewPanel
     ): Promise<void> {
@@ -777,7 +783,11 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     // Process batch in parallel
                     await Promise.all(batch.map(async (attachment) => {
                         const { cellId, attachmentId, fileName, dataBase64, sourceFileId, isFromVideo, remoteUrl } = attachment as any;
-                        const docSegment = (cellId || "").split(" ")[0] || "UNKNOWN";
+
+
+                        const docSegment =
+                            getAttachmentDocumentSegmentFromUri(document.uri) ||
+                            "UNKNOWN";
                         const filesDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "attachments", "files", docSegment);
                         const pointersDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "attachments", "pointers", docSegment);
                         await vscode.workspace.fs.createDirectory(filesDir);
@@ -1042,7 +1052,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             // Write the updated notebook back to disk
             await vscode.workspace.fs.writeFile(
                 targetFileUri,
-                Buffer.from(JSON.stringify(updatedNotebook, null, 2))
+                Buffer.from(formatJsonForNotebookFile(updatedNotebook))
             );
 
             // Show success message with statistics

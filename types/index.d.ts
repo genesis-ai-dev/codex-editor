@@ -252,7 +252,8 @@ export type MessagesToStartupFlowProvider =
     | { command: "auth.status"; }
     | { command: "auth.checkAuthStatus"; }
     | { command: "auth.backToLogin"; }
-    | { command: "auth.requestPasswordReset"; resetEmail: string; }
+    | { command: "auth.requestPasswordReset"; }
+    // | { command: "auth.requestPasswordReset"; resetEmail: string; }
     | { command: "project.clone"; repoUrl: string; mediaStrategy?: MediaFilesStrategy; }
     | { command: "project.new"; }
     | { command: "workspace.status"; }
@@ -585,7 +586,8 @@ export type EditorPostMessages =
             data: CustomNotebookCellData["metadata"]["data"];
         };
     }
-    | { command: "saveHtml"; content: EditorCellContent; }
+    | { command: "saveHtml"; requestId?: string; content: EditorCellContent; }
+    | { command: "saveTimeBlocks"; content: TimeBlock[]; }
     | { command: "replaceDuplicateCells"; content: QuillCellContent; }
     | { command: "getContent"; }
     | {
@@ -663,6 +665,7 @@ export type EditorPostMessages =
     | { command: "openCommentsForCell"; content: { cellId: string; }; }
     | {
         command: "saveAudioAttachment";
+        requestId?: string;
         content: {
             cellId: string;
             audioData: string; // base64 encoded audio data
@@ -1764,6 +1767,15 @@ interface CodexItem {
 }
 type EditorReceiveMessages =
     | {
+        type: "saveHtmlSaved";
+        content: {
+            requestId?: string;
+            cellId: string;
+            success: boolean;
+            error?: string;
+        };
+    }
+    | {
         type: "providerSendsInitialContent";
         content: QuillCellContent[];
         isSourceText: boolean;
@@ -1776,6 +1788,11 @@ type EditorReceiveMessages =
     }
     | {
         type: "providerSendsInitialContentPaginated";
+        /**
+         * Monotonic revision number for the document content as observed by the provider.
+         * Used by the webview to ignore out-of-order / stale payloads.
+         */
+        rev?: number;
         milestoneIndex: MilestoneIndex;
         cells: QuillCellContent[];
         currentMilestoneIndex: number;
@@ -1790,6 +1807,11 @@ type EditorReceiveMessages =
     }
     | {
         type: "providerSendsCellPage";
+        /**
+         * Monotonic revision number for the document content as observed by the provider.
+         * Used by the webview to ignore out-of-order / stale payloads.
+         */
+        rev?: number;
         milestoneIndex: number;
         subsectionIndex: number;
         cells: QuillCellContent[];
@@ -1976,7 +1998,13 @@ type EditorReceiveMessages =
     }
     | { type: "refreshFontSizes"; }
     | { type: "refreshMetadata"; }
-    | { type: "refreshCurrentPage"; }
+    | {
+        type: "refreshCurrentPage";
+        /**
+         * Optional rev for correlation; refresh is a pull-trigger, so the response payload rev is authoritative.
+         */
+        rev?: number;
+    }
     | { type: "asrConfig"; content: { endpoint: string; authToken?: string; }; }
     | { type: "startBatchTranscription"; content: { count: number; }; }
     | {
@@ -2098,7 +2126,13 @@ type EditorReceiveMessages =
         content: {
             cellId: string;
             audioId: string;
+            requestId?: string;
             success: boolean;
+            /**
+             * True when the attachment metadata has been persisted to the .codex/.source file
+             * (in addition to the audio file itself being written).
+             */
+            savedToCodexFile?: boolean;
             error?: string;
         };
     }

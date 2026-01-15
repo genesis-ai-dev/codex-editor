@@ -5,6 +5,7 @@ import { createStandardizedFilename, isBiblicalImporterType } from "../../utils/
 import { CorpusMarker, findCanonicalCorpusMarker } from "../../utils/corpusMarkerUtils";
 import { CodexContentSerializer } from "../../serializer";
 import { CustomNotebookMetadata } from "../../../types";
+import { formatJsonForNotebookFile } from "../../utils/notebookFileFormattingUtils";
 
 export function checkCancellation(token?: vscode.CancellationToken): void {
     if (token?.isCancellationRequested) {
@@ -29,7 +30,7 @@ export async function writeNotebook(uri: vscode.Uri, notebook: CodexNotebookAsJS
         },
     }));
 
-    const serializedData = JSON.stringify(
+    const serializedData = formatJsonForNotebookFile(
         {
             cells,
             metadata: {
@@ -40,9 +41,7 @@ export async function writeNotebook(uri: vscode.Uri, notebook: CodexNotebookAsJS
                 edits: notebook.metadata.edits || [],
                 ...notebook.metadata,
             },
-        },
-        null,
-        2
+        }
     );
 
     if (!serializedData) {
@@ -50,7 +49,7 @@ export async function writeNotebook(uri: vscode.Uri, notebook: CodexNotebookAsJS
     }
 
     // Write the file directly without opening it
-    await vscode.workspace.fs.writeFile(uri, Buffer.from(serializedData, 'utf8'));
+    await vscode.workspace.fs.writeFile(uri, Buffer.from(serializedData, "utf8"));
 }
 
 /**

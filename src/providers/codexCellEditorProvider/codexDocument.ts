@@ -25,6 +25,8 @@ import { debounce } from "lodash";
 import { getSQLiteIndexManager } from "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
 import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents } from "../../../sharedUtils";
 import { extractParentCellIdFromParatext, convertCellToQuillContent } from "./utils/cellUtils";
+import { formatJsonForNotebookFile, normalizeNotebookFileText } from "../../utils/notebookFileFormattingUtils";
+import { atomicWriteUriText, readExistingFileOrThrow } from "../../utils/notebookSafeSaveUtils";
 
 // Define debug function locally
 const DEBUG_MODE = false;
@@ -611,8 +613,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     public replaceDuplicateCells(content: QuillCellContent) {
+        const targetCellId = content.cellMarkers?.[0];
+        if (!targetCellId) {
+            console.warn(
+                "[CodexDocument] replaceDuplicateCells called without a valid cell id. Aborting to avoid accidental mass-deletes."
+            );
+            return;
+        }
         let indexOfCellToDelete = this._documentData.cells.findIndex((cell) => {
-            return cell.metadata?.id === content.cellMarkers[0];
+            return cell.metadata?.id === targetCellId;
         });
         const cellMarkerOfCellBeforeNewCell =
             indexOfCellToDelete === 0
@@ -621,12 +630,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
         while (indexOfCellToDelete !== -1) {
             this._documentData.cells.splice(indexOfCellToDelete, 1);
             indexOfCellToDelete = this._documentData.cells.findIndex((cell) => {
-                return cell.metadata?.id === content.cellMarkers[0];
+                return cell.metadata?.id === targetCellId;
             });
         }
 
         this.addCell(
-            content.cellMarkers[0],
+            targetCellId,
             cellMarkerOfCellBeforeNewCell,
             "below",
             content.cellType,
@@ -639,16 +648,18 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     public async save(cancellation: vscode.CancellationToken): Promise<void> {
-        const currentFileContent = await this.readCurrentFileContent();
-        const ourContent = JSON.stringify(this._documentData, null, 2);
+        const ourContent = formatJsonForNotebookFile(this._documentData);
 
-        if (!currentFileContent) {
-            // Initial write when file does not yet exist or cannot be read
-            await vscode.workspace.fs.writeFile(this.uri, new TextEncoder().encode(ourContent));
+        // If a file exists but can't be read, we must not overwrite (this can permanently nuke data).
+        const existing = await readExistingFileOrThrow(this.uri);
+
+        if (existing.kind === "missing") {
+            // Initial write when file does not yet exist
+            await atomicWriteUriText(this.uri, ourContent);
         } else {
             const { resolveCodexCustomMerge } = await import("../../projectManager/utils/merge/resolvers");
-            const mergedContent = await resolveCodexCustomMerge(ourContent, currentFileContent);
-            await vscode.workspace.fs.writeFile(this.uri, new TextEncoder().encode(mergedContent));
+            const mergedContent = await resolveCodexCustomMerge(ourContent, existing.content);
+            await atomicWriteUriText(this.uri, normalizeNotebookFileText(mergedContent));
         }
 
         // Record save timestamp to prevent file watcher from reverting our own save
@@ -661,29 +672,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
         this._isDirty = false; // Reset dirty flag
     }
 
-    /**
-     * Reads the current content of the file from disk
-     * Returns null if the file doesn't exist or there's an error reading it
-     */
-    private async readCurrentFileContent(): Promise<string | null> {
-        try {
-            const fileData = await vscode.workspace.fs.readFile(this.uri);
-            const decoder = new TextDecoder("utf-8");
-            return decoder.decode(fileData);
-        } catch (error) {
-            // File might not exist yet (new file) or there might be a read error
-            debug("[CodexDocument] Could not read current file content:", error);
-            return null;
-        }
-    }
-
     public async saveAs(
         targetResource: vscode.Uri,
         cancellation: vscode.CancellationToken,
         backup: boolean = false
     ): Promise<void> {
-        const text = JSON.stringify(this._documentData, null, 2);
-        await vscode.workspace.fs.writeFile(targetResource, new TextEncoder().encode(text));
+        const text = formatJsonForNotebookFile(this._documentData);
+        await atomicWriteUriText(targetResource, text);
 
         // IMMEDIATE AI LEARNING for non-backup saves
         if (!backup) {
@@ -718,7 +713,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     public getText(): string {
-        return JSON.stringify(this._documentData, null, 2);
+        return formatJsonForNotebookFile(this._documentData);
     }
 
     public getCellContent(cellId: string): QuillCellContent | undefined {
@@ -1348,7 +1343,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
                 // Skip paratext and merged cells
                 const cellId = cell.metadata?.id;
-                if (!cellId || cellId.includes(":paratext-") || cell.metadata?.data?.merged) {
+                if (!cellId || cellId.includes(":paratext-") || cell.metadata?.type === CodexCellTypes.PARATEXT || cell.metadata?.data?.merged) {
                     continue;
                 }
 
@@ -1478,7 +1473,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
             // Skip paratext and merged cells
             const cellId = cell.metadata?.id;
-            if (!cellId || cellId.includes(":paratext-") || cell.metadata?.data?.merged) {
+            if (!cellId || cellId.includes(":paratext-") || cell.metadata?.type === CodexCellTypes.PARATEXT || cell.metadata?.data?.merged) {
                 continue;
             }
 
