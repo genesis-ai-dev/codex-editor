@@ -254,7 +254,8 @@ export type MessagesToStartupFlowProvider =
     | { command: "auth.status"; }
     | { command: "auth.checkAuthStatus"; }
     | { command: "auth.backToLogin"; }
-    | { command: "auth.requestPasswordReset"; resetEmail: string; }
+    | { command: "auth.requestPasswordReset"; }
+    // | { command: "auth.requestPasswordReset"; resetEmail: string; }
     | { command: "project.clone"; repoUrl: string; mediaStrategy?: MediaFilesStrategy; }
     | { command: "project.new"; }
     | { command: "workspace.status"; }
