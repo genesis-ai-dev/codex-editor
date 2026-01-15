@@ -757,10 +757,10 @@ export class SyncManager {
             this.notifySyncStatusListeners();
             updateSplashScreenSync(100, "Synchronization complete");
 
-            // Schedule progress report after successful sync (when there are actual changes)
-            const progressReportingService = ProgressReportingService.getInstance();
-            progressReportingService.scheduleProgressReport();
-            debug("📊 Progress report scheduled after successful sync");
+            // TEMPORARILY DISABLED: progress report after successful sync
+            // const progressReportingService = ProgressReportingService.getInstance();
+            // progressReportingService.scheduleProgressReport();
+            // debug("📊 Progress report scheduled after successful sync");
 
             // Rebuild indexes in the background after successful sync (truly async)
             // Pass the sync result to optimize database synchronization
