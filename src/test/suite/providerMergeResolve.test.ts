@@ -193,6 +193,7 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
         (oursDoc as any).updateCellAttachment(sharedCellId, oursAudioId, {
             url: "attachments/a1.mp3",
             type: "audio",
+            createdBy: "anonymous",
             createdAt: now,
             updatedAt: now,
             isDeleted: false,
@@ -200,6 +201,7 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
         (theirsDoc as any).updateCellAttachment(sharedCellId, theirsAudioId, {
             url: "attachments/a2.mp3",
             type: "audio",
+            createdBy: "anonymous",
             createdAt: now + 100,
             updatedAt: now + 100,
             isDeleted: false,
@@ -277,6 +279,7 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
         (oursDoc as any).updateCellAttachment(sharedCellId, audioId, {
             url: baseUrl,
             type: "audio",
+            createdBy: "anonymous",
             createdAt: t0,
             updatedAt: t0,
             isDeleted: false,
@@ -285,6 +288,7 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
         (theirsDoc as any).updateCellAttachment(sharedCellId, audioId, {
             url: baseUrl,
             type: "audio",
+            createdBy: "anonymous",
             createdAt: t0,
             updatedAt: t0,
             isDeleted: false,

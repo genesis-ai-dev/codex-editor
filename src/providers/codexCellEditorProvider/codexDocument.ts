@@ -2479,7 +2479,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     public updateCellAttachment(
         cellId: string,
         attachmentId: string,
-        attachmentData: { url: string; type: string; createdAt: number; updatedAt: number; isDeleted: boolean; metadata?: Record<string, any>; }
+        attachmentData: { url: string; type: string; createdAt: number; updatedAt: number; isDeleted: boolean; metadata?: Record<string, any>; createdBy?: string; }
     ): void {
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
             (cell) => cell.metadata?.id === cellId
