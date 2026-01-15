@@ -13,6 +13,7 @@ import {
     CellIdGlobalState,
     CustomNotebookCellData,
     CodexNotebookAsJSONData,
+    MilestoneIndex,
 } from "../../../types";
 import { CodexCellDocument } from "./codexDocument";
 import {
@@ -28,7 +29,23 @@ import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-l
 import { getNonce } from "../dictionaryTable/utilities/getNonce";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import path from "path";
+import * as fs from "fs";
 import { getAuthApi } from "@/extension";
+import {
+    getCachedChapter as getCachedChapterUtil,
+    updateCachedChapter as updateCachedChapterUtil,
+    getCachedSubsection as getCachedSubsectionUtil,
+    updateCachedSubsection as updateCachedSubsectionUtil,
+    getPreferredEditorTab as getPreferredEditorTabUtil,
+    updatePreferredEditorTab as updatePreferredEditorTabUtil,
+} from "./utils/workspaceStateUtils";
+import { processVideoUrl } from "./utils/videoUtils";
+import {
+    isCodexFileFlexible,
+    isSourceFileFlexible,
+    isMatchingFilePair as isMatchingFilePairUtil,
+} from "../../utils/fileTypeUtils";
+import { getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -36,6 +53,33 @@ function debug(...args: any[]) {
     if (DEBUG_MODE) {
         console.log("[CodexCellEditorProvider]", ...args);
     }
+}
+
+/**
+ * Extracts chapter number from a milestone value.
+ * Handles both old format ("1", "2") and new format ("Isaiah 1", "GEN 2").
+ * Returns the chapter number as a number, or null if not found.
+ */
+function extractChapterNumberFromMilestoneValue(value: string | undefined): number | null {
+    if (!value) return null;
+
+    // Try to extract the last number in the string (handles "Isaiah 1", "GEN 2", etc.)
+    // This works for both old format ("1") and new format ("BookName 1")
+    const matches = value.match(/(\d+)(?!.*\d)/);
+    if (matches && matches[1]) {
+        const chapterNum = parseInt(matches[1], 10);
+        if (!isNaN(chapterNum) && chapterNum > 0) {
+            return chapterNum;
+        }
+    }
+
+    // Fallback: try parsing the entire string as a number (for old format "1")
+    const parsed = parseInt(value, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+        return parsed;
+    }
+
+    return null;
 }
 
 // StateStore interface matching what's provided by initializeStateStore
@@ -54,8 +98,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private webviewPanels: Map<string, vscode.WebviewPanel> = new Map();
     private webviewReadyState: Map<string, boolean> = new Map(); // Track if webview is ready to receive content
     private pendingWebviewUpdates: Map<string, (() => void)[]> = new Map(); // Track pending update functions
+    private documents: Map<string, CodexCellDocument> = new Map(); // Track open documents
+    private documentLoadTimes: Map<string, number> = new Map(); // Track when documents were last loaded from disk
     private refreshInFlight: Set<string> = new Set(); // Prevent overlapping refreshes per document
     private pendingRefresh: Set<string> = new Set(); // Queue one follow-up refresh if needed
+    // Provider-side monotonic revisions for each open document URI (used to tag messages and ignore stale UI updates)
+    private documentRevisions: Map<string, number> = new Map();
     private userInfo: { username: string; email: string; } | undefined;
     private stateStore: StateStore | undefined;
     private stateStoreListener: (() => void) | undefined;
@@ -70,6 +118,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private get CELLS_PER_PAGE(): number {
         const config = vscode.workspace.getConfiguration("codex-editor-extension");
         return config.get("cellsPerPage", 50); // Default to 50 cells per page
+    }
+
+    private bumpDocumentRevision(documentUri: string): number {
+        const next = (this.documentRevisions.get(documentUri) ?? 0) + 1;
+        this.documentRevisions.set(documentUri, next);
+        return next;
+    }
+
+    public getDocumentRevision(documentUri: string): number {
+        return this.documentRevisions.get(documentUri) ?? 0;
     }
 
     // Translation queue system
@@ -145,7 +203,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private bibleBookMap: Map<string, { name: string;[key: string]: any; }> | undefined;
 
     // Add correction editor mode state
-    private isCorrectionEditorMode: boolean = false;
+    public isCorrectionEditorMode: boolean = false;
+
+    // Track current milestone/subsection per document to preserve position during updates
+    public currentMilestoneSubsectionMap: Map<string, { milestoneIndex: number; subsectionIndex: number; }> = new Map();
 
     public static getInstance(): CodexCellEditorProvider | undefined {
         return CodexCellEditorProvider.instance;
@@ -198,6 +259,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                 // Force a refresh of validation state for all open documents
                 this.refreshValidationStateForAllDocuments();
+
+                // Update milestone progress for all open documents
+                this.updateMilestoneProgressForAllDocuments();
             }
 
             if (e.affectsConfiguration("codex-project-manager.validationCountAudio")) {
@@ -213,6 +277,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                 // Force a refresh of validation state for all open documents
                 this.refreshValidationStateForAllDocuments();
+
+                // Update milestone progress for all open documents
+                this.updateMilestoneProgressForAllDocuments();
             }
 
             if (e.affectsConfiguration("codex-editor-extension.cellsPerPage")) {
@@ -264,17 +331,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 "cellId",
                 (value: CellIdGlobalState | undefined) => {
                     debug("Cell ID change detected:", value);
-                    if (value?.cellId && value?.uri) {
+                    if (value?.uri) {
                         // Only send highlight messages to source files when a codex file is active
                         const valueIsCodexFile = this.isCodexFile(value.uri);
                         if (valueIsCodexFile) {
                             debug("Processing codex file highlight");
+                            // Send highlight using cellId (primary) or globalReferences (if available)
                             for (const [panelUri, panel] of this.webviewPanels.entries()) {
                                 const isSourceFile = this.isSourceText(panelUri);
                                 if (isSourceFile) {
                                     debug("Sending highlight message to source file:", panelUri);
                                     safePostMessageToPanel(panel, {
                                         type: "highlightCell",
+                                        globalReferences: value.globalReferences || [],
                                         cellId: value.cellId,
                                     });
                                 }
@@ -300,9 +369,44 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         openContext: { backupId?: string; },
         _token: vscode.CancellationToken
     ): Promise<CodexCellDocument> {
+        // Check if document is already open
+        const existingDoc = this.documents.get(uri.toString());
+        if (existingDoc) {
+            // Check if file has changed on disk (for test scenarios where file is modified externally)
+            try {
+                const fileStat = await vscode.workspace.fs.stat(uri);
+                const lastLoadTime = this.documentLoadTimes.get(uri.toString());
+                // If file modification time is newer than when we last loaded, reload from disk
+                if (lastLoadTime === undefined || fileStat.mtime > lastLoadTime) {
+                    debug("File has changed on disk, reloading document:", uri.toString());
+                    // Remove old document from cache
+                    this.documents.delete(uri.toString());
+                    // Create new document from disk
+                    const document = await CodexCellDocument.create(uri, openContext.backupId, _token);
+                    this.documents.set(uri.toString(), document);
+                    this.documentLoadTimes.set(uri.toString(), fileStat.mtime);
+                    return document;
+                }
+            } catch (error) {
+                // If we can't stat the file (e.g., it doesn't exist), just return cached document
+                debug("Could not stat file, returning cached document:", error);
+            }
+            return existingDoc;
+        }
         debug("Opening custom document:", uri.toString());
         const document = await CodexCellDocument.create(uri, openContext.backupId, _token);
         debug("Document created successfully");
+        // Store document immediately so it's available for milestone progress tracking
+        // even if updateMilestoneProgressForAllDocuments is called before resolveCustomEditor
+        this.documents.set(uri.toString(), document);
+        // Track when document was loaded
+        try {
+            const fileStat = await vscode.workspace.fs.stat(uri);
+            this.documentLoadTimes.set(uri.toString(), fileStat.mtime);
+        } catch (error) {
+            // If we can't stat, use current time as fallback
+            this.documentLoadTimes.set(uri.toString(), Date.now());
+        }
         return document;
     }
 
@@ -387,6 +491,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Store the webview panel with its document URI as the key
         this.webviewPanels.set(document.uri.toString(), webviewPanel);
+        // Track the document
+        this.documents.set(document.uri.toString(), document);
 
         // Listen for when this editor becomes active
         const viewStateDisposable: vscode.Disposable = webviewPanel.onDidChangeViewState((e) => {
@@ -573,8 +679,32 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Create update function
         const updateWebview = async () => {
             debug("Updating webview");
+            const docUri = document.uri.toString();
+            const rev = this.getDocumentRevision(docUri);
+            const isWebviewReady = this.webviewReadyState.get(docUri) ?? false;
+            const currentPosition = this.currentMilestoneSubsectionMap.get(docUri);
+
+            // If webview is ready and we have a tracked position, this is an update (not initial load)
+            // Send refreshCurrentPage to preserve the current position instead of resetting to initial
+            if (isWebviewReady && currentPosition) {
+                debug("Webview is ready and has tracked position, sending refreshCurrentPage to preserve position", {
+                    milestoneIndex: currentPosition.milestoneIndex,
+                    subsectionIndex: currentPosition.subsectionIndex,
+                });
+                safePostMessageToPanel(webviewPanel, {
+                    type: "refreshCurrentPage",
+                    rev,
+                });
+                // Still send metadata updates below, but skip the initial content reset
+            } else {
+                // Initial load or no tracked position - send initial content as before
+                debug("Initial load or no tracked position, sending initial content", {
+                    isWebviewReady,
+                    hasCurrentPosition: !!currentPosition,
+                });
+            }
+
             const notebookData: CodexNotebookAsJSONData = this.getDocumentAsJson(document);
-            const processedData = this.processNotebookData(notebookData, document);
 
             // Get bundled metadata to avoid separate requests
             const config = vscode.workspace.getConfiguration("codex-project-manager");
@@ -604,50 +734,100 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 console.debug("Could not get authentication status:", error);
             }
 
-            // Fetch user role/access level if authenticated
-            let userAccessLevel: number | undefined = undefined;
-            try {
-                if (isAuthenticated && userInfo?.username) {
-                    const ws = vscode.workspace.getWorkspaceFolder(document.uri);
-                    if (ws) {
-                        const { extractProjectIdFromUrl, fetchProjectMembers } = await import("../../utils/remoteHealingManager");
-                        const git = await import("isomorphic-git");
-                        const fs = await import("fs");
-                        const remotes = await git.listRemotes({ fs, dir: ws.uri.fsPath });
-                        const origin = remotes.find((r) => r.remote === "origin");
+            // Build milestone index for paginated loading
+            const milestoneIndex = document.buildMilestoneIndex(this.CELLS_PER_PAGE);
 
-                        if (origin?.url) {
-                            const projectId = extractProjectIdFromUrl(origin.url);
-                            if (projectId) {
-                                const memberList = await fetchProjectMembers(projectId);
-                                if (memberList) {
-                                    const currentUserMember = memberList.find(
-                                        m => m.username === userInfo.username || m.email === userInfo.email
-                                    );
-                                    if (currentUserMember) {
-                                        userAccessLevel = currentUserMember.accessLevel;
+            // Calculate progress for all milestones
+            const milestoneProgress = document.calculateMilestoneProgress(validationCount, validationCountAudio);
+            milestoneIndex.milestoneProgress = milestoneProgress;
+
+            // Get cached chapter and map it to milestone index
+            const cachedChapter = this.getCachedChapter(docUri);
+            let initialMilestoneIndex = 0;
+            const initialSubsectionIndex = this.getCachedSubsection(docUri);
+
+            // If we have milestones and a cached chapter, try to find the matching milestone
+            if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
+                // Find milestone that matches the cached chapter number
+                const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
+                    const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
+                    return chapterNum !== null && chapterNum === cachedChapter;
+                });
+                if (milestoneIdx !== -1) {
+                    initialMilestoneIndex = milestoneIdx;
+                } else {
+                    // Fallback: try using chapter number as index (1-indexed to 0-indexed)
+                    const fallbackIdx = cachedChapter - 1;
+                    if (fallbackIdx >= 0 && fallbackIdx < milestoneIndex.milestones.length) {
+                        initialMilestoneIndex = fallbackIdx;
+                    }
+                }
+            }
+
+            // Only send initial content if this is not an update (webview not ready or no tracked position)
+            if (!isWebviewReady || !currentPosition) {
+                // Get first page of cells for the initial milestone
+                const initialCells = document.getCellsForMilestone(initialMilestoneIndex, initialSubsectionIndex, this.CELLS_PER_PAGE);
+                const processedInitialCells = this.mergeRangesAndProcess(initialCells, this.isCorrectionEditorMode, isSourceText);
+
+                // Build source cell map for the initial cells only
+                const initialSourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
+                for (const cell of initialCells) {
+                    const cellId = cell.cellMarkers?.[0];
+                    if (cellId && document._sourceCellMap[cellId]) {
+                        initialSourceCellMap[cellId] = document._sourceCellMap[cellId];
+                    }
+                }
+
+                // Fetch user role/access level if authenticated
+                let userAccessLevel: number | undefined = undefined;
+                try {
+                    if (isAuthenticated && userInfo?.username) {
+                        const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                        if (ws) {
+                            const { extractProjectIdFromUrl, fetchProjectMembers } = await import("../../utils/remoteHealingManager");
+                            const git = await import("isomorphic-git");
+                            const fs = await import("fs");
+                            const remotes = await git.listRemotes({ fs, dir: ws.uri.fsPath });
+                            const origin = remotes.find((r) => r.remote === "origin");
+
+                            if (origin?.url) {
+                                const projectId = extractProjectIdFromUrl(origin.url);
+                                if (projectId) {
+                                    const memberList = await fetchProjectMembers(projectId);
+                                    if (memberList) {
+                                        const currentUserMember = memberList.find(
+                                            m => m.username === userInfo.username || m.email === userInfo.email
+                                        );
+                                        if (currentUserMember) {
+                                            userAccessLevel = currentUserMember.accessLevel;
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                } catch (error) {
+                    // Silently fail - user role is optional
+                    debug("Could not fetch user role:", error);
                 }
-            } catch (error) {
-                // Silently fail - user role is optional
-                debug("Could not fetch user role:", error);
-            }
 
-            this.postMessageToWebview(webviewPanel, {
-                type: "providerSendsInitialContent",
-                content: processedData,
-                isSourceText: isSourceText,
-                sourceCellMap: document._sourceCellMap,
-                username: username,
-                validationCount: validationCount,
-                validationCountAudio: validationCountAudio,
-                isAuthenticated: isAuthenticated,
-                userAccessLevel: userAccessLevel,
-            });
+                this.postMessageToWebview(webviewPanel, {
+                    type: "providerSendsInitialContentPaginated",
+                    rev,
+                    milestoneIndex: milestoneIndex,
+                    cells: processedInitialCells,
+                    currentMilestoneIndex: initialMilestoneIndex,
+                    currentSubsectionIndex: initialSubsectionIndex,
+                    isSourceText: isSourceText,
+                    sourceCellMap: initialSourceCellMap,
+                    username: username,
+                    validationCount: validationCount,
+                    validationCountAudio: validationCountAudio,
+                    isAuthenticated: isAuthenticated,
+                    userAccessLevel: userAccessLevel,
+                });
+            }
 
             // Also send updated metadata plus the autoDownloadAudioOnOpen flag for the project
             try {
@@ -855,6 +1035,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         listeners.push(
             document.onDidChangeForVsCodeAndWebview((e) => {
                 debug("Document changed for VS Code and webview");
+                const docUri = document.uri.toString();
+                const rev = this.bumpDocumentRevision(docUri);
 
                 // Check if this is a validation update
                 if (e.edits && e.edits.length > 0 && e.edits[0].type === "validation") {
@@ -898,8 +1080,25 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Still update the current webview with the full content
                     updateWebview();
                 } else {
-                    // For non-validation updates, just update the webview as normal
-                    updateWebview();
+                    // Check if this is a paratext cell addition
+                    debug("Document change event", { edits: e.edits, firstEdit: e.edits?.[0] });
+                    if (e.edits && e.edits.length > 0 && e.edits[0].cellType === CodexCellTypes.PARATEXT) {
+                        debug("Paratext cell added, sending refreshCurrentPage message");
+                        // Send a message to refresh the current page (not reset to initial)
+                        // The webview will handle this by requesting cells for its current milestone/subsection
+                        this.webviewPanels.forEach((panel, docUri) => {
+                            if (docUri === document.uri.toString()) {
+                                debug(`Sending refreshCurrentPage to webview for ${docUri}`);
+                                safePostMessageToPanel(panel, {
+                                    type: "refreshCurrentPage",
+                                    rev,
+                                });
+                            }
+                        });
+                    } else {
+                        // For non-validation updates, just update the webview as normal
+                        updateWebview();
+                    }
                 }
 
                 // Update file status when document changes
@@ -912,6 +1111,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         listeners.push(
             document.onDidChangeForWebview((e) => {
                 debug("Document changed for webview only");
+                // Webview-only change still represents a content change relevant to UI ordering.
+                this.bumpDocumentRevision(document.uri.toString());
                 updateWebview();
             })
         );
@@ -941,6 +1142,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             this.webviewPanels.delete(docUri);
             this.webviewReadyState.delete(docUri);
             this.pendingWebviewUpdates.delete(docUri);
+            // Clean up tracked milestone/subsection position
+            this.currentMilestoneSubsectionMap.delete(docUri);
             jumpToCellListenerDispose();
             listeners.forEach((l) => l.dispose());
             if (watcher) {
@@ -1012,6 +1215,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             this.webviewPanels.delete(docUri);
             this.webviewReadyState.delete(docUri);
             this.pendingWebviewUpdates.delete(docUri);
+            this.documents.delete(docUri);
+            this.documentLoadTimes.delete(docUri);
         });
         listeners.push(disposeListener);
     }
@@ -1144,29 +1349,30 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     public getCachedChapter(uri: string): number {
-        const key = `chapter-cache-${uri}`;
-        return this.context.workspaceState.get(key, 1); // Default to chapter 1
+        return getCachedChapterUtil(this.context.workspaceState, uri);
     }
 
     public async updateCachedChapter(uri: string, chapter: number) {
-        const key = `chapter-cache-${uri}`;
-        await this.context.workspaceState.update(key, chapter);
+        await updateCachedChapterUtil(this.context.workspaceState, uri, chapter);
+    }
+
+    public getCachedSubsection(uri: string): number {
+        return getCachedSubsectionUtil(this.context.workspaceState, uri);
+    }
+
+    public async updateCachedSubsection(uri: string, subsectionIndex: number) {
+        await updateCachedSubsectionUtil(this.context.workspaceState, uri, subsectionIndex);
     }
 
     // Preferred editor tab helpers (workspace-scoped)
     public getPreferredEditorTab(): "source" | "backtranslation" | "footnotes" | "timestamps" | "audio" {
-        const key = `codex-editor-preferred-tab`;
-        return this.context.workspaceState.get(
-            key,
-            "source"
-        ) as "source" | "backtranslation" | "footnotes" | "timestamps" | "audio";
+        return getPreferredEditorTabUtil(this.context.workspaceState);
     }
 
     public async updatePreferredEditorTab(
         tab: "source" | "backtranslation" | "footnotes" | "timestamps" | "audio"
     ) {
-        const key = `codex-editor-preferred-tab`;
-        await this.context.workspaceState.update(key, tab);
+        await updatePreferredEditorTabUtil(this.context.workspaceState, tab);
     }
 
     private getHtmlForWebview(
@@ -1206,28 +1412,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         const notebookData = this.getDocumentAsJson(document);
         const videoPath = notebookData.metadata?.videoUrl;
-        let videoUri = null;
-
-        // FIXME: when switching from a remote/youtube video to a local video, you need to close the webview and re-open it
-        if (videoPath) {
-            debug("Processing video path:", videoPath);
-            if (videoPath.startsWith("http://") || videoPath.startsWith("https://")) {
-                // If it's a web URL, use it directly
-                videoUri = videoPath;
-            } else if (videoPath.startsWith("file://")) {
-                // If it's a file URI, convert it to a webview URI
-                videoUri = webview.asWebviewUri(vscode.Uri.parse(videoPath)).toString();
-            } else {
-                // If it's a relative path, join it with the workspace URI
-                const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-                if (workspaceUri) {
-                    // FIXME: if we don't add the video path, then you can use videos from anywhere on your machine
-                    const fullPath = vscode.Uri.joinPath(workspaceUri, videoPath);
-                    videoUri = webview.asWebviewUri(fullPath).toString();
-                }
-            }
-            debug("Processed video URI:", videoUri);
-        }
+        const videoUri = videoPath ? processVideoUrl(videoPath, webview) : null;
 
         const nonce = getNonce();
 
@@ -1353,22 +1538,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     private isSourceText(uri: vscode.Uri | string): boolean {
-        const path = typeof uri === "string" ? uri : uri.path;
-        return path.toLowerCase().endsWith(".source");
+        return isSourceFileFlexible(uri);
     }
 
     private isMatchingFilePair(currentUri: vscode.Uri | string, otherUri: vscode.Uri | string): boolean {
-        const currentPath = typeof currentUri === "string" ? currentUri : currentUri.path;
-        const otherPath = typeof otherUri === "string" ? otherUri : otherUri.path;
-        // Remove extensions before comparing
-        const currentPathWithoutExt = currentPath.toLowerCase().replace(/\.[^/.]+$/, '');
-        const otherPathWithoutExt = otherPath.toLowerCase().replace(/\.[^/.]+$/, '');
-        return currentPathWithoutExt === otherPathWithoutExt;
+        return isMatchingFilePairUtil(currentUri, otherUri);
     }
 
     private isCodexFile(uri: vscode.Uri | string): boolean {
-        const path = typeof uri === "string" ? uri : uri.path;
-        return path.toLowerCase().endsWith(".codex");
+        return isCodexFileFlexible(uri);
     }
 
     private updateTextDirection(
@@ -2047,6 +2225,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             cellLabel: cell.metadata?.cellLabel,
             merged: cell.metadata?.data?.merged,
             deleted: cell.metadata?.data?.deleted,
+            data: cell.metadata?.data,
             attachments: cell.metadata?.attachments,
             metadata: {
                 selectedAudioId: cell.metadata?.selectedAudioId,
@@ -2064,7 +2243,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         return processedData;
     }
 
-    private mergeRangesAndProcess(translationUnits: QuillCellContent[], isCorrectionEditorMode: boolean, isSourceText: boolean) {
+    public mergeRangesAndProcess(translationUnits: QuillCellContent[], isCorrectionEditorMode: boolean, isSourceText: boolean) {
         debug("Merging ranges and processing translation units");
         const isSourceAndCorrectionEditorMode = isSourceText && isCorrectionEditorMode;
         const translationUnitsWithMergedRanges: QuillCellContent[] = [];
@@ -2103,6 +2282,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 timestamps: cell.timestamps,
                 cellLabel: cell.cellLabel,
                 merged: cell.merged,
+                data: cell.data,
                 attachments: cell.attachments,
                 metadata: cell.metadata,
             });
@@ -2124,7 +2304,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     public async refreshWebview(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument) {
         debug("Refreshing webview");
         const notebookData = this.getDocumentAsJson(document);
-        const processedData = this.processNotebookData(notebookData, document);
         const isSourceText = this.isSourceText(document.uri);
         const videoUrl = this.getVideoUrl(notebookData.metadata?.videoUrl, webviewPanel);
 
@@ -2156,13 +2335,94 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const userInfo = await authApi?.getUserInfo();
         const username = userInfo?.username || "anonymous";
 
+        // Build milestone index for paginated loading
+        const milestoneIndex = document.buildMilestoneIndex(this.CELLS_PER_PAGE);
+
+        // Calculate progress for all milestones
+        const milestoneProgress = document.calculateMilestoneProgress(validationCount, validationCountAudio);
+        milestoneIndex.milestoneProgress = milestoneProgress;
+
+        // Check currentMilestoneSubsectionMap first to preserve position after edits
+        const docUri = document.uri.toString();
+        const currentPosition = this.currentMilestoneSubsectionMap.get(docUri);
+        let initialMilestoneIndex = 0;
+        let initialSubsectionIndex = 0;
+
+        if (currentPosition && milestoneIndex.milestones.length > 0) {
+            // Use milestone index from map if it's valid
+            if (currentPosition.milestoneIndex >= 0 && currentPosition.milestoneIndex < milestoneIndex.milestones.length) {
+                initialMilestoneIndex = currentPosition.milestoneIndex;
+                initialSubsectionIndex = currentPosition.subsectionIndex;
+            } else {
+                // Invalid milestone index in map, fall back to cached chapter logic
+                const cachedChapter = this.getCachedChapter(docUri);
+                initialSubsectionIndex = this.getCachedSubsection(docUri);
+
+                if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
+                    // Find milestone that matches the cached chapter number
+                    const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
+                        const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
+                        return chapterNum !== null && chapterNum === cachedChapter;
+                    });
+                    if (milestoneIdx !== -1) {
+                        initialMilestoneIndex = milestoneIdx;
+                    } else {
+                        // Fallback: try using chapter number as index (1-indexed to 0-indexed)
+                        const fallbackIdx = cachedChapter - 1;
+                        if (fallbackIdx >= 0 && fallbackIdx < milestoneIndex.milestones.length) {
+                            initialMilestoneIndex = fallbackIdx;
+                        }
+                    }
+                }
+            }
+        } else {
+            // No entry in map, fall back to cached chapter logic
+            const cachedChapter = this.getCachedChapter(docUri);
+            initialSubsectionIndex = this.getCachedSubsection(docUri);
+
+            // If we have milestones and a cached chapter, try to find the matching milestone
+            if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
+                // Find milestone that matches the cached chapter number
+                const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
+                    const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
+                    return chapterNum !== null && chapterNum === cachedChapter;
+                });
+                if (milestoneIdx !== -1) {
+                    initialMilestoneIndex = milestoneIdx;
+                } else {
+                    // Fallback: try using chapter number as index (1-indexed to 0-indexed)
+                    const fallbackIdx = cachedChapter - 1;
+                    if (fallbackIdx >= 0 && fallbackIdx < milestoneIndex.milestones.length) {
+                        initialMilestoneIndex = fallbackIdx;
+                    }
+                }
+            }
+        }
+
+        // Get first page of cells for the initial milestone
+        const initialCells = document.getCellsForMilestone(initialMilestoneIndex, initialSubsectionIndex, this.CELLS_PER_PAGE);
+        const processedInitialCells = this.mergeRangesAndProcess(initialCells, this.isCorrectionEditorMode, isSourceText);
+
+        // Build source cell map for the initial cells only
+        const initialSourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
+        for (const cell of initialCells) {
+            const cellId = cell.cellMarkers?.[0];
+            if (cellId && document._sourceCellMap[cellId]) {
+                initialSourceCellMap[cellId] = document._sourceCellMap[cellId];
+            }
+        }
+
         // Schedule updates to wait for webview ready signal
         this.scheduleWebviewUpdate(document.uri.toString(), () => {
+            // Send paginated initial content with milestone index
             this.postMessageToWebview(webviewPanel, {
-                type: "providerSendsInitialContent",
-                content: processedData,
+                type: "providerSendsInitialContentPaginated",
+                milestoneIndex: milestoneIndex,
+                cells: processedInitialCells,
+                currentMilestoneIndex: initialMilestoneIndex,
+                currentSubsectionIndex: initialSubsectionIndex,
                 isSourceText: isSourceText,
-                sourceCellMap: document._sourceCellMap,
+                sourceCellMap: initialSourceCellMap,
                 username: username,
                 validationCount: validationCount,
                 validationCountAudio: validationCountAudio,
@@ -2183,7 +2443,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             }
         });
 
-        debug("Webview refresh scheduled");
+        debug("Webview refresh scheduled with paginated content");
 
         // Release in-flight lock after a tick and run any queued refresh once
         setTimeout(() => {
@@ -2203,54 +2463,102 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         videoPath: string | undefined,
         webviewPanel: vscode.WebviewPanel
     ): string | null {
-        debug("Getting video URL for path:", videoPath);
-        if (!videoPath) return null;
-
-        try {
-            if (videoPath.startsWith("http://") || videoPath.startsWith("https://")) {
-                return videoPath;
-            } else if (videoPath.startsWith("file://")) {
-                return webviewPanel.webview.asWebviewUri(vscode.Uri.parse(videoPath)).toString();
-            } else {
-                const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-                if (workspaceUri) {
-                    const fullPath = vscode.Uri.joinPath(workspaceUri, videoPath);
-                    return webviewPanel.webview.asWebviewUri(fullPath).toString();
-                }
-            }
-        } catch (err) {
-            console.error("Error processing video URL:", err);
-        }
-        debug("No valid video URL found");
-        return null;
+        return processVideoUrl(videoPath, webviewPanel.webview);
     }
 
-    public updateCellIdState(cellId: string, uri: string) {
+    public updateCellIdState(cellId: string, uri: string, document?: CodexCellDocument) {
         debug("Updating cell ID state:", { cellId, uri, stateStore: this.stateStore });
+
+        // Get document if not provided
+        const doc = document || this.documents.get(uri);
+        let globalReferences: string[] = [];
+
+        if (doc) {
+            // Extract globalReferences for all cell types, not just Bible types
+            const cell = doc.getCellContent(cellId);
+            globalReferences = cell?.data?.globalReferences || [];
+        }
 
         // Handle both setting and clearing highlights
         if (uri) {
             const valueIsCodexFile = this.isCodexFile(uri);
-            if (valueIsCodexFile) {
-                // Send highlight/clear messages to source files when a codex file is active
+            if (valueIsCodexFile && doc) {
+                // Get the configuration for cellsPerPage
+                const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                const cellsPerPage = config.get("cellsPerPage", 50);
+
+                // Get the corresponding source URI
+                const codexUri = vscode.Uri.parse(uri);
+                const sourceUri = getCorrespondingSourceUri(codexUri);
+
+                // Send highlight/clear messages and milestone jump to source files when a codex file is active
                 for (const [panelUri, panel] of this.webviewPanels.entries()) {
                     const isSourceFile = this.isSourceText(panelUri);
                     // copy this to update target with merged cells
                     if (isSourceFile) {
-                        if (cellId) {
-                            // Set highlight
-                            debug("Sending highlight message to source file:", panelUri, "cellId:", cellId);
-                            safePostMessageToPanel(panel, {
-                                type: "highlightCell",
-                                cellId: cellId,
-                            });
-                        } else {
-                            // Clear highlight
-                            debug("Clearing highlight in source file:", panelUri);
-                            safePostMessageToPanel(panel, {
-                                type: "highlightCell",
-                                cellId: null,
-                            });
+                        // Check if this is the matching source file
+                        const isMatchingSource = sourceUri && panelUri === sourceUri.toString();
+
+                        // Always use cellId for highlighting
+                        debug("Sending highlight message to source file:", panelUri, "cellId:", cellId);
+                        safePostMessageToPanel(panel, {
+                            type: "highlightCell",
+                            globalReferences: [],
+                            cellId: cellId,
+                        });
+
+                        // If this is the matching source file, find the target position and jump to it
+                        if (isMatchingSource && sourceUri) {
+                            // Get the source document to find the matching cell and fetch cells
+                            const sourceDoc = this.documents.get(sourceUri.toString());
+                            if (sourceDoc) {
+                                // Determine the target position in the source file by finding the matching cell
+                                // Always use cellId for navigation
+                                const targetPosition = sourceDoc.findMilestoneAndSubsectionForCell(cellId, cellsPerPage);
+
+                                if (targetPosition) {
+                                    const { milestoneIndex: targetMilestoneIndex, subsectionIndex: targetSubsectionIndex } = targetPosition;
+                                    debug("Jumping source file to milestone:", panelUri, "milestoneIndex:", targetMilestoneIndex, "subsectionIndex:", targetSubsectionIndex);
+
+                                    // Get cells for the milestone/subsection from the source document
+                                    const cells = sourceDoc.getCellsForMilestone(targetMilestoneIndex, targetSubsectionIndex, cellsPerPage);
+
+                                    // Process cells (merge ranges, etc.)
+                                    const processedCells = this.mergeRangesAndProcess(
+                                        cells,
+                                        this.isCorrectionEditorMode,
+                                        true // isSourceText
+                                    );
+
+                                    // Build source cell map for these cells
+                                    const sourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
+                                    for (const cell of cells) {
+                                        const cellId = cell.cellMarkers?.[0];
+                                        if (cellId && sourceDoc._sourceCellMap[cellId]) {
+                                            sourceCellMap[cellId] = sourceDoc._sourceCellMap[cellId];
+                                        }
+                                    }
+
+                                    // Store the current milestone/subsection for the source document
+                                    this.currentMilestoneSubsectionMap.set(sourceUri.toString(), {
+                                        milestoneIndex: targetMilestoneIndex,
+                                        subsectionIndex: targetSubsectionIndex,
+                                    });
+
+                                    // Send the cell page to the source webview
+                                    safePostMessageToPanel(panel, {
+                                        type: "providerSendsCellPage",
+                                        milestoneIndex: targetMilestoneIndex,
+                                        subsectionIndex: targetSubsectionIndex,
+                                        cells: processedCells,
+                                        sourceCellMap,
+                                    });
+                                } else {
+                                    debug("Could not find matching cell in source file by cellId:", cellId);
+                                }
+                            } else {
+                                debug("Source document not loaded, cannot jump to milestone");
+                            }
                         }
                     }
                 }
@@ -2265,6 +2573,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             key: "cellId",
             value: {
                 cellId,
+                globalReferences,
                 uri,
                 timestamp: new Date().toISOString(),
             },
@@ -2589,6 +2898,66 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         this.refreshValidationStateForAllDocuments();
     }
 
+    /**
+     * Updates milestone progress for all open documents and sends updates to webviews
+     */
+    private updateMilestoneProgressForAllDocuments() {
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        const validationCount = config.get("validationCount", 1);
+        const validationCountAudio = config.get("validationCountAudio", 1);
+
+        debug("Updating milestone progress for all documents");
+
+        // Update progress for each open document
+        this.webviewPanels.forEach((panel, docUri) => {
+            const document = this.documents.get(docUri);
+            if (document) {
+                try {
+                    const milestoneProgress = document.calculateMilestoneProgress(
+                        validationCount,
+                        validationCountAudio
+                    );
+
+                    // Send progress update to webview
+                    this.postMessageToWebview(panel, {
+                        type: "milestoneProgressUpdate",
+                        milestoneProgress,
+                    });
+                } catch (error) {
+                    debug(`Error updating milestone progress for ${docUri}:`, error);
+                }
+            }
+        });
+    }
+
+    /**
+     * Updates milestone progress for a specific document
+     */
+    private updateMilestoneProgressForDocument(document: CodexCellDocument) {
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        const validationCount = config.get("validationCount", 1);
+        const validationCountAudio = config.get("validationCountAudio", 1);
+
+        const docUri = document.uri.toString();
+        const panel = this.webviewPanels.get(docUri);
+        if (panel) {
+            try {
+                const milestoneProgress = document.calculateMilestoneProgress(
+                    validationCount,
+                    validationCountAudio
+                );
+
+                // Send progress update to webview
+                this.postMessageToWebview(panel, {
+                    type: "milestoneProgressUpdate",
+                    milestoneProgress,
+                });
+            } catch (error) {
+                debug(`Error updating milestone progress for ${docUri}:`, error);
+            }
+        }
+    }
+
     // Marks a cell as complete in our internal state tracking
     public markCellComplete(cellId: string) {
         debug(`Marking cell ${cellId} as complete`);
@@ -2693,6 +3062,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         // Remove the processed request from the queue and resolve
                         this.translationQueue.shift();
                         request.resolve(true);
+
+                        // Update milestone progress after audio validation
+                        this.updateMilestoneProgressForDocument(request.document);
                     } catch (error) {
                         debug(`Error processing audio validation for cell ${request.cellId}:`, error);
 
@@ -2758,6 +3130,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         // Remove the processed request from the queue and resolve
                         this.translationQueue.shift();
                         request.resolve(true);
+
+                        // Update milestone progress after validation
+                        this.updateMilestoneProgressForDocument(request.document);
                     } catch (error) {
                         debug(`Error processing validation for cell ${request.cellId}:`, error);
 
@@ -3646,21 +4021,30 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 }
             }
 
-            // Get all cell IDs from the target document
-            const allTargetCellIds = targetDocument.getAllCellIds();
+            // Get all cells from the target document to check metadata
+            const allTargetCells = (targetDocument as any)._documentData?.cells || [];
             const childCellIds: string[] = [];
 
-            // Check each cell ID to see if it's a child of any parent cell
-            for (const cellId of allTargetCellIds) {
-                const cellIdParts = cellId.split(":");
+            // Check each cell to see if it's a child of any parent cell
+            for (const cell of allTargetCells) {
+                const cellId = cell.metadata?.id;
+                if (!cellId) continue;
 
-                // Child cells have more than 2 segments
+                // Check if this cell has a parentId in metadata (new UUID format)
+                const parentId = cell.metadata?.parentId;
+                if (parentId && parentCellIds.includes(parentId)) {
+                    childCellIds.push(cellId);
+                    continue;
+                }
+
+                // MILESTONES: This is a legacy fallback for cell IDs that don't have parentId.
+                // Legacy: Fallback to parsing ID format for backward compatibility during migration
+                // This handles cells that haven't been migrated yet
+                const cellIdParts = cellId.split(":");
                 if (cellIdParts.length > 2) {
                     // Get the parent ID (first 2 segments)
-                    const parentId = cellIdParts.slice(0, 2).join(":");
-
-                    // Check if this parent ID is in our list of cells being merged
-                    if (parentCellIds.includes(parentId)) {
+                    const legacyParentId = cellIdParts.slice(0, 2).join(":");
+                    if (parentCellIds.includes(legacyParentId)) {
                         childCellIds.push(cellId);
                     }
                 }
@@ -3677,78 +4061,96 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     /**
+     * Helper function to check availability of a single audio attachment.
+     * Returns the availability state based on the attachment's properties and file system.
+     */
+    private async checkAttachmentAvailability(
+        attachment: any,
+        workspaceFolder: vscode.WorkspaceFolder
+    ): Promise<"available-local" | "available-pointer" | "missing" | "deletedOnly"> {
+        if (attachment.isDeleted) {
+            return "deletedOnly";
+        }
+        if (attachment.isMissing) {
+            return "missing";
+        }
+
+        const url = String(attachment.url || "");
+        if (!url) {
+            return "missing";
+        }
+
+        try {
+            const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+            const abs = path.join(workspaceFolder.uri.fsPath, filesRel);
+            const { isPointerFile } = await import("../../utils/lfsHelpers");
+            const isPtr = await isPointerFile(abs).catch(() => false);
+            return isPtr ? "available-pointer" : "available-local";
+        } catch {
+            // If file doesn't exist, check for pointer file
+            try {
+                const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+                const filesAbs = path.join(workspaceFolder.uri.fsPath, filesRel);
+                const pointerAbs = filesAbs.includes("/.project/attachments/files/")
+                    ? filesAbs.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
+                    : filesAbs.replace(".project/attachments/files/", ".project/attachments/pointers/");
+                await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
+                return "available-pointer";
+            } catch {
+                return "missing";
+            }
+        }
+    }
+
+    /**
      * Refreshes audio attachments for all open webviews after sync operations.
      * This ensures that audio availability is updated even if file watchers didn't trigger during sync.
+     * Uses getCurrentAttachment() to respect selectedAudioId metadata.
      */
     public async refreshAudioAttachmentsAfterSync(): Promise<void> {
         debug("Refreshing audio attachments after sync for all webviews");
 
         for (const [documentUri, webviewPanel] of this.webviewPanels.entries()) {
             try {
-                // Get the document from the workspace
-                const uri = vscode.Uri.parse(documentUri);
-                const document = await vscode.workspace.openTextDocument(uri) as any;
+                // Get the CodexCellDocument instance from our documents map
+                const document = this.documents.get(documentUri);
                 if (!document || !webviewPanel) continue;
 
-                // Get all cells with audio attachments
-                const documentText = document.getText();
-                if (documentText.trim().length === 0) continue;
+                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (!ws) continue;
 
-                let notebookData: any = {};
-                try {
-                    notebookData = JSON.parse(documentText);
-                } catch {
-                    debug("Could not parse document for audio refresh:", documentUri);
-                    continue;
-                }
-
-                const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
                 const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
 
-                // Check audio availability for all cells
-                for (const cell of cells) {
-                    const cellId = cell?.metadata?.id;
-                    if (!cellId) continue;
+                // Check audio availability for all cells using getCurrentAttachment()
+                const cellIds = document.getAllCellIds();
+                for (const cellId of cellIds) {
+                    // Get the current attachment (respects selectedAudioId)
+                    const currentAttachment = document.getCurrentAttachment(cellId, "audio");
 
-                    let hasAvailable = false; let hasAvailablePointer = false;
-                    let hasMissing = false;
-                    let hasDeleted = false;
-                    const atts = cell?.metadata?.attachments || {};
+                    if (!currentAttachment) {
+                        availability[cellId] = "none";
+                        continue;
+                    }
 
-                    for (const key of Object.keys(atts)) {
-                        const att: any = atts[key];
-                        if (att && att.type === "audio") {
-                            if (att.isDeleted) hasDeleted = true;
-                            else if (att.isMissing) hasMissing = true;
-                            else {
-                                try {
-                                    const ws = vscode.workspace.getWorkspaceFolder(document.uri);
-                                    const url = String(att.url || "");
-                                    if (ws && url) {
-                                        const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
-                                        const abs = path.join(ws.uri.fsPath, filesRel);
-                                        const { isPointerFile } = await import("../../utils/lfsHelpers");
-                                        const res = await isPointerFile(abs).catch(() => false);
-                                        if (res) hasAvailablePointer = true; else hasAvailable = true;
-                                    } else {
-                                        hasAvailable = true;
-                                    }
-                                } catch {
-                                    hasAvailable = true;
+                    // Check availability only for the current attachment
+                    let state = await this.checkAttachmentAvailability(currentAttachment.attachment, ws);
+
+                    // Apply version gate if needed
+                    if (state !== "available-local") {
+                        try {
+                            const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
+                            const status = await getFrontierVersionStatus();
+                            if (!status.ok) {
+                                if (state !== "missing" && state !== "deletedOnly") {
+                                    state = "available-pointer";
                                 }
                             }
+                        } catch {
+                            // On failure to check, leave state unchanged
                         }
                     }
 
-                    availability[cellId] = hasAvailable
-                        ? "available-local"
-                        : hasAvailablePointer
-                            ? "available-pointer"
-                            : hasMissing
-                                ? "missing"
-                                : hasDeleted
-                                    ? "deletedOnly"
-                                    : "none";
+                    availability[cellId] = state;
                 }
 
                 // Send updated audio attachments to webview
@@ -3767,6 +4169,157 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
 
         debug("Completed audio attachment refresh after sync");
+    }
+
+    /**
+     * Refresh webviews for specific files by sending refreshCurrentPage messages.
+     * This is used after sync to ensure webviews show newly added cells.
+     * Forces open, non-dirty documents to reload from disk before refreshing to ensure latest data.
+     * @param filePaths Array of file paths (workspace-relative or absolute) to refresh
+     */
+    public async refreshWebviewsForFiles(filePaths: string[]): Promise<void> {
+        if (!filePaths || filePaths.length === 0) {
+            return;
+        }
+
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            // We can still refresh absolute file paths without a workspace folder.
+            // Workspace-relative paths will be skipped below.
+            debug("No workspace folder found; will only refresh absolute file paths");
+        }
+
+        // Filter to only .codex files
+        const codexFiles = filePaths.filter(path => path.endsWith('.codex'));
+        if (codexFiles.length === 0) {
+            debug("No .codex files to refresh");
+            return;
+        }
+
+        debug(`Refreshing webviews for ${codexFiles.length} codex file(s)`);
+
+        // Build sets for both URI strings and normalized file paths for flexible matching
+        const fileUriStrings = new Set<string>();
+        const normalizedFilePaths = new Set<string>();
+        const normalizeFsPath = (fsPath: string) =>
+            path.normalize(fsPath).replace(/\\/g, "/").toLowerCase();
+
+        for (const filePath of codexFiles) {
+            try {
+                let uri: vscode.Uri;
+                if (path.isAbsolute(filePath)) {
+                    uri = vscode.Uri.file(filePath);
+                } else {
+                    if (!workspaceFolder) {
+                        debug(
+                            `Skipping workspace-relative path (no workspace folder): ${filePath}`
+                        );
+                        continue;
+                    }
+                    // Workspace-relative path
+                    uri = vscode.Uri.joinPath(workspaceFolder.uri, filePath);
+                }
+
+                // Add both URI string and normalized fsPath for comparison
+                fileUriStrings.add(uri.toString());
+                normalizedFilePaths.add(normalizeFsPath(uri.fsPath));
+
+                // Also include realpath() to handle macOS /var <-> /private/var and other symlinked paths.
+                // Best-effort: if it fails (file missing, permissions), fall back to the original path only.
+                try {
+                    const real = await fs.promises.realpath(uri.fsPath);
+                    normalizedFilePaths.add(normalizeFsPath(real));
+                } catch {
+                    // ignore
+                }
+            } catch (error) {
+                console.warn(`Failed to convert file path: ${filePath}`, error);
+            }
+        }
+
+        // Find matching webview panels and send refresh messages
+        let refreshedCount = 0;
+        for (const [docUri, panel] of this.webviewPanels.entries()) {
+            try {
+                // Try URI string comparison first (fastest)
+                if (fileUriStrings.has(docUri)) {
+                    // Ensure we reload the underlying document model from disk so the webview refresh uses fresh data.
+                    // Important: never revert dirty documents (would discard unsaved edits).
+                    const document = this.documents.get(docUri);
+                    if (document) {
+                        if (!document.isDirty) {
+                            try {
+                                debug(`Reverting document from disk before refresh: ${docUri}`);
+                                await document.revert();
+                                try {
+                                    const stat = await vscode.workspace.fs.stat(document.uri);
+                                    this.documentLoadTimes.set(docUri, stat.mtime);
+                                } catch {
+                                    this.documentLoadTimes.set(docUri, Date.now());
+                                }
+                            } catch (error) {
+                                console.warn(`Failed to revert document before refresh: ${docUri}`, error);
+                            }
+                        } else {
+                            debug(`Skipping revert before refresh (document is dirty): ${docUri}`);
+                        }
+                    } else {
+                        debug(`No cached document found for panel; sending refresh without revert: ${docUri}`);
+                    }
+
+                    debug(`Sending refreshCurrentPage to webview for ${docUri} (URI match)`);
+                    safePostMessageToPanel(panel, {
+                        type: "refreshCurrentPage",
+                    });
+                    refreshedCount++;
+                    continue;
+                }
+
+                // Fall back to normalized file path comparison
+                const docUriParsed = vscode.Uri.parse(docUri);
+                const docPathNormalized = normalizeFsPath(docUriParsed.fsPath);
+
+                if (normalizedFilePaths.has(docPathNormalized)) {
+                    // Ensure we reload the underlying document model from disk so the webview refresh uses fresh data.
+                    // Important: never revert dirty documents (would discard unsaved edits).
+                    const document = this.documents.get(docUri);
+                    if (document) {
+                        if (!document.isDirty) {
+                            try {
+                                debug(`Reverting document from disk before refresh: ${docUri}`);
+                                await document.revert();
+                                try {
+                                    const stat = await vscode.workspace.fs.stat(document.uri);
+                                    this.documentLoadTimes.set(docUri, stat.mtime);
+                                } catch {
+                                    this.documentLoadTimes.set(docUri, Date.now());
+                                }
+                            } catch (error) {
+                                console.warn(`Failed to revert document before refresh: ${docUri}`, error);
+                            }
+                        } else {
+                            debug(`Skipping revert before refresh (document is dirty): ${docUri}`);
+                        }
+                    } else {
+                        debug(`No cached document found for panel; sending refresh without revert: ${docUri}`);
+                    }
+
+                    debug(`Sending refreshCurrentPage to webview for ${docUri} (path match)`);
+                    safePostMessageToPanel(panel, {
+                        type: "refreshCurrentPage",
+                    });
+                    refreshedCount++;
+                }
+            } catch (error) {
+                console.warn(`Failed to parse docUri for comparison: ${docUri}`, error);
+            }
+        }
+
+        if (refreshedCount > 0) {
+            debug(`Refreshed ${refreshedCount} webview(s) for synced files`);
+        } else {
+            debug("No open webviews found for synced files");
+        }
     }
 
     public async updateCellContentDirect(

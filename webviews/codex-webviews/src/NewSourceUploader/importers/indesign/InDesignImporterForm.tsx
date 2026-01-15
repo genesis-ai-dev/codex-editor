@@ -22,8 +22,9 @@ import {
 } from 'lucide-react';
 import { IDMLParser } from './idmlParser';
 import { HTMLMapper } from './htmlMapper';
-import { createProcessedCell, sanitizeFileName, createStandardCellId } from '../../utils/workflowHelpers';
+import { createProcessedCell, sanitizeFileName, addMilestoneCellsToNotebookPair } from '../../utils/workflowHelpers';
 import { extractImagesFromHtml } from '../../utils/imageProcessor';
+import { createIndesignVerseCellMetadata, createIndesignParagraphCellMetadata } from './cellMetadata';
 
 /**
  * Escape HTML characters
@@ -221,10 +222,19 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
                             metadata: {
                                 id: `indesign-source-${Date.now()}`,
                                 originalFileName: selectedFile.name,
+                                sourceFile: selectedFile.name,
                                 // Pass the original file bytes so the provider can persist it under .project/attachments/originals
                                 originalFileData: arrayBuffer,
                                 importerType: 'indesign',
                                 createdAt: new Date().toISOString(),
+                                importContext: {
+                                    importerType: 'indesign',
+                                    fileName: selectedFile.name,
+                                    originalFileName: selectedFile.name,
+                                    originalHash: document.originalHash,
+                                    documentId: document.id,
+                                    importTimestamp: new Date().toISOString(),
+                                },
                                 documentId: document.id,
                                 storyCount: document.stories.length,
                                 originalHash: document.originalHash,
@@ -245,8 +255,17 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
                             metadata: {
                                 id: `indesign-codex-${Date.now()}`,
                                 originalFileName: selectedFile.name,
+                                sourceFile: selectedFile.name,
                                 importerType: 'indesign',
                                 createdAt: new Date().toISOString(),
+                                importContext: {
+                                    importerType: 'indesign',
+                                    fileName: selectedFile.name,
+                                    originalFileName: selectedFile.name,
+                                    originalHash: document.originalHash,
+                                    documentId: document.id,
+                                    importTimestamp: new Date().toISOString(),
+                                },
                                 documentId: document.id,
                                 storyCount: document.stories.length,
                                 originalHash: document.originalHash,
@@ -265,8 +284,11 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
                     addDebugLog(`Source cells count: ${result.source.cells.length}`);
                     addDebugLog(`Codex cells count: ${result.codex.cells.length}`);
                     
+                    // Add milestone cells to the notebook pair
+                    const resultWithMilestones = addMilestoneCellsToNotebookPair(result);
+                    
                     // Store the result and show complete button instead of immediately calling onComplete
-                    setImportResult(result);
+                    setImportResult(resultWithMilestones);
                     setShowCompleteButton(true);
                     addDebugLog('Import result stored. Click "Complete Import" to finish.');
                 } catch (onCompleteError) {
@@ -341,39 +363,21 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
                         const middleRanges = ranges.slice(1, ranges.length - 1);
                         const middleText = middleRanges.map((r: any) => r.content || '').join(' ').replace(/[\s\u00A0]+/g, ' ').trim();
                         if (middleText) {
-                            const verseId = `${bookCode} ${/* chapter unknown => best-effort */ '1'}:${verseNum}`;
-                            const cellId = verseId;
+                            // Create cell metadata (generates UUID internally)
+                            const { cellId, metadata: cellMetadata } = createIndesignVerseCellMetadata({
+                                bookCode,
+                                chapter: '1', // chapter unknown => best-effort
+                                verseNumber: verseNum,
+                                originalContent: middleText,
+                                storyId: story.id || '',
+                                paragraphId: paragraph.id || '',
+                                appliedParagraphStyle: paragraphStyle,
+                                paragraph,
+                                fileName: selectedFile?.name || 'unknown',
+                                originalHash: htmlRepresentation.originalHash,
+                            });
                             const inlineHTML = buildInlineHTMLFromRanges(middleRanges);
                             const htmlContent = `<p class="indesign-paragraph" data-paragraph-style="${paragraphStyle}" data-story-id="${story.id}">${inlineHTML}</p>`;
-                            const cellMetadata = {
-                                cellLabel: verseNum,
-                                isBibleVerse: true,
-                                verseId,
-                                storyId: story.id,
-                                storyName: story.name,
-                                paragraphId: paragraph.id,
-                                appliedParagraphStyle: paragraphStyle,
-                                data: {
-                                    originalContent: middleText,
-                                    verseNumber: verseNum,
-                                    sourceFile: selectedFile?.name || 'unknown',
-                                    idmlStructure: {
-                                        storyId: story.id,
-                                        storyName: story.name,
-                                        paragraphId: paragraph.id,
-                                        paragraphStyleRange: paragraph.paragraphStyleRange,
-                                        characterStyleRanges: paragraph.characterStyleRanges,
-                                    },
-                                    documentContext: {
-                                        documentId: document.id,
-                                        documentVersion: document.version,
-                                        originalHash: htmlRepresentation.originalHash,
-                                        importerType: 'indesign',
-                                        fileName: selectedFile?.name || 'unknown',
-                                        importTimestamp: new Date().toISOString(),
-                                    }
-                                }
-                            } as any;
                             const cell = createProcessedCell(cellId, htmlContent, cellMetadata);
                             const images = await extractImagesFromHtml(htmlContent);
                             cell.images = images;
@@ -385,47 +389,22 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
                 }
 
                 // Default: one cell per paragraph (non-verse or unmatched structure)
-                const cellId = `indesign 1:${globalCellIndex + 1}`;
+                // Create cell metadata (generates UUID internally)
+                const { cellId, metadata: cellMetadata } = createIndesignParagraphCellMetadata({
+                    cellLabel: (globalCellIndex + 1).toString(),
+                    originalContent: cleanText,
+                    storyId: story.id || '',
+                    paragraphId: paragraph.id || '',
+                    appliedParagraphStyle: paragraphStyle,
+                    paragraph,
+                    stories,
+                    paragraphIndex: i,
+                    fileName: selectedFile?.name || 'unknown',
+                    originalHash: htmlRepresentation.originalHash,
+                });
                 // Prefer spans from character style ranges; fallback to plain text if none
                 const inlineHTML = ranges.length > 0 ? buildInlineHTMLFromRanges(ranges) : escapeHtml(cleanText);
                 const htmlContent = `<p class="indesign-paragraph" data-paragraph-style="${paragraphStyle}" data-story-id="${story.id}">${inlineHTML}</p>`;
-                const cellMetadata = {
-                    cellLabel: (globalCellIndex + 1).toString(),
-                    storyId: story.id,
-                    storyName: story.name,
-                    paragraphId: paragraph.id,
-                    appliedParagraphStyle: paragraphStyle,
-                    data: {
-                        originalContent: cleanText,
-                        sourceFile: selectedFile?.name || 'unknown',
-                        idmlStructure: {
-                            storyId: story.id,
-                            storyName: story.name,
-                            paragraphId: paragraph.id,
-                            paragraphStyleRange: paragraph.paragraphStyleRange,
-                            characterStyleRanges: paragraph.characterStyleRanges,
-                        },
-                        layoutData: {
-                            storyMetadata: story.metadata,
-                            paragraphMetadata: paragraph.metadata,
-                        },
-                        relationships: {
-                            parentStory: story.id,
-                            parentStoryName: story.name,
-                            storyOrder: stories.indexOf(story),
-                            paragraphOrder: i,
-                            totalParagraphsInStory: story.paragraphs.length,
-                        },
-                        documentContext: {
-                            documentId: document.id,
-                            documentVersion: document.version,
-                            originalHash: htmlRepresentation.originalHash,
-                            importerType: 'indesign',
-                            fileName: selectedFile?.name || 'unknown',
-                            importTimestamp: new Date().toISOString(),
-                        }
-                    }
-                };
                 const cell = createProcessedCell(cellId, htmlContent, cellMetadata);
                 const images = await extractImagesFromHtml(htmlContent);
                 cell.images = images;

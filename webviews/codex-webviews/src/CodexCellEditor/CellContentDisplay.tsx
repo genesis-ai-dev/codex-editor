@@ -41,7 +41,8 @@ interface CellContentDisplayProps {
     isSourceText: boolean;
     hasDuplicateId: boolean;
     alertColorCode: number | undefined;
-    highlightedCellId?: string | null;
+    highlightedGlobalReferences?: string[];
+    highlightedCellId?: string | null; // Optional cellId for fallback matching when globalReferences is empty
     scrollSyncEnabled: boolean;
     lineNumber: string;
     label?: string;
@@ -107,20 +108,24 @@ const AudioPlayButton: React.FC<{
 
         // Do not pre-load on mount; we will request on first click to avoid spinner churn
 
-        // Listen for audio data messages
-        useMessageHandler(
-            "cellContentDisplay-audioData",
-            (event: MessageEvent) => {
-                const message = event.data;
+    // Listen for audio data messages
+    useMessageHandler(
+        "cellContentDisplay-audioData",
+        async (event: MessageEvent) => {
+            const message = event.data;
 
-                // Handle audio attachments updates - clear current url; fetch on next click
-                if (message.type === "providerSendsAudioAttachments") {
-                    if (audioUrl && audioUrl.startsWith("blob:")) {
-                        URL.revokeObjectURL(audioUrl);
-                    }
-                    setAudioUrl(null);
-                    setIsLoading(false);
+            // Handle audio attachments updates - clear current url and cache; fetch on next click
+            if (message.type === "providerSendsAudioAttachments") {
+                // Clear cached audio data since selected audio might have changed
+                const { clearCachedAudio } = await import("../lib/audioCache");
+                clearCachedAudio(cellId);
+
+                if (audioUrl && audioUrl.startsWith("blob:")) {
+                    URL.revokeObjectURL(audioUrl);
                 }
+                setAudioUrl(null);
+                setIsLoading(false);
+            }
 
                 if (
                     message.type === "providerSendsAudioData" &&
@@ -441,6 +446,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         isSourceText,
         hasDuplicateId,
         alertColorCode,
+        highlightedGlobalReferences,
         highlightedCellId,
         scrollSyncEnabled,
         lineNumber,
@@ -537,31 +543,28 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         // Note: comments counts are provided by parent (`CellList`) to avoid per-cell fetches
 
         // Helper function to check if this cell should be highlighted
-        // Handles parent/child cell matching: child cells in target should highlight parent cells in source
+        // Prioritizes cellId matching, with fallback to globalReferences
         const checkShouldHighlight = useCallback((): boolean => {
-            return cellIds.some((cellId) => {
-                if (!highlightedCellId || !cellId) return false;
+            // Prioritize cellId matching
+            if (highlightedCellId && cellIds && cellIds.length > 0) {
+                // Check if the highlighted cellId matches any of this cell's markers
+                return cellIds.includes(highlightedCellId);
+            }
 
-                // Exact match
-                if (highlightedCellId === cellId) return true;
+            // Fallback to globalReferences matching
+            if (highlightedGlobalReferences && highlightedGlobalReferences.length > 0) {
+                // Get globalReferences from this cell
+                const cellGlobalRefs = cell.data?.globalReferences || [];
+                // Check if any highlighted reference matches this cell's references
+                return highlightedGlobalReferences.some((ref) => cellGlobalRefs.includes(ref));
+            }
 
-                // If highlighted cell is a child (3+ parts), check if this is the parent
-                const highlightedParts = highlightedCellId.split(":");
-                const cellParts = cellId.split(":");
-
-                if (highlightedParts.length >= 3 && cellParts.length === 2) {
-                    // Compare parent portion: "BOOK CHAPTER:VERSE"
-                    const highlightedParent = highlightedParts.slice(0, 2).join(":");
-                    return highlightedParent === cellId;
-                }
-
-                return false;
-            });
-        }, [cellIds, highlightedCellId]);
+            return false;
+        }, [cell, highlightedGlobalReferences, highlightedCellId, cellIds]);
 
         useEffect(() => {
-            debug("Before Scrolling to content highlightedCellId", {
-                highlightedCellId,
+            debug("Before Scrolling to content highlightedGlobalReferences", {
+                highlightedGlobalReferences,
                 cellIds,
                 isSourceText,
                 scrollSyncEnabled,
@@ -570,14 +573,20 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             const shouldHighlight = checkShouldHighlight();
 
             if (shouldHighlight && cellRef.current && isSourceText && scrollSyncEnabled) {
-                debug("Scrolling to content highlightedCellId", {
-                    highlightedCellId,
+                debug("Scrolling to content highlightedGlobalReferences", {
+                    highlightedGlobalReferences,
                     cellIds,
                     isSourceText,
                 });
                 cellRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
             }
-        }, [cellIds, checkShouldHighlight, highlightedCellId, isSourceText, scrollSyncEnabled]);
+        }, [
+            cellIds,
+            checkShouldHighlight,
+            highlightedGlobalReferences,
+            isSourceText,
+            scrollSyncEnabled,
+        ]);
 
         // Handler for stopping translation when clicked on the spinner
         const handleStopTranslation = (e: React.MouseEvent) => {

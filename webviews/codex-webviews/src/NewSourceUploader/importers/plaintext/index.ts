@@ -10,6 +10,7 @@ import {
     createProcessedCell,
     validateFileExtension,
     splitContentIntoSegments,
+    addMilestoneCellsToNotebookPair,
 } from '../../utils/workflowHelpers';
 
 const SUPPORTED_EXTENSIONS = ['txt'];
@@ -151,8 +152,16 @@ export const parseFile = async (file: File, onProgress?: ProgressCallback, optio
             metadata: {
                 id: `plaintext-source-${Date.now()}`,
                 originalFileName: file.name,
+                sourceFile: file.name,
                 importerType: 'plaintext',
                 createdAt: new Date().toISOString(),
+                importContext: {
+                    importerType: 'plaintext',
+                    fileName: file.name,
+                    originalFileName: file.name,
+                    fileSize: file.size,
+                    importTimestamp: new Date().toISOString(),
+                },
                 splitStrategy,
                 totalSegments: segments.length,
                 originalLength: content.length,
@@ -186,11 +195,14 @@ export const parseFile = async (file: File, onProgress?: ProgressCallback, optio
             codex: codexNotebook,
         };
 
+        // Add milestone cells to the notebook pair
+        const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
+
         onProgress?.(createProgress('Complete', 'Text processing complete', 100));
 
         return {
             success: true,
-            notebookPair,
+            notebookPair: notebookPairWithMilestones,
             metadata: {
                 segmentCount: cells.length,
                 splitStrategy,

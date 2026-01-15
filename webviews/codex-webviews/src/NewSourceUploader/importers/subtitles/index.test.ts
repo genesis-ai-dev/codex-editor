@@ -31,12 +31,13 @@ describe('subtitlesImporter.parseFile', () => {
         const result = await subtitlesImporter.parseFile(file as unknown as File);
         expect(result.success).toBe(true);
         const pair = result.notebookPair!;
-        const first = pair.source.cells[0];
-        expect(first.metadata?.type).toBe('text');
-        expect(first.metadata?.data?.startTime).toBeTypeOf('number');
-        expect(first.metadata?.data?.endTime).toBeTypeOf('number');
-        expect(first.metadata?.data?.format).toBe('VTT');
-        expect(typeof first.metadata?.data?.originalText).toBe('string');
+        // First cell is a milestone cell, second cell is the first subtitle cell
+        const firstSubtitleCell = pair.source.cells[1];
+        expect(firstSubtitleCell.metadata?.type).toBe('text');
+        expect(firstSubtitleCell.metadata?.data?.startTime).toBeTypeOf('number');
+        expect(firstSubtitleCell.metadata?.data?.endTime).toBeTypeOf('number');
+        expect(firstSubtitleCell.metadata?.data?.format).toBe('VTT');
+        expect(typeof firstSubtitleCell.metadata?.data?.originalText).toBe('string');
     });
 });
 

@@ -158,7 +158,8 @@ interface SmartEdit {
 }
 
 interface CellIdGlobalState {
-    cellId: string;
+    cellId: string; // UUID for internal cell reference
+    globalReferences: string[]; // Array of Bible references (e.g., ["GEN 1:1", "GEN 1:2"]) - primary mechanism for highlighting
     uri: string;
     timestamp?: string;
 }
@@ -178,7 +179,7 @@ type VerseRefGlobalState = {
 };
 type CommentPostMessages =
     | { command: "commentsFromWorkspace"; content: string; isLiveUpdate?: boolean; }
-    | { command: "reload"; data?: { cellId: string; uri?: string; }; }
+    | { command: "reload"; data?: { cellId: string; globalReferences: string[]; uri?: string; }; }
     | { command: "updateCommentThread"; commentThread: NotebookCommentThread; }
     | { command: "deleteCommentThread"; commentThreadId: string; }
     | { command: "deleteComment"; args: { commentId: string; commentThreadId: string; }; }
@@ -525,6 +526,7 @@ interface EditHistoryEntry {
 
 export type EditorPostMessages =
     | { command: "updateCachedChapter"; content: number; }
+    | { command: "updateCachedSubsection"; content: number; }
     | { command: "webviewReady"; }
     | { command: "getContent"; }
     | { command: "getPreferredEditorTab"; }
@@ -585,7 +587,7 @@ export type EditorPostMessages =
             data: CustomNotebookCellData["metadata"]["data"];
         };
     }
-    | { command: "saveHtml"; content: EditorCellContent; }
+    | { command: "saveHtml"; requestId?: string; content: EditorCellContent; }
     | { command: "saveTimeBlocks"; content: TimeBlock[]; }
     | { command: "replaceDuplicateCells"; content: QuillCellContent; }
     | { command: "getContent"; }
@@ -664,6 +666,7 @@ export type EditorPostMessages =
     | { command: "openCommentsForCell"; content: { cellId: string; }; }
     | {
         command: "saveAudioAttachment";
+        requestId?: string;
         content: {
             cellId: string;
             audioData: string; // base64 encoded audio data
@@ -762,7 +765,27 @@ export type EditorPostMessages =
         };
     }
     | { command: "adjustABTestingProbability"; content: { delta: number; buttonChoice?: "more" | "less"; testId?: string; cellId?: string; }; }
-    | { command: "openLoginFlow"; };
+    | { command: "openLoginFlow"; }
+    | {
+        command: "requestCellsForMilestone";
+        content: {
+            milestoneIndex: number;
+            subsectionIndex?: number; // For sub-pagination within milestone
+        };
+    }
+    | {
+        command: "requestSubsectionProgress";
+        content: {
+            milestoneIndex: number;
+        };
+    }
+    | {
+        command: "updateMilestoneValue";
+        content: {
+            milestoneIndex: number;
+            newValue: string;
+        };
+    };
 
 // (revalidateMissingForCell added above in EditorPostMessages union)
 
@@ -797,6 +820,7 @@ type EditMapValueType<T extends readonly string[]> =
     : T extends readonly ["metadata", "data", "chapter"] ? string
     : T extends readonly ["metadata", "data", "verse"] ? string
     : T extends readonly ["metadata", "data", "merged"] ? boolean
+    : T extends readonly ["metadata", "milestone"] ? string
     : T extends readonly ["metadata", "selectedAudioId"] ? string
     : T extends readonly ["metadata", "selectionTimestamp"] ? number
     : T extends readonly ["metadata", "isLocked"] ? boolean
@@ -870,12 +894,14 @@ type CodexData = Timestamps & {
     merged?: boolean;
     deleted?: boolean;
     originalText?: string;
+    globalReferences?: string[]; // Array of cell IDs in original format (e.g., "GEN 1:1") used for header generation
 };
 
 type BaseCustomCellMetaData = {
     id: string;
     type: CodexCellTypes;
     edits: EditHistory[];
+    parentId?: string; // UUID of parent cell (for child cells like cues, paratext, etc.)
     isLocked?: boolean;
 };
 
@@ -938,18 +964,125 @@ export interface CustomNotebookMetadata {
     fileDisplayName?: string;
     edits?: FileEditHistory[];
     importerType?: FileImporterType;
+    /**
+     * The original filename of the imported artifact (if any).
+     * Example: "MAT.idml", "mydoc.docx"
+     */
+    originalFileName?: string;
+    /**
+     * Canonical source identifier for the imported artifact.
+     * Stored at notebook-level (not per-cell). For most importers this matches originalFileName.
+     */
+    sourceFile?: string;
+    /**
+     * One-time import context derived from the import process.
+     * This is the canonical home for attributes that do not vary per-cell.
+     */
+    importContext?: NotebookImportContext;
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
     metadata: CustomNotebookMetadata;
 };
 
-type CodexNotebookAsJSONData = {
-    cells: CustomNotebookCellData[];
-    metadata: CustomNotebookMetadata;
+export type NotebookAsJSONData<TCells, TMetadata> = {
+    cells: TCells[];
+    metadata: TMetadata;
 };
 
-type FileImporterType = "smart-segmenter" | "audio" | "docx-roundtrip" | "markdown" | "subtitles" | "spreadsheet" | "tms" | "pdf" | "indesign" | "usfm" | "paratext" | "ebible" | "macula" | "biblica" | "obs";
+type CodexNotebookAsJSONData = NotebookAsJSONData<CustomNotebookCellData, CustomNotebookMetadata>;
+
+type FileImporterType =
+    | "smart-segmenter"
+    | "plaintext"
+    | "audio"
+    | "docx"
+    | "docx-roundtrip"
+    | "markdown"
+    | "subtitles"
+    | "spreadsheet"
+    | "tms"
+    | "pdf"
+    | "indesign"
+    | "usfm"
+    | "usfm-experimental"
+    | "paratext"
+    | "ebible"
+    | "ebibleCorpus"
+    | "macula"
+    | "biblica"
+    | "obs";
+
+/**
+ * Minimal notebook metadata shared by importer/webview DTOs and persisted notebook metadata.
+ * This avoids duplicating the same "import core" fields across webview and extension types.
+ */
+export type NotebookImportMetadataCore = Pick<
+    CustomNotebookMetadata,
+    | "id"
+    | "originalFileName"
+    | "sourceFile"
+    | "importerType"
+    | "importContext"
+    | "textDirection"
+    | "audioOnly"
+    | "videoUrl"
+    | "fileDisplayName"
+> & {
+    corpusMarker?: string;
+    /**
+     * Import-time timestamp (webview DTOs). The provider may map this into sourceCreatedAt.
+     */
+    createdAt?: string;
+    isCodex?: boolean;
+};
+
+export type NotebookImportContext = {
+    importerType?: FileImporterType | string;
+    fileName?: string;
+    originalFileName?: string;
+    originalHash?: string;
+    documentId?: string;
+    documentVersion?: string;
+    importTimestamp?: string;
+    fileSize?: number;
+    [key: string]: unknown;
+};
+
+/**
+ * Represents information about a single milestone in a document.
+ * Milestones are used as the primary navigation unit for pagination.
+ */
+export interface MilestoneInfo {
+    /** 0-based milestone index */
+    index: number;
+    /** Position in the full cells array where this milestone cell is located */
+    cellIndex: number;
+    /** Display value for the milestone (e.g., "1", "2", chapter name) */
+    value: string;
+    /** Number of content cells in this milestone section (excluding milestone cell itself) */
+    cellCount: number;
+}
+
+/**
+ * Index of all milestones in a document, used for milestone-based pagination.
+ */
+export interface MilestoneIndex {
+    /** Array of milestone information */
+    milestones: MilestoneInfo[];
+    /** Total content cells in the document (excluding milestone cells) */
+    totalCells: number;
+    /** Number of cells per page for sub-pagination within milestones */
+    cellsPerPage: number;
+    /** Progress data for each milestone (1-based milestone number -> progress) */
+    milestoneProgress?: Record<number, {
+        percentTranslationsCompleted: number;
+        percentAudioTranslationsCompleted: number;
+        percentFullyValidatedTranslations: number;
+        percentAudioValidatedTranslations: number;
+        percentTextValidatedTranslations: number;
+    }>;
+}
 
 interface QuillCellContent {
     cellMarkers: string[];
@@ -1635,6 +1768,15 @@ interface CodexItem {
 }
 type EditorReceiveMessages =
     | {
+        type: "saveHtmlSaved";
+        content: {
+            requestId?: string;
+            cellId: string;
+            success: boolean;
+            error?: string;
+        };
+    }
+    | {
         type: "providerSendsInitialContent";
         content: QuillCellContent[];
         isSourceText: boolean;
@@ -1644,6 +1786,52 @@ type EditorReceiveMessages =
         validationCountAudio?: number;
         isAuthenticated?: boolean;
         userAccessLevel?: number;
+    }
+    | {
+        type: "providerSendsInitialContentPaginated";
+        /**
+         * Monotonic revision number for the document content as observed by the provider.
+         * Used by the webview to ignore out-of-order / stale payloads.
+         */
+        rev?: number;
+        milestoneIndex: MilestoneIndex;
+        cells: QuillCellContent[];
+        currentMilestoneIndex: number;
+        currentSubsectionIndex: number;
+        isSourceText: boolean;
+        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
+        username?: string;
+        validationCount?: number;
+        validationCountAudio?: number;
+        isAuthenticated?: boolean;
+        userAccessLevel?: number;
+    }
+    | {
+        type: "providerSendsCellPage";
+        /**
+         * Monotonic revision number for the document content as observed by the provider.
+         * Used by the webview to ignore out-of-order / stale payloads.
+         */
+        rev?: number;
+        milestoneIndex: number;
+        subsectionIndex: number;
+        cells: QuillCellContent[];
+        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
+    }
+    | {
+        type: "providerSendsSubsectionProgress";
+        milestoneIndex: number;
+        subsectionProgress: Record<number, {
+            percentTranslationsCompleted: number;
+            percentAudioTranslationsCompleted: number;
+            percentFullyValidatedTranslations: number;
+            percentAudioValidatedTranslations: number;
+            percentTextValidatedTranslations: number;
+            textValidationLevels?: number[];
+            audioValidationLevels?: number[];
+            requiredTextValidations?: number;
+            requiredAudioValidations?: number;
+        }>;
     }
     | {
         type: "preferredEditorTab";
@@ -1749,6 +1937,16 @@ type EditorReceiveMessages =
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }
     | {
+        type: "milestoneProgressUpdate";
+        milestoneProgress: Record<number, {
+            percentTranslationsCompleted: number;
+            percentAudioTranslationsCompleted: number;
+            percentFullyValidatedTranslations: number;
+            percentAudioValidatedTranslations: number;
+            percentTextValidatedTranslations: number;
+        }>;
+    }
+    | {
         type: "commentsForCell";
         content: {
             cellId: string;
@@ -1801,6 +1999,13 @@ type EditorReceiveMessages =
     }
     | { type: "refreshFontSizes"; }
     | { type: "refreshMetadata"; }
+    | {
+        type: "refreshCurrentPage";
+        /**
+         * Optional rev for correlation; refresh is a pull-trigger, so the response payload rev is authoritative.
+         */
+        rev?: number;
+    }
     | { type: "asrConfig"; content: { endpoint: string; authToken?: string; }; }
     | { type: "startBatchTranscription"; content: { count: number; }; }
     | {
@@ -1877,6 +2082,15 @@ type EditorReceiveMessages =
         status: "dirty" | "syncing" | "synced" | "none";
     }
     | {
+        type: "highlightCell";
+        globalReferences: string[];
+        cellId?: string; // Optional cellId for fallback matching when globalReferences is empty
+    }
+    | {
+        type: "updateCellsPerPage";
+        cellsPerPage: number;
+    }
+    | {
         type: "editorPosition";
         position: "leftmost" | "rightmost" | "center" | "single" | "unknown";
     }
@@ -1913,7 +2127,13 @@ type EditorReceiveMessages =
         content: {
             cellId: string;
             audioId: string;
+            requestId?: string;
             success: boolean;
+            /**
+             * True when the attachment metadata has been persisted to the .codex/.source file
+             * (in addition to the audio file itself being written).
+             */
+            savedToCodexFile?: boolean;
             error?: string;
         };
     }

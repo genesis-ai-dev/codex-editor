@@ -320,17 +320,25 @@ export class NotebookMetadataManager {
                     // Fix corpusMarker if it's a Bible book code (like "1CO", "GEN") by converting to OT/NT
                     // NOTE: This is a temporary fix to convert corpus markers to OT/NT. We should remove this 
                     // after projects have been migrated.
+                    // Skip this conversion for Macula corpus markers ("Hebrew Bible", "Greek Bible") and other non-book-code markers
                     if (metadata?.corpusMarker && metadata.corpusMarker !== "OT" && metadata.corpusMarker !== "NT") {
-                        const correctCorpusMarker = getCorpusMarkerForBook(metadata.corpusMarker);
-                        if (correctCorpusMarker && correctCorpusMarker !== metadata.corpusMarker) {
-                            debugLog(
-                                `Converting Bible book corpusMarker for ${metadata.id}: ${metadata.corpusMarker} -> ${correctCorpusMarker}`
-                            );
-                            metadata.corpusMarker = correctCorpusMarker;
-                            hasChanges = true;
+                        // Don't convert corpus markers that are clearly not book codes (e.g., "Hebrew Bible", "Greek Bible")
+                        const isMaculaCorpusMarker = metadata.corpusMarker === "Hebrew Bible" || metadata.corpusMarker === "Greek Bible";
+                        const isLikelyCorpusMarker = metadata.corpusMarker.length > 3 || metadata.corpusMarker.includes(" ") || metadata.corpusMarker.includes("Bible");
 
-                            // Update the notebook file with the corrected metadata
-                            await this.updateCorpusMarkerInFile(file, notebookData, correctCorpusMarker);
+                        if (!isMaculaCorpusMarker && !isLikelyCorpusMarker) {
+                            // Only try to convert if it looks like a book code (3 letters, no spaces)
+                            const correctCorpusMarker = getCorpusMarkerForBook(metadata.corpusMarker);
+                            if (correctCorpusMarker && correctCorpusMarker !== metadata.corpusMarker) {
+                                debugLog(
+                                    `Converting Bible book corpusMarker for ${metadata.id}: ${metadata.corpusMarker} -> ${correctCorpusMarker}`
+                                );
+                                metadata.corpusMarker = correctCorpusMarker;
+                                hasChanges = true;
+
+                                // Update the notebook file with the corrected metadata
+                                await this.updateCorpusMarkerInFile(file, notebookData, correctCorpusMarker);
+                            }
                         }
                     }
 

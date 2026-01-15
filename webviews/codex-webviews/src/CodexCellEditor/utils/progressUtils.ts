@@ -1,16 +1,46 @@
 export type ProgressColorClass =
     | "text-editor-warning-foreground"
     | "text-charts-blue"
+    | "text-charts-blue-dark"
     | "text-muted-foreground/80"
     | "text-muted-foreground/25";
+
+// Helper function to count completed validation levels
+export function getCompletedValidationLevels(
+    validationLevels?: number[],
+    requiredValidations?: number
+): number {
+    if (!validationLevels || validationLevels.length === 0) return 0;
+    if (!requiredValidations) return 0;
+
+    // Count how many validation levels have 100% completion
+    let completedLevels = 0;
+    for (let i = 0; i < Math.min(validationLevels.length, requiredValidations); i++) {
+        if (validationLevels[i] >= 100) {
+            completedLevels++;
+        } else {
+            break; // Stop at first incomplete level
+        }
+    }
+    return completedLevels;
+}
 
 // Returns a Tailwind-compatible text color class representing progress state
 export function getProgressColor(
     validatedPercent: number,
-    completedPercent: number
+    completedPercent: number,
+    validationLevels?: number[],
+    requiredValidations?: number
 ): ProgressColorClass {
     if (validatedPercent >= 100) return "text-editor-warning-foreground";
-    if (completedPercent >= 100) return "text-charts-blue";
+    if (completedPercent >= 100) {
+        // Check if at least 1 validation level is complete
+        const completedLevels = getCompletedValidationLevels(validationLevels, requiredValidations);
+        if (completedLevels >= 1) {
+            return "text-charts-blue-dark";
+        }
+        return "text-charts-blue";
+    }
     if (validatedPercent > 0 && validatedPercent < 100) return "text-muted-foreground/80";
     // When there is some content/audio present but no validation yet, use the same partial color
     if (completedPercent > 0) return "text-muted-foreground/80";
@@ -69,31 +99,34 @@ export function deriveSubsectionPercentages(progress: {
 export function getProgressTitle(
     validatedPercent: number,
     completedPercent: number,
-    label: "Audio" | "Text"
+    label: "Audio" | "Text",
+    validationLevels?: number[],
+    requiredValidations?: number
 ): string {
-    if (validatedPercent >= 100) {
-        return `${label} fully validated`;
-    }
-    if (completedPercent >= 100) {
-        return `${label} fully translated`;
-    }
-    if (validatedPercent > 0) {
-        return `${label} partially validated`;
-    }
-    if (completedPercent > 0) {
-        return `${label} present`;
-    }
-    return `No ${label.toLowerCase()} progress`;
+    const completedLevels = getCompletedValidationLevels(validationLevels, requiredValidations);
+    const validationLevelText = completedLevels > 0
+        ? `; ${completedLevels} level${completedLevels === 1 ? '' : 's'} of validation complete`
+        : '';
+
+    // Round percentages to whole numbers (they should already be integers, but ensure consistency)
+    const translationPercent = Math.round(completedPercent);
+    const validationPercent = Math.round(validatedPercent);
+
+    return `Translation: ${translationPercent}%\nValidation: ${validationPercent}%${validationLevelText}`;
 }
 
 export function getProgressDisplay(
     validatedPercent: number,
     completedPercent: number,
-    label: "Audio" | "Text"
+    label: "Audio" | "Text",
+    validationLevels?: number[],
+    requiredValidations?: number
 ) {
+    const completedLevels = getCompletedValidationLevels(validationLevels, requiredValidations);
     return {
-        colorClass: getProgressColor(validatedPercent, completedPercent),
-        title: getProgressTitle(validatedPercent, completedPercent, label),
+        colorClass: getProgressColor(validatedPercent, completedPercent, validationLevels, requiredValidations),
+        title: getProgressTitle(validatedPercent, completedPercent, label, validationLevels, requiredValidations),
+        completedValidationLevels: completedLevels,
     };
 }
 

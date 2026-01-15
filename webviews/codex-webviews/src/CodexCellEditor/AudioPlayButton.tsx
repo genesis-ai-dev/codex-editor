@@ -32,7 +32,7 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = ({
 
     useMessageHandler(
         "audioPlayButton",
-        (event: MessageEvent) => {
+        async (event: MessageEvent) => {
             const message = event.data;
 
             if (message.type === "providerSendsAudioAttachments") {
@@ -40,6 +40,10 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = ({
                 const attachments = message.attachments || {};
                 const newState = attachments[cellId];
                 if (typeof newState !== "undefined") {
+                    // Clear cached audio data since selected audio might have changed
+                    const { clearCachedAudio } = await import("../lib/audioCache");
+                    clearCachedAudio(cellId);
+
                     // If we previously had no audio URL and still don't, no-op; avoid churn
                     if (audioUrl && audioUrl.startsWith("blob:")) {
                         URL.revokeObjectURL(audioUrl);

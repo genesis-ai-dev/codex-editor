@@ -1,10 +1,16 @@
 import * as vscode from "vscode";
 import * as path from "path";
+import { randomUUID } from "crypto";
 import { CodexContentSerializer } from "@/serializer";
 import { vrefData } from "@/utils/verseRefUtils/verseData";
 import { EditMapUtils } from "@/utils/editMapUtils";
-import { EditType } from "../../../types/enums";
+import { EditType, CodexCellTypes } from "../../../types/enums";
 import type { ValidationEntry } from "../../../types";
+import { getAuthApi } from "../../extension";
+import { extractParentCellIdFromParatext } from "../../providers/codexCellEditorProvider/utils/cellUtils";
+import { generateCellIdFromHash, isUuidFormat } from "../../utils/uuidUtils";
+import { getCorrespondingSourceUri, getCorrespondingCodexUri } from "../../utils/codexNotebookUtils";
+import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 
 // FIXME: move notebook format migration here
 
@@ -60,7 +66,12 @@ export const migration_moveTimestampsToMetadataData = async (context?: vscode.Ex
         const allFiles = [...codexFiles, ...sourceFiles];
 
         if (allFiles.length === 0) {
-            console.log("No codex or source files found, skipping timestamps migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
@@ -154,7 +165,12 @@ export const migration_promoteCellTypeToTopLevel = async (context?: vscode.Exten
         );
         const allFiles = [...codexFiles, ...sourceFiles];
         if (allFiles.length === 0) {
-            console.log("No codex or source files found, skipping cell type promotion migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
@@ -630,7 +646,12 @@ export const migration_editHistoryFormat = async (context?: vscode.ExtensionCont
         const allFiles = [...codexFiles, ...sourceFiles];
 
         if (allFiles.length === 0) {
-            console.log("No codex or source files found, skipping migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
@@ -1584,3 +1605,1494 @@ export const migration_addImporterTypeToMetadata = async (context?: vscode.Exten
         console.error("Error running importerType migration:", error);
     }
 };
+
+type Primitive = string | number | boolean | null;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPrimitive(value: unknown): value is Primitive {
+    return (
+        value === null ||
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+    );
+}
+
+type CellDocumentContextRef = {
+    ctx: Record<string, unknown>;
+    container: Record<string, unknown>;
+    path: "metadata.documentContext" | "metadata.data.documentContext";
+};
+
+function getCellDocumentContextRef(cell: unknown): CellDocumentContextRef | null {
+    if (!isRecord(cell)) return null;
+    const md = cell["metadata"];
+    if (!isRecord(md)) return null;
+
+    const direct = md["documentContext"];
+    if (isRecord(direct)) {
+        return { ctx: direct, container: md, path: "metadata.documentContext" };
+    }
+
+    const data = md["data"];
+    if (isRecord(data)) {
+        const nested = data["documentContext"];
+        if (isRecord(nested)) {
+            return { ctx: nested, container: data, path: "metadata.data.documentContext" };
+        }
+    }
+
+    return null;
+}
+
+function allEqual<T>(values: T[]): boolean {
+    if (values.length <= 1) return true;
+    const first = values[0];
+    for (let i = 1; i < values.length; i++) {
+        if (values[i] !== first) return false;
+    }
+    return true;
+}
+
+/**
+ * Migration: Hoist per-cell documentContext into notebook metadata.importContext
+ * - Idempotent
+ * - Only hoists keys when values are consistent across all found documentContext objects
+ * - Removes per-cell keys that were hoisted; deletes the per-cell documentContext object only if it becomes empty
+ */
+export const migration_hoistDocumentContextToNotebookMetadata = async (
+    context?: vscode.ExtensionContext
+) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        const migrationKey = "documentContextHoistMigrationCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        let hasMigrationRun = false;
+
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch (e) {
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
+
+        if (hasMigrationRun) {
+            console.log("DocumentContext hoist migration already completed, skipping");
+            return;
+        }
+
+        console.log("Running documentContext hoist migration...");
+
+        const workspaceFolder = workspaceFolders[0];
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+
+        const allFiles = [...codexFiles, ...sourceFiles];
+        if (allFiles.length === 0) {
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
+            return;
+        }
+
+        const serializer = new CodexContentSerializer();
+
+        const HOIST_KEYS: ReadonlyArray<string> = [
+            "importerType",
+            "fileName",
+            "originalFileName",
+            "originalHash",
+            "documentId",
+            "documentVersion",
+            "importTimestamp",
+            "fileSize",
+        ];
+
+        let processedFiles = 0;
+        let migratedFiles = 0;
+
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Hoisting documentContext to notebook metadata",
+                cancellable: false,
+            },
+            async (progress) => {
+                for (let i = 0; i < allFiles.length; i++) {
+                    const fileUri = allFiles[i];
+                    progress.report({
+                        message: `Processing ${path.basename(fileUri.fsPath)}`,
+                        increment: 100 / allFiles.length,
+                    });
+
+                    try {
+                        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+                        const notebookDataUnknown: unknown = await serializer.deserializeNotebook(
+                            fileContent,
+                            new vscode.CancellationTokenSource().token
+                        );
+
+                        if (!isRecord(notebookDataUnknown)) {
+                            processedFiles++;
+                            continue;
+                        }
+
+                        const notebookData = notebookDataUnknown as Record<string, unknown>;
+                        const cellsUnknown = notebookData.cells;
+                        const cells = Array.isArray(cellsUnknown) ? cellsUnknown : [];
+
+                        const refs: CellDocumentContextRef[] = [];
+                        for (const cell of cells) {
+                            const ref = getCellDocumentContextRef(cell);
+                            if (ref) refs.push(ref);
+                        }
+
+                        // Nothing to do for this file.
+                        if (refs.length === 0) {
+                            processedFiles++;
+                            continue;
+                        }
+
+                        if (!isRecord(notebookData.metadata)) {
+                            notebookData.metadata = {};
+                        }
+                        const md = notebookData.metadata as Record<string, unknown>;
+
+                        const hoisted: Record<string, Primitive> = {};
+
+                        for (const key of HOIST_KEYS) {
+                            const values: Primitive[] = [];
+                            for (const ref of refs) {
+                                const v = ref.ctx[key];
+                                if (v === undefined) continue;
+                                if (isPrimitive(v)) {
+                                    values.push(v);
+                                }
+                            }
+                            if (values.length > 0 && allEqual(values)) {
+                                hoisted[key] = values[0];
+                            }
+                        }
+
+                        let hasChanges = false;
+
+                        // Hoist importerType to top-level metadata.importerType when missing.
+                        const hoistedImporterType = hoisted.importerType;
+                        if (typeof hoistedImporterType === "string" && !md["importerType"]) {
+                            const standardized = standardizeImporterType(hoistedImporterType);
+                            if (standardized) {
+                                md["importerType"] = standardized;
+                                hasChanges = true;
+                            }
+                        }
+
+                        // Hoist originalFileName when missing (derived from fileName/originalFileName).
+                        if (!md["originalFileName"]) {
+                            const candidate =
+                                (typeof hoisted.originalFileName === "string" && hoisted.originalFileName) ||
+                                (typeof hoisted.fileName === "string" && hoisted.fileName) ||
+                                undefined;
+                            if (candidate) {
+                                md["originalFileName"] = candidate;
+                                hasChanges = true;
+                            }
+                        }
+
+                        // Hoist to metadata.importContext (fill missing keys only).
+                        const existingImportContext = md["importContext"];
+                        if (!isRecord(existingImportContext)) {
+                            md["importContext"] = {};
+                        }
+                        const importContext = md["importContext"] as Record<string, unknown>;
+
+                        for (const [key, value] of Object.entries(hoisted)) {
+                            if (importContext[key] === undefined) {
+                                importContext[key] = value;
+                                hasChanges = true;
+                            }
+                        }
+
+                        // Remove hoisted keys from per-cell contexts (only if they match what we hoisted).
+                        const hoistedKeys = Object.keys(hoisted);
+                        if (hoistedKeys.length > 0) {
+                            for (const ref of refs) {
+                                let ctxChanged = false;
+                                for (const key of hoistedKeys) {
+                                    const current = ref.ctx[key];
+                                    const target = hoisted[key];
+                                    if (current === target) {
+                                        delete ref.ctx[key];
+                                        ctxChanged = true;
+                                    }
+                                }
+
+                                if (ctxChanged) {
+                                    // If the context is now empty, remove it from its container.
+                                    if (Object.keys(ref.ctx).length === 0) {
+                                        delete ref.container["documentContext"];
+                                    }
+                                    hasChanges = true;
+                                }
+                            }
+                        }
+
+                        if (hasChanges) {
+                            const updatedContent = await serializer.serializeNotebook(
+                                notebookData as unknown as vscode.NotebookData,
+                                new vscode.CancellationTokenSource().token
+                            );
+                            await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+                            migratedFiles++;
+                        }
+
+                        processedFiles++;
+                    } catch (error) {
+                        processedFiles++;
+                        console.error(`Error processing ${fileUri.fsPath}:`, error);
+                    }
+                }
+            }
+        );
+
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch (e) {
+            await context?.workspaceState.update(migrationKey, true);
+        }
+
+        console.log(
+            `DocumentContext hoist migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`
+        );
+        if (migratedFiles > 0) {
+            vscode.window.showInformationMessage(
+                `DocumentContext hoist migration complete: ${migratedFiles} files updated`
+            );
+        }
+    } catch (error) {
+        console.error("Error running documentContext hoist migration:", error);
+    }
+};
+
+/**
+ * Gets the current user name for edit tracking
+ */
+async function getCurrentUserName(): Promise<string> {
+    try {
+        // Try auth API first
+        const authApi = await getAuthApi();
+        const userInfo = await authApi?.getUserInfo();
+        if (userInfo?.username) {
+            return userInfo.username;
+        }
+    } catch (error) {
+        // Silent fallback
+    }
+
+    // Fallback
+    return "unknown";
+}
+
+/**
+ * Extracts the chapter/section number from a cellId.
+ * Handles formats like:
+ * - "GEN 1:1" -> "1"
+ * - "Book Name 2:5" -> "2"
+ * - "filename 1:1" -> "1"
+ * Returns null if the pattern doesn't match.
+ */
+function extractChapterFromCellId(cellId: string): string | null {
+    if (!cellId) return null;
+
+    // Pattern: anything followed by space, then number, colon, number
+    // e.g., "GEN 1:1", "Book Name 2:5", "filename 1:1"
+    const match = cellId.match(/\s+(\d+):(\d+)(?::|$)/);
+    if (match) {
+        return match[1]; // Return the chapter number (first number)
+    }
+    return null;
+}
+
+/**
+ * Extracts chapter number from a cell using priority order:
+ * 1. metadata.chapterNumber (Biblica)
+ * 2. metadata.chapter (USFM)
+ * 3. metadata.data?.chapter (legacy)
+ * 4. extractChapterFromCellId (from cellId)
+ * 5. milestoneIndex (final fallback, 1-indexed)
+ */
+function extractChapterFromCell(cell: any, milestoneIndex: number): string {
+    // Priority 1: metadata.chapterNumber (Biblica)
+    if (cell?.metadata?.chapterNumber !== undefined && cell.metadata.chapterNumber !== null) {
+        return String(cell.metadata.chapterNumber);
+    }
+
+    // Priority 2: metadata.chapter (USFM)
+    if (cell?.metadata?.chapter !== undefined && cell.metadata.chapter !== null) {
+        return String(cell.metadata.chapter);
+    }
+
+    // Priority 3: metadata.data?.chapter (legacy)
+    if (cell?.metadata?.data?.chapter !== undefined && cell.metadata.data.chapter !== null) {
+        return String(cell.metadata.data.chapter);
+    }
+
+    // Priority 4: Extract from cellId
+    const cellId = cell?.metadata?.id || cell?.id;
+    if (cellId) {
+        const chapterFromId = extractChapterFromCellId(cellId);
+        if (chapterFromId) {
+            return chapterFromId;
+        }
+    }
+
+    // Priority 5: Use milestone index (1-indexed)
+    return milestoneIndex.toString();
+}
+
+/**
+ * Extracts book abbreviation from a cell's globalReferences or cellMarkers.
+ * Returns null if no book abbreviation can be found.
+ */
+function extractBookNameFromCell(cell: any): string | null {
+    // Priority 1: Extract from globalReferences array (preferred method)
+    const globalRefs = cell?.data?.globalReferences || cell?.metadata?.data?.globalReferences;
+    if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+        const firstRef = globalRefs[0];
+        // Extract book name: "GEN 1:1" -> "GEN" or "TheChosen-201-en-SingleSpeaker 1:jkflds" -> "TheChosen-201-en-SingleSpeaker"
+        const bookMatch = firstRef.match(/^([^\s]+)/);
+        if (bookMatch) {
+            return bookMatch[1];
+        }
+    }
+
+    // Priority 2: Fallback to cellMarkers (legacy support during migration)
+    if (cell?.cellMarkers?.[0]) {
+        const firstMarker = cell.cellMarkers[0].split(":")[0];
+        if (firstMarker) {
+            const parts = firstMarker.split(" ");
+            return parts[0];
+        }
+    }
+
+    // Priority 3: Extract from cellId
+    const cellId = cell?.metadata?.id || cell?.id;
+    if (cellId) {
+        // Extract book name from cellId: "GEN 1:1" -> "GEN"
+        const bookMatch = cellId.match(/^([^\s]+)/);
+        if (bookMatch) {
+            return bookMatch[1];
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Gets the localized book name from a book abbreviation.
+ * Returns the abbreviation itself if no localized name is found.
+ */
+function getLocalizedBookName(bookAbbr: string): string {
+    if (!bookAbbr) return bookAbbr;
+
+    const bookInfo = (bibleData as any[]).find((book) => book.abbr === bookAbbr);
+    return bookInfo?.name || bookAbbr;
+}
+
+/**
+ * Creates a milestone cell with book name and chapter number derived from the cell below it.
+ * Format: "BookName ChapterNumber" (e.g., "Isaiah 1")
+ * @param cell - The cell to derive chapter information from
+ * @param milestoneIndex - The index of the milestone (1-indexed)
+ * @param uuid - Optional UUID to use for the milestone cell. If not provided, generates a new one.
+ */
+async function createMilestoneCell(cell: any, milestoneIndex: number, uuid?: string): Promise<any> {
+    const cellUuid = uuid || randomUUID();
+    const chapterNumber = extractChapterFromCell(cell, milestoneIndex);
+    const currentTimestamp = Date.now();
+    const author = await getCurrentUserName();
+
+    // Extract book name from cell
+    const bookAbbr = extractBookNameFromCell(cell);
+    const bookName = bookAbbr ? getLocalizedBookName(bookAbbr) : null;
+
+    // Combine book name and chapter number, or use just chapter number if no book name found
+    const milestoneValue = bookName ? `${bookName} ${chapterNumber}` : chapterNumber;
+
+    // Create initial edit entry similar to source file cells
+    const initialEdit = {
+        editMap: EditMapUtils.value(),
+        value: milestoneValue,
+        timestamp: currentTimestamp - 1000, // Ensure it's before any user edits
+        type: EditType.INITIAL_IMPORT,
+        author: author,
+        validatedBy: []
+    };
+
+    return {
+        kind: 2, // vscode.NotebookCellKind.Code
+        languageId: "html",
+        value: milestoneValue,
+        metadata: {
+            id: cellUuid,
+            type: CodexCellTypes.MILESTONE,
+            edits: [initialEdit]
+        }
+    };
+}
+
+
+/**
+ * Migrates milestone cells for a source/codex file pair together.
+ * Ensures milestone cells share the same IDs between source and codex files.
+ * Inserts milestone cells at the start of each file and before each new chapter.
+ * Handles orphaned files (when one file doesn't exist) by processing the existing file.
+ * @param sourceUri - URI of the source file (null if file doesn't exist)
+ * @param codexUri - URI of the codex file (null if file doesn't exist)
+ * @returns Object indicating which files were migrated
+ */
+async function migrateMilestoneCellsForFilePair(
+    sourceUri: vscode.Uri | null,
+    codexUri: vscode.Uri | null
+): Promise<{ sourceMigrated: boolean; codexMigrated: boolean; }> {
+    const result = { sourceMigrated: false, codexMigrated: false };
+
+    try {
+        // Helper function to safely read a file
+        const safeReadFile = async (uri: vscode.Uri): Promise<Uint8Array | null> => {
+            try {
+                return await vscode.workspace.fs.readFile(uri);
+            } catch (error: unknown) {
+                if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
+                    // File doesn't exist - this is expected for orphaned files
+                    return null;
+                }
+                // Log unexpected errors
+                console.error(`Error reading file ${uri.fsPath}:`, error);
+                return null;
+            }
+        };
+
+        // Read both files (if they exist)
+        const [sourceContent, codexContent] = await Promise.all([
+            sourceUri ? safeReadFile(sourceUri) : Promise.resolve(null),
+            codexUri ? safeReadFile(codexUri) : Promise.resolve(null)
+        ]);
+
+        const serializer = new CodexContentSerializer();
+        const token = new vscode.CancellationTokenSource().token;
+
+        // Deserialize both notebooks
+        const sourceNotebookData: any = sourceContent
+            ? await serializer.deserializeNotebook(sourceContent, token)
+            : null;
+        const codexNotebookData: any = codexContent
+            ? await serializer.deserializeNotebook(codexContent, token)
+            : null;
+
+        const sourceCells: any[] = sourceNotebookData?.cells || [];
+        const codexCells: any[] = codexNotebookData?.cells || [];
+
+        // Check if either file already has milestone cells (idempotent check)
+        const sourceHasMilestones = sourceCells.some(
+            (cell) => cell.metadata?.type === CodexCellTypes.MILESTONE
+        );
+        const codexHasMilestones = codexCells.some(
+            (cell) => cell.metadata?.type === CodexCellTypes.MILESTONE
+        );
+
+        if (sourceHasMilestones && codexHasMilestones) {
+            return result; // Already migrated
+        }
+
+        // Use source cells as the primary reference for determining chapters
+        // If source file doesn't exist, use codex cells
+        const primaryCells = sourceCells.length > 0 ? sourceCells : codexCells;
+        if (primaryCells.length === 0) {
+            return result;
+        }
+
+        // Find first cell for first milestone
+        let firstCell: any | null = null;
+        for (const cell of primaryCells) {
+            if (cell.metadata?.id) {
+                firstCell = cell;
+                break;
+            }
+        }
+
+        if (!firstCell) {
+            return result;
+        }
+
+        // Extract basename for deterministic UUID generation
+        // Use sourceUri first, fallback to codexUri, then extract basename without extension
+        const filePath = sourceUri?.fsPath || codexUri?.fsPath || '';
+        const basename = filePath ? path.basename(filePath, path.extname(filePath)) : 'unknown';
+
+        // Map to store UUIDs for each chapter to ensure consistency across source and codex
+        const chapterUuids = new Map<string, string>();
+
+        // Track milestone index (1-indexed)
+        let milestoneIndex = 1;
+
+        // Track seen chapters to avoid duplicates
+        const seenChapters = new Set<string>();
+
+        // First, scan primary cells to determine all chapters and generate UUIDs for each
+        // Also track milestone index for each chapter
+        const chapterMilestoneIndex = new Map<string, number>();
+
+        // Handle first milestone
+        const firstCellId = firstCell.metadata?.id;
+        const firstChapter = firstCellId ? extractChapterFromCellId(firstCellId) : null;
+        const firstMilestoneKey = firstChapter || `milestone-${milestoneIndex}`;
+        const firstMilestoneUuid = await generateCellIdFromHash(`milestone:${basename}:${firstMilestoneKey}`);
+        if (firstChapter) {
+            chapterUuids.set(firstChapter, firstMilestoneUuid);
+            chapterMilestoneIndex.set(firstChapter, milestoneIndex);
+            seenChapters.add(firstChapter);
+        } else {
+            // Use milestone index as key if no chapter found
+            chapterUuids.set(`milestone-${milestoneIndex}`, firstMilestoneUuid);
+            chapterMilestoneIndex.set(`milestone-${milestoneIndex}`, milestoneIndex);
+        }
+        milestoneIndex++;
+
+        // Scan remaining primary cells to find other chapters
+        for (const primaryCell of primaryCells) {
+            const cellId = primaryCell.metadata?.id;
+            if (cellId) {
+                const chapter = extractChapterFromCellId(cellId);
+                if (chapter && !seenChapters.has(chapter)) {
+                    const chapterUuid = await generateCellIdFromHash(`milestone:${basename}:${chapter}`);
+                    chapterUuids.set(chapter, chapterUuid);
+                    chapterMilestoneIndex.set(chapter, milestoneIndex);
+                    seenChapters.add(chapter);
+                    milestoneIndex++;
+                }
+            }
+        }
+
+        // Build new cell arrays with milestone cells
+        const newSourceCells: any[] = [];
+        const newCodexCells: any[] = [];
+
+        // Insert first milestone cell at the beginning (using same UUID for both)
+        if (!sourceHasMilestones && sourceNotebookData) {
+            const sourceFirstCell = sourceCells.find(c => c.metadata?.id) || sourceCells[0] || firstCell;
+            const firstMilestoneIdx = firstChapter
+                ? chapterMilestoneIndex.get(firstChapter)
+                : chapterMilestoneIndex.get(`milestone-1`);
+            newSourceCells.push(await createMilestoneCell(
+                sourceFirstCell,
+                firstMilestoneIdx || 1,
+                firstMilestoneUuid
+            ));
+        }
+        if (!codexHasMilestones && codexNotebookData) {
+            const codexFirstCell = codexCells.find(c => c.metadata?.id) || codexCells[0] || firstCell;
+            const firstMilestoneIdx = firstChapter
+                ? chapterMilestoneIndex.get(firstChapter)
+                : chapterMilestoneIndex.get(`milestone-1`);
+            newCodexCells.push(await createMilestoneCell(
+                codexFirstCell,
+                firstMilestoneIdx || 1,
+                firstMilestoneUuid
+            ));
+        }
+
+        // Process source cells and insert milestones (skip first milestone as it's already added)
+        if (!sourceHasMilestones && sourceNotebookData) {
+            const sourceSeenChapters = new Set<string>();
+            // Mark first chapter as seen since we already added its milestone
+            if (firstChapter) {
+                sourceSeenChapters.add(firstChapter);
+            }
+
+            for (const cell of sourceCells) {
+                const cellId = cell.metadata?.id;
+                if (cellId) {
+                    const chapter = extractChapterFromCellId(cellId);
+                    if (chapter && !sourceSeenChapters.has(chapter)) {
+                        // Insert milestone before this chapter
+                        const milestoneUuid = chapterUuids.get(chapter);
+                        const milestoneIdx = chapterMilestoneIndex.get(chapter);
+                        if (milestoneUuid && milestoneIdx !== undefined) {
+                            newSourceCells.push(await createMilestoneCell(cell, milestoneIdx, milestoneUuid));
+                        }
+                        sourceSeenChapters.add(chapter);
+                    }
+                }
+                newSourceCells.push(cell);
+            }
+        } else if (sourceNotebookData) {
+            // Source already has milestones, just copy all cells
+            newSourceCells.push(...sourceCells);
+        }
+
+        // Process codex cells and insert milestones using the same UUIDs (skip first milestone as it's already added)
+        if (!codexHasMilestones && codexNotebookData) {
+            const codexSeenChapters = new Set<string>();
+            // Mark first chapter as seen since we already added its milestone
+            if (firstChapter) {
+                codexSeenChapters.add(firstChapter);
+            }
+
+            for (const cell of codexCells) {
+                const cellId = cell.metadata?.id;
+                if (cellId) {
+                    const chapter = extractChapterFromCellId(cellId);
+                    if (chapter && !codexSeenChapters.has(chapter)) {
+                        // Insert milestone before this chapter using the same UUID and index as source
+                        const milestoneUuid = chapterUuids.get(chapter);
+                        const milestoneIdx = chapterMilestoneIndex.get(chapter);
+                        if (milestoneUuid && milestoneIdx !== undefined) {
+                            newCodexCells.push(await createMilestoneCell(cell, milestoneIdx, milestoneUuid));
+                        }
+                        codexSeenChapters.add(chapter);
+                    }
+                }
+                newCodexCells.push(cell);
+            }
+        } else if (codexNotebookData) {
+            // Codex already has milestones, just copy all cells
+            newCodexCells.push(...codexCells);
+        }
+
+        // If source file exists and was modified, save it
+        if (!sourceHasMilestones && sourceNotebookData && newSourceCells.length > 0 && sourceUri) {
+            sourceNotebookData.cells = newSourceCells;
+            const updatedSourceContent = await serializer.serializeNotebook(sourceNotebookData, token);
+            await vscode.workspace.fs.writeFile(sourceUri, updatedSourceContent);
+            result.sourceMigrated = true;
+        }
+
+        // If codex file exists and was modified, save it
+        if (!codexHasMilestones && codexNotebookData && newCodexCells.length > 0 && codexUri) {
+            codexNotebookData.cells = newCodexCells;
+            const updatedCodexContent = await serializer.serializeNotebook(codexNotebookData, token);
+            await vscode.workspace.fs.writeFile(codexUri, updatedCodexContent);
+            result.codexMigrated = true;
+        }
+
+        return result;
+    } catch (error) {
+        const sourcePath = sourceUri?.fsPath || "none";
+        const codexPath = codexUri?.fsPath || "none";
+        console.error(`Error migrating milestone cells for file pair ${sourcePath} / ${codexPath}:`, error);
+        return result;
+    }
+}
+
+/**
+ * Migration: Add milestone cells to mark chapters/sections in notebooks.
+ * Milestone cells are inserted:
+ * 1. At the very beginning of each file (for the first chapter)
+ * 2. Before the first occurrence of each new chapter number
+ * 
+ * This migration is idempotent - it checks for existing milestone cells.
+ */
+export const migration_addMilestoneCells = async (context?: vscode.ExtensionContext) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        // Check if migration has already been run
+        const migrationKey = "milestoneCellsMigrationCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        let hasMigrationRun = false;
+
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch (e) {
+            // Setting might not be registered yet; fall back to workspaceState
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
+
+        if (hasMigrationRun) {
+            console.log("Milestone cells migration already completed, skipping");
+            return;
+        }
+
+        console.log("Running milestone cells migration...");
+
+        const workspaceFolder = workspaceFolders[0];
+
+        // Find all codex and source files
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+
+        if (codexFiles.length === 0 && sourceFiles.length === 0) {
+            console.log("No codex or source files found, skipping milestone cells migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                // If configuration key is not registered, fall back to workspaceState
+                await context?.workspaceState.update(migrationKey, true);
+            }
+            return;
+        }
+
+        // Create a map to match source and codex files by basename
+        const sourceFileMap = new Map<string, vscode.Uri>();
+        const codexFileMap = new Map<string, vscode.Uri>();
+        const processedPairs = new Set<string>();
+
+        // Index source files by basename
+        for (const sourceFile of sourceFiles) {
+            const basename = path.basename(sourceFile.fsPath, ".source");
+            sourceFileMap.set(basename, sourceFile);
+        }
+
+        // Index codex files by basename
+        for (const codexFile of codexFiles) {
+            const basename = path.basename(codexFile.fsPath, ".codex");
+            codexFileMap.set(basename, codexFile);
+        }
+
+        // Collect file pairs and orphaned files
+        const filePairs: Array<{ sourceUri: vscode.Uri | null; codexUri: vscode.Uri | null; basename: string; }> = [];
+        const allBasenames = new Set([...sourceFileMap.keys(), ...codexFileMap.keys()]);
+
+        for (const basename of allBasenames) {
+            const sourceUri = sourceFileMap.get(basename) || null;
+            const codexUri = codexFileMap.get(basename) || null;
+            filePairs.push({ sourceUri, codexUri, basename });
+        }
+
+        let processedFiles = 0;
+        let migratedFiles = 0;
+
+        // Process file pairs with progress
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Adding milestone cells",
+                cancellable: false
+            },
+            async (progress) => {
+                for (let i = 0; i < filePairs.length; i++) {
+                    const { sourceUri, codexUri, basename } = filePairs[i];
+                    progress.report({
+                        message: `Processing ${basename}`,
+                        increment: (100 / filePairs.length)
+                    });
+
+                    try {
+                        // Always use pair-based migration to ensure consistent UUIDs
+                        // This handles both paired files and orphaned files
+                        const result = await migrateMilestoneCellsForFilePair(sourceUri, codexUri);
+                        processedFiles += (result.sourceMigrated ? 1 : 0) + (result.codexMigrated ? 1 : 0);
+                        if (result.sourceMigrated || result.codexMigrated) {
+                            migratedFiles++;
+                        }
+                    } catch (error) {
+                        console.error(`Error processing ${basename}:`, error);
+                    }
+                }
+            }
+        );
+
+        // Mark migration as completed
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch (e) {
+            // If configuration key is not registered, fall back to workspaceState
+            await context?.workspaceState.update(migrationKey, true);
+        }
+
+        console.log(`Milestone cells migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        if (migratedFiles > 0) {
+            vscode.window.showInformationMessage(
+                `Milestone cells migration complete: ${migratedFiles} files updated`
+            );
+        }
+
+    } catch (error) {
+        console.error("Error running milestone cells migration:", error);
+    }
+};
+
+/**
+ * Migration: Reorder misplaced paratext cells to be above their parent cells.
+ * Paratext cells that are found at the end of files (after all content cells) and
+ * are not already positioned near their parent cells will be moved above their parent.
+ * 
+ * This migration is idempotent - it checks if paratext cells are correctly positioned.
+ */
+export const migration_reorderMisplacedParatextCells = async (context?: vscode.ExtensionContext) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        // Check if migration has already been run
+        const migrationKey = "paratextReorderMigrationCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        let hasMigrationRun = false;
+
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch (e) {
+            // Setting might not be registered yet; fall back to workspaceState
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
+
+        if (hasMigrationRun) {
+            console.log("Paratext reorder migration already completed, skipping");
+            return;
+        }
+
+        console.log("Running paratext reorder migration...");
+
+        const workspaceFolder = workspaceFolders[0];
+
+        // Find all codex and source files
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+
+        const allFiles = [...codexFiles, ...sourceFiles];
+
+        if (allFiles.length === 0) {
+            console.log("No codex or source files found, skipping paratext reorder migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                // If configuration key is not registered, fall back to workspaceState
+                await context?.workspaceState.update(migrationKey, true);
+            }
+            return;
+        }
+
+        let processedFiles = 0;
+        let migratedFiles = 0;
+
+        // Process files with progress
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Reordering misplaced paratext cells",
+                cancellable: false
+            },
+            async (progress) => {
+                for (let i = 0; i < allFiles.length; i++) {
+                    const file = allFiles[i];
+                    progress.report({
+                        message: `Processing ${path.basename(file.fsPath)}`,
+                        increment: (100 / allFiles.length)
+                    });
+
+                    try {
+                        const wasMigrated = await migrateParatextCellsForFile(file);
+                        processedFiles++;
+                        if (wasMigrated) {
+                            migratedFiles++;
+                        }
+                    } catch (error) {
+                        console.error(`Error processing ${file.fsPath}:`, error);
+                    }
+                }
+            }
+        );
+
+        // Mark migration as completed
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch (e) {
+            // If configuration key is not registered, fall back to workspaceState
+            await context?.workspaceState.update(migrationKey, true);
+        }
+
+        console.log(`Paratext reorder migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        if (migratedFiles > 0) {
+            vscode.window.showInformationMessage(
+                `Paratext reorder migration complete: ${migratedFiles} files updated`
+            );
+        }
+
+    } catch (error) {
+        console.error("Error running paratext reorder migration:", error);
+    }
+};
+
+/**
+ * Processes a single file to reorder misplaced paratext cells.
+ * Returns true if the file was modified, false otherwise.
+ */
+export async function migrateParatextCellsForFile(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = notebookData.cells || [];
+        if (cells.length === 0) return false;
+
+        // Early return if no paratext cells found in the file
+        const hasParatextCells = cells.some(
+            (cell) => cell.metadata?.type === CodexCellTypes.PARATEXT
+        );
+        if (!hasParatextCells) {
+            return false;
+        }
+
+        // Find the last content cell index (last non-paratext, non-milestone cell)
+        let lastContentCellIndex = -1;
+        for (let i = cells.length - 1; i >= 0; i--) {
+            const cell = cells[i];
+            const cellType = cell.metadata?.type;
+            if (cellType !== CodexCellTypes.PARATEXT && cellType !== CodexCellTypes.MILESTONE) {
+                lastContentCellIndex = i;
+                break;
+            }
+        }
+
+        // If no content cells found, skip this file
+        if (lastContentCellIndex === -1) {
+            return false;
+        }
+
+        // Identify misplaced paratext cells
+        // A paratext cell is misplaced if:
+        // 1. It appears after all content cells (index > lastContentCellIndex)
+        // 2. It's not already positioned immediately before or after its parent cell
+        const misplacedParatextCells: Array<{ cell: any; index: number; parentId: string; }> = [];
+        const parentCellIndexMap = new Map<string, number>();
+
+        // Build a map of parent cell IDs to their indices
+        for (let i = 0; i < cells.length; i++) {
+            const cell = cells[i];
+            const cellId = cell.metadata?.id;
+            if (cellId) {
+                parentCellIndexMap.set(cellId, i);
+            }
+        }
+
+        // Check paratext cells that appear after all content cells
+        for (let i = lastContentCellIndex + 1; i < cells.length; i++) {
+            const cell = cells[i];
+            const cellType = cell.metadata?.type;
+            const cellId = cell.metadata?.id;
+
+            if (cellType === CodexCellTypes.PARATEXT && cellId) {
+                const parentId = extractParentCellIdFromParatext(cellId);
+                if (!parentId) {
+                    // Skip paratext cells with no valid parent ID
+                    continue;
+                }
+
+                const parentIndex = parentCellIndexMap.get(parentId);
+                if (parentIndex === undefined) {
+                    // Skip if parent cell not found
+                    continue;
+                }
+
+                // Check if paratext is already positioned correctly (immediately before or after parent)
+                const isBeforeParent = i === parentIndex - 1;
+                const isAfterParent = i === parentIndex + 1;
+
+                if (!isBeforeParent && !isAfterParent) {
+                    // This paratext cell is misplaced
+                    misplacedParatextCells.push({ cell, index: i, parentId });
+                }
+            }
+        }
+
+        // If no misplaced paratext cells found, file doesn't need migration
+        if (misplacedParatextCells.length === 0) {
+            return false;
+        }
+
+        // Group misplaced paratext cells by parent ID
+        const paratextCellsByParent = new Map<string, Array<{ cell: any; originalIndex: number; }>>();
+        for (const { cell, index, parentId } of misplacedParatextCells) {
+            if (!paratextCellsByParent.has(parentId)) {
+                paratextCellsByParent.set(parentId, []);
+            }
+            paratextCellsByParent.get(parentId)!.push({ cell, originalIndex: index });
+        }
+
+        // Sort paratext cells for each parent by their original index to maintain relative order
+        for (const paratextCells of paratextCellsByParent.values()) {
+            paratextCells.sort((a, b) => a.originalIndex - b.originalIndex);
+        }
+
+        // Build new cells array
+        const newCells: any[] = [];
+        const processedIndices = new Set<number>();
+
+        // Mark all misplaced paratext cell indices as processed (they'll be moved)
+        for (const { index } of misplacedParatextCells) {
+            processedIndices.add(index);
+        }
+
+        // Iterate through original cells and rebuild array
+        for (let i = 0; i < cells.length; i++) {
+            // Skip misplaced paratext cells (they'll be inserted before their parent)
+            if (processedIndices.has(i)) {
+                continue;
+            }
+
+            const cell = cells[i];
+            const cellId = cell.metadata?.id;
+
+            // Check if this cell is a parent that has misplaced paratext cells
+            if (cellId && paratextCellsByParent.has(cellId)) {
+                // Insert paratext cells before the parent
+                const paratextCells = paratextCellsByParent.get(cellId)!;
+                for (const { cell: paratextCell } of paratextCells) {
+                    newCells.push(paratextCell);
+                }
+            }
+
+            // Add the current cell
+            newCells.push(cell);
+        }
+
+        // Update notebook data with new cells
+        notebookData.cells = newCells;
+
+        // Serialize and save
+        const updatedContent = await serializer.serializeNotebook(
+            notebookData,
+            new vscode.CancellationTokenSource().token
+        );
+        await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+
+        return true;
+    } catch (error) {
+        console.error(`Error migrating paratext cells for ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
+
+/**
+ * Migration: Add globalReferences array to content cells.
+ * For each content cell (excluding STYLE, PARATEXT, MILESTONE), adds
+ * metadata.data.globalReferences = [cellId] if it doesn't already exist.
+ * 
+ * This migration is idempotent - it skips cells that already have globalReferences.
+ */
+export const migration_addGlobalReferences = async (context?: vscode.ExtensionContext) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        // Check if migration has already been run
+        const migrationKey = "globalReferencesMigrationCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        let hasMigrationRun = false;
+
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch (e) {
+            // Setting might not be registered yet; fall back to workspaceState
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
+
+        if (hasMigrationRun) {
+            console.log("Global references migration already completed, skipping");
+            return;
+        }
+
+        console.log("Running global references migration...");
+
+        const workspaceFolder = workspaceFolders[0];
+
+        // Find all codex and source files
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+
+        const allFiles = [...codexFiles, ...sourceFiles];
+
+        if (allFiles.length === 0) {
+            console.log("No codex or source files found, skipping global references migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                // If configuration key is not registered, fall back to workspaceState
+                await context?.workspaceState.update(migrationKey, true);
+            }
+            return;
+        }
+
+        let processedFiles = 0;
+        let migratedFiles = 0;
+
+        // Process files with progress
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Adding global references to cells",
+                cancellable: false
+            },
+            async (progress) => {
+                for (let i = 0; i < allFiles.length; i++) {
+                    const file = allFiles[i];
+                    progress.report({
+                        message: `Processing ${path.basename(file.fsPath)}`,
+                        increment: (100 / allFiles.length)
+                    });
+
+                    try {
+                        const wasMigrated = await migrateGlobalReferencesForFile(file);
+                        processedFiles++;
+                        if (wasMigrated) {
+                            migratedFiles++;
+                        }
+                    } catch (error) {
+                        console.error(`Error processing ${file.fsPath}:`, error);
+                    }
+                }
+            }
+        );
+
+        // Mark migration as completed
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch (e) {
+            // If configuration key is not registered, fall back to workspaceState
+            await context?.workspaceState.update(migrationKey, true);
+        }
+
+        console.log(`Global references migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        if (migratedFiles > 0) {
+            vscode.window.showInformationMessage(
+                `Global references migration complete: ${migratedFiles} files updated`
+            );
+        }
+
+    } catch (error) {
+        console.error("Error running global references migration:", error);
+    }
+};
+
+/**
+ * Processes a single file to add globalReferences to content cells.
+ * Returns true if the file was modified, false otherwise.
+ */
+export async function migrateGlobalReferencesForFile(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = notebookData.cells || [];
+        if (cells.length === 0) return false;
+
+        let hasChanges = false;
+
+        for (const cell of cells) {
+            const md: any = cell.metadata || {};
+            const cellType = md.type;
+            const cellId = md.id;
+
+            // Skip if cell doesn't have an ID
+            if (!cellId) {
+                continue;
+            }
+
+            // Skip STYLE, PARATEXT, and MILESTONE cells (only process content cells)
+            if (cellType === CodexCellTypes.STYLE ||
+                cellType === CodexCellTypes.PARATEXT ||
+                cellType === CodexCellTypes.MILESTONE) {
+                continue;
+            }
+
+            // Ensure metadata.data exists
+            if (!md.data) {
+                md.data = {};
+            }
+
+            // Skip if globalReferences already exists
+            if (md.data.globalReferences !== undefined) {
+                continue;
+            }
+
+            // Add globalReferences array with the cell's ID
+            md.data.globalReferences = [cellId];
+            cell.metadata = md;
+            hasChanges = true;
+        }
+
+        if (hasChanges) {
+            const updatedContent = await serializer.serializeNotebook(
+                notebookData,
+                new vscode.CancellationTokenSource().token
+            );
+            await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+            return true;
+        }
+
+        return false;
+    } catch (error) {
+        console.error(`Error migrating global references for ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
+
+/**
+ * Migration: Convert all cell IDs to UUID format using SHA-256 hash of original ID.
+ * For child cells (those with IDs containing ':' separators), adds metadata.parentId field.
+ * Preserves metadata.data.globalReferences array unchanged.
+ * 
+ * This migration is idempotent - it skips cells that already have UUID format IDs.
+ */
+export const migration_cellIdsToUuid = async (context?: vscode.ExtensionContext) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        // Check if migration has already been run
+        const migrationKey = "cellIdsToUuidMigrationCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        let hasMigrationRun = false;
+
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch (e) {
+            // Setting might not be registered yet; fall back to workspaceState
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
+
+        if (hasMigrationRun) {
+            console.log("Cell IDs to UUID migration already completed, skipping");
+            return;
+        }
+
+        console.log("Running cell IDs to UUID migration...");
+
+        const workspaceFolder = workspaceFolders[0];
+
+        // Find all codex and source files
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+
+        const allFiles = [...codexFiles, ...sourceFiles];
+
+        if (allFiles.length === 0) {
+            console.log("No codex or source files found, skipping cell IDs to UUID migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                // If configuration key is not registered, fall back to workspaceState
+                await context?.workspaceState.update(migrationKey, true);
+            }
+            return;
+        }
+
+        let processedFiles = 0;
+        let migratedFiles = 0;
+
+        // Process files with progress
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Migrating cell IDs to UUID format",
+                cancellable: false
+            },
+            async (progress) => {
+                for (let i = 0; i < allFiles.length; i++) {
+                    const file = allFiles[i];
+                    progress.report({
+                        message: `Processing ${path.basename(file.fsPath)}`,
+                        increment: (100 / allFiles.length)
+                    });
+
+                    try {
+                        const wasMigrated = await migrateCellIdsToUuidForFile(file);
+                        processedFiles++;
+                        if (wasMigrated) {
+                            migratedFiles++;
+                        }
+                    } catch (error) {
+                        console.error(`Error processing ${file.fsPath}:`, error);
+                    }
+                }
+            }
+        );
+
+        // Mark migration as completed
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch (e) {
+            // If configuration key is not registered, fall back to workspaceState
+            await context?.workspaceState.update(migrationKey, true);
+        }
+
+        console.log(`Cell IDs to UUID migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        if (migratedFiles > 0) {
+            vscode.window.showInformationMessage(
+                `Cell IDs to UUID migration complete: ${migratedFiles} files updated`
+            );
+        }
+
+    } catch (error) {
+        console.error("Error running cell IDs to UUID migration:", error);
+    }
+};
+
+/**
+ * Processes a single file to convert cell IDs to UUID format.
+ * Returns true if the file was modified, false otherwise.
+ */
+export async function migrateCellIdsToUuidForFile(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = notebookData.cells || [];
+        if (cells.length === 0) return false;
+
+        let hasChanges = false;
+
+        // First pass: check if file needs migration (all cells already have UUIDs)
+        let needsMigration = false;
+        for (const cell of cells) {
+            const md: any = cell.metadata || {};
+            const cellId = md.id;
+            if (cellId && !isUuidFormat(cellId)) {
+                needsMigration = true;
+                break;
+            }
+        }
+
+        if (!needsMigration) {
+            return false; // Already migrated
+        }
+
+        // Second pass: create a map of original IDs to UUIDs for all cells
+        const idToUuidMap = new Map<string, string>();
+
+        // Build the map first by processing all cells
+        for (const cell of cells) {
+            const md: any = cell.metadata || {};
+            const originalCellId = md.id;
+
+            if (!originalCellId) continue;
+
+            // Skip if already in UUID format
+            if (isUuidFormat(originalCellId)) {
+                continue;
+            }
+
+            // Generate UUID from original ID
+            const newUuid = await generateCellIdFromHash(originalCellId);
+            idToUuidMap.set(originalCellId, newUuid);
+
+            // Also generate UUIDs for parent IDs of child cells
+            const cellIdParts = originalCellId.split(":");
+            if (cellIdParts.length > 2) {
+                const parentOriginalId = cellIdParts.slice(0, 2).join(":");
+                if (!idToUuidMap.has(parentOriginalId)) {
+                    const parentUuid = await generateCellIdFromHash(parentOriginalId);
+                    idToUuidMap.set(parentOriginalId, parentUuid);
+                }
+            }
+        }
+
+        // Third pass: update cell IDs and add parentId for child cells
+        for (const cell of cells) {
+            const md: any = cell.metadata || {};
+            const originalCellId = md.id;
+
+            if (!originalCellId) continue;
+
+            // Skip if already in UUID format
+            if (isUuidFormat(originalCellId)) {
+                continue;
+            }
+
+            // Get UUID from map
+            const newUuid = idToUuidMap.get(originalCellId);
+            if (!newUuid) {
+                continue; // Should not happen, but skip if it does
+            }
+
+            // Update cell ID
+            md.id = newUuid;
+            hasChanges = true;
+
+            // Check if this is a child cell (has more than 2 parts when split by ':')
+            // Examples: "GEN 1:1:cue-..." or "TheChosen-201-en-SingleSpeaker 1:cue-32.783-34.785:..."
+            const cellIdParts = originalCellId.split(":");
+            if (cellIdParts.length > 2) {
+                // This is a child cell - extract parent ID
+                // Parent ID is the first two parts joined by ':'
+                const parentOriginalId = cellIdParts.slice(0, 2).join(":");
+                const parentUuid = idToUuidMap.get(parentOriginalId);
+
+                if (parentUuid) {
+                    // Add parentId to metadata
+                    md.parentId = parentUuid;
+                }
+            }
+
+            cell.metadata = md;
+        }
+
+        if (hasChanges) {
+            const updatedContent = await serializer.serializeNotebook(
+                notebookData,
+                new vscode.CancellationTokenSource().token
+            );
+            await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+            return true;
+        }
+
+        return false;
+    } catch (error) {
+        console.error(`Error migrating cell IDs to UUID for ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}

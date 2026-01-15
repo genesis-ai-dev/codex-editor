@@ -405,7 +405,206 @@ export class IDMLParser {
         // Post-process to merge verses split across paragraphs
         this.mergeSpanningVerses(paragraphs);
 
+        // Mark paragraphs that are part of spanning verses (between opening and closing meta markers)
+        this.markSpanningVerseParagraphs(paragraphs, storyXml);
+
         return paragraphs;
+    }
+
+    /**
+     * Mark paragraphs that are part of spanning verses
+     * Paragraphs between opening and closing meta%3av markers should be marked as verse content, not notes
+     */
+    private markSpanningVerseParagraphs(paragraphs: IDMLParagraph[], storyXml: string): void {
+        // Find all paragraph positions in the story XML
+        const paragraphMatches = [...storyXml.matchAll(/<ParagraphStyleRange[^>]*>/g)];
+
+        // Track current book and chapter
+        let currentBook = '';
+        let currentChapter = '1';
+
+        // Track active verses: verseKey -> { startParaIndex, bookAbbreviation, chapterNumber, verseNumber }
+        const activeVerses = new Map<string, { startParaIndex: number; bookAbbreviation: string; chapterNumber: string; verseNumber: string; }>();
+
+        // First pass: Directly scan XML for opening markers (cv%3av followed by opening meta%3av)
+        for (let i = 0; i < paragraphs.length; i++) {
+            const para = paragraphs[i];
+
+            // Update current book and chapter from paragraph metadata
+            if ((para.metadata as any)?.bookAbbreviation) {
+                currentBook = (para.metadata as any).bookAbbreviation;
+            }
+            if ((para.metadata as any)?.lastChapterNumber) {
+                currentChapter = (para.metadata as any).lastChapterNumber;
+            }
+
+            const paraXml = paragraphMatches[i] ? storyXml.substring(
+                paragraphMatches[i].index || 0,
+                i + 1 < paragraphMatches.length ? (paragraphMatches[i + 1].index || storyXml.length) : storyXml.length
+            ) : '';
+
+            // Look for pattern: cv%3av with verse number, followed by opening meta%3av with same verse number
+            // Pattern: <CharacterStyleRange AppliedCharacterStyle="...cv%3av..."><Content>(\d+)</Content>...<CharacterStyleRange AppliedCharacterStyle="...meta%3av..."><Content>\1</Content>
+            const cvMetaPattern = /<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*cv%3av[^"]*"[^>]*>\s*<Content>(\d+)<\/Content>[\s\S]*?<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*meta%3av[^"]*"[^>]*>\s*<Content>\1<\/Content>/gi;
+            const cvMetaMatches = [...paraXml.matchAll(cvMetaPattern)];
+
+            for (const match of cvMetaMatches) {
+                const verseNum = match[1];
+                const verseKey = `${currentBook} ${currentChapter}:${verseNum}`;
+
+                // Check if this verse already has a closing marker in the same paragraph
+                // If it does, it doesn't span paragraphs
+                const afterOpeningMeta = paraXml.substring(match.index! + match[0].length);
+                const closingMetaInSamePara = new RegExp(
+                    `<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*meta%3av[^"]*"[^>]*>\\s*<Content>${verseNum}</Content>`,
+                    'gi'
+                );
+                const closingMatches = [...afterOpeningMeta.matchAll(closingMetaInSamePara)];
+
+                // Check if any closing marker has content before it (not just opening marker)
+                let hasClosingMarker = false;
+                for (const closingMatch of closingMatches) {
+                    const beforeClosing = afterOpeningMeta.substring(0, closingMatch.index || 0);
+                    const hasContentBefore = /<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*\$ID\/\[No character style\]/i.test(beforeClosing);
+                    const hasCvBefore = /<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*cv%3av[^"]*"[^>]*>\s*<Content>\d+<\/Content>/i.test(beforeClosing);
+                    if (hasContentBefore && !hasCvBefore) {
+                        hasClosingMarker = true;
+                        break;
+                    }
+                }
+
+                // If no closing marker in same paragraph, this verse spans paragraphs
+                if (!hasClosingMarker) {
+                    this.debugLog(`Found opening marker for verse ${verseKey} at paragraph ${i} (no closing marker in same paragraph)`);
+                    activeVerses.set(verseKey, {
+                        startParaIndex: i,
+                        bookAbbreviation: currentBook,
+                        chapterNumber: currentChapter,
+                        verseNumber: verseNum
+                    });
+                }
+            }
+
+            // Fallback: Also check verse segments if they exist (in case XML pattern didn't match)
+            const verseSegments = (para.metadata as any)?.biblicaVerseSegments || [];
+            for (const segment of verseSegments) {
+                const bookAbbrev = segment.bookAbbreviation || currentBook;
+                const chapterNum = segment.chapterNumber || currentChapter;
+                const verseNum = segment.verseNumber;
+                const verseKey = `${bookAbbrev} ${chapterNum}:${verseNum}`;
+
+                // Skip if already tracked
+                if (activeVerses.has(verseKey)) {
+                    continue;
+                }
+
+                // Check if verseStructureXml contains multiple ParagraphStyleRange closing tags
+                const verseStructureXml = segment.verseStructureXml || '';
+                const paragraphCount = (verseStructureXml.match(/<\/ParagraphStyleRange>/g) || []).length;
+
+                // If it spans paragraphs, track it
+                if (paragraphCount > 1) {
+                    this.debugLog(`Found verse segment for ${verseKey} at paragraph ${i} that spans ${paragraphCount} paragraphs`);
+                    activeVerses.set(verseKey, {
+                        startParaIndex: i,
+                        bookAbbreviation: bookAbbrev,
+                        chapterNumber: chapterNum,
+                        verseNumber: verseNum
+                    });
+                }
+            }
+        }
+
+        // Second pass: Find closing markers and mark intermediate paragraphs
+        for (let i = 0; i < paragraphs.length; i++) {
+            const para = paragraphs[i];
+
+            // Update current book and chapter
+            if ((para.metadata as any)?.bookAbbreviation) {
+                currentBook = (para.metadata as any).bookAbbreviation;
+            }
+            if ((para.metadata as any)?.lastChapterNumber) {
+                currentChapter = (para.metadata as any).lastChapterNumber;
+            }
+
+            const paraXml = paragraphMatches[i] ? storyXml.substring(
+                paragraphMatches[i].index || 0,
+                i + 1 < paragraphMatches.length ? (paragraphMatches[i + 1].index || storyXml.length) : storyXml.length
+            ) : '';
+
+            // Check for closing meta%3av markers
+            const closingMetaPattern = /<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*meta%3av[^"]*"[^>]*>\s*<Content>(\d+)<\/Content>/gi;
+            const closingMatches = [...paraXml.matchAll(closingMetaPattern)];
+
+            for (const match of closingMatches) {
+                const verseNum = match[1];
+
+                // Check if this is a closing marker (has content before it, no cv%3av before it)
+                const matchIndex = match.index || 0;
+                const beforeMarker = paraXml.substring(0, matchIndex);
+                const hasContentBefore = /<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*\$ID\/\[No character style\]/i.test(beforeMarker);
+                const hasCvBefore = /<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*cv%3av[^"]*"[^>]*>\s*<Content>\d+<\/Content>/i.test(beforeMarker);
+
+                if (!hasContentBefore || hasCvBefore) {
+                    continue; // Not a closing marker
+                }
+
+                // Try to find matching active verse - first try with current book/chapter
+                let verseKey = `${currentBook} ${currentChapter}:${verseNum}`;
+                let activeVerse = activeVerses.get(verseKey);
+
+                // If not found, try to match by verse number across all active verses
+                // This handles cases where book/chapter tracking might be off
+                if (!activeVerse) {
+                    for (const [key, verse] of activeVerses.entries()) {
+                        if (verse.verseNumber === verseNum && i > verse.startParaIndex) {
+                            // Found a potential match - use the book/chapter from the active verse
+                            verseKey = key;
+                            activeVerse = verse;
+                            this.debugLog(`Matched closing marker for verse ${verseNum} to active verse ${key} (using book/chapter from opening)`);
+                            break;
+                        }
+                    }
+                }
+
+                // If we found a matching active verse, mark intermediate paragraphs
+                if (activeVerse) {
+                    this.debugLog(`Found closing marker for verse ${verseKey} at paragraph ${i} (opened at paragraph ${activeVerse.startParaIndex})`);
+
+                    // Mark all paragraphs between opening and closing as part of the verse
+                    // Include the paragraph with the closing marker if it has content before the marker
+                    for (let k = activeVerse.startParaIndex + 1; k <= i; k++) {
+                        const intermediatePara = paragraphs[k];
+                        const existingMetadata = (intermediatePara.metadata as any) || {};
+
+                        // Only mark if this paragraph doesn't already have verse segments
+                        if (!existingMetadata.biblicaVerseSegments || existingMetadata.biblicaVerseSegments.length === 0) {
+                            existingMetadata.isPartOfSpanningVerse = true;
+                            existingMetadata.spanningVerseInfo = {
+                                bookAbbreviation: activeVerse.bookAbbreviation,
+                                chapterNumber: activeVerse.chapterNumber,
+                                verseNumber: activeVerse.verseNumber,
+                                verseKey: `${activeVerse.bookAbbreviation} ${activeVerse.chapterNumber}:${activeVerse.verseNumber}`
+                            };
+                            intermediatePara.metadata = existingMetadata;
+                            this.debugLog(`Marked paragraph ${k} as part of spanning verse ${verseKey} (from paragraph ${activeVerse.startParaIndex} to ${i})`);
+                        } else {
+                            this.debugLog(`Paragraph ${k} already has verse segments, skipping`);
+                        }
+                    }
+
+                    // Remove from active verses
+                    activeVerses.delete(verseKey);
+                } else {
+                    this.debugLog(`Found closing marker for verse ${verseNum} at paragraph ${i} but no matching active verse found (current book: ${currentBook}, chapter: ${currentChapter})`);
+                }
+            }
+        }
+
+        // Clean up any remaining active verses
+        if (activeVerses.size > 0) {
+            this.debugLog(`Warning: ${activeVerses.size} active verse(s) not closed: ${Array.from(activeVerses.keys()).join(', ')}`);
+        }
     }
 
     /**
@@ -678,49 +877,129 @@ export class IDMLParser {
                 if (storyXml && paragraphIndex >= 0 && openingMetaXml && verseNumber) {
                     // Find all paragraph start positions in the story XML
                     const paragraphMatches = [...storyXml.matchAll(/<ParagraphStyleRange[^>]*>/g)];
-                    
+
                     if (paragraphMatches.length > paragraphIndex) {
                         // Find the current paragraph's start position
                         const currentParaStart = paragraphMatches[paragraphIndex].index || 0;
-                        
+
                         // Find the next paragraph's start (or end of story)
-                        const nextParaStart = paragraphIndex + 1 < paragraphMatches.length 
+                        const nextParaStart = paragraphIndex + 1 < paragraphMatches.length
                             ? (paragraphMatches[paragraphIndex + 1].index || storyXml.length)
                             : storyXml.length;
-                        
+
                         // Search in the current paragraph area for the opening meta marker
                         const currentParaXml = storyXml.substring(currentParaStart, nextParaStart);
                         const openingMetaPos = currentParaXml.indexOf(openingMetaXml);
-                        
+
                         if (openingMetaPos >= 0) {
                             // Calculate absolute position of opening meta marker
                             const openingMetaAbsPos = currentParaStart + openingMetaPos;
-                            
-                            // Search forward from after the opening meta marker for the closing meta marker
-                            // Pattern: <CharacterStyleRange ... meta%3av ...><Content>verseNumber</Content></CharacterStyleRange>
-                            const closingMetaPattern = new RegExp(
-                                `<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*meta%3av[^"]*"[^>]*>\\s*<Content>${escapeRegExp(verseNumber)}</Content>\\s*</CharacterStyleRange>`,
-                                'i'
-                            );
-                            
+
+                            // SIMPLER APPROACH: Find the next verse's opening marker (cv%3av or meta%3av)
+                            // If we find a new verse starting, the current verse has ended.
+                            // Then search backward from that point to find the current verse's closing meta marker.
+                            // Structure: [opening meta verse N] -> content -> [closing meta verse N] -> [cv%3av verse N+1] -> [opening meta verse N+1]
                             const searchStart = openingMetaAbsPos + openingMetaXml.length;
                             const searchText = storyXml.substring(searchStart);
-                            const closingMatch = searchText.match(closingMetaPattern);
-                            
-                            if (closingMatch && closingMatch.index !== undefined) {
-                                // Extract everything from opening meta marker to closing meta marker (including entire paragraphs)
+
+                            // Find the next verse's cv%3av marker OR opening meta marker (must be a DIFFERENT verse number)
+                            const nextVerseCvPattern = new RegExp(
+                                `<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*cv%3av[^"]*"[^>]*>\\s*<Content>(\\d+)</Content>`,
+                                'i'
+                            );
+                            const nextVerseMetaPattern = new RegExp(
+                                `<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*meta%3av[^"]*"[^>]*>\\s*<Content>(\\d+)</Content>`,
+                                'i'
+                            );
+
+                            const nextVerseCvMatch = searchText.match(nextVerseCvPattern);
+                            const nextVerseMetaMatch = searchText.match(nextVerseMetaPattern);
+
+                            // Determine where the next verse starts
+                            let nextVerseStartPos: number | undefined = undefined;
+                            let nextVerseNumber: string | undefined = undefined;
+
+                            if (nextVerseCvMatch && nextVerseCvMatch[1] !== verseNumber) {
+                                nextVerseStartPos = nextVerseCvMatch.index;
+                                nextVerseNumber = nextVerseCvMatch[1];
+                            } else if (nextVerseMetaMatch && nextVerseMetaMatch[1] !== verseNumber) {
+                                nextVerseStartPos = nextVerseMetaMatch.index;
+                                nextVerseNumber = nextVerseMetaMatch[1];
+                            }
+
+                            // If we found the next verse, search backward from that point for the closing meta marker
+                            let closingMatch: RegExpMatchArray | null = null;
+                            let closingMatchIndex: number | undefined = undefined;
+                            let verseEndPos: number | undefined = undefined;
+
+                            if (nextVerseStartPos !== undefined) {
+                                // Search backward from the next verse's start position
+                                const textBeforeNextVerse = searchText.substring(0, nextVerseStartPos);
+                                const closingMetaPattern = new RegExp(
+                                    `<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*meta%3av[^"]*"[^>]*>\\s*<Content>${escapeRegExp(verseNumber)}</Content>\\s*</CharacterStyleRange>`,
+                                    'gi'
+                                );
+
+                                const closingMatches = [...textBeforeNextVerse.matchAll(closingMetaPattern)];
+                                if (closingMatches.length > 0) {
+                                    // Use the last closing meta marker found before the next verse
+                                    const lastClosingMatch = closingMatches[closingMatches.length - 1];
+                                    closingMatch = lastClosingMatch as RegExpMatchArray;
+                                    closingMatchIndex = lastClosingMatch.index;
+                                    verseEndPos = searchStart + closingMatchIndex! + closingMatch[0].length;
+                                    afterVerse = closingMatch[0];
+                                } else {
+                                    // No closing marker found, use the next verse's start as the end
+                                    verseEndPos = searchStart + nextVerseStartPos;
+                                }
+                            } else {
+                                // No next verse found - search for this verse's closing meta marker
+                                const closingMetaPattern = new RegExp(
+                                    `<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*meta%3av[^"]*"[^>]*>\\s*<Content>${escapeRegExp(verseNumber)}</Content>\\s*</CharacterStyleRange>`,
+                                    'gi'
+                                );
+
+                                const closingMatches = [...searchText.matchAll(closingMetaPattern)];
+                                if (closingMatches.length > 0) {
+                                    // Use the last closing meta marker found
+                                    const lastClosingMatch = closingMatches[closingMatches.length - 1];
+                                    closingMatch = lastClosingMatch as RegExpMatchArray;
+                                    closingMatchIndex = lastClosingMatch.index;
+                                    verseEndPos = searchStart + closingMatchIndex! + closingMatch[0].length;
+                                    afterVerse = closingMatch[0];
+                                } else {
+                                    // Fallback: use end of search text
+                                    verseEndPos = searchStart + searchText.length;
+                                }
+                            }
+
+                            if (verseEndPos !== undefined) {
+                                // Extract everything from opening meta marker to the end position
                                 // verseStructureXml should include: opening meta + content + closing meta
                                 const verseStart = openingMetaAbsPos;
-                                const verseEnd = searchStart + closingMatch.index + closingMatch[0].length;
-                                const fullVerseXml = storyXml.substring(verseStart, verseEnd);
-                                
-                                // Extract the closing meta marker
-                                afterVerse = closingMatch[0];
-                                
+                                const fullVerseXml = storyXml.substring(verseStart, verseEndPos);
+
+                                // If we didn't capture the closing meta marker yet, extract it from the full XML
+                                if (!afterVerse && closingMatch) {
+                                    afterVerse = closingMatch[0];
+                                } else if (!afterVerse) {
+                                    // Try to find closing marker in the full XML
+                                    const closingMetaPattern = new RegExp(
+                                        `<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*meta%3av[^"]*"[^>]*>\\s*<Content>${escapeRegExp(verseNumber)}</Content>\\s*</CharacterStyleRange>`,
+                                        'gi'
+                                    );
+                                    const closingMatches = [...fullVerseXml.matchAll(closingMetaPattern)];
+                                    if (closingMatches.length > 0) {
+                                        // Use the last one (should be the closing marker)
+                                        const lastClosingMatch = closingMatches[closingMatches.length - 1];
+                                        afterVerse = lastClosingMatch[0];
+                                    }
+                                }
+
                                 // Parse the extracted XML to extract content and footnotes
                                 const parser = new DOMParser();
                                 const verseDoc = parser.parseFromString(`<root>${fullVerseXml}</root>`, 'text/xml');
-                                
+
                                 // Extract plain text content (skip meta markers and verse numbers)
                                 const allContentNodes = verseDoc.getElementsByTagName('Content');
                                 for (let j = 0; j < allContentNodes.length; j++) {
@@ -731,7 +1010,7 @@ export class IDMLParser {
                                         const isDefaultStyle = style.includes('$ID/[No character style]');
                                         const isMetaVerse = style.includes('meta%3av') || style.includes('meta:v');
                                         const isVerseNumber = style.includes('cv%3av') || style.includes('cv:v');
-                                        
+
                                         // Only include content from default styled ranges (not meta markers or verse numbers)
                                         if (isDefaultStyle && !isMetaVerse && !isVerseNumber) {
                                             let text = contentNode.textContent || '';
@@ -740,7 +1019,7 @@ export class IDMLParser {
                                         }
                                     }
                                 }
-                                
+
                                 // Extract footnotes
                                 const footnoteElements = verseDoc.getElementsByTagName('Footnote');
                                 for (let j = 0; j < footnoteElements.length; j++) {
@@ -749,46 +1028,47 @@ export class IDMLParser {
                                     footnoteXml = removeAceInstructions(footnoteXml);
                                     footnotes.push(footnoteXml);
                                 }
-                                
+
                                 // Clean the full verse XML and use it as verseStructureXml
                                 // This includes opening meta + content + closing meta
                                 verseStructureXml = removeAceInstructions(fullVerseXml);
-                                
-                                this.debugLog(`Extracted cross-paragraph verse ${verseNumber} structure (${fullVerseXml.length} chars, spans ${fullVerseXml.split('</ParagraphStyleRange>').length - 1} paragraphs)`);
-                                
+
+                                const paragraphCount = fullVerseXml.split('</ParagraphStyleRange>').length - 1;
+                                this.debugLog(`Extracted cross-paragraph verse ${verseNumber} structure (${fullVerseXml.length} chars, spans ${paragraphCount} paragraphs)${nextVerseNumber ? `, next verse: ${nextVerseNumber}` : ''}`);
+
                                 // Skip all CharacterStyleRanges in current paragraph that are part of this verse
                                 // Continue until we hit a new verse marker or the end of the paragraph
                                 while (i < csrNodes.length) {
                                     const csrNode = csrNodes[i];
                                     const appliedStyle = csrNode.getAttribute('AppliedCharacterStyle') || '';
-                                    
+
                                     // Stop if we hit the closing meta marker (in same paragraph)
                                     if (isMetaVerseStyle(csrNode) && csrNode.textContent?.trim() === verseNumber) {
                                         i++; // Skip the closing marker
                                         break;
                                     }
-                                    
-                                    // Stop if we hit a new verse marker
+
+                                    // Stop if we hit a new verse marker (cv%3av)
                                     if (isVerseNumberStyle(csrNode)) {
                                         break;
                                     }
-                                    
+
                                     i++;
                                 }
                             } else {
                                 // Fallback: process verse within current paragraph only
                                 this.debugLog(`Closing meta marker not found for verse ${verseNumber}, processing within paragraph only`);
                                 i = openingMetaIndex + 1; // Reset to after opening meta
-                                
+
                                 // Process verse content within current paragraph
                                 while (i < csrNodes.length && !isMetaVerseStyle(csrNodes[i]) && !isVerseNumberStyle(csrNodes[i])) {
                                     const csrNode = csrNodes[i];
                                     const appliedStyle = csrNode.getAttribute('AppliedCharacterStyle') || '';
                                     const isDefaultStyle = appliedStyle.includes('$ID/[No character style]');
                                     const isFootnoteCall = appliedStyle.includes('notes%3af_call') || appliedStyle.includes('notes:f_call');
-                                    const isInlineFootnoteContent = appliedStyle.includes('notes%3af_c') || 
-                                        appliedStyle.includes('notes%3af_v') || 
-                                        appliedStyle.includes('notes%3afr_sp') || 
+                                    const isInlineFootnoteContent = appliedStyle.includes('notes%3af_c') ||
+                                        appliedStyle.includes('notes%3af_v') ||
+                                        appliedStyle.includes('notes%3afr_sp') ||
                                         appliedStyle.includes('notes%3aft');
 
                                     if (isFootnoteCall) {
@@ -826,7 +1106,7 @@ export class IDMLParser {
 
                                     i++;
                                 }
-                                
+
                                 // Collect closing meta marker if found
                                 if (i < csrNodes.length && isMetaVerseStyle(csrNodes[i])) {
                                     afterVerse = serializeElClean(csrNodes[i]);
@@ -842,9 +1122,9 @@ export class IDMLParser {
                         const appliedStyle = csrNode.getAttribute('AppliedCharacterStyle') || '';
                         const isDefaultStyle = appliedStyle.includes('$ID/[No character style]');
                         const isFootnoteCall = appliedStyle.includes('notes%3af_call') || appliedStyle.includes('notes:f_call');
-                        const isInlineFootnoteContent = appliedStyle.includes('notes%3af_c') || 
-                            appliedStyle.includes('notes%3af_v') || 
-                            appliedStyle.includes('notes%3afr_sp') || 
+                        const isInlineFootnoteContent = appliedStyle.includes('notes%3af_c') ||
+                            appliedStyle.includes('notes%3af_v') ||
+                            appliedStyle.includes('notes%3afr_sp') ||
                             appliedStyle.includes('notes%3aft');
 
                         if (isFootnoteCall) {
@@ -882,7 +1162,7 @@ export class IDMLParser {
 
                         i++;
                     }
-                    
+
                     if (i < csrNodes.length && isMetaVerseStyle(csrNodes[i])) {
                         afterVerse = serializeElClean(csrNodes[i]);
                         i++;
