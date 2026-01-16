@@ -1060,7 +1060,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     updateMilestoneValue: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "updateMilestoneValue"; }>;
-        console.log("updateMilestoneValue message received", { event });
+        debug("updateMilestoneValue message received", { event });
+
+        const refreshWebviewIfNotDeferred = () => {
+            if (!typedEvent.content.deferRefresh) {
+                provider.refreshWebview(webviewPanel, document);
+            }
+        };
 
         // Build milestone index to find the milestone cell
         const milestoneIndex = document.buildMilestoneIndex();
@@ -1100,15 +1106,17 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         let codexSaveSucceeded = false;
         let sourceUpdateSucceeded = false;
 
-        // Preserve current milestone index and subsection before refreshing webview
-        // Get current subsection from map if available, otherwise use cached subsection
+        // Preserve current milestone index and subsection BEFORE any document changes
+        // This ensures that document change events will use the correct milestone index
         const docUri = document.uri.toString();
         const currentPosition = provider.currentMilestoneSubsectionMap.get(docUri);
         const subsectionIndex = currentPosition?.subsectionIndex ?? provider.getCachedSubsection(docUri);
 
         // Save milestone index to preserve position after refresh
+        // Use the milestone index from the event, which comes from the React component's current state
+        const milestoneIndexToPreserve = typedEvent.content.milestoneIndex;
         provider.currentMilestoneSubsectionMap.set(docUri, {
-            milestoneIndex: typedEvent.content.milestoneIndex,
+            milestoneIndex: milestoneIndexToPreserve,
             subsectionIndex: subsectionIndex,
         });
 
@@ -1117,6 +1125,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             await document.refreshAuthor();
 
             // Update the milestone cell value in codex file
+            // NOTE: This will fire onDidChangeForVsCodeAndWebview event, which will trigger updateWebview()
+            // But updateWebview() will now use the milestone index we just set above
             await document.updateCellContent(
                 milestoneCellId,
                 typedEvent.content.newValue,
@@ -1152,7 +1162,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     `Milestone updated in codex file, but could not find corresponding source file.`
                 );
                 // Refresh webview even if source file not found - codex update succeeded
-                provider.refreshWebview(webviewPanel, document);
+                refreshWebviewIfNotDeferred();
                 return;
             }
 
@@ -1165,7 +1175,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     `Milestone updated in codex file, but source file not found at ${sourceUri.fsPath}`
                 );
                 // Refresh webview even if source file doesn't exist - codex update succeeded
-                provider.refreshWebview(webviewPanel, document);
+                refreshWebviewIfNotDeferred();
                 return;
             }
 
@@ -1187,7 +1197,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         `Milestone updated in codex file, but milestone at index ${typedEvent.content.milestoneIndex} not found in source file.`
                     );
                     // Refresh webview even if milestone not found - codex update succeeded
-                    provider.refreshWebview(webviewPanel, document);
+                    refreshWebviewIfNotDeferred();
                     return;
                 }
 
@@ -1199,7 +1209,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         `Milestone updated in codex file, but milestone cell not found in source file.`
                     );
                     // Refresh webview even if milestone cell not found - codex update succeeded
-                    provider.refreshWebview(webviewPanel, document);
+                    refreshWebviewIfNotDeferred();
                     return;
                 }
 
@@ -1210,7 +1220,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         `Milestone updated in codex file, but cell in source file is not a milestone cell.`
                     );
                     // Refresh webview even if cell type mismatch - codex update succeeded
-                    provider.refreshWebview(webviewPanel, document);
+                    refreshWebviewIfNotDeferred();
                     return;
                 }
 
@@ -1254,7 +1264,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         `Milestone updated in codex file, but failed to save source file: ${sourceSaveError instanceof Error ? sourceSaveError.message : String(sourceSaveError)}`
                     );
                     // Refresh webview even if source save failed - codex update succeeded
-                    provider.refreshWebview(webviewPanel, document);
+                    refreshWebviewIfNotDeferred();
                     return;
                 }
 
@@ -1280,7 +1290,26 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             return;
         }
 
-        // Refresh the webview to show the updated milestone
+        // Before refreshing, verify that the milestone index is still valid after the document update
+        // Rebuild milestone index to ensure we have the latest state
+        const updatedMilestoneIndex = document.buildMilestoneIndex();
+        const preservedPosition = provider.currentMilestoneSubsectionMap.get(docUri);
+
+        if (preservedPosition) {
+            // Validate that the preserved milestone index is still valid
+            if (preservedPosition.milestoneIndex >= 0 && preservedPosition.milestoneIndex < updatedMilestoneIndex.milestones.length) {
+                // Valid milestone index, proceed with refresh
+            } else {
+                // Invalid milestone index in map - refreshWebview will handle the fallback logic
+            }
+        }
+
+        // Only refresh if deferRefresh is not set to true
+        refreshWebviewIfNotDeferred();
+    },
+
+    refreshWebviewAfterMilestoneEdits: async ({ document, webviewPanel, provider }) => {
+        // Refresh the webview after batching multiple milestone edits
         provider.refreshWebview(webviewPanel, document);
     },
 
