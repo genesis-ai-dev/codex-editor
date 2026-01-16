@@ -1060,7 +1060,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     updateMilestoneValue: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "updateMilestoneValue"; }>;
-        console.log("updateMilestoneValue message received", { event });
+        debug("updateMilestoneValue message received", { event });
+
+        const refreshWebviewIfNotDeferred = () => {
+            if (!typedEvent.content.deferRefresh) {
+                provider.refreshWebview(webviewPanel, document);
+            }
+        };
 
         // Build milestone index to find the milestone cell
         const milestoneIndex = document.buildMilestoneIndex();
@@ -1156,7 +1162,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     `Milestone updated in codex file, but could not find corresponding source file.`
                 );
                 // Refresh webview even if source file not found - codex update succeeded
-                provider.refreshWebview(webviewPanel, document);
+                refreshWebviewIfNotDeferred();
                 return;
             }
 
@@ -1169,7 +1175,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     `Milestone updated in codex file, but source file not found at ${sourceUri.fsPath}`
                 );
                 // Refresh webview even if source file doesn't exist - codex update succeeded
-                provider.refreshWebview(webviewPanel, document);
+                refreshWebviewIfNotDeferred();
                 return;
             }
 
@@ -1191,7 +1197,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         `Milestone updated in codex file, but milestone at index ${typedEvent.content.milestoneIndex} not found in source file.`
                     );
                     // Refresh webview even if milestone not found - codex update succeeded
-                    provider.refreshWebview(webviewPanel, document);
+                    refreshWebviewIfNotDeferred();
                     return;
                 }
 
@@ -1203,7 +1209,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         `Milestone updated in codex file, but milestone cell not found in source file.`
                     );
                     // Refresh webview even if milestone cell not found - codex update succeeded
-                    provider.refreshWebview(webviewPanel, document);
+                    refreshWebviewIfNotDeferred();
                     return;
                 }
 
@@ -1214,7 +1220,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         `Milestone updated in codex file, but cell in source file is not a milestone cell.`
                     );
                     // Refresh webview even if cell type mismatch - codex update succeeded
-                    provider.refreshWebview(webviewPanel, document);
+                    refreshWebviewIfNotDeferred();
                     return;
                 }
 
@@ -1258,7 +1264,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         `Milestone updated in codex file, but failed to save source file: ${sourceSaveError instanceof Error ? sourceSaveError.message : String(sourceSaveError)}`
                     );
                     // Refresh webview even if source save failed - codex update succeeded
-                    provider.refreshWebview(webviewPanel, document);
+                    refreshWebviewIfNotDeferred();
                     return;
                 }
 
@@ -1298,7 +1304,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
         }
 
-        // Refresh the webview to show the updated milestone
+        // Only refresh if deferRefresh is not set to true
+        refreshWebviewIfNotDeferred();
+    },
+
+    refreshWebviewAfterMilestoneEdits: async ({ document, webviewPanel, provider }) => {
+        // Refresh the webview after batching multiple milestone edits
         provider.refreshWebview(webviewPanel, document);
     },
 
