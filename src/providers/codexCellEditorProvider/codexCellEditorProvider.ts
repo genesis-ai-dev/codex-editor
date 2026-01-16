@@ -694,6 +694,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 safePostMessageToPanel(webviewPanel, {
                     type: "refreshCurrentPage",
                     rev,
+                    milestoneIndex: currentPosition.milestoneIndex,
+                    subsectionIndex: currentPosition.subsectionIndex,
                 });
                 // Still send metadata updates below, but skip the initial content reset
             } else {
@@ -741,25 +743,56 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             const milestoneProgress = document.calculateMilestoneProgress(validationCount, validationCountAudio);
             milestoneIndex.milestoneProgress = milestoneProgress;
 
-            // Get cached chapter and map it to milestone index
-            const cachedChapter = this.getCachedChapter(docUri);
+            // Check currentMilestoneSubsectionMap first to preserve position (same logic as refreshWebview)
             let initialMilestoneIndex = 0;
-            const initialSubsectionIndex = this.getCachedSubsection(docUri);
+            let initialSubsectionIndex = this.getCachedSubsection(docUri);
 
-            // If we have milestones and a cached chapter, try to find the matching milestone
-            if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
-                // Find milestone that matches the cached chapter number
-                const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
-                    const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
-                    return chapterNum !== null && chapterNum === cachedChapter;
-                });
-                if (milestoneIdx !== -1) {
-                    initialMilestoneIndex = milestoneIdx;
+            if (currentPosition && milestoneIndex.milestones.length > 0) {
+                // Use milestone index from map if it's valid
+                if (currentPosition.milestoneIndex >= 0 && currentPosition.milestoneIndex < milestoneIndex.milestones.length) {
+                    initialMilestoneIndex = currentPosition.milestoneIndex;
+                    initialSubsectionIndex = currentPosition.subsectionIndex;
                 } else {
-                    // Fallback: try using chapter number as index (1-indexed to 0-indexed)
-                    const fallbackIdx = cachedChapter - 1;
-                    if (fallbackIdx >= 0 && fallbackIdx < milestoneIndex.milestones.length) {
-                        initialMilestoneIndex = fallbackIdx;
+                    // Invalid milestone index in map, fall back to cached chapter logic
+                    const cachedChapter = this.getCachedChapter(docUri);
+                    initialSubsectionIndex = this.getCachedSubsection(docUri);
+
+                    if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
+                        // Find milestone that matches the cached chapter number
+                        const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
+                            const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
+                            return chapterNum !== null && chapterNum === cachedChapter;
+                        });
+                        if (milestoneIdx !== -1) {
+                            initialMilestoneIndex = milestoneIdx;
+                        } else {
+                            // Fallback: try using chapter number as index (1-indexed to 0-indexed)
+                            const fallbackIdx = cachedChapter - 1;
+                            if (fallbackIdx >= 0 && fallbackIdx < milestoneIndex.milestones.length) {
+                                initialMilestoneIndex = fallbackIdx;
+                            }
+                        }
+                    }
+                }
+            } else {
+                // No entry in map, fall back to cached chapter logic
+                const cachedChapter = this.getCachedChapter(docUri);
+                initialSubsectionIndex = this.getCachedSubsection(docUri);
+
+                if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
+                    // Find milestone that matches the cached chapter number
+                    const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
+                        const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
+                        return chapterNum !== null && chapterNum === cachedChapter;
+                    });
+                    if (milestoneIdx !== -1) {
+                        initialMilestoneIndex = milestoneIdx;
+                    } else {
+                        // Fallback: try using chapter number as index (1-indexed to 0-indexed)
+                        const fallbackIdx = cachedChapter - 1;
+                        if (fallbackIdx >= 0 && fallbackIdx < milestoneIndex.milestones.length) {
+                            initialMilestoneIndex = fallbackIdx;
+                        }
                     }
                 }
             }
@@ -1294,6 +1327,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     ): Promise<void> {
         debug("Saving custom document:", document.uri.toString(),);
 
+        // Capture webview state before save (in case it gets closed during atomic write)
+        const webviewPanelBeforeSave = this.webviewPanels.get(document.uri.toString());
+        let viewColumn: vscode.ViewColumn | undefined;
+        let wasActive = false;
+        if (webviewPanelBeforeSave) {
+            viewColumn = webviewPanelBeforeSave.viewColumn ?? vscode.ViewColumn.Active;
+            wasActive = webviewPanelBeforeSave.active;
+        }
+
         try {
             // Set status to syncing
             this.updateFileStatus("syncing");
@@ -1301,6 +1343,24 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Save the document
             await document.save(cancellation);
             debug("Document save completed, isDirty should be false:", document.isDirty);
+
+            // Check if webview was closed during save (due to atomic write rename triggering deletion detection)
+            const webviewPanelAfterSave = this.webviewPanels.get(document.uri.toString());
+            if (webviewPanelBeforeSave && !webviewPanelAfterSave) {
+                // Restore the webview by reopening the document
+                try {
+                    await vscode.commands.executeCommand(
+                        "vscode.openWith",
+                        document.uri,
+                        "codex.cellEditor",
+                        { viewColumn: viewColumn ?? vscode.ViewColumn.Active, preserveFocus: !wasActive }
+                    );
+                    // Wait a bit for the webview to be created
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                } catch (restoreError) {
+                    console.error(`[SaveCustomDocument] Failed to restore webview:`, restoreError);
+                }
+            }
 
             // Get the SyncManager singleton
             const syncManager = SyncManager.getInstance();
@@ -2303,6 +2363,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     public async refreshWebview(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument) {
         debug("Refreshing webview");
+
+        // Check if webview is disposed before attempting to use it
+        try {
+            // Try to access webview property to check if disposed
+            const _ = webviewPanel.webview;
+        } catch (error) {
+            debug("Webview is disposed, skipping refresh");
+            return;
+        }
+
         const notebookData = this.getDocumentAsJson(document);
         const isSourceText = this.isSourceText(document.uri);
         const videoUrl = this.getVideoUrl(notebookData.metadata?.videoUrl, webviewPanel);
@@ -2320,12 +2390,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
         this.refreshInFlight.add(docKey);
 
-        webviewPanel.webview.html = this.getHtmlForWebview(
-            webviewPanel.webview,
-            document,
-            this.getTextDirection(document),
-            isSourceText
-        );
+        try {
+            webviewPanel.webview.html = this.getHtmlForWebview(
+                webviewPanel.webview,
+                document,
+                this.getTextDirection(document),
+                isSourceText
+            );
+        } catch (error) {
+            // Webview was disposed between check and use, clean up and return
+            this.refreshInFlight.delete(docKey);
+            debug("Webview disposed while setting HTML in refreshWebview");
+            return;
+        }
 
         // Get bundled metadata to avoid separate requests
         const config = vscode.workspace.getConfiguration("codex-project-manager");
@@ -2413,14 +2490,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
 
         // Schedule updates to wait for webview ready signal
+        // IMPORTANT: Capture the milestone index values in the closure to ensure they're not affected by any changes
+        // that might happen between now and when the webview sends the ready signal
+        const capturedMilestoneIndex = initialMilestoneIndex;
+        const capturedSubsectionIndex = initialSubsectionIndex;
+
         this.scheduleWebviewUpdate(document.uri.toString(), () => {
             // Send paginated initial content with milestone index
             this.postMessageToWebview(webviewPanel, {
                 type: "providerSendsInitialContentPaginated",
                 milestoneIndex: milestoneIndex,
                 cells: processedInitialCells,
-                currentMilestoneIndex: initialMilestoneIndex,
-                currentSubsectionIndex: initialSubsectionIndex,
+                currentMilestoneIndex: capturedMilestoneIndex,
+                currentSubsectionIndex: capturedSubsectionIndex,
                 isSourceText: isSourceText,
                 sourceCellMap: initialSourceCellMap,
                 username: username,
@@ -2463,7 +2545,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         videoPath: string | undefined,
         webviewPanel: vscode.WebviewPanel
     ): string | null {
-        return processVideoUrl(videoPath, webviewPanel.webview);
+        try {
+            return processVideoUrl(videoPath, webviewPanel.webview);
+        } catch (error) {
+            // Webview is disposed, return null
+            debug("Webview disposed in getVideoUrl, returning null");
+            return null;
+        }
     }
 
     public updateCellIdState(cellId: string, uri: string, document?: CodexCellDocument) {
