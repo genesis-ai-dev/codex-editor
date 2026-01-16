@@ -5,10 +5,10 @@ import { MetadataManager } from "../utils/metadataManager";
 import {
     validateGitUrl,
     generateProjectUUID,
-    isInstanceAdmin,
     getGitOriginUrl,
     extractProjectNameFromUrl,
 } from "../utils/projectSwapManager";
+import { checkProjectAdminPermissions } from "../utils/projectAdminPermissionChecker";
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[ProjectSwapCommands]", ...args) : () => { };
@@ -42,17 +42,21 @@ export async function initiateProjectSwap(): Promise<void> {
             return;
         }
 
-        // Check if user is an instance administrator
-        const isAdmin = await isInstanceAdmin();
-        if (!isAdmin) {
+        // Check if user has permission (Project Maintainer or Owner)
+        const permission = await checkProjectAdminPermissions();
+        if (!permission.hasPermission) {
+            const errorMsg = permission.error || "Insufficient permissions";
+            // Don't show reason if it's just the expected permission error (redundant with main message)
+            const reasonPart = errorMsg === "Insufficient permissions" ? "" : `\n\nReason: ${errorMsg}`;
+            
             await vscode.window.showWarningMessage(
-                "⛔ Permission Denied\n\nOnly GitLab instance administrators can initiate project swaps.\n\nThis operation affects all project users and requires elevated permissions.",
+                `⛔ Permission Denied\n\nOnly Project Maintainers or Owners can initiate project swaps.${reasonPart}`,
                 { modal: true }
             );
             return;
         }
 
-        debug("Permission check passed - user is instance admin");
+        debug("Permission check passed - user has sufficient privileges");
 
         // Get current git origin URL
         const currentGitUrl = await getGitOriginUrl(workspacePath);
@@ -302,11 +306,15 @@ export async function cancelProjectSwap(): Promise<void> {
             return;
         }
 
-        // Check if user is an instance administrator
-        const isAdmin = await isInstanceAdmin();
-        if (!isAdmin) {
+        // Check if user has permission (Project Maintainer or Owner)
+        const permission = await checkProjectAdminPermissions();
+        if (!permission.hasPermission) {
+            const errorMsg = permission.error || "Insufficient permissions";
+            // Don't show reason if it's just the expected permission error (redundant with main message)
+            const reasonPart = errorMsg === "Insufficient permissions" ? "" : `\n\nReason: ${errorMsg}`;
+
             await vscode.window.showWarningMessage(
-                "⛔ Permission Denied\n\nOnly GitLab instance administrators can cancel project swaps.",
+                `⛔ Permission Denied\n\nOnly Project Maintainers or Owners can cancel project swaps.${reasonPart}`,
                 { modal: true }
             );
             return;

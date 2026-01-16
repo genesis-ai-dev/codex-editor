@@ -150,34 +150,6 @@ export async function updateGitOriginUrl(projectPath: string, newUrl: string): P
 }
 
 /**
- * Check if current user is an instance administrator
- * @returns True if user is instance admin, false otherwise
- */
-export async function isInstanceAdmin(): Promise<boolean> {
-    try {
-        const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
-        if (!frontierExtension) {
-            return false;
-        }
-
-        if (!frontierExtension.isActive) {
-            await frontierExtension.activate();
-        }
-
-        const frontierApi = frontierExtension.exports;
-        if (!frontierApi?.gitLabService) {
-            return false;
-        }
-
-        const currentUser = await frontierApi.gitLabService.getCurrentUser();
-        return currentUser?.is_admin === true;
-    } catch (error) {
-        debug("Error checking instance admin status:", error);
-        return false;
-    }
-}
-
-/**
  * Extract project name from Git URL
  * @param gitUrl - Git repository URL
  * @returns Project name

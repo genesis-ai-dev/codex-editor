@@ -4,7 +4,7 @@ import * as path from "path";
 import { ConflictResolutionStrategy, ConflictFile, SmartEdit } from "./types";
 import { determineStrategy } from "./strategies";
 import { getAuthApi } from "../../../extension";
-import { checkUpdatePermission } from "../../../utils/updatePermissionChecker";
+import { checkProjectAdminPermissions } from "../../../utils/projectAdminPermissionChecker";
 import { isFeatureEnabled } from "../../../utils/remoteUpdatingManager";
 import { normalizeUpdateEntry, RemoteUpdatingEntry } from "../../../utils/remoteUpdatingManager";
 import { NotebookCommentThread, NotebookComment, CustomNotebookCellData, CustomNotebookMetadata } from "../../../../types";
@@ -1845,7 +1845,7 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
 
             // Check if current user has permission to clear entries
             try {
-                const permCheck = await checkUpdatePermission();
+                const permCheck = await checkProjectAdminPermissions();
 
                 if (!permCheck.hasPermission) {
                     console.warn(

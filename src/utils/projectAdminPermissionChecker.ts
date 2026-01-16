@@ -2,11 +2,12 @@ import * as vscode from "vscode";
 import { extractProjectIdFromUrl, fetchProjectMembers } from "./remoteUpdatingManager";
 
 /**
- * Check if current user has permission to manage remote updates
+ * Check if current user has permission to perform project administration tasks
+ * (e.g. remote updates, project swaps)
  * Requires Maintainer (40) or Owner (50) access level
  * @returns Object with hasPermission flag and optional error message
  */
-export async function checkUpdatePermission(): Promise<{ hasPermission: boolean; error?: string; currentUser?: string; }> {
+export async function checkProjectAdminPermissions(): Promise<{ hasPermission: boolean; error?: string; currentUser?: string; }> {
     try {
         // Check if we're in a workspace
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -67,7 +68,7 @@ export async function checkUpdatePermission(): Promise<{ hasPermission: boolean;
 
         // Check if user has sufficient permissions (Maintainer = 40, Owner = 50)
         if (currentUserMember.accessLevel < 40) {
-            return { hasPermission: false, error: "Insufficient permissions (requires Maintainer or Owner)", currentUser: currentUserInfo.username };
+            return { hasPermission: false, error: "Insufficient permissions", currentUser: currentUserInfo.username };
         }
 
         return { hasPermission: true, currentUser: currentUserInfo.username };
@@ -75,4 +76,3 @@ export async function checkUpdatePermission(): Promise<{ hasPermission: boolean;
         return { hasPermission: false, error: `Permission check failed: ${error instanceof Error ? error.message : String(error)}` };
     }
 }
-

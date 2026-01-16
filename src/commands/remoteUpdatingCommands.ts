@@ -11,7 +11,7 @@ import {
     getCancelledBy,
     RemoteUpdatingEntry,
 } from "../utils/remoteUpdatingManager";
-import { checkUpdatePermission } from "../utils/updatePermissionChecker";
+import { checkProjectAdminPermissions } from "../utils/projectAdminPermissionChecker";
 import { isFeatureEnabled } from "../utils/remoteUpdatingManager";
 
 const DEBUG = false;
@@ -734,7 +734,7 @@ export async function viewRemoteUpdatingList(): Promise<void> {
             const entry = selectedItem.entry;
 
             // Check permissions first
-            const permCheck = await checkUpdatePermission();
+            const permCheck = await checkProjectAdminPermissions();
             if (!permCheck.hasPermission) {
                 vscode.window.showErrorMessage(
                     `⛔ Permission Denied\n\nYou do not have permission to clear entries from history.\n\nRequires: Maintainer or Owner role\nReason: ${permCheck.error || "Insufficient permissions"}`

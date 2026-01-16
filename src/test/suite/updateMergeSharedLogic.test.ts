@@ -180,8 +180,8 @@ suite("Update + Sync shared merge engine", () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-merge-clear-"));
         
         // Mock permission check to return true (user has permission)
-        const permModule = await import("../../utils/updatePermissionChecker");
-        const originalCheck = permModule.checkUpdatePermission;
+        const permModule = await import("../../utils/projectAdminPermissionChecker");
+        const originalCheck = permModule.checkProjectAdminPermissions;
         const checkStub = () => Promise.resolve({ hasPermission: true, currentUser: "admin" });
         
         // Mock feature flag to enable clearEntry
@@ -191,7 +191,7 @@ suite("Update + Sync shared merge engine", () => {
         
         try {
             // Replace the function temporarily
-            (permModule as any).checkUpdatePermission = checkStub;
+            (permModule as any).checkProjectAdminPermissions = checkStub;
             
             const metadataPath = path.join(tempDir, "metadata.json");
 
@@ -274,7 +274,7 @@ suite("Update + Sync shared merge engine", () => {
             assert.strictEqual(user1Entry, undefined, "user1 should be completely removed");
         } finally {
             // Restore original function and flags
-            (permModule as any).checkUpdatePermission = originalCheck;
+            (permModule as any).checkProjectAdminPermissions = originalCheck;
             Object.assign(flagModule.FEATURE_FLAGS, originalFlags);
             fs.rmSync(tempDir, { recursive: true, force: true });
         }
@@ -287,8 +287,8 @@ suite("Update + Sync shared merge engine", () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-merge-no-perm-"));
         
         // Mock permission check to return false (user lacks permission)
-        const permModule = await import("../../utils/updatePermissionChecker");
-        const originalCheck = permModule.checkUpdatePermission;
+        const permModule = await import("../../utils/projectAdminPermissionChecker");
+        const originalCheck = permModule.checkProjectAdminPermissions;
         const checkStub = () => Promise.resolve({ hasPermission: false, error: "Insufficient permissions", currentUser: "user" });
         
         // Mock feature flag to enable clearEntry
@@ -298,7 +298,7 @@ suite("Update + Sync shared merge engine", () => {
         
         try {
             // Replace the function temporarily
-            (permModule as any).checkUpdatePermission = checkStub;
+            (permModule as any).checkProjectAdminPermissions = checkStub;
             
             const metadataPath = path.join(tempDir, "metadata.json");
 
@@ -361,7 +361,7 @@ suite("Update + Sync shared merge engine", () => {
             assert.strictEqual(merged.meta.initiateRemoteUpdatingFor[0].clearEntry, undefined, "clearEntry flag should be removed when permission denied");
         } finally {
             // Restore original function and flags
-            (permModule as any).checkUpdatePermission = originalCheck;
+            (permModule as any).checkProjectAdminPermissions = originalCheck;
             Object.assign(flagModule.FEATURE_FLAGS, originalFlags);
             fs.rmSync(tempDir, { recursive: true, force: true });
         }
