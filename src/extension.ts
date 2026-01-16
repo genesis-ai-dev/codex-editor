@@ -506,13 +506,8 @@ export async function activate(context: vscode.ExtensionContext) {
                 await vscode.workspace.fs.stat(metadataUri);
                 metadataExists = true;
 
-                // Validate and fix projectId mismatches
-                try {
-                    const { validateAndFixProjectId } = await import("./utils/projectIdValidator");
-                    await validateAndFixProjectId(workspaceFolders[0].uri);
-                } catch (validationError) {
-                    console.error("[Extension] Error validating projectId:", validationError);
-                }
+                // Note: validateAndFixProjectId is now called AFTER migrations complete
+                // to ensure projectName updates aren't overwritten by migrations
 
                 // Update extension version requirements for conflict-free metadata management
                 try {
@@ -645,6 +640,17 @@ export async function activate(context: vscode.ExtensionContext) {
                     if (authApi && typeof (authApi as any).getAuthStatus === "function") {
                         const authStatus = authApi.getAuthStatus();
                         if (authStatus.isAuthenticated) {
+                            // Validate and fix projectId/projectName AFTER migrations complete
+                            // This ensures projectName updates aren't overwritten by migrations
+                            if (workspaceFolders && workspaceFolders.length > 0) {
+                                try {
+                                    const { validateAndFixProjectId } = await import("./utils/projectIdValidator");
+                                    await validateAndFixProjectId(workspaceFolders[0].uri);
+                                } catch (validationError) {
+                                    console.error("[Extension] Error validating projectId after migrations:", validationError);
+                                }
+                            }
+                            
                             // Check if this is an update workspace
                             const pendingUpdateSync = context.globalState.get<any>("codex.pendingUpdateSync");
                             const workspaceFolderPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -1047,7 +1053,17 @@ async function executeCommandsAfter(
 
                                 didStartDelayedInitialSync = true;
                                 try {
-                                    debug(`🔄 [POST-WORKSPACE] Migrations complete (${reason}); running initial sync...`);
+                                    debug(`🔄 [POST-WORKSPACE] Migrations complete (${reason}); validating projectId and running initial sync...`);
+                                    
+                                    // Validate and fix projectId/projectName AFTER migrations complete
+                                    // This ensures projectName updates aren't overwritten by migrations
+                                    try {
+                                        const { validateAndFixProjectId } = await import("./utils/projectIdValidator");
+                                        await validateAndFixProjectId(workspaceFolders[0].uri);
+                                    } catch (validationError) {
+                                        console.error("[Extension] Error validating projectId after migrations:", validationError);
+                                    }
+                                    
                                     const syncManager = SyncManager.getInstance();
                                     const pendingUpdateSync = context.globalState.get<any>("codex.pendingUpdateSync");
                                     const workspaceFolderPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
