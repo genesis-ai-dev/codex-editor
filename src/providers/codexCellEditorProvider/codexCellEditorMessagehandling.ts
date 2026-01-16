@@ -1100,15 +1100,17 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         let codexSaveSucceeded = false;
         let sourceUpdateSucceeded = false;
 
-        // Preserve current milestone index and subsection before refreshing webview
-        // Get current subsection from map if available, otherwise use cached subsection
+        // Preserve current milestone index and subsection BEFORE any document changes
+        // This ensures that document change events will use the correct milestone index
         const docUri = document.uri.toString();
         const currentPosition = provider.currentMilestoneSubsectionMap.get(docUri);
         const subsectionIndex = currentPosition?.subsectionIndex ?? provider.getCachedSubsection(docUri);
 
         // Save milestone index to preserve position after refresh
+        // Use the milestone index from the event, which comes from the React component's current state
+        const milestoneIndexToPreserve = typedEvent.content.milestoneIndex;
         provider.currentMilestoneSubsectionMap.set(docUri, {
-            milestoneIndex: typedEvent.content.milestoneIndex,
+            milestoneIndex: milestoneIndexToPreserve,
             subsectionIndex: subsectionIndex,
         });
 
@@ -1117,6 +1119,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             await document.refreshAuthor();
 
             // Update the milestone cell value in codex file
+            // NOTE: This will fire onDidChangeForVsCodeAndWebview event, which will trigger updateWebview()
+            // But updateWebview() will now use the milestone index we just set above
             await document.updateCellContent(
                 milestoneCellId,
                 typedEvent.content.newValue,
@@ -1278,6 +1282,20 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 `Failed to update milestone: ${error instanceof Error ? error.message : String(error)}`
             );
             return;
+        }
+
+        // Before refreshing, verify that the milestone index is still valid after the document update
+        // Rebuild milestone index to ensure we have the latest state
+        const updatedMilestoneIndex = document.buildMilestoneIndex();
+        const preservedPosition = provider.currentMilestoneSubsectionMap.get(docUri);
+
+        if (preservedPosition) {
+            // Validate that the preserved milestone index is still valid
+            if (preservedPosition.milestoneIndex >= 0 && preservedPosition.milestoneIndex < updatedMilestoneIndex.milestones.length) {
+                // Valid milestone index, proceed with refresh
+            } else {
+                // Invalid milestone index in map - refreshWebview will handle the fallback logic
+            }
         }
 
         // Refresh the webview to show the updated milestone
