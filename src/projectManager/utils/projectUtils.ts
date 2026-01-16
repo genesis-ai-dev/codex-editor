@@ -280,13 +280,25 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
     } else {
         projectId = details.projectId;
     }
+    const workspaceFolderName = vscode.workspace.workspaceFolders?.[0]?.name;
+    let fallbackName = workspaceFolderName || "";
+    
+    // Attempt to strip UUID if falling back to folder name
+    // Generate fallback projectId if none provided to ensure we can try to strip potential ID
+    const effectiveProjectId = details.projectId || extractProjectIdFromFolderName(fallbackName) || "";
+    
+    if (fallbackName && effectiveProjectId) {
+        if (fallbackName.includes(effectiveProjectId)) {
+            fallbackName = fallbackName.replace(effectiveProjectId, "").replace(/-+$/, "").replace(/^-+/, "");
+        }
+    }
+
     const newProject: Partial<ProjectWithId> = {
         // Fixme: remove Partial when codex-types library is updated
         format: "scripture burrito",
         projectName:
             details.projectName ||
-            // Fall back to workspace folder name (which includes UUID) if no name provided
-            (vscode.workspace.workspaceFolders?.[0]?.name) ||
+            fallbackName ||
             vscode.workspace.getConfiguration("codex-project-manager").get<string>("projectName") ||
             "", // previously "Codex Project"
         projectId: projectId,
@@ -749,11 +761,24 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
         }
 
         const currentWorkspaceFolderName = workspaceFolder.name;
+        
+        let projectName = metadata.projectName;
+        if (!projectName) {
+            // Fallback to workspace folder name, stripping UUID if present
+            projectName = currentWorkspaceFolderName;
+            const projectId = metadata.projectId;
+            if (projectId && projectName.includes(projectId)) {
+                projectName = projectName.replace(projectId, "").replace(/-+$/, "").replace(/^-+/, "");
+            }
+            if (!projectName.trim()) {
+                projectName = "Unnamed Project";
+            }
+        }
 
         const userInfo = await authApi?.getUserInfo();
         return {
             format: metadata.format || "Unknown Format",
-            projectName: metadata.projectName || currentWorkspaceFolderName || "Unnamed Project",
+            projectName: projectName,
             projectId: metadata.projectId || "Unknown Project ID",
             projectStatus: metadata.projectStatus || "Unknown Status",
             category: metadata.meta?.category || "Uncategorized",
@@ -955,7 +980,7 @@ export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
         // Sync metadata values to configuration
         // Wrap in try/catch to prevent sync failures from blocking initialization
         try {
-        await syncMetadataToConfiguration();
+            await syncMetadataToConfiguration();
         } catch (e) {
             debug("Failed to sync metadata to configuration:", e);
         }
@@ -1170,7 +1195,10 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
     // Validate pending updates against remote metadata
     await validatePendingUpdates(projects);
 
-    return projects;
+    // Filter out old projects that have completed swap migration
+    const visibleProjects = await filterSwappedProjects(projects);
+
+    return visibleProjects;
 }
 
 /**
@@ -1180,7 +1208,7 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
  */
 async function validatePendingUpdates(projects: LocalProject[]): Promise<void> {
     const projectsWithPendingUpdates = projects.filter(p => p.pendingUpdate?.required);
-    
+
     if (projectsWithPendingUpdates.length === 0) {
         return;
     }
@@ -1202,7 +1230,7 @@ async function validatePendingUpdates(projects: LocalProject[]): Promise<void> {
 
                 // Check if remote still requires update
                 const remoteCheck = await checkRemoteUpdatingRequired(project.path, project.gitOriginUrl);
-                
+
                 if (!remoteCheck.required && localSettings.pendingUpdate) {
                     // Remote no longer requires update, clear the flag
                     debug(`Clearing invalid pendingUpdate for ${project.name}`);
@@ -1216,6 +1244,47 @@ async function validatePendingUpdates(projects: LocalProject[]): Promise<void> {
             }
         })
     );
+}
+
+/**
+ * Filter out old projects that have completed swap migration
+ * Hide old projects from the list once swap is complete
+ */
+async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalProject[]> {
+    const filtered: LocalProject[] = [];
+
+    for (const project of projects) {
+        try {
+            const metadataPath = vscode.Uri.file(path.join(project.path, "metadata.json"));
+            const metadataBuffer = await vscode.workspace.fs.readFile(metadataPath);
+            const metadata = JSON.parse(Buffer.from(metadataBuffer).toString("utf-8")) as ProjectMetadata;
+
+            if (!metadata?.meta?.projectSwap) {
+                // No swap info - show project
+                filtered.push(project);
+                continue;
+            }
+
+            const swapInfo = metadata.meta.projectSwap;
+
+            // Hide old projects that have completed swap
+            if (swapInfo.isOldProject && swapInfo.swapStatus === "completed") {
+                debug(`Hiding completed old project: ${project.name}`);
+                continue;
+            }
+
+            // Show old projects that are pending or failed (user needs to act)
+            // Show all new projects
+            filtered.push(project);
+
+        } catch (error) {
+            debug(`Error checking swap status for ${project.name}:`, error);
+            // If we can't check, show it to be safe
+            filtered.push(project);
+        }
+    }
+
+    return filtered;
 }
 
 /**
@@ -1253,13 +1322,65 @@ async function processProjectDirectory(
     name: string,
     projectHistory: Record<string, string>
 ): Promise<LocalProject | null> {
-    const projectPath = path.join(folder, name);
+    let currentName = name;
+    let projectPath = path.join(folder, currentName);
+    let projectMetadata: any = undefined;
 
     try {
+        // Read metadata first
+        try {
+            const metadataUri = vscode.Uri.file(path.join(projectPath, "metadata.json"));
+            // Quick check if metadata exists
+            await vscode.workspace.fs.stat(metadataUri);
+            
+            const metadataBuffer = await vscode.workspace.fs.readFile(metadataUri);
+            projectMetadata = JSON.parse(Buffer.from(metadataBuffer).toString("utf-8"));
+
+            if (projectMetadata && projectMetadata.projectId) {
+                // Check if published (has git remote)
+                const gitOrigin = await getGitOriginUrl(projectPath);
+                
+                // If it has NO git origin (local-only), check for rename
+                if (!gitOrigin) {
+                    const folderId = extractProjectIdFromFolderName(currentName);
+                    
+                    // If folder doesn't have the ID, rename it
+                    if (folderId !== projectMetadata.projectId) {
+                        let newName = sanitizeProjectName(projectMetadata.projectName || currentName);
+                        const idInName = extractProjectIdFromFolderName(newName);
+                        
+                        // If the base name already contains the ID, we don't need to append it
+                        if (idInName !== projectMetadata.projectId) {
+                            newName = `${newName}-${projectMetadata.projectId}`;
+                        }
+
+                        if (newName !== currentName) {
+                            const newPath = path.join(folder, newName);
+                            // Check if target exists
+                            try {
+                                await vscode.workspace.fs.stat(vscode.Uri.file(newPath));
+                                // Target exists, cannot rename automatically safely
+                                debug(`Cannot rename ${currentName} to ${newName} because target exists`);
+                            } catch {
+                                // Target doesn't exist, proceed with rename
+                                await vscode.workspace.fs.rename(vscode.Uri.file(projectPath), vscode.Uri.file(newPath));
+                                debug(`Renamed local project folder from ${currentName} to ${newName}`);
+                                currentName = newName;
+                                projectPath = newPath;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            debug(`Error checking/renaming project folder ${currentName}:`, e);
+        }
+
         // Run project validation, metadata reading, git operations, stats, and local settings in parallel
+        // NOTE: We use the potentially updated projectPath and currentName
         const [projectStatus, projectName, gitOriginUrl, stats, mediaStrategy, localSettings] = await Promise.allSettled([
             isValidCodexProject(projectPath),
-            getProjectNameFromMetadata(projectPath, name),
+            getProjectNameFromMetadata(projectPath, currentName),
             getGitOriginUrl(projectPath),
             vscode.workspace.fs.stat(vscode.Uri.file(projectPath)),
             getMediaFilesStrategyForProject(projectPath),
@@ -1273,7 +1394,10 @@ async function processProjectDirectory(
         }
 
         // Extract other results with fallbacks
-        const nameResult = projectName.status === 'fulfilled' ? projectName.value : name;
+        // Use currentName (the folder name) as the primary name result
+        // This ensures the UI displays the actual folder name (with UUID) as requested
+        const nameResult = currentName; 
+        
         const gitResult = gitOriginUrl.status === 'fulfilled' ? gitOriginUrl.value : undefined;
         const statsResult = stats.status === 'fulfilled' ? stats.value : null;
         const mediaStrategyResult = mediaStrategy.status === 'fulfilled' ? mediaStrategy.value : undefined;
@@ -1287,7 +1411,7 @@ async function processProjectDirectory(
         return {
             name: nameResult,
             path: projectPath,
-            lastOpened: projectHistory[projectPath]
+            lastOpened: projectHistory[projectPath] // Note: this uses new path, history lookup might miss if keyed by old path
                 ? new Date(projectHistory[projectPath])
                 : undefined,
             lastModified: new Date(statsResult.mtime),
@@ -1591,4 +1715,44 @@ export async function ensureGitDisabledInSettings(): Promise<void> {
     } catch (error) {
         console.error("Failed to update git.enabled setting:", error);
     }
+}
+
+/**
+ * Sanitizes a project name to be used as a folder name.
+ * Ensure name is safe for:
+ * - Windows
+ * - Mac
+ * - Linux
+ * - Git
+ */
+export function sanitizeProjectName(name: string): string {
+    // Replace invalid characters with hyphens
+    // This handles Windows, Mac, Linux filesystem restrictions and Git-unsafe characters
+    return (
+        name
+            .replace(/[<>:"/\\|?*]|^\.|\.$|\.lock$|^git$/i, "-") // Invalid/reserved chars and names
+            .replace(/\s+/g, "-") // Replace spaces with hyphens
+            .replace(/\.+/g, "-") // Replace periods with hyphens
+            .replace(/-+/g, "-") // Replace multiple hyphens with single hyphen
+            .replace(/^-|-$/g, "") || // Remove leading/trailing hyphens OR
+        "new-project" // Fallback if name becomes empty after sanitization
+    );
+}
+
+/**
+ * Extracts projectId from folder name if it follows the format "projectName-projectId"
+ * @param folderName - The folder name to extract projectId from
+ * @returns The projectId if found, undefined otherwise
+ */
+export function extractProjectIdFromFolderName(folderName: string): string | undefined {
+    const lastHyphenIndex = folderName.lastIndexOf('-');
+    if (lastHyphenIndex !== -1) {
+        const potentialProjectId = folderName.substring(lastHyphenIndex + 1);
+        // Validate it looks like a projectId (alphanumeric, reasonable length)
+        // ProjectId from generateProjectId is 26 chars (13 + 13)
+        if (potentialProjectId.length >= 20 && /^[a-z0-9]+$/i.test(potentialProjectId)) {
+            return potentialProjectId;
+        }
+    }
+    return undefined;
 }

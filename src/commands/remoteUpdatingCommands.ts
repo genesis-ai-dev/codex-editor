@@ -24,6 +24,7 @@ interface MemberQuickPickItem extends vscode.QuickPickItem {
     roleName?: string;
     commits?: number;
     isContributor: boolean;
+    isAdmin?: boolean;  // Instance administrator
 }
 
 /**
@@ -222,15 +223,21 @@ export async function initiateRemoteUpdating(): Promise<void> {
             // Only show name if it's different from username
             const showName = member.name && member.name !== member.username;
 
+            // Add instance admin badge if applicable
+            // Hide badge for 'root' user unless the current user IS root
+            const shouldShowAdminBadge = member.isAdmin &&
+                (member.username !== "root" || currentUserInfo.username === "root");
+            const adminBadge = shouldShowAdminBadge ? " 🔑 Instance Admin" : "";
+
             const item: MemberQuickPickItem = {
                 label: member.username,
                 description: isContributor
                     ? showName
-                        ? `${member.name} — ${contributor!.commits} commit${contributor!.commits !== 1 ? "s" : ""} — ${member.roleName}`
-                        : `${contributor!.commits} commit${contributor!.commits !== 1 ? "s" : ""} — ${member.roleName}`
+                        ? `${member.name} — ${contributor!.commits} commit${contributor!.commits !== 1 ? "s" : ""} — ${member.roleName}${adminBadge}`
+                        : `${contributor!.commits} commit${contributor!.commits !== 1 ? "s" : ""} — ${member.roleName}${adminBadge}`
                     : showName
-                        ? `${member.name} — ${member.roleName}`
-                        : member.roleName,
+                        ? `${member.name} — ${member.roleName}${adminBadge}`
+                        : `${member.roleName}${adminBadge}`,
                 picked: activeUpdateingUsernames.includes(member.username),
                 username: member.username,
                 email: member.email,
@@ -238,6 +245,7 @@ export async function initiateRemoteUpdating(): Promise<void> {
                 roleName: member.roleName,
                 commits: contributor?.commits,
                 isContributor,
+                isAdmin: member.isAdmin,
             };
 
             if (isContributor) {

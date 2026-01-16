@@ -435,6 +435,7 @@ export async function fetchProjectMembers(
     email: string;
     accessLevel: number;
     roleName: string;
+    isAdmin?: boolean;  // Instance administrator (not just project admin)
 }> | null> {
     try {
         debug("Fetching members for project:", projectId);

@@ -432,6 +432,10 @@ export async function activate(context: vscode.ExtensionContext) {
         const { registerRemoteUpdatingCommands } = await import("./commands/remoteUpdatingCommands");
         registerRemoteUpdatingCommands(context);
 
+        // Register project swap commands (for instance admins to migrate repositories)
+        const { registerProjectSwapCommands } = await import("./commands/projectSwapCommands");
+        registerProjectSwapCommands(context);
+
         stepStart = trackTiming("Configuring Startup Workflow", startupStart);
 
         // Initialize SqlJs with real-time progress since it loads WASM files

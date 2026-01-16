@@ -63,13 +63,14 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     const [isUpdating, setIsUpdating] = useState<boolean>(false);
     const [isCloning, setIsCloning] = useState<boolean>(false);
     const [isOpening, setIsOpening] = useState<boolean>(false);
+    const [isRenaming, setIsRenaming] = useState<boolean>(false);
     const [isZipping, setIsZipping] = useState<boolean>(false);
     const [isZippingMini, setIsZippingMini] = useState<boolean>(false);
     const [isCleaning, setIsCleaning] = useState<boolean>(false);
     const userInitiatedStrategyChangeRef = React.useRef<boolean>(false);
     const [isApplyingStrategyDuringOtherOp, setIsApplyingStrategyDuringOtherOp] =
         useState<boolean>(false);
-    const isProjectLocal = ["downloadedAndSynced", "localOnlyNotSynced"].includes(
+    const isProjectLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned"].includes(
         project.syncStatus
     );
     const isChangingStrategy = isProjectLocal && pendingStrategy !== null;
@@ -79,6 +80,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         isUpdating ||
         isCloning ||
         isOpening ||
+        isRenaming ||
         isZipping ||
         isZippingMini ||
         isCleaning ||
@@ -209,6 +211,12 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                 }
                 return;
             }
+            if (msg?.command === "project.renamingInProgress") {
+                if (msg.projectPath === project.path) {
+                    setIsRenaming(msg.renaming);
+                }
+                return;
+            }
             if (msg?.command === "project.zippingInProgress") {
                 if (msg.projectPath === project.path) {
                     if (msg.zipType === "full") {
@@ -301,7 +309,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     };
 
     const renderProjectActions = (project: ProjectWithSyncStatus) => {
-        const isLocal = ["downloadedAndSynced", "localOnlyNotSynced"].includes(project.syncStatus);
+        const isLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned"].includes(project.syncStatus);
         const isRemote = project.syncStatus === "cloudOnlyNotSynced";
         const hasPendingUpdate = project.pendingUpdate?.required;
 
@@ -312,7 +320,16 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                     <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => onOpenProject(project)}
+                        onClick={() => {
+                            if (project.syncStatus === "orphaned") {
+                                vscode.postMessage({
+                                    command: "project.fixAndOpen",
+                                    projectPath: project.path,
+                                });
+                            } else {
+                                onOpenProject(project);
+                            }
+                        }}
                         className={cn(
                             "h-6 text-xs px-2",
                             (isChangingStrategy || isOpening || isUpdating) &&
@@ -334,6 +351,11 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                             <>
                                 <i className="codicon codicon-sync mr-1" />
                                 Update
+                            </>
+                        ) : project.syncStatus === "orphaned" ? (
+                            <>
+                                <i className="codicon codicon-tools mr-1" />
+                                Fix & Open
                             </>
                         ) : (
                             <>
@@ -419,7 +441,12 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         </span>
                         {isUnpublished && (
                             <Badge variant="outline" className="text-xs px-1 py-0">
-                                Unpublished
+                                Unsynced
+                            </Badge>
+                        )}
+                        {project.syncStatus === "orphaned" && (
+                            <Badge variant="outline" className="text-xs px-1 py-0 bg-amber-50 text-amber-700 border-amber-300 whitespace-nowrap">
+                                Remote Missing
                             </Badge>
                         )}
                         {isNewlyAdded && (
@@ -450,26 +477,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    {project.completionPercentage !== undefined ? (
-                        <div className="flex items-center gap-1">
-                            <span className="text-xs font-medium text-muted-foreground">
-                                {project.completionPercentage.toFixed(0)}%
-                            </span>
-                            <div className="w-12 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                                <div
-                                    className="h-full bg-green-500 transition-all duration-500 ease-out"
-                                    style={{
-                                        width: `${Math.min(project.completionPercentage, 100)}%`,
-                                    }}
-                                />
-                            </div>
-                        </div>
-                    ) : !isProgressDataLoaded ? (
-                        <div className="flex items-center gap-1">
-                            <Skeleton className="h-3 w-5" />
-                            <Skeleton className="h-1.5 w-12" />
-                        </div>
-                    ) : null}
+                    {/* Progress data currently disabled */}
                     {renderProjectActions(project)}
                     {(displayUrl || onDeleteProject) && (
                         <Button

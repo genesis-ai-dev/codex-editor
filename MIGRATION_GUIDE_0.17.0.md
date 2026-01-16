@@ -1,8 +1,239 @@
-# Migration Guide: Removing Legacy Code in 0.17.0
+# Migration Guide: Version 0.17.0
 
 **⚠️ TODO: Complete these cleanup tasks when releasing version 0.17.0**
 
-This document tracks legacy code and migrations that should be removed after version 0.16.0 is deployed to all users.
+This document tracks major changes, new features, and legacy code migrations for version 0.17.0.
+
+---
+
+## 🆕 Major New Features in 0.17.0
+
+### Project Swap System
+A new feature allowing instance administrators to migrate entire teams from an old Git repository to a new one with clean history while preserving all working files.
+
+**New Interfaces:**
+- `ProjectSwapInfo` - Metadata for project swap operations
+- `LocalProjectSwap` - Local tracking state for swap migrations
+
+**New Commands:**
+- `codex-editor.initiateProjectSwap` - Initiate a project migration
+- `codex-editor.viewProjectSwapStatus` - View swap status
+- `codex-editor.cancelProjectSwap` - Cancel an ongoing migration
+
+**New Files:**
+- `src/commands/projectSwapCommands.ts` - Project swap command handlers
+- `src/providers/StartupFlow/performProjectSwap.ts` - Project swap execution logic
+- `src/utils/projectSwapManager.ts` - Project swap state management
+
+### Project ID Validation System
+Ensures all projects have valid UUIDs in their metadata.
+
+**New Files:**
+- `src/utils/projectIdValidator.ts` - Project ID validation and fixing logic
+
+**New Commands:**
+- `codex-project-manager.validateProjectId` - Validate and fix project IDs
+
+### Update Permission System
+Permission checking for users who can manage remote updates (requires Maintainer or Owner access).
+
+**New Files:**
+- `src/utils/updatePermissionChecker.ts` - Permission checking utilities
+
+### Connectivity Checker
+Network connectivity validation for remote operations.
+
+**New Files:**
+- `src/utils/connectivityChecker.ts` - Network connectivity validation
+
+### Enhanced Project Creation
+Project folders now automatically include the projectId as a suffix for uniqueness and identification.
+
+**Example:** Creating project "my-project" with ID "abc123" now creates folder "my-project-abc123"
+
+**Changes:**
+- `createNewWorkspaceAndProject()` now accepts optional `ExtensionContext` parameter
+- `createProjectInNewFolder()` automatically appends projectId to folder name
+- Project name field in publish flow is now read-only (matches workspace folder)
+
+### Improved Local Project Settings
+New tracking capabilities for update operations and project swap state.
+
+**New Fields in `LocalProjectSettings`:**
+- `updateState: UpdateState` - Track in-progress updates for restart-safe cleanup
+- `pendingUpdate: PendingUpdateState` - Track admin-triggered pending updates
+- `updateCompletedLocally` - Track locally completed updates not yet synced
+- `projectSwap: LocalProjectSwap` - Track project swap migration state
+
+**New Helper Functions:**
+- `markPendingUpdateRequired()` - Mark that an update is pending
+- `clearPendingUpdate()` - Clear pending update flag
+- `markUpdateCompletedLocally()` - Mark update as completed locally
+- `clearUpdateCompletedLocally()` - Clear local completion flag
+
+### Enhanced Metadata Structure
+`metadata.json` now supports additional project management features.
+
+**New Fields in `ProjectMetadata.meta`:**
+- `projectSwap?: ProjectSwapInfo` - Project swap information
+- `initiateRemoteUpdatingFor` (replaces `initiateRemoteHealingFor`)
+
+### Message Protocol Updates
+Updated webview message types to reflect new terminology.
+
+**Changed Messages:**
+- `project.healingInProgress` → `project.updatingInProgress`
+
+---
+
+## 🔄 Terminology Migration: "Healing" → "Updating"
+
+### Renamed Commands
+- `codex-editor.initiateRemoteHealing` → `codex-editor.initiateRemoteUpdating`
+- `codex-editor.viewRemoteHealingList` → `codex-editor.viewRemoteUpdatingList`
+
+### Renamed Interfaces
+- `RemoteHealingEntry` → `RemoteUpdatingEntry` (old interface kept as deprecated for backward compatibility)
+
+### Renamed Files
+- `src/utils/remoteHealingManager.ts` → `src/utils/remoteUpdatingManager.ts`
+
+### Field Renames in `RemoteUpdatingEntry`
+- `userToHeal` → `userToUpdate`
+- `deleted` → `cancelled`
+- `deletedBy` → `cancelledBy`
+- `obliterate` → `clearEntry`
+
+### Updated Test Files
+- `src/test/suite/healMergeSharedLogic.test.ts` → `src/test/suite/updateMergeSharedLogic.test.ts`
+- New test files:
+  - `src/test/suite/integration/project-updating.test.ts`
+  - `src/test/suite/pendingUpdateValidation.test.ts`
+  - `src/test/suite/remoteUpdatingDeleted.test.ts`
+  - `src/test/suite/startupFlowProvider_updateSync.test.ts`
+  - `src/test/suite/remoteUpdateCommands.test.ts`
+  - `src/test/migration_healingToUpdating.test.ts`
+  - `src/test/suite/connectivityChecker.test.ts`
+
+---
+
+## 🎨 UI/UX Improvements
+
+### Name Project Modal
+Added keyboard shortcuts for better user experience:
+- **Enter** - Submit the form
+- **Escape** - Cancel and close modal
+
+### Publish Project View
+Project name field is now read-only and includes the unique project ID:
+- Displays full workspace folder name (with UUID)
+- Prevents user confusion about project naming
+- Helper text explains that name matches workspace folder
+- Field visually disabled to indicate it cannot be changed
+
+### Project Setup Step
+Updated message handling to use new "updating" terminology instead of "healing"
+
+### GitLab Projects List
+Updated to handle pending updates and project swap status indicators
+
+---
+
+## ⚠️ Breaking Changes
+
+### Project Folder Naming
+**IMPORTANT:** New projects now include the projectId in the folder name.
+
+**Before 0.17.0:**
+```
+my-project/
+├── metadata.json (contains projectId: "abc-123-def")
+└── ...
+```
+
+**After 0.17.0:**
+```
+my-project-abc-123-def/
+├── metadata.json (contains projectId: "abc-123-def")
+└── ...
+```
+
+**Impact:**
+- **New projects:** Automatically created with projectId suffix
+- **Existing projects:** Continue to work without changes
+- **Published projects:** Name field in publish UI is read-only (matches folder name)
+
+### API Changes
+- `createNewWorkspaceAndProject()` signature changed to accept optional `context: vscode.ExtensionContext`
+- Import paths changed: `remoteHealingManager` → `remoteUpdatingManager`
+
+### Metadata Structure
+Projects may need to handle both old and new field names during transition:
+- `initiateRemoteHealingFor` → `initiateRemoteUpdatingFor` (backward compatible)
+- Old field is automatically migrated via `normalizeUpdateEntry()`
+
+---
+
+## 📝 Migration Notes for Developers
+
+### If You Import `remoteHealingManager`
+```typescript
+// ❌ Old
+import { ... } from "../../utils/remoteHealingManager";
+
+// ✅ New
+import { ... } from "../../utils/remoteUpdatingManager";
+```
+
+### If You Work with Update Entries
+The interface is now `RemoteUpdatingEntry`:
+```typescript
+// ❌ Old field names (deprecated)
+entry.userToHeal
+entry.deleted
+entry.deletedBy
+entry.obliterate
+
+// ✅ New field names
+entry.userToUpdate
+entry.cancelled
+entry.cancelledBy
+entry.clearEntry
+```
+
+### If You Handle WebView Messages
+```typescript
+// ❌ Old
+case "project.healingInProgress":
+    setIsAnyApplying(!!(message as any).healing);
+
+// ✅ New
+case "project.updatingInProgress":
+    setIsAnyApplying(!!(message as any).updating);
+```
+
+### If You Create New Projects
+```typescript
+// ❌ Old (context optional, not passed)
+await createNewWorkspaceAndProject();
+
+// ✅ New (pass context for proper state management)
+await createNewWorkspaceAndProject(this._context);
+```
+
+---
+
+## 🧪 New Test Coverage
+
+This release significantly expands test coverage:
+
+1. **Connectivity Checker Tests** - Network validation
+2. **Migration Tests** - Healing → Updating terminology
+3. **Pending Update Validation** - Update state tracking
+4. **Remote Update Deletion** - Entry removal logic
+5. **Startup Flow Update/Sync** - Integration with startup provider
+6. **Update Merge Logic** - Shared merge engine for updates
+7. **Project Updating Integration** - End-to-end update flows
 
 ---
 
@@ -150,7 +381,7 @@ export const FEATURE_FLAGS = {
 
 ## 7. Verify No Remaining References
 
-**Run these checks before 0.17.0 release:**
+**Run these checks before 0.18.0 release (when cleaning up legacy code):**
 
 ```bash
 # Check for any remaining "healingFor" references (should only be "updatingFor")
@@ -159,47 +390,123 @@ grep -r "HealingFor\|healingFor" src/ --exclude-dir=node_modules
 # Check for legacy field references in normalizeUpdateEntry
 grep -A 5 "deleted.*cancelled" src/utils/remoteUpdatingManager.ts
 
-# Check for TODO comments about 0.17.0
-grep -r "TODO.*0\.17\.0\|Remove in 0\.17\.0" src/ --exclude-dir=node_modules
+# Check for TODO comments about 0.17.0 or 0.18.0
+grep -r "TODO.*0\.17\.0\|TODO.*0\.18\.0\|Remove in 0\.17\.0\|Remove in 0\.18\.0" src/ --exclude-dir=node_modules
 
 # Verify interface doesn't have legacy fields
 grep -A 10 "interface RemoteUpdatingEntry" src/utils/remoteUpdatingManager.ts
+
+# Verify all project swap components exist
+ls -la src/commands/projectSwapCommands.ts
+ls -la src/utils/projectSwapManager.ts
+ls -la src/providers/StartupFlow/performProjectSwap.ts
+
+# Verify project ID validator exists
+ls -la src/utils/projectIdValidator.ts
+
+# Verify new test files exist
+ls -la src/test/suite/connectivityChecker.test.ts
+ls -la src/test/suite/integration/project-updating.test.ts
+ls -la src/test/migration_healingToUpdating.test.ts
 ```
 
-**Expected results:**
-- ✅ No `initiateRemoteHealingFor` except in `getList()` fallback
+**Expected results for 0.17.0:**
+- ✅ No `initiateRemoteHealingFor` except in `getList()` fallback (for backward compatibility)
+- ✅ `RemoteHealingEntry` exists only as deprecated backward-compatible interface
+- ✅ `normalizeUpdateEntry()` still handles legacy field migration
+- ✅ All new features (project swap, validators, permission checks) are present
+- ✅ All new test files are in place
+
+**Expected results for 0.18.0 (future cleanup):**
+- ✅ No `initiateRemoteHealingFor` references anywhere
 - ✅ No legacy fields in `RemoteUpdatingEntry` interface
-- ✅ Only `normalizeUpdateEntry()` should handle `deleted` → `cancelled`
+- ✅ `normalizeUpdateEntry()` simplified to validation-only
+- ✅ `migration_healingToUpdating.ts` deleted
 - ✅ All TODO comments accounted for in this guide
 
 ---
 
-## 7. Update Package Version
+## 8. Update Package Version
 
 **File:** `package.json`
 
 Update version to `0.17.0` and ensure changelog mentions:
-- Removed legacy "healing" terminology support
-- Removed migration code for 0.13.0-0.16.0
-- Removed backward compatibility for `deleted`/`deletedBy`/`obliterate`
+
+**Major Features:**
+- ✨ Project Swap system for migrating teams to new repositories
+- ✨ Project ID validation and fixing utilities
+- ✨ Update permission checking (Maintainer/Owner required)
+- ✨ Network connectivity validation
+- 📁 Enhanced project creation with UUID-based folder naming
+
+**Improvements:**
+- 🔄 Complete "healing" → "updating" terminology migration
+- 🎨 UI/UX enhancements (keyboard shortcuts, read-only fields)
+- 📊 Expanded test coverage
+- 🏗️ Improved local project settings tracking
+- 🔧 Enhanced metadata structure with project swap support
+
+**Breaking Changes:**
+- ⚠️ New projects include projectId in folder name
+- ⚠️ `createNewWorkspaceAndProject()` signature changed
+- ⚠️ Import paths changed (`remoteHealingManager` → `remoteUpdatingManager`)
+
+**Deprecations:**
+- 🔻 `RemoteHealingEntry` interface (use `RemoteUpdatingEntry`)
+- 🔻 `initiateRemoteHealingFor` metadata field (use `initiateRemoteUpdatingFor`)
+
+**Backward Compatibility:**
+- ✅ Old field names automatically migrated via normalization
+- ✅ Existing projects continue to work without changes
+- ✅ `RemoteHealingEntry` kept as deprecated backward-compatible interface
 
 ---
 
 ## Timeline
 
 - **0.13.0-0.16.x**: Migration and backward compatibility active
-- **0.17.0**: Remove all migration code and legacy field support
+  - "Healing" terminology still in use
+  - Legacy field names supported via normalization
+  - Gradual rollout of new features
+- **0.17.0**: Major feature release
+  - ✨ New: Project Swap system
+  - ✨ New: Project ID validation
+  - ✨ New: Update permission checking
+  - ✨ New: Connectivity validation
+  - 🔄 Complete: Healing → Updating terminology migration
+  - 📁 Enhanced: Project folder naming with UUID suffix
+  - 🎨 Improved: UI/UX enhancements across webviews
+  - Remove all migration code and legacy field support (after deployment stabilizes)
+- **0.18.0+**: Clean up legacy migration code
+  - Remove `migration_healingToUpdating.ts`
+  - Simplify `normalizeUpdateEntry()` to validation-only
+  - Remove `initiateRemoteHealingFor` fallback support
 - **Users skipping versions**: Not supported (must go through 0.14-0.16 first)
 
 ---
 
 ## Testing Before Release
 
+**Before 0.17.0 Release:**
 1. ✅ Verify all users are on 0.16.x or higher
-2. ✅ Confirm no metadata.json files in the wild still use old field names
-3. ✅ Test that 0.17.0 correctly rejects/ignores old field names
-4. ✅ Ensure merge logic works without fallbacks
-5. ✅ Run full test suite with legacy code removed
+2. ✅ Test new project creation with UUID suffix in folder name
+3. ✅ Test project swap initiation, migration, and cancellation
+4. ✅ Test project ID validation on existing projects
+5. ✅ Test update permission checking for different access levels
+6. ✅ Test connectivity validation in offline scenarios
+7. ✅ Verify keyboard shortcuts in Name Project Modal
+8. ✅ Verify read-only project name in Publish view
+9. ✅ Test backward compatibility with old field names
+10. ✅ Ensure merge logic works with both old and new metadata
+11. ✅ Run full test suite including new tests
+12. ✅ Verify webview message protocol updates
+
+**Before 0.18.0 Release (Legacy Cleanup):**
+1. ✅ Confirm no metadata.json files in the wild still use old field names
+2. ✅ Test that 0.18.0 correctly handles (or rejects) old field names
+3. ✅ Ensure merge logic works without legacy fallbacks
+4. ✅ Run full test suite with legacy code removed
+5. ✅ Verify migration file deletion doesn't break anything
 
 ---
 
@@ -246,5 +553,59 @@ function isCancelled(entry: RemoteUpdatingEntry): boolean {
 
 ---
 
-**NOTE:** This file can be deleted after 0.17.0 is successfully deployed.
+## 📊 Summary of Changes
+
+### Files Added (New Features)
+- `src/commands/projectSwapCommands.ts`
+- `src/providers/StartupFlow/performProjectSwap.ts`
+- `src/utils/projectSwapManager.ts`
+- `src/utils/projectIdValidator.ts`
+- `src/utils/updatePermissionChecker.ts`
+- `src/utils/connectivityChecker.ts`
+
+### Files Renamed (Terminology Migration)
+- `src/utils/remoteHealingManager.ts` → `src/utils/remoteUpdatingManager.ts`
+- `src/test/suite/healMergeSharedLogic.test.ts` → `src/test/suite/updateMergeSharedLogic.test.ts`
+
+### Test Files Added
+- `src/test/suite/remoteUpdateCommands.test.ts`
+- `src/test/suite/connectivityChecker.test.ts`
+- `src/test/suite/integration/project-updating.test.ts`
+- `src/test/suite/pendingUpdateValidation.test.ts`
+- `src/test/suite/remoteUpdatingDeleted.test.ts`
+- `src/test/suite/startupFlowProvider_updateSync.test.ts`
+- `src/test/migration_healingToUpdating.test.ts`
+
+### Commands Added
+- `codex-editor.initiateRemoteUpdating` (replaces `initiateRemoteHealing`)
+- `codex-editor.viewRemoteUpdatingList` (replaces `viewRemoteHealingList`)
+- `codex-editor.initiateProjectSwap`
+- `codex-editor.viewProjectSwapStatus`
+- `codex-editor.cancelProjectSwap`
+- `codex-project-manager.validateProjectId`
+
+### Type Definitions Enhanced
+- Added `ProjectSwapInfo` interface
+- Added `LocalProjectSwap` interface
+- Added `RemoteUpdatingEntry` interface
+- Deprecated `RemoteHealingEntry` interface (backward compatible)
+- Enhanced `LocalProjectSettings` with update tracking
+- Enhanced `ProjectMetadata` with project swap support
+- Updated `MessagesFromStartupFlowProvider` types
+
+### Breaking Changes Summary
+1. Project folder naming now includes UUID suffix
+2. `createNewWorkspaceAndProject()` API signature changed
+3. Import path changes for remote updating manager
+4. WebView message protocol updates
+
+### Backward Compatibility Maintained
+1. Old metadata field names auto-migrated
+2. `RemoteHealingEntry` kept as deprecated interface
+3. Existing projects work without changes
+4. Gradual rollout strategy supported
+
+---
+
+**NOTE:** This file should be updated when 0.18.0 planning begins for the final legacy code removal phase.
 

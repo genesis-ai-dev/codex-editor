@@ -161,6 +161,21 @@
                 "category": "Codex Editor"
             },
             {
+                "command": "codex-editor.initiateProjectSwap",
+                "title": "Project Swap - Initiate Migration",
+                "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor.viewProjectSwapStatus",
+                "title": "Project Swap - View Status",
+                "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor.cancelProjectSwap",
+                "title": "Project Swap - Cancel Migration",
+                "category": "Codex Editor"
+            },
+            {
                 "command": "codex-editor.testProjectLoadingPerformance",
                 "title": "Test Project Loading Performance",
                 "category": "Codex Debug"

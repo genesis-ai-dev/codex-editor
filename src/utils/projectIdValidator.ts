@@ -1,11 +1,11 @@
 import * as vscode from "vscode";
 import git from "isomorphic-git";
 import fs from "fs";
-import { extractProjectIdFromFolderName } from "./projectCreationUtils/projectCreationUtils";
+import { extractProjectIdFromFolderName, sanitizeProjectName } from "../projectManager/utils/projectUtils";
 import { MetadataManager } from "./metadataManager";
 
 const DEBUG = false;
-const debug = DEBUG ? (...args: any[]) => console.log("[ProjectIdValidator]", ...args) : () => {};
+const debug = DEBUG ? (...args: any[]) => console.log("[ProjectIdValidator]", ...args) : () => { };
 
 /**
  * Extract projectId from a Git remote URL
@@ -16,11 +16,11 @@ function extractProjectIdFromGitUrl(url: string): string | undefined {
     try {
         // Remove .git suffix if present
         const cleanUrl = url.replace(/\.git$/, "");
-        
+
         // Get the last part of the path (project name with UUID)
         const parts = cleanUrl.split("/");
         const projectNameWithId = parts[parts.length - 1];
-        
+
         // Extract UUID from the end using same logic as folder name
         return extractProjectIdFromFolderName(projectNameWithId);
     } catch (error) {
@@ -46,7 +46,7 @@ export async function detectProjectIdMismatch(
 ): Promise<ProjectIdInfo> {
     const folderName = workspaceFolder.fsPath.split(/[\\/]/).pop() || "";
     const folderProjectId = extractProjectIdFromFolderName(folderName);
-    
+
     debug("Folder name:", folderName);
     debug("Folder projectId:", folderProjectId);
 
@@ -84,7 +84,7 @@ export async function detectProjectIdMismatch(
     // 2. Otherwise, use folder UUID
     // 3. If neither exist, use metadata UUID
     const sourceOfTruth = gitRemoteProjectId || folderProjectId || metadataProjectId;
-    
+
     // Read current projectName from metadata to check if it's empty
     let currentProjectName: string | undefined;
     try {
@@ -95,7 +95,7 @@ export async function detectProjectIdMismatch(
     } catch (error) {
         debug("Error reading projectName from metadata:", error);
     }
-    
+
     // Check if metadata needs update (either projectId mismatch OR empty projectName)
     const hasProjectIdMismatch = !!(
         sourceOfTruth &&
@@ -126,7 +126,7 @@ export async function detectProjectIdMismatch(
 export async function fixProjectIdMismatch(
     workspaceFolder: vscode.Uri,
     correctProjectId: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; }> {
     try {
         debug("Attempting to fix projectId mismatch. Correct projectId:", correctProjectId);
 
@@ -137,14 +137,12 @@ export async function fixProjectIdMismatch(
                 dir: workspaceFolder.fsPath,
                 filepath: "metadata.json",
             });
-            
-            // If file is modified locally, don't auto-update to avoid conflicts
+
+            // If file is modified locally, log it but proceed with update
             if (status !== "unmodified" && status !== "*absent") {
-                debug("metadata.json has local changes, skipping auto-fix");
-                return {
-                    success: false,
-                    error: "metadata.json has uncommitted changes. Please commit or discard changes first.",
-                };
+                debug("metadata.json has local changes, proceeding with auto-fix anyway");
+                // We used to block here, but for ID fixes it's better to proceed
+                // as MetadataManager handles JSON merging safely.
             }
         } catch (error) {
             // If git status fails, it might not be a git repo yet, which is fine
@@ -163,10 +161,22 @@ export async function fixProjectIdMismatch(
                     projectId: correctProjectId,
                 };
 
-                // Also fix empty projectName by using folder name
+                // Also fix empty projectName by using folder name (stripped of UUID)
                 if (!metadata.projectName || metadata.projectName.trim() === "") {
-                    updates.projectName = folderName;
-                    debug("Also fixing empty projectName with folder name:", folderName);
+                    // Extract the name part without the ID if possible
+                    let baseName = folderName;
+                    if (correctProjectId && folderName.includes(correctProjectId)) {
+                        baseName = folderName.replace(correctProjectId, "").replace(/-+$/, "").replace(/^-+/, "");
+                    }
+                    
+                    // Fallback if baseName became empty or weird, sanitize the original
+                    if (!baseName || baseName.trim() === "") {
+                        // If folder name was just the ID, use "project"
+                        baseName = folderName !== correctProjectId ? folderName : "project";
+                    }
+
+                    updates.projectName = sanitizeProjectName(baseName);
+                    debug("Also fixing empty projectName with folder name:", updates.projectName);
                 }
 
                 return updates;
@@ -204,12 +214,12 @@ export async function validateAndFixProjectId(
         if (info.needsUpdate) {
             // Use metadata projectId if sourceOfTruth is undefined but we need to fix empty projectName
             const projectIdToUse = info.sourceOfTruth || info.metadataProjectId;
-            
+
             if (projectIdToUse) {
                 debug("Project information needs update. Attempting to fix...");
-                
+
                 const result = await fixProjectIdMismatch(workspaceFolder, projectIdToUse);
-                
+
                 if (result.success) {
                     const source = info.gitRemoteProjectId ? "remote repository" : "folder name";
                     vscode.window.showInformationMessage(

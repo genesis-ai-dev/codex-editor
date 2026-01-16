@@ -65,6 +65,8 @@ export interface LocalProjectSettings {
         username: string;
         completedAt: number;
     };
+    /** Track project swap migration state */
+    projectSwap?: import("../../types").LocalProjectSwap;
     // Legacy keys (read and mirrored for backward compatibility)
     mediaFilesStrategy?: MediaFilesStrategy;
     lastModeRun?: MediaFilesStrategy;
@@ -172,6 +174,7 @@ export async function writeLocalProjectSettings(
             updateState: settings.updateState,
             pendingUpdate: settings.pendingUpdate,
             updateCompletedLocally: settings.updateCompletedLocally,
+            projectSwap: settings.projectSwap,
         };
         const content = JSON.stringify(toWrite, null, 2);
         await vscode.workspace.fs.writeFile(settingsPath, Buffer.from(content, "utf-8"));

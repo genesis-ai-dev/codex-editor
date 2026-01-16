@@ -284,8 +284,10 @@ export type MessagesToStartupFlowProvider =
     | { command: "navigateToMainMenu"; }
     | { command: "zipProject"; projectName: string; projectPath: string; includeGit?: boolean; }
     | { command: "project.heal"; projectName: string; projectPath: string; gitOriginUrl?: string; }
+    | { command: "project.renameFolder"; projectPath: string; newName: string; }
     | { command: "project.setMediaStrategy"; projectPath: string; mediaStrategy: MediaFilesStrategy; }
-    | { command: "project.cleanupMediaFiles"; projectPath: string; };
+    | { command: "project.cleanupMediaFiles"; projectPath: string; }
+    | { command: "project.fixAndOpen"; projectPath: string; };
 
 export type GitLabProject = {
     id: number;
@@ -303,6 +305,7 @@ export type ProjectSyncStatus =
     | "downloadedAndSynced"
     | "cloudOnlyNotSynced"
     | "localOnlyNotSynced"
+    | "orphaned"
     | "error";
 
 export type MediaFilesStrategy =
@@ -374,6 +377,7 @@ export type MessagesFromStartupFlowProvider =
     | { command: "project.updatingInProgress"; projectPath: string; updating: boolean; }
     | { command: "project.cloningInProgress"; projectPath: string; gitOriginUrl?: string; cloning: boolean; }
     | { command: "project.openingInProgress"; projectPath: string; opening: boolean; }
+    | { command: "project.renamingInProgress"; projectPath: string; renaming: boolean; }
     | { command: "project.zippingInProgress"; projectPath: string; zipType: "full" | "mini"; zipping: boolean; }
     | { command: "project.cleaningInProgress"; projectPath: string; cleaning: boolean; };
 
@@ -1039,6 +1043,8 @@ type ProjectMetadata = {
         /** @deprecated Use initiateRemoteUpdatingFor instead - kept for backward compatibility during migration */
         initiateRemoteHealingFor?: RemoteUpdatingEntry[];
         abbreviation?: string;
+        /** Project swap information for migrating to a new Git repository */
+        projectSwap?: ProjectSwapInfo;
     };
     idAuthorities: {
         [key: string]: {
@@ -1191,6 +1197,80 @@ export interface RemoteUpdatingEntry {
 export interface RemoteHealingEntry extends RemoteUpdatingEntry {
     /** @deprecated Use userToUpdate instead */
     userToHeal?: string;
+}
+
+/**
+ * Project Swap - Migrate entire team from old Git repository to new one with clean history
+ * 
+ * This allows instance administrators to move all users to a fresh repository while
+ * preserving all working files (.codex, .source, uncommitted changes, etc.)
+ */
+export interface ProjectSwapInfo {
+    /** Unique identifier shared across all versions of this logical project */
+    projectUUID: string;
+
+    /** True if this is the old (deprecated) project, false if this is the new (current) project */
+    isOldProject: boolean;
+
+    /** Git URL for the new (target) repository */
+    newProjectUrl: string;
+
+    /** Name of the new project (extracted from newProjectUrl) */
+    newProjectName: string;
+
+    /** Git URL for the old (source) repository - reference back when viewing from new project */
+    oldProjectUrl?: string;
+
+    /** Username of instance admin who initiated the swap */
+    swapInitiatedBy: string;
+
+    /** Unix timestamp when swap was initiated */
+    swapInitiatedAt: number;
+
+    /** Optional reason for the swap (e.g., "Repository size reduction") */
+    swapReason?: string;
+
+    /** Current status of the swap operation */
+    swapStatus: "pending" | "migrating" | "completed" | "failed" | "cancelled";
+
+    /** For chained swaps (Project A → B → C), tracks previous project URL */
+    previousProjectUrl?: string;
+
+    /** Unix timestamp when swap was completed */
+    swapCompletedAt?: number;
+
+    /** Error message if swap failed */
+    swapError?: string;
+
+    /** @deprecated Use newProjectName instead */
+    projectName?: string;
+}
+
+/**
+ * Local (non-synced) state tracking for project swap
+ * Stored in localProjectSettings.json
+ */
+export interface LocalProjectSwap {
+    /** Whether a swap migration is pending for this user */
+    pendingSwap: boolean;
+
+    /** Matches projectUUID from metadata.json */
+    swapUUID: string;
+
+    /** Path to backup .zip file */
+    backupPath?: string;
+
+    /** Whether migration is currently in progress */
+    migrationInProgress: boolean;
+
+    /** Number of migration attempts */
+    migrationAttempts: number;
+
+    /** Timestamp of last migration attempt */
+    lastAttemptTimestamp?: number;
+
+    /** Error from last failed attempt */
+    lastAttemptError?: string;
 }
 
 export interface AggregatedMetadata {
@@ -1385,6 +1465,8 @@ interface LocalProject {
         reason?: string;
         detectedAt?: number;
     };
+    hasFolderNameMismatch?: boolean;
+    correctFolderName?: string;
 }
 
 export interface BiblePreview extends BasePreview {

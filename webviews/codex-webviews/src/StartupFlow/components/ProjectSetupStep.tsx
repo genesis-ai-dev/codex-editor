@@ -90,16 +90,16 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             command: "getProjectsListFromGitLab",
         } as MessagesToStartupFlowProvider);
 
-        const progressTimer = setTimeout(() => {
-            fetchProgressData();
-        }, 500);
+        // const progressTimer = setTimeout(() => {
+        //     fetchProgressData();
+        // }, 500);
 
         const syncTimer = setTimeout(() => {
             fetchSyncStatus();
         }, 1000);
 
         return () => {
-            clearTimeout(progressTimer);
+            // clearTimeout(progressTimer);
             clearTimeout(syncTimer);
         };
     }, []);

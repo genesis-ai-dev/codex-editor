@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as semver from "semver";
-import { initializeProjectMetadataAndGit, syncMetadataToConfiguration, isValidCodexProject, generateProjectId, ProjectDetails } from "../../projectManager/utils/projectUtils";
+import { initializeProjectMetadataAndGit, syncMetadataToConfiguration, isValidCodexProject, generateProjectId, ProjectDetails, sanitizeProjectName, extractProjectIdFromFolderName } from "../../projectManager/utils/projectUtils";
 import { getCodexProjectsDirectory } from "../projectLocationUtils";
 
 /**
@@ -53,11 +53,11 @@ export async function createNewWorkspaceAndProject(context?: vscode.ExtensionCon
     }
 
     const projectName = sanitizeProjectName(projectNameInput);
-    
+
     // Generate projectId for this legacy flow
     const projectId = generateProjectId();
     const fullProjectName = `${projectName}-${projectId}`;
-    
+
     if (projectName !== projectNameInput) {
         const proceed = await vscode.window.showInformationMessage(
             `Project name will be saved as "${fullProjectName}"`,
@@ -276,27 +276,6 @@ export async function openProject(projectPath: string) {
     }
 }
 
-/**
- * Sanitizes a project name to be used as a folder name.
- * Ensure name is safe for:
- * - Windows
- * - Mac
- * - Linux
- * - Git
- */
-export function sanitizeProjectName(name: string): string {
-    // Replace invalid characters with hyphens
-    // This handles Windows, Mac, Linux filesystem restrictions and Git-unsafe characters
-    return (
-        name
-            .replace(/[<>:"/\\|?*]|^\.|\.$|\.lock$|^git$/i, "-") // Invalid/reserved chars and names
-            .replace(/\s+/g, "-") // Replace spaces with hyphens
-            .replace(/\.+/g, "-") // Replace periods with hyphens
-            .replace(/-+/g, "-") // Replace multiple hyphens with single hyphen
-            .replace(/^-|-$/g, "") || // Remove leading/trailing hyphens OR
-        "new-project" // Fallback if name becomes empty after sanitization
-    );
-}
 
 /**
  * Checks if a project name already exists
@@ -359,20 +338,3 @@ export async function createWorkspaceWithProjectName(projectName: string, projec
     await createProjectInNewFolder(projectName, projectId);
 }
 
-/**
- * Extracts projectId from folder name if it follows the format "projectName-projectId"
- * @param folderName - The folder name to extract projectId from
- * @returns The projectId if found, undefined otherwise
- */
-export function extractProjectIdFromFolderName(folderName: string): string | undefined {
-    const lastHyphenIndex = folderName.lastIndexOf('-');
-    if (lastHyphenIndex !== -1) {
-        const potentialProjectId = folderName.substring(lastHyphenIndex + 1);
-        // Validate it looks like a projectId (alphanumeric, reasonable length)
-        // ProjectId from generateProjectId is 26 chars (13 + 13)
-        if (potentialProjectId.length >= 20 && /^[a-z0-9]+$/i.test(potentialProjectId)) {
-            return potentialProjectId;
-        }
-    }
-    return undefined;
-}

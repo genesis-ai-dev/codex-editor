@@ -14,11 +14,9 @@ import {
     createNewProject,
     createNewWorkspaceAndProject,
     createWorkspaceWithProjectName,
-    sanitizeProjectName,
     checkProjectNameExists,
-    extractProjectIdFromFolderName,
 } from "../../utils/projectCreationUtils/projectCreationUtils";
-import { generateProjectId } from "../../projectManager/utils/projectUtils";
+import { generateProjectId, sanitizeProjectName, extractProjectIdFromFolderName } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { MetadataManager } from "../../utils/metadataManager";
 import { createMachine, assign, createActor } from "xstate";
@@ -1254,7 +1252,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                                     // Update flags are now set INSIDE performProjectUpdate (before window reload)
                                     // This ensures metadata.json has executed:true before sync runs on restart
-                                    
+
                                     // Clear pending update flag
                                     try {
                                         await clearPendingUpdate(vscode.Uri.file(projectPath));
@@ -1313,7 +1311,69 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         }
                     }
 
-                    // Now inform webview that opening is starting (after updating is complete)
+                    // Check if project swap is required before opening
+                    let swapWasPerformed = false;
+                    try {
+                        debugLog("Checking project swap requirement for project:", projectPath);
+                        const { checkProjectSwapRequired } = await import("../../utils/projectSwapManager");
+                        const swapCheck = await checkProjectSwapRequired(projectPath);
+
+                        if (swapCheck.required && swapCheck.swapInfo) {
+                            debugLog("Project swap required for project");
+                            swapWasPerformed = true;
+
+                            const swapInfo = swapCheck.swapInfo;
+                            const newProjectName = swapInfo.newProjectName;
+
+                            // Show notification and perform swap
+                            await vscode.window.withProgress(
+                                {
+                                    location: vscode.ProgressLocation.Notification,
+                                    title: `Migrating to ${newProjectName}`,
+                                    cancellable: false,
+                                },
+                                async (progress) => {
+                                    progress.report({ message: "Starting migration..." });
+
+                                    const projectName = projectPath.split(/[\\/]/).pop() || "project";
+
+                                    // Import and perform swap
+                                    const { performProjectSwap } = await import("./performProjectSwap");
+
+                                    await performProjectSwap(
+                                        progress,
+                                        projectName,
+                                        projectPath,
+                                        swapInfo.newProjectUrl,
+                                        swapInfo.projectUUID
+                                    );
+
+                                    debugLog("Project swap completed successfully");
+                                    progress.report({ message: "Migration complete!" });
+                                }
+                            );
+
+                            // Show success message
+                            vscode.window.showInformationMessage(
+                                `✅ Project migrated to ${newProjectName}\n\nOpening new project...`
+                            );
+                        }
+                    } catch (swapErr) {
+                        debugLog("Project swap check/execution failed:", swapErr);
+                        console.error("Project swap error:", swapErr);
+
+                        if (swapWasPerformed) {
+                            // Tell the user and abort opening
+                            const msg = swapErr instanceof Error ? swapErr.message : String(swapErr);
+                            vscode.window.showWarningMessage(
+                                "Project migration failed. Please try again or contact support.\n\nDetails: " + msg,
+                                { modal: true }
+                            );
+                            return; // Abort opening flow
+                        }
+                    }
+
+                    // Now inform webview that opening is starting (after updating/swap is complete)
                     try {
                         this.safeSendMessage({
                             command: "project.openingInProgress",
@@ -1788,8 +1848,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // Generate projectId immediately if no sanitization needed
                         const projectId = generateProjectId();
                         await this.context.globalState.update("pendingProjectCreate", true);
-                        // Store full name with UUID for display
-                        await this.context.globalState.update("pendingProjectCreateName", `${sanitized}-${projectId}`);
+                        // Store sanitized name WITHOUT UUID for metadata.json
+                        // The folder name will still include the UUID via createWorkspaceWithProjectName
+                        await this.context.globalState.update("pendingProjectCreateName", sanitized);
                         await this.context.globalState.update("pendingProjectCreateId", projectId);
                         await createWorkspaceWithProjectName(sanitized, projectId);
                     }
@@ -1804,8 +1865,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     await this.context.globalState.update("pendingProjectCreate", true);
                     // Use provided projectId or generate one if not provided (shouldn't happen in normal flow)
                     const finalProjectId = projectId || generateProjectId();
-                    // Store full name with UUID for display
-                    await this.context.globalState.update("pendingProjectCreateName", `${projectName}-${finalProjectId}`);
+                    // Store sanitized name WITHOUT UUID for metadata.json
+                    // The folder name will still include the UUID via createWorkspaceWithProjectName
+                    await this.context.globalState.update("pendingProjectCreateName", projectName);
                     await this.context.globalState.update("pendingProjectCreateId", finalProjectId);
                     await createWorkspaceWithProjectName(projectName, finalProjectId);
                 }
@@ -2757,6 +2819,129 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                 break;
             }
+            case "project.fixAndOpen": {
+                const { projectPath } = message;
+                if (!projectPath) {
+                    vscode.window.showErrorMessage("No project path provided for restoration.");
+                    return;
+                }
+
+                try {
+                    const projectUri = vscode.Uri.file(projectPath);
+                    const gitPath = vscode.Uri.joinPath(projectUri, ".git");
+                    const metadataPath = vscode.Uri.joinPath(projectUri, "metadata.json");
+
+                    // 1. Check if .git exists and confirm with user
+                    try {
+                        await vscode.workspace.fs.stat(gitPath);
+                    } catch {
+                        vscode.window.showErrorMessage("No .git folder found to restore from.");
+                        return;
+                    }
+
+                    const confirm = await vscode.window.showWarningMessage(
+                        "This project appears to be missing its remote counterpart. Do you want to fix it as a new local project?\n\nThis will backup your git history and re-initialize the project.",
+                        { modal: true },
+                        "Fix & Open"
+                    );
+
+                    if (confirm !== "Fix & Open") {
+                        return;
+                    }
+
+                    // 2. Prepare backup location
+                    const codexProjectsRoot = await getCodexProjectsDirectory();
+                    const archivedProjectsDir = vscode.Uri.joinPath(codexProjectsRoot, "archived_projects");
+                    await this.ensureDirectoryExists(archivedProjectsDir);
+
+                    // Read metadata early to get project name for backup file
+                    const metadataContent = await vscode.workspace.fs.readFile(metadataPath);
+                    const metadata = JSON.parse(metadataContent.toString());
+                    const projectName = sanitizeProjectName(metadata.projectName || path.basename(projectPath));
+                    
+                    const backupZipPath = vscode.Uri.joinPath(archivedProjectsDir, `${projectName}-git-backup-${Date.now()}.zip`);
+                    
+                    await vscode.window.withProgress({
+                        location: vscode.ProgressLocation.Notification,
+                        title: "Fixing project...",
+                        cancellable: false
+                    }, async (progress) => {
+                        progress.report({ message: "Backing up git history to archive..." });
+                        
+                        // Use JSZip to zip the .git folder
+                        const zip = new JSZip();
+                        await this.addFilesToZip(gitPath, zip); // Zip the .git folder specifically
+                        
+                        const content = await zip.generateAsync({ type: "nodebuffer" });
+                        await vscode.workspace.fs.writeFile(backupZipPath, content);
+
+                        progress.report({ message: "Removing old git configuration..." });
+                        // 3. Delete .git folder
+                        await vscode.workspace.fs.delete(gitPath, { recursive: true, useTrash: false });
+
+                        progress.report({ message: "Updating project identity..." });
+                        // 4. Update metadata with new UUID
+                        const oldId = metadata.projectId;
+                        const newId = generateProjectId();
+                        metadata.projectId = newId;
+
+                        // 5. Rename folder logic
+                        const parentDir = path.dirname(projectPath);
+                        const currentFolderName = path.basename(projectPath);
+                        
+                        // If folder name contains the old ID, replace it. Otherwise append new ID.
+                        let newFolderName = currentFolderName;
+                        if (oldId && currentFolderName.includes(oldId)) {
+                            newFolderName = currentFolderName.replace(oldId, newId);
+                            
+                            // Ensure projectName is not empty even if we just replaced the ID in folder name
+                            if (!metadata.projectName || metadata.projectName.trim() === "") {
+                                // Extract the name part without the ID
+                                const baseName = currentFolderName.replace(oldId, "").replace(/-+$/, "").replace(/^-+/, "");
+                                metadata.projectName = sanitizeProjectName(baseName);
+                            }
+                        } else {
+                            // If UUID wasn't in folder name, use the current folder name as the base
+                            // This ensures that if the user renamed the folder (e.g. fork), we keep that name
+                            const cleanName = sanitizeProjectName(currentFolderName);
+                            newFolderName = `${cleanName}-${newId}`;
+                            
+                            // Also update the project name in metadata to match the folder name
+                            // This prevents "reverting" to an old name stored in metadata
+                            metadata.projectName = cleanName;
+                        }
+
+                        // Final safety check: if projectName is still empty, use the new folder name (minus ID)
+                        if (!metadata.projectName || metadata.projectName.trim() === "") {
+                             metadata.projectName = newFolderName.replace(newId, "").replace(/-+$/, "").replace(/^-+/, "");
+                        }
+
+                        // Write updated metadata
+                        await vscode.workspace.fs.writeFile(metadataPath, Buffer.from(JSON.stringify(metadata, null, 4)));
+
+                        const newProjectPath = path.join(parentDir, newFolderName);
+                        
+                        // Only rename if different
+                        if (newProjectPath !== projectPath) {
+                            await vscode.workspace.fs.rename(projectUri, vscode.Uri.file(newProjectPath));
+                        }
+
+                        // 6. Open the project
+                        progress.report({ message: "Opening project..." });
+                        const newProjectUri = vscode.Uri.file(newProjectPath);
+                        await vscode.commands.executeCommand("vscode.openFolder", newProjectUri);
+                    });
+
+                } catch (error) {
+                    console.error("Error fixing project:", error);
+                    vscode.window.showErrorMessage(`Failed to fix project: ${error instanceof Error ? error.message : String(error)}`);
+                }
+                break;
+            }
+            case "project.renameFolder": {
+                // Legacy command - handling removed as renaming is now automatic during scan
+                break;
+            }
             case "project.heal": {
                 const { projectName, projectPath, gitOriginUrl } = message;
 
@@ -3553,13 +3738,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             }
                             return normalized;
                         });
-                        
+
                         if (!meta.meta) meta.meta = {};
                         meta.meta.initiateRemoteUpdatingFor = updatedList;
                         return meta;
                     }
                 );
-                
+
                 // Set local completion flag to prevent re-prompting before sync
                 const { markUpdateCompletedLocally } = await import("../../utils/localProjectSettings");
                 await markUpdateCompletedLocally(currentUsername, updatedUri);
@@ -4068,6 +4253,44 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 });
             }
 
+            // Helper to normalize Git URLs for comparison
+            // Removes protocol, credentials, .git suffix, and trailing slashes
+            const normalizeUrl = (url: string | undefined) => {
+                if (!url) return "";
+                try {
+                    let clean = url.trim();
+                    
+                    // Handle standard URL format (http/https)
+                    if (clean.startsWith('http')) {
+                        const urlObj = new URL(clean);
+                        // Returns domain/path (e.g., git.genesisrnd.com/group/project)
+                        let path = urlObj.pathname;
+                        if (path.endsWith('.git')) path = path.slice(0, -4);
+                        if (path.endsWith('/')) path = path.slice(0, -1);
+                        return `${urlObj.host}${path}`.toLowerCase();
+                    }
+                    
+                    // Handle SSH/SCP format (git@domain:path)
+                    if (clean.includes('@') && clean.includes(':')) {
+                        const parts = clean.split('@');
+                        let domainAndPath = parts[1]; // domain:path
+                        // Replace : with / to standardize
+                        domainAndPath = domainAndPath.replace(':', '/');
+                        if (domainAndPath.endsWith('.git')) domainAndPath = domainAndPath.slice(0, -4);
+                        if (domainAndPath.endsWith('/')) domainAndPath = domainAndPath.slice(0, -1);
+                        return domainAndPath.toLowerCase();
+                    }
+
+                    // Fallback for other formats: just strip common suffixes
+                    clean = clean.toLowerCase();
+                    if (clean.endsWith('.git')) clean = clean.slice(0, -4);
+                    if (clean.endsWith('/')) clean = clean.slice(0, -1);
+                    return clean;
+                } catch (e) {
+                    return url.trim().toLowerCase();
+                }
+            };
+
             // Process local projects and check for matches
             for (const project of localProjects) {
                 if (!project.gitOriginUrl) {
@@ -4078,8 +4301,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     continue;
                 }
 
+                const localNormalized = normalizeUrl(project.gitOriginUrl);
                 const matchInRemoteIndex = projectList.findIndex(
-                    (p) => p.gitOriginUrl === project.gitOriginUrl
+                    (p) => normalizeUrl(p.gitOriginUrl) === localNormalized
                 );
 
                 if (matchInRemoteIndex !== -1) {
@@ -4088,9 +4312,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         syncStatus: "downloadedAndSynced",
                     };
                 } else {
+                    // If local project has a git remote but is NOT in the remote list,
+                    // mark it as "orphaned" (remote missing or inaccessible).
+                    // If no git remote, it's a pure local project.
                     projectList.push({
                         ...project,
-                        syncStatus: "localOnlyNotSynced",
+                        syncStatus: project.gitOriginUrl ? "orphaned" : "localOnlyNotSynced",
                     });
                 }
             }

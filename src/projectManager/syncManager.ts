@@ -189,6 +189,44 @@ export class SyncManager {
         return false;
     }
 
+    // Check if project swap is required and notify/block if so
+    private async checkProjectSwap(projectPath: string): Promise<boolean> {
+        try {
+            const { checkProjectSwapRequired } = await import("../utils/projectSwapManager");
+            const result = await checkProjectSwapRequired(projectPath);
+            
+            if (result.required && result.swapInfo) {
+                debug("Project swap required for user, blocking sync and notifying");
+
+                const swapInfo = result.swapInfo;
+                const newProjectName = swapInfo.newProjectName;
+
+                // Show modal dialog that cannot be missed
+                const selection = await vscode.window.showWarningMessage(
+                    `📦 Project Migration Required\n\n` +
+                    `This project has been migrated to a new repository:\n${newProjectName}\n\n` +
+                    `Reason: ${swapInfo.swapReason || "Repository migration"}\n` +
+                    `Initiated by: ${swapInfo.swapInitiatedBy}\n\n` +
+                    `Syncing has been disabled until you migrate.\n\n` +
+                    `Your local changes will be preserved and backed up.`,
+                    { modal: true },
+                    "Migrate Now",
+                    "Not Now"
+                );
+                
+                if (selection === "Migrate Now") {
+                    // Close folder - StartupFlowProvider will handle the migration on next open
+                    await vscode.commands.executeCommand("workbench.action.closeFolder");
+                }
+                
+                return true;
+            }
+        } catch (error) {
+            console.error("Error checking project swap requirement:", error);
+        }
+        return false;
+    }
+
     public static getInstance(): SyncManager {
         if (!SyncManager.instance) {
             SyncManager.instance = new SyncManager();
@@ -477,6 +515,16 @@ export class SyncManager {
             const isUpdatingRequired = await this.checkUpdating(projectPath);
             if (isUpdatingRequired) {
                 debug("Sync blocked due to updating requirement");
+                return;
+            }
+        }
+
+        // Check for project swap requirement before proceeding
+        if (hasWorkspace && !bypassUpdatingCheck) {
+            const projectPath = vscode.workspace.workspaceFolders![0].uri.fsPath;
+            const isSwapRequired = await this.checkProjectSwap(projectPath);
+            if (isSwapRequired) {
+                debug("Sync blocked due to project swap requirement");
                 return;
             }
         }
