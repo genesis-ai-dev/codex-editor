@@ -1916,7 +1916,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                             const db = translationPairsIndex.database;
                             if (db) {
                                 try {
-                                    // Get audio validation statistics
+                                    // Get audio validation statistics (excluding milestone cells)
                                     const audioValidationStmt = db.prepare(`
                                         SELECT 
                                             COUNT(*) as total_target_cells,
@@ -1926,7 +1926,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                                             AVG(t_audio_validation_count) as avg_audio_validation_count,
                                             MAX(t_audio_validation_count) as max_audio_validation_count
                                         FROM cells 
-                                        WHERE t_content IS NOT NULL AND t_content != ''
+                                        WHERE t_content IS NOT NULL AND t_content != '' 
+                                        AND ((cell_type IS NULL AND (cell_id LIKE '%:%' OR cell_id LIKE '% %')) OR (cell_type IS NOT NULL AND cell_type != 'milestone'))
                                     `);
 
                                     let audioStats = {

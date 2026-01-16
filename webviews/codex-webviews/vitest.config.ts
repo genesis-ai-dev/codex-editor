@@ -5,6 +5,7 @@ export default defineConfig({
     resolve: {
         alias: {
             '@sharedUtils': resolve(__dirname, '../../sharedUtils/index.ts'),
+            'types': resolve(__dirname, '../../types'),
         },
     },
     test: {

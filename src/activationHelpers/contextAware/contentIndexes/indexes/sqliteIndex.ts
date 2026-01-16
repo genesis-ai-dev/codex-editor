@@ -15,7 +15,7 @@ const debug = (message: string, ...args: any[]) => {
 };
 
 // Schema version for migrations
-export const CURRENT_SCHEMA_VERSION = 10; // Added separate audio validation columns
+export const CURRENT_SCHEMA_VERSION = 11; // Added cell_type column for filtering milestone cells
 
 export class SQLiteIndexManager {
     private sql: SqlJsStatic | null = null;
@@ -269,6 +269,9 @@ export class SQLiteIndexManager {
             this.db!.run(`
                 CREATE TABLE IF NOT EXISTS cells (
                     cell_id TEXT PRIMARY KEY,
+                    
+                    -- Cell type (text, paratext, milestone, style)
+                    cell_type TEXT,
                     
                     -- Source columns
                     s_file_id INTEGER,
@@ -810,6 +813,9 @@ export class SQLiteIndexManager {
         // Extract metadata for dedicated columns (always extract for target cells to handle validation changes)
         const extractedMetadata = this.extractMetadataFields(metadata, cellType);
 
+        // Extract cell_type from metadata
+        const cellTypeValue = metadata?.type || null;
+
         // For target cells, always update metadata even if content hasn't changed (validation may have changed)
         const shouldUpdate = contentChanged || (cellType === 'target' && metadata && Object.keys(metadata).length > 0);
 
@@ -823,6 +829,7 @@ export class SQLiteIndexManager {
         // Prepare column names and values based on cell type
         const prefix = cellType === 'source' ? 's_' : 't_';
         const columns = [
+            'cell_type',
             `${prefix}file_id`,
             `${prefix}content`,
             `${prefix}raw_content_hash`,
@@ -832,6 +839,7 @@ export class SQLiteIndexManager {
         ];
 
         const values = [
+            cellTypeValue,
             fileId,
             sanitizedContent,
             rawContentHash,
@@ -970,6 +978,9 @@ export class SQLiteIndexManager {
         // Extract metadata for dedicated columns (always extract for target cells to handle validation changes)
         const extractedMetadata = this.extractMetadataFields(metadata, cellType);
 
+        // Extract cell_type from metadata
+        const cellTypeValue = metadata?.type || null;
+
         // For target cells, always update metadata even if content hasn't changed (validation may have changed)
         const shouldUpdate = contentChanged || (cellType === 'target' && metadata && Object.keys(metadata).length > 0);
 
@@ -983,6 +994,7 @@ export class SQLiteIndexManager {
         // Prepare column names and values based on cell type
         const prefix = cellType === 'source' ? 's_' : 't_';
         const columns = [
+            'cell_type',
             `${prefix}file_id`,
             `${prefix}content`,
             `${prefix}raw_content_hash`,
@@ -992,6 +1004,7 @@ export class SQLiteIndexManager {
         ];
 
         const values = [
+            cellTypeValue,
             fileId,
             sanitizedContent,
             rawContentHash,
@@ -2217,6 +2230,7 @@ export class SQLiteIndexManager {
             // Since we recreate for any version mismatch, we only validate current schema
             const expectedCellsColumns = [
                 'cell_id',
+                'cell_type',
                 's_file_id', 's_content', 's_raw_content_hash', 's_line_number', 's_word_count', 's_raw_content', 's_created_at', 's_updated_at',
                 't_file_id', 't_content', 't_raw_content_hash', 't_line_number', 't_word_count', 't_raw_content', 't_created_at',
                 't_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_fully_validated',

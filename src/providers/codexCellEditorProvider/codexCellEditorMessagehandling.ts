@@ -5,7 +5,7 @@ import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import type { CodexCellEditorProvider } from "./codexCellEditorProvider";
 import { GlobalMessage, EditorPostMessages, EditHistory, CodexNotebookAsJSONData } from "../../../types";
 import { EditMapUtils } from "../../utils/editMapUtils";
-import { EditType } from "../../../types/enums";
+import { EditType, CodexCellTypes } from "../../../types/enums";
 import {
     QuillCellContent,
     SpellCheckResponse,
@@ -30,6 +30,8 @@ import { getUnresolvedCommentsCountForCell } from "../../utils/commentsUtils";
 import { toPosixPath } from "../../utils/pathUtils";
 import { revalidateCellMissingFlags } from "../../utils/audioMissingUtils";
 import { mergeAudioFiles } from "../../utils/audioMerger";
+import { getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
+import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
 // Comment out problematic imports
 // import { getAddWordToSpellcheckApi } from "../../extension";
 // import { getSimilarCellIds } from "@/utils/semanticSearch";
@@ -104,7 +106,8 @@ interface MessageHandlerContext {
 async function getAudioFilePathForCell(
     cell: any,
     cellId: string,
-    workspaceFolder: vscode.WorkspaceFolder
+    workspaceFolder: vscode.WorkspaceFolder,
+    documentUri: vscode.Uri,
 ): Promise<string | null> {
     // First, check if cell has audio attachments in metadata
     if (cell?.metadata?.attachments) {
@@ -126,10 +129,30 @@ async function getAudioFilePathForCell(
     }
 
     // Fallback: check filesystem for legacy audio files
-    const bookAbbr = cellId.split(' ')[0];
-    const parseCellIdToBookChapterVerse = (cellId: string): { book: string; chapter?: number; verse?: number; } => {
+    // Extract book name from globalReferences if available, otherwise fall back to parsing cell ID
+    let bookAbbr = "";
+    let basename = "";
+
+    // Try to get book name from globalReferences first
+    const globalRefs = cell?.metadata?.data?.globalReferences;
+    if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+        const firstRef = globalRefs[0];
+        // Extract book name: "GEN 1:1" -> "GEN" or "TheChosen-201-en-SingleSpeaker 1:jkflds" -> "TheChosen-201-en-SingleSpeaker"
+        const bookMatch = firstRef.match(/^([^\s]+)/);
+        if (bookMatch) {
+            bookAbbr = bookMatch[1];
+        }
+    }
+
+    // Fallback to parsing cell ID if globalReferences not available (legacy support)
+    if (!bookAbbr) {
+        // Cell IDs may be UUIDs; avoid deriving book from them.
+        bookAbbr = getAttachmentDocumentSegmentFromUri(documentUri);
+    }
+
+    const parseCellIdToBookChapterVerse = (refId: string): { book: string; chapter?: number; verse?: number; } => {
         try {
-            const [book, rest] = cellId.split(" ");
+            const [book, rest] = refId.split(" ");
             const [chapterStr, verseStr] = (rest || "").split(":");
             let chapter: number | undefined = chapterStr ? Number(chapterStr) : undefined;
             let verse: number | undefined = verseStr ? Number(verseStr) : undefined;
@@ -141,8 +164,8 @@ async function getAudioFilePathForCell(
         }
     };
 
-    const toBookChapterVerseBasename = (cellId: string): string => {
-        const { book, chapter, verse } = parseCellIdToBookChapterVerse(cellId);
+    const toBookChapterVerseBasename = (refId: string): string => {
+        const { book, chapter, verse } = parseCellIdToBookChapterVerse(refId);
         const safePad = (n: number | undefined) => (typeof n === "number" && Number.isFinite(n) ? String(n) : "0").padStart(3, "0");
         const chapStr = safePad(chapter);
         const verseStr = safePad(verse);
@@ -155,7 +178,13 @@ async function getAudioFilePathForCell(
         return sanitizeFileComponent(`${book}_${chapStr}_${verseStr}`);
     };
 
-    const basename = toBookChapterVerseBasename(cellId);
+    // Use globalReferences for basename if available
+    if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+        basename = toBookChapterVerseBasename(globalRefs[0]);
+    } else {
+        // Fallback to parsing cell ID (legacy)
+        basename = toBookChapterVerseBasename(cellId);
+    }
     const audioExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.webm'];
 
     const attachmentsFilesPath = path.join(
@@ -529,7 +558,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         try {
             // First, update the global state to set the current cell ID
             const uri = document.uri.toString();
-            provider.updateCellIdState(typedEvent.content.cellId, uri);
+            provider.updateCellIdState(typedEvent.content.cellId, uri, document);
 
             // Open the comments view and navigate to the specific cell
             await vscode.commands.executeCommand("codex-editor-extension.focusCommentsView");
@@ -626,11 +655,22 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
-    saveHtml: async ({ event, document, provider }) => {
+    saveHtml: async ({ event, document, provider, webviewPanel }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "saveHtml"; }>;
+        const requestId = typedEvent.requestId;
 
         if (document.uri.toString() !== (typedEvent.content.uri || document.uri.toString())) {
             console.warn("Attempted to update content in a different file. This operation is not allowed.");
+            // Always ack so the webview doesn't spin indefinitely
+            safePostMessageToPanel(webviewPanel, {
+                type: "saveHtmlSaved",
+                content: {
+                    requestId,
+                    cellId: typedEvent.content.cellMarkers?.[0] || "",
+                    success: false,
+                    error: "Attempted to update content in a different file.",
+                },
+            });
             return;
         }
 
@@ -640,6 +680,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         // Block saveHtml operations on locked cells
         if (oldContent?.metadata?.isLocked) {
             console.warn(`Attempted to save locked cell ${cellId}. Operation blocked.`);
+            safePostMessageToPanel(webviewPanel, {
+                type: "saveHtmlSaved",
+                content: {
+                    requestId,
+                    cellId,
+                    success: false,
+                    error: `Cell ${cellId} is locked`,
+                },
+            });
             return;
         }
 
@@ -665,20 +714,34 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         // For source file transcriptions, wait for index update to complete
         // so that the source content is immediately available for translation
-        if (isSourceText && isTranscription) {
-            await document.updateCellContent(
-                cellId,
-                finalContent,
-                EditType.USER_EDIT
-            );
-            // Wait for the index to be updated and verify it's available
-            await document.ensureCellIndexed(cellId, 3000);
-        } else {
-            await document.updateCellContent(
-                cellId,
-                finalContent,
-                EditType.USER_EDIT
-            );
+        try {
+            if (isSourceText && isTranscription) {
+                await document.updateCellContent(cellId, finalContent, EditType.USER_EDIT);
+                // Wait for the index to be updated and verify it's available
+                await document.ensureCellIndexed(cellId, 3000);
+            } else {
+                await document.updateCellContent(cellId, finalContent, EditType.USER_EDIT);
+            }
+
+            // Persist the change all the way to disk before acknowledging completion to the webview.
+            // This ensures UI "Save complete" state truly reflects the full round-trip.
+            await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+
+            safePostMessageToPanel(webviewPanel, {
+                type: "saveHtmlSaved",
+                content: { requestId, cellId, success: true },
+            });
+        } catch (error) {
+            console.error("Error persisting saveHtml:", error);
+            safePostMessageToPanel(webviewPanel, {
+                type: "saveHtmlSaved",
+                content: {
+                    requestId,
+                    cellId,
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error),
+                },
+            });
         }
     },
 
@@ -689,7 +752,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     setCurrentIdToGlobalState: ({ event, document, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "setCurrentIdToGlobalState"; }>;
         const uri = document.uri.toString();
-        provider.updateCellIdState(typedEvent.content.currentLineId, uri);
+        provider.updateCellIdState(typedEvent.content.currentLineId, uri, document);
     },
 
     llmCompletion: async ({ event, document, webviewPanel, provider }) => {
@@ -995,6 +1058,232 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         document.updateCellIsLocked(typedEvent.content.cellId, typedEvent.content.isLocked);
     },
 
+    updateMilestoneValue: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateMilestoneValue"; }>;
+        console.log("updateMilestoneValue message received", { event });
+
+        // Build milestone index to find the milestone cell
+        const milestoneIndex = document.buildMilestoneIndex();
+        const milestoneInfo = milestoneIndex.milestones[typedEvent.content.milestoneIndex];
+
+        if (!milestoneInfo) {
+            console.error("Milestone not found at index", typedEvent.content.milestoneIndex);
+            vscode.window.showErrorMessage(`Failed to update milestone: milestone not found at index ${typedEvent.content.milestoneIndex}`);
+            return;
+        }
+
+        // Use the cellIndex directly from milestoneInfo for O(1) access
+        const milestoneCell = document.getCellByIndex(milestoneInfo.cellIndex);
+
+        if (!milestoneCell || !milestoneCell.metadata?.id) {
+            console.error("Milestone cell not found at index", milestoneInfo.cellIndex);
+            vscode.window.showErrorMessage(`Failed to update milestone: cell not found at index ${milestoneInfo.cellIndex}`);
+            return;
+        }
+
+        // Verify it's actually a milestone cell (safety check)
+        if (milestoneCell.metadata?.type !== CodexCellTypes.MILESTONE) {
+            console.error("Cell at index is not a milestone cell", milestoneInfo.cellIndex);
+            vscode.window.showErrorMessage(`Failed to update milestone: cell at index ${milestoneInfo.cellIndex} is not a milestone cell`);
+            return;
+        }
+
+        // Skip deleted milestone cells
+        if (milestoneCell.metadata?.data?.deleted === true) {
+            console.error("Milestone cell is deleted", milestoneInfo.cellIndex);
+            vscode.window.showErrorMessage("Failed to update milestone: milestone cell has been deleted");
+            return;
+        }
+
+        const milestoneCellId = milestoneCell.metadata.id;
+        const cancellationToken = new vscode.CancellationTokenSource().token;
+        let codexSaveSucceeded = false;
+        let sourceUpdateSucceeded = false;
+
+        // Preserve current milestone index and subsection before refreshing webview
+        // Get current subsection from map if available, otherwise use cached subsection
+        const docUri = document.uri.toString();
+        const currentPosition = provider.currentMilestoneSubsectionMap.get(docUri);
+        const subsectionIndex = currentPosition?.subsectionIndex ?? provider.getCachedSubsection(docUri);
+
+        // Save milestone index to preserve position after refresh
+        provider.currentMilestoneSubsectionMap.set(docUri, {
+            milestoneIndex: typedEvent.content.milestoneIndex,
+            subsectionIndex: subsectionIndex,
+        });
+
+        try {
+            // Ensure author is set correctly before creating edit
+            await document.refreshAuthor();
+
+            // Update the milestone cell value in codex file
+            await document.updateCellContent(
+                milestoneCellId,
+                typedEvent.content.newValue,
+                EditType.USER_EDIT,
+                true, // shouldUpdateValue
+                false, // retainValidations
+                false // skipAutoValidation
+            );
+
+            // Note: The custom document change event is automatically fired by updateCellContent
+            // through the document's _onDidChangeForVsCodeAndWebview event, which the provider
+            // listens to and fires _onDidChangeCustomDocument. No need to fire it explicitly here.
+
+            // Save the codex document using provider's saveCustomDocument for proper VS Code integration
+            try {
+                await provider.saveCustomDocument(document, cancellationToken);
+                codexSaveSucceeded = true;
+                console.log(`[updateMilestoneValue] Successfully updated and saved milestone in codex file: ${document.uri.fsPath}`);
+            } catch (saveError) {
+                console.error(`[updateMilestoneValue] Failed to save codex file ${document.uri.fsPath}:`, saveError);
+                vscode.window.showErrorMessage(
+                    `Failed to save milestone update to codex file: ${saveError instanceof Error ? saveError.message : String(saveError)}`
+                );
+                return; // Don't proceed with source file update if codex save failed
+            }
+
+            // Also update the corresponding source file to keep milestones in sync
+            // Since the UI only shows the edit button in target files, we know document is always target here
+            const sourceUri = getCorrespondingSourceUri(document.uri);
+            if (!sourceUri) {
+                console.warn(`[updateMilestoneValue] Could not find corresponding source file for ${document.uri.fsPath}`);
+                vscode.window.showWarningMessage(
+                    `Milestone updated in codex file, but could not find corresponding source file.`
+                );
+                // Refresh webview even if source file not found - codex update succeeded
+                provider.refreshWebview(webviewPanel, document);
+                return;
+            }
+
+            // Check if source file exists before attempting to open it
+            try {
+                await vscode.workspace.fs.stat(sourceUri);
+            } catch (statError) {
+                console.warn(`[updateMilestoneValue] Source file does not exist: ${sourceUri.fsPath}`);
+                vscode.window.showWarningMessage(
+                    `Milestone updated in codex file, but source file not found at ${sourceUri.fsPath}`
+                );
+                // Refresh webview even if source file doesn't exist - codex update succeeded
+                provider.refreshWebview(webviewPanel, document);
+                return;
+            }
+
+            try {
+                // Open the source file as a CodexCellDocument
+                const sourceDocument = await provider.openCustomDocument(
+                    sourceUri,
+                    {},
+                    cancellationToken
+                );
+
+                // Build milestone index for source document to find milestone at same index
+                const sourceMilestoneIndex = sourceDocument.buildMilestoneIndex();
+                const sourceMilestoneInfo = sourceMilestoneIndex.milestones[typedEvent.content.milestoneIndex];
+
+                if (!sourceMilestoneInfo) {
+                    console.warn(`[updateMilestoneValue] Milestone at index ${typedEvent.content.milestoneIndex} not found in source file ${sourceUri.fsPath}`);
+                    vscode.window.showWarningMessage(
+                        `Milestone updated in codex file, but milestone at index ${typedEvent.content.milestoneIndex} not found in source file.`
+                    );
+                    // Refresh webview even if milestone not found - codex update succeeded
+                    provider.refreshWebview(webviewPanel, document);
+                    return;
+                }
+
+                // Get the milestone cell from source document using the cellIndex from milestoneInfo
+                const sourceMilestoneCell = sourceDocument.getCellByIndex(sourceMilestoneInfo.cellIndex);
+                if (!sourceMilestoneCell || !sourceMilestoneCell.metadata?.id) {
+                    console.warn(`[updateMilestoneValue] Milestone cell not found at index ${sourceMilestoneInfo.cellIndex} in source file ${sourceUri.fsPath}`);
+                    vscode.window.showWarningMessage(
+                        `Milestone updated in codex file, but milestone cell not found in source file.`
+                    );
+                    // Refresh webview even if milestone cell not found - codex update succeeded
+                    provider.refreshWebview(webviewPanel, document);
+                    return;
+                }
+
+                // Verify it's actually a milestone cell (safety check)
+                if (sourceMilestoneCell.metadata?.type !== CodexCellTypes.MILESTONE) {
+                    console.warn(`[updateMilestoneValue] Cell at index ${sourceMilestoneInfo.cellIndex} in source file ${sourceUri.fsPath} is not a milestone cell`);
+                    vscode.window.showWarningMessage(
+                        `Milestone updated in codex file, but cell in source file is not a milestone cell.`
+                    );
+                    // Refresh webview even if cell type mismatch - codex update succeeded
+                    provider.refreshWebview(webviewPanel, document);
+                    return;
+                }
+
+                const sourceMilestoneCellId = sourceMilestoneCell.metadata.id;
+
+                // Ensure author is set correctly before creating edit
+                await sourceDocument.refreshAuthor();
+
+                // Update the milestone cell value in source file using the source milestone cell ID
+                await sourceDocument.updateCellContent(
+                    sourceMilestoneCellId,
+                    typedEvent.content.newValue,
+                    EditType.USER_EDIT,
+                    true, // shouldUpdateValue
+                    false, // retainValidations
+                    false // skipAutoValidation
+                );
+
+                // Save the source document
+                try {
+                    await provider.saveCustomDocument(sourceDocument, cancellationToken);
+                    sourceUpdateSucceeded = true;
+                    console.log(`[updateMilestoneValue] Successfully updated and saved milestone in source file: ${sourceUri.fsPath}`);
+
+                    // Refresh the source webview panel if it's open
+                    const sourcePanel = provider.getWebviewPanels().get(sourceUri.toString());
+                    if (sourcePanel) {
+                        // Preserve milestone index for source document as well
+                        const sourceDocUri = sourceDocument.uri.toString();
+                        const sourceCurrentPosition = provider.currentMilestoneSubsectionMap.get(sourceDocUri);
+                        const sourceSubsectionIndex = sourceCurrentPosition?.subsectionIndex ?? provider.getCachedSubsection(sourceDocUri);
+                        provider.currentMilestoneSubsectionMap.set(sourceDocUri, {
+                            milestoneIndex: typedEvent.content.milestoneIndex,
+                            subsectionIndex: sourceSubsectionIndex,
+                        });
+                        provider.refreshWebview(sourcePanel, sourceDocument);
+                    }
+                } catch (sourceSaveError) {
+                    console.error(`[updateMilestoneValue] Failed to save source file ${sourceUri.fsPath}:`, sourceSaveError);
+                    vscode.window.showWarningMessage(
+                        `Milestone updated in codex file, but failed to save source file: ${sourceSaveError instanceof Error ? sourceSaveError.message : String(sourceSaveError)}`
+                    );
+                    // Refresh webview even if source save failed - codex update succeeded
+                    provider.refreshWebview(webviewPanel, document);
+                    return;
+                }
+
+                // Both updates succeeded
+                if (codexSaveSucceeded && sourceUpdateSucceeded) {
+                    vscode.window.showInformationMessage(
+                        `Milestone "${typedEvent.content.newValue}" updated successfully.`
+                    );
+                }
+            } catch (sourceError) {
+                // Log error but don't fail - milestone update in target file should still succeed
+                console.error(`[updateMilestoneValue] Error updating milestone in source file ${sourceUri.fsPath}:`, sourceError);
+                vscode.window.showWarningMessage(
+                    `Milestone updated in codex file, but error updating source file: ${sourceError instanceof Error ? sourceError.message : String(sourceError)}`
+                );
+            }
+        } catch (error) {
+            // Critical error - codex update failed
+            console.error(`[updateMilestoneValue] Critical error updating milestone:`, error);
+            vscode.window.showErrorMessage(
+                `Failed to update milestone: ${error instanceof Error ? error.message : String(error)}`
+            );
+            return;
+        }
+
+        // Refresh the webview to show the updated milestone
+        provider.refreshWebview(webviewPanel, document);
+    },
+
     updateNotebookMetadata: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "updateNotebookMetadata"; }>;
         console.log("updateNotebookMetadata message received", { event });
@@ -1192,6 +1481,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     updateCachedChapter: async ({ event, document, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "updateCachedChapter"; }>;
         await provider.updateCachedChapter(document.uri.toString(), typedEvent.content);
+    },
+
+    updateCachedSubsection: async ({ event, document, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCachedSubsection"; }>;
+        await provider.updateCachedSubsection(document.uri.toString(), typedEvent.content);
     },
 
     selectABTestVariant: async ({ event }) => {
@@ -1827,7 +2121,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
 
         // If no attachment in metadata, check filesystem for legacy files
-        const bookAbbr = cellId.split(' ')[0];
+        const bookAbbr = getAttachmentDocumentSegmentFromUri(document.uri);
         const attachmentsFilesPath = path.join(
             workspaceFolder.uri.fsPath,
             ".project",
@@ -1895,6 +2189,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     saveAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "saveAudioAttachment"; }>;
+        const requestId = typedEvent.requestId;
         console.log("saveAudioAttachment message received", {
             cellId: typedEvent.content.cellId,
             audioId: typedEvent.content.audioId,
@@ -1906,15 +2201,22 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const cell = document.getCell(cellId);
         if (cell?.metadata?.isLocked) {
             console.warn(`Attempted to save audio to locked cell ${cellId}. Operation blocked.`);
-            safePostMessageToPanel(webviewPanel, {
-                type: "error",
-                content: { message: `Cannot save audio: cell ${cellId} is locked` }
+            provider.postMessageToWebview(webviewPanel, {
+                type: "audioAttachmentSaved",
+                content: {
+                    cellId,
+                    audioId: typedEvent.content.audioId,
+                    requestId,
+                    success: false,
+                    savedToCodexFile: false,
+                    error: `Cannot save audio: cell ${cellId} is locked`,
+                },
             });
             return;
         }
 
         try {
-            const documentSegment = typedEvent.content.cellId.split(' ')[0];
+            const documentSegment = getAttachmentDocumentSegmentFromUri(document.uri);
             const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
             if (!workspaceFolder) {
                 throw new Error("No workspace folder found");
@@ -1988,23 +2290,42 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
             // Store the files path in metadata (not the pointer path) so we can directly read the actual file
             const relativePath = toPosixPath(path.relative(workspaceFolder.uri.fsPath, filesPath));
+
+            // Get current username for createdBy field
+            let createdBy: string = "anonymous";
+            try {
+                const authApi = await provider.getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                if (userInfo?.username) {
+                    createdBy = userInfo.username;
+                }
+            } catch (error) {
+                console.warn("Failed to get username for audio attachment:", error);
+            }
+
             await document.updateCellAttachment(typedEvent.content.cellId, sanitizedAudioId, {
                 url: relativePath,
                 type: "audio",
                 createdAt: Date.now(),
                 updatedAt: Date.now(),
                 isDeleted: false,
+                createdBy: createdBy,
                 // Persist optional metadata if provided by client
                 ...(typedEvent.content.metadata ? { metadata: typedEvent.content.metadata } : {}),
             } as any);
+
+            // Persist metadata update to the .codex/.source file before we show "saved" in the webview.
+            await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
 
             provider.postMessageToWebview(webviewPanel, {
                 type: "audioAttachmentSaved",
                 content: {
                     cellId: typedEvent.content.cellId,
                     audioId: sanitizedAudioId,
-                    success: true
-                }
+                    requestId,
+                    success: true,
+                    savedToCodexFile: true,
+                },
             });
 
             // Send targeted audio attachment update instead of full refresh to preserve tab state
@@ -2137,7 +2458,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 content: {
                     cellId: typedEvent.content.cellId,
                     audioId: typedEvent.content.audioId,
+                    requestId,
                     success: false,
+                    savedToCodexFile: false,
                     error: error instanceof Error ? error.message : String(error)
                 }
             });
@@ -2601,37 +2924,92 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         // Both cells have audio - merge them
                         console.log(`[mergeCellWithPrevious] Merging audio files: ${previousAudioPath} + ${currentAudioPath}`);
 
-                        // Determine output filename using previous cell's ID
-                        const bookAbbr = previousCellId.split(' ')[0];
-                        const parseCellIdToBookChapterVerse = (cellId: string): { book: string; chapter?: number; verse?: number; } => {
-                            try {
-                                const [book, rest] = cellId.split(" ");
-                                const [chapterStr, verseStr] = (rest || "").split(":");
-                                let chapter: number | undefined = chapterStr ? Number(chapterStr) : undefined;
-                                let verse: number | undefined = verseStr ? Number(verseStr) : undefined;
-                                if (chapter !== undefined && !Number.isFinite(chapter)) chapter = undefined;
-                                if (verse !== undefined && !Number.isFinite(verse)) verse = undefined;
-                                return { book: (book || "").toUpperCase(), chapter, verse };
-                            } catch {
-                                return { book: "", chapter: undefined, verse: undefined };
+                        // Determine output filename using previous cell's globalReferences or ID
+                        // Try to get cell from document to access globalReferences
+                        let bookAbbr = "";
+                        let basename = "";
+
+                        try {
+                            const previousCell = (document as any)._documentData?.cells?.find((c: any) => c.metadata?.id === previousCellId);
+                            const globalRefs = previousCell?.metadata?.data?.globalReferences;
+
+                            if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+                                const firstRef = globalRefs[0];
+                                const bookMatch = firstRef.match(/^([^\s]+)/);
+                                if (bookMatch) {
+                                    bookAbbr = bookMatch[1];
+                                }
+
+                                // Parse for basename
+                                const parseCellIdToBookChapterVerse = (refId: string): { book: string; chapter?: number; verse?: number; } => {
+                                    try {
+                                        const [book, rest] = refId.split(" ");
+                                        const [chapterStr, verseStr] = (rest || "").split(":");
+                                        let chapter: number | undefined = chapterStr ? Number(chapterStr) : undefined;
+                                        let verse: number | undefined = verseStr ? Number(verseStr) : undefined;
+                                        if (chapter !== undefined && !Number.isFinite(chapter)) chapter = undefined;
+                                        if (verse !== undefined && !Number.isFinite(verse)) verse = undefined;
+                                        return { book: (book || "").toUpperCase(), chapter, verse };
+                                    } catch {
+                                        return { book: "", chapter: undefined, verse: undefined };
+                                    }
+                                };
+
+                                const toBookChapterVerseBasename = (refId: string): string => {
+                                    const { book, chapter, verse } = parseCellIdToBookChapterVerse(refId);
+                                    const safePad = (n: number | undefined) => (typeof n === "number" && Number.isFinite(n) ? String(n) : "0").padStart(3, "0");
+                                    const chapStr = safePad(chapter);
+                                    const verseStr = safePad(verse);
+                                    const sanitizeFileComponent = (input: string): string => {
+                                        return input
+                                            .replace(/\s+/g, "_")
+                                            .replace(/[^a-zA-Z0-9._-]/g, "-")
+                                            .replace(/_+/g, "_");
+                                    };
+                                    return sanitizeFileComponent(`${book}_${chapStr}_${verseStr}`);
+                                };
+
+                                basename = toBookChapterVerseBasename(firstRef);
                             }
-                        };
+                        } catch (e) {
+                            // Fall through to legacy parsing
+                        }
 
-                        const toBookChapterVerseBasename = (cellId: string): string => {
-                            const { book, chapter, verse } = parseCellIdToBookChapterVerse(cellId);
-                            const safePad = (n: number | undefined) => (typeof n === "number" && Number.isFinite(n) ? String(n) : "0").padStart(3, "0");
-                            const chapStr = safePad(chapter);
-                            const verseStr = safePad(verse);
-                            const sanitizeFileComponent = (input: string): string => {
-                                return input
-                                    .replace(/\s+/g, "_")
-                                    .replace(/[^a-zA-Z0-9._-]/g, "-")
-                                    .replace(/_+/g, "_");
+                        // Fallback to legacy parsing if globalReferences not available
+                        if (!bookAbbr) {
+                            bookAbbr = getAttachmentDocumentSegmentFromUri(document.uri);
+                        }
+                        if (!basename) {
+                            const parseCellIdToBookChapterVerse = (cellId: string): { book: string; chapter?: number; verse?: number; } => {
+                                try {
+                                    const [book, rest] = cellId.split(" ");
+                                    const [chapterStr, verseStr] = (rest || "").split(":");
+                                    let chapter: number | undefined = chapterStr ? Number(chapterStr) : undefined;
+                                    let verse: number | undefined = verseStr ? Number(verseStr) : undefined;
+                                    if (chapter !== undefined && !Number.isFinite(chapter)) chapter = undefined;
+                                    if (verse !== undefined && !Number.isFinite(verse)) verse = undefined;
+                                    return { book: (book || "").toUpperCase(), chapter, verse };
+                                } catch {
+                                    return { book: "", chapter: undefined, verse: undefined };
+                                }
                             };
-                            return sanitizeFileComponent(`${book}_${chapStr}_${verseStr}`);
-                        };
 
-                        const basename = toBookChapterVerseBasename(previousCellId);
+                            const toBookChapterVerseBasename = (cellId: string): string => {
+                                const { book, chapter, verse } = parseCellIdToBookChapterVerse(cellId);
+                                const safePad = (n: number | undefined) => (typeof n === "number" && Number.isFinite(n) ? String(n) : "0").padStart(3, "0");
+                                const chapStr = safePad(chapter);
+                                const verseStr = safePad(verse);
+                                const sanitizeFileComponent = (input: string): string => {
+                                    return input
+                                        .replace(/\s+/g, "_")
+                                        .replace(/[^a-zA-Z0-9._-]/g, "-")
+                                        .replace(/_+/g, "_");
+                                };
+                                return sanitizeFileComponent(`${book}_${chapStr}_${verseStr}`);
+                            };
+
+                            basename = toBookChapterVerseBasename(previousCellId);
+                        }
                         const ext = path.extname(previousAudioPath) || path.extname(currentAudioPath) || '.wav';
                         const outputFilename = `${basename}${ext}`;
 
@@ -2938,6 +3316,90 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             console.error("Failed to revalidate missing for cell", { cellId, err });
         }
     },
+
+    // Handler for requesting cells for a specific milestone/subsection (lazy loading)
+    requestCellsForMilestone: async ({ event, document, webviewPanel, provider }) => {
+        const typed = event as any;
+        const milestoneIndex = typed?.content?.milestoneIndex ?? 0;
+        const subsectionIndex = typed?.content?.subsectionIndex ?? 0;
+
+        try {
+            const config = vscode.workspace.getConfiguration("codex-editor-extension");
+            const cellsPerPage = config.get("cellsPerPage", 50);
+
+            // Get cells for the requested milestone/subsection
+            const cells = document.getCellsForMilestone(milestoneIndex, subsectionIndex, cellsPerPage);
+
+            // Process cells (merge ranges, etc.)
+            const isSourceText = document.uri.toString().includes(".source");
+            const processedCells = provider.mergeRangesAndProcess(
+                cells,
+                provider.isCorrectionEditorMode,
+                isSourceText
+            );
+
+            // Build source cell map for these cells
+            const sourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
+            for (const cell of cells) {
+                const cellId = cell.cellMarkers?.[0];
+                if (cellId && document._sourceCellMap[cellId]) {
+                    sourceCellMap[cellId] = document._sourceCellMap[cellId];
+                }
+            }
+
+            // Store the current milestone/subsection for this document to preserve position during updates
+            provider.currentMilestoneSubsectionMap.set(document.uri.toString(), {
+                milestoneIndex,
+                subsectionIndex,
+            });
+
+            // Send the cell page to the webview
+            safePostMessageToPanel(webviewPanel, {
+                type: "providerSendsCellPage",
+                rev: provider.getDocumentRevision(document.uri.toString()),
+                milestoneIndex,
+                subsectionIndex,
+                cells: processedCells,
+                sourceCellMap,
+            });
+
+            debug(`Sent cells for milestone ${milestoneIndex}, subsection ${subsectionIndex}: ${processedCells.length} cells`);
+        } catch (error) {
+            console.error("Error fetching cells for milestone:", error);
+        }
+    },
+
+    // Handler for requesting subsection progress for a milestone
+    requestSubsectionProgress: async ({ event, document, webviewPanel, provider }) => {
+        const typed = event as any;
+        const milestoneIndex = typed?.content?.milestoneIndex ?? 0;
+
+        try {
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            const validationCount = config.get("validationCount", 1);
+            const validationCountAudio = config.get("validationCountAudio", 1);
+            const cellsPerPage = vscode.workspace.getConfiguration("codex-editor-extension").get("cellsPerPage", 50);
+
+            // Calculate progress for all subsections in this milestone
+            const subsectionProgress = document.calculateSubsectionProgress(
+                milestoneIndex,
+                cellsPerPage,
+                validationCount,
+                validationCountAudio
+            );
+
+            // Send the progress data to the webview
+            safePostMessageToPanel(webviewPanel, {
+                type: "providerSendsSubsectionProgress",
+                milestoneIndex,
+                subsectionProgress,
+            });
+
+            debug(`Sent subsection progress for milestone ${milestoneIndex}:`, subsectionProgress);
+        } catch (error) {
+            console.error("Error fetching subsection progress:", error);
+        }
+    },
 };
 
 export async function performLLMCompletion(
@@ -3121,6 +3583,8 @@ export async function scanForAudioAttachments(
         const documentText = document.getText();
         const notebookData = JSON.parse(documentText);
 
+        const docSegment = getAttachmentDocumentSegmentFromUri(document.uri);
+
         // Process each cell in the document
         if (notebookData.cells && Array.isArray(notebookData.cells)) {
             for (const cell of notebookData.cells) {
@@ -3157,7 +3621,7 @@ export async function scanForAudioAttachments(
                     }
 
                     // Also check the filesystem for legacy audio files
-                    const bookAbbr = cellId.split(' ')[0];
+                    const bookAbbr = docSegment;
                     const attachmentsFilesPath = path.join(
                         workspaceFolder.uri.fsPath,
                         ".project",

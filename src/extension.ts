@@ -16,9 +16,12 @@ import {
     migration_chatSystemMessageToMetadata,
     migration_lineNumbersSettings,
     migration_editHistoryFormat,
+    migration_addMilestoneCells,
+    migration_reorderMisplacedParatextCells,
+    migration_addGlobalReferences,
+    migration_cellIdsToUuid,
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/contentIndexes/indexes";
-import { migrateSourceFiles } from "./utils/codexNotebookUtils";
 import { StatusBarItem } from "vscode";
 import { Database } from "fts5-sql-bundle";
 import {
@@ -53,10 +56,16 @@ import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/update
 import { fileExists } from "./utils/webviewUtils";
 import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
-import { migrateAudioAttachments } from "./utils/audioAttachmentsMigrationUtils";
+import { areCodexProjectMigrationsComplete } from "./projectManager/utils/migrationCompletionUtils";
 import { registerTestingCommands } from "./evaluation/testingCommands";
 import { initializeABTesting } from "./utils/abTestingSetup";
-import { migration_addValidationsForUserEdits, migration_moveTimestampsToMetadataData, migration_promoteCellTypeToTopLevel, migration_addImporterTypeToMetadata } from "./projectManager/utils/migrationUtils";
+import {
+    migration_addValidationsForUserEdits,
+    migration_moveTimestampsToMetadataData,
+    migration_promoteCellTypeToTopLevel,
+    migration_addImporterTypeToMetadata,
+    migration_hoistDocumentContextToNotebookMetadata,
+} from "./projectManager/utils/migrationUtils";
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
 // markUserAsUpdatedInRemoteList is now called in performProjectUpdate before window reload
@@ -368,16 +377,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 // Don't fail startup due to migration errors
             }
 
-            // Migrate audio attachments to new folder structure (async, don't block startup)
-            try {
-                migrateAudioAttachments(vscode.workspace.workspaceFolders[0]).catch(error => {
-                    console.error("[Extension] Error during audio attachments migration:", error);
-                    // Silent fallback - don't block startup if migration fails
-                });
-            } catch (error) {
-                console.error("[Extension] Error during audio attachments migration:", error);
-                // Don't fail startup due to migration errors
-            }
         }
         stepStart = trackTiming("Migrating Legacy Comments", migrationStart);
 
@@ -403,13 +402,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 // Don't fail startup due to git config update errors
             }
 
-            // Auto-migrate legacy .x-m4a audio files silently (non-blocking)
-            // Similar to database corruption repair - runs automatically without user notification
-            import("./utils/audioFileValidation")
-                .then(({ autoMigrateLegacyAudioFiles }) => autoMigrateLegacyAudioFiles())
-                .catch(error => {
-                    console.error("[Extension] Error auto-migrating legacy audio files:", error);
-                });
         }
         stepStart = trackTiming("Updating Git Configuration", gitConfigStart);
 
@@ -617,16 +609,76 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Execute post-activation tasks
         const postActivationStart = globalThis.performance.now();
-        await executeCommandsAfter(context);
+
+        // Store a reference to the delayed sync trigger function so we can call it after migrations complete
+        const delayedSyncTriggers: Array<(reason: string) => Promise<void>> = [];
+        const setDelayedSyncTrigger = (trigger: (reason: string) => Promise<void>) => {
+            delayedSyncTriggers.push(trigger);
+        };
+
+        await executeCommandsAfter(context, setDelayedSyncTrigger);
         // NOTE: migration_chatSystemMessageSetting() now runs BEFORE sync (see line ~768)
         await temporaryMigrationScript_checkMatthewNotebook();
         await migration_changeDraftFolderToFilesFolder();
-        await migrateSourceFiles();
         await migration_lineNumbersSettings(context);
         await migration_moveTimestampsToMetadataData(context);
         await migration_promoteCellTypeToTopLevel(context);
         await migration_editHistoryFormat(context);
         await migration_addImporterTypeToMetadata(context);
+        await migration_hoistDocumentContextToNotebookMetadata(context);
+        await migration_addMilestoneCells(context);
+        await migration_reorderMisplacedParatextCells(context);
+        await migration_addGlobalReferences(context);
+        await migration_cellIdsToUuid(context);
+
+        // After migrations complete, check if initial sync needs to run
+        // This handles the case where migrations completed but the configuration change event didn't fire
+        // We check directly here rather than relying on stored triggers, since the splash screen callback
+        // might not have executed yet (race condition)
+        try {
+            const hasCodexProject = await checkIfMetadataAndGitIsInitialized();
+            if (hasCodexProject) {
+                const migrationStatus = areCodexProjectMigrationsComplete(context);
+
+                if (migrationStatus.complete) {
+                    const authApi = getAuthApi();
+                    if (authApi && typeof (authApi as any).getAuthStatus === "function") {
+                        const authStatus = authApi.getAuthStatus();
+                        if (authStatus.isAuthenticated) {
+                            // Check if this is an update workspace
+                            const pendingUpdateSync = context.globalState.get<any>("codex.pendingUpdateSync");
+                            const workspaceFolderPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                            const isUpdateWorkspace =
+                                !!pendingUpdateSync &&
+                                typeof pendingUpdateSync.projectPath === "string" &&
+                                typeof workspaceFolderPath === "string" &&
+                                path.normalize(pendingUpdateSync.projectPath) === path.normalize(workspaceFolderPath);
+
+                            const syncManager = SyncManager.getInstance();
+                            if (isUpdateWorkspace && pendingUpdateSync?.commitMessage) {
+                                await syncManager.executeSync(String(pendingUpdateSync.commitMessage), true, context, false);
+                            } else {
+                                await syncManager.executeSync("Initial workspace sync", true, context, false);
+                            }
+                        }
+                    }
+                } else {
+                    // Also try stored triggers as backup
+                    if (delayedSyncTriggers.length > 0) {
+                        for (const trigger of delayedSyncTriggers) {
+                            try {
+                                await trigger("migrations completed (backup check)");
+                            } catch (error) {
+                                console.error("❌ [POST-MIGRATIONS] Error in backup trigger:", error);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error("❌ [POST-MIGRATIONS] Error checking/triggering sync after migrations:", error);
+        }
+
         trackTiming("Running Post-activation Tasks", postActivationStart);
 
         // Register update commands and check for updates (non-blocking)
@@ -870,7 +922,10 @@ async function executeCommandsBefore(context: vscode.ExtensionContext) {
     registerCommandsBefore(context);
 }
 
-async function executeCommandsAfter(context: vscode.ExtensionContext) {
+async function executeCommandsAfter(
+    context: vscode.ExtensionContext,
+    setDelayedSyncTrigger?: (trigger: (reason: string) => Promise<void>) => void
+) {
     try {
         // Update splash screen for post-activation tasks
         updateSplashScreenSync(90, "Configuring editor settings...");
@@ -958,6 +1013,82 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
                     debug("🔄 [POST-WORKSPACE] Codex project detected and user authenticated, proceeding to sync...");
 
                     {
+                        // Safety gate: don't run the initial workspace sync until *all* project migrations
+                        // have marked completion flags in `.vscode/settings.json`.
+                        const migrationStatus = areCodexProjectMigrationsComplete(context);
+                        if (!migrationStatus.complete) {
+                            const missing = migrationStatus.incompleteKeys.join(", ");
+                            debug(
+                                `⏳ [POST-WORKSPACE] Delaying initial sync: migrations incomplete (${missing})`
+                            );
+
+                            // When migrations finish, they update workspace settings; hook that event and run initial sync once.
+                            let didStartDelayedInitialSync = false;
+                            const delayedSyncDeadlineMs = Date.now() + 2 * 60 * 1000; // 2 minutes
+
+                            const maybeRunDelayedInitialSync = async (reason: string) => {
+                                if (didStartDelayedInitialSync) return;
+
+                                if (Date.now() > delayedSyncDeadlineMs) {
+                                    debug(
+                                        `⏭️ [POST-WORKSPACE] Skipping delayed initial sync: timed out waiting for migrations (${reason})`
+                                    );
+                                    return;
+                                }
+
+                                const retryStatus = areCodexProjectMigrationsComplete(context);
+
+                                if (!retryStatus.complete) {
+                                    debug(
+                                        `⏳ [POST-WORKSPACE] Still waiting on migrations (${reason}): ${retryStatus.incompleteKeys.join(", ")}`
+                                    );
+                                    return;
+                                }
+
+                                didStartDelayedInitialSync = true;
+                                try {
+                                    debug(`🔄 [POST-WORKSPACE] Migrations complete (${reason}); running initial sync...`);
+                                    const syncManager = SyncManager.getInstance();
+                                    const pendingUpdateSync = context.globalState.get<any>("codex.pendingUpdateSync");
+                                    const workspaceFolderPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                                    const isUpdateWorkspace =
+                                        !!pendingUpdateSync &&
+                                        typeof pendingUpdateSync.projectPath === "string" &&
+                                        typeof workspaceFolderPath === "string" &&
+                                        path.normalize(pendingUpdateSync.projectPath) === path.normalize(workspaceFolderPath);
+                                    if (isUpdateWorkspace && pendingUpdateSync?.commitMessage) {
+                                        await syncManager.executeSync(String(pendingUpdateSync.commitMessage), true, context, false);
+                                    } else {
+                                        await syncManager.executeSync("Initial workspace sync", true, context, false);
+                                    }
+                                } catch (error) {
+                                    console.error("❌ [POST-WORKSPACE] Error during delayed post-workspace sync:", error);
+                                } finally {
+                                    delayedSyncListener.dispose();
+                                }
+                            };
+
+                            // Expose the trigger function so it can be called after migrations complete
+                            if (setDelayedSyncTrigger) {
+                                setDelayedSyncTrigger(maybeRunDelayedInitialSync);
+                            }
+
+                            const delayedSyncListener = vscode.workspace.onDidChangeConfiguration(async (e) => {
+                                if (!e.affectsConfiguration("codex-project-manager")) return;
+                                await maybeRunDelayedInitialSync("settings changed");
+                            });
+                            context.subscriptions.push(delayedSyncListener);
+
+                            // Kick off a first retry shortly in case completion already happened but settings event won't fire again.
+                            setTimeout(() => {
+                                maybeRunDelayedInitialSync("initial retry").catch((error) => {
+                                    console.error("❌ [POST-WORKSPACE] Error during delayed sync precheck:", error);
+                                });
+                            }, 2500);
+
+                            return;
+                        }
+
                         const syncStart = globalThis.performance.now();
                         const syncManager = SyncManager.getInstance();
                         try {

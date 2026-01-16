@@ -11,11 +11,10 @@ import {
 } from "../../components/ui/dropdown-menu";
 import { Slider } from "../../components/ui/slider";
 import { CELL_DISPLAY_MODES } from "../CodexCellEditor";
-import { type CustomNotebookMetadata, type QuillCellContent } from "../../../../../types";
+import {
+    type CustomNotebookMetadata,
+} from "../../../../../types";
 import { type Subsection } from "../../lib/types";
-import { DropdownMenuCheckboxItem } from "../../components/ui/dropdown-menu";
-import { deriveSubsectionPercentages } from "../utils/progressUtils";
-import { ProgressDots } from "./ProgressDots";
 
 interface MobileHeaderMenuProps {
     // Translation controls
@@ -60,26 +59,6 @@ interface MobileHeaderMenuProps {
     vscode: any;
     autoDownloadAudioOnOpen?: boolean;
     onToggleAutoDownloadAudio?: (value: boolean) => void;
-
-    // Chapter navigation props (for very small screens)
-    totalChapters?: number;
-    setChapterNumber?: React.Dispatch<React.SetStateAction<number>>;
-    jumpToChapter?: (chapterNumber: number) => void;
-    showUnsavedWarning?: () => void;
-    getSubsectionsForChapter?: (chapterNum: number) => Subsection[];
-    shouldHideNavButtons?: boolean;
-    allCellsForChapter?: QuillCellContent[];
-    calculateSubsectionProgress?: (
-        subsection: Subsection,
-        forSourceText?: boolean
-    ) => {
-        isFullyTranslated: boolean;
-        isFullyValidated: boolean;
-        percentTranslationsCompleted?: number;
-        percentTextValidatedTranslations?: number;
-        percentAudioTranslationsCompleted?: number;
-        percentAudioValidatedTranslations?: number;
-    };
 }
 
 export function MobileHeaderMenu({
@@ -101,9 +80,6 @@ export function MobileHeaderMenu({
     shouldShowVideoPlayer,
     onToggleVideoPlayer,
     onOpenMetadataModal,
-    subsections,
-    currentSubsectionIndex,
-    setCurrentSubsectionIndex,
     toggleScrollSync,
     scrollSyncEnabled,
     openSourceText,
@@ -112,14 +88,6 @@ export function MobileHeaderMenu({
     vscode,
     autoDownloadAudioOnOpen,
     onToggleAutoDownloadAudio,
-    totalChapters,
-    setChapterNumber,
-    jumpToChapter,
-    showUnsavedWarning,
-    getSubsectionsForChapter,
-    shouldHideNavButtons,
-    allCellsForChapter,
-    calculateSubsectionProgress,
 }: MobileHeaderMenuProps) {
     const isAnyTranslationInProgress = isAutocompletingChapter || isTranslatingCell;
 
@@ -137,90 +105,6 @@ export function MobileHeaderMenu({
                 className="w-64"
                 style={{ zIndex: 99999 }}
             >
-                {/* Chapter Navigation Controls - only shown when nav buttons are hidden (very small screens) */}
-                {shouldHideNavButtons &&
-                    chapterNumber &&
-                    totalChapters &&
-                    jumpToChapter &&
-                    getSubsectionsForChapter && (
-                        <>
-                            <DropdownMenuItem
-                                onClick={() => {
-                                    if (!unsavedChanges) {
-                                        // Check if we're on the first page of the current chapter
-                                        if (currentSubsectionIndex > 0) {
-                                            // Move to previous page within the same chapter
-                                            setCurrentSubsectionIndex(currentSubsectionIndex - 1);
-                                        } else {
-                                            // Move to previous chapter
-                                            const newChapter =
-                                                chapterNumber === 1
-                                                    ? totalChapters
-                                                    : chapterNumber - 1;
-                                            jumpToChapter(newChapter);
-
-                                            // When jumping to a new chapter, check if it has subsections
-                                            // and if so, jump to the last page
-                                            const newChapterSubsections =
-                                                getSubsectionsForChapter(newChapter);
-                                            if (newChapterSubsections.length > 0) {
-                                                setCurrentSubsectionIndex(
-                                                    newChapterSubsections.length - 1
-                                                );
-                                            }
-                                        }
-                                    } else if (showUnsavedWarning) {
-                                        showUnsavedWarning();
-                                    }
-                                }}
-                                className="cursor-pointer"
-                            >
-                                <i className="codicon codicon-chevron-left mr-2 h-4 w-4" />
-                                <span>
-                                    {currentSubsectionIndex > 0
-                                        ? "Previous Page"
-                                        : "Previous Chapter"}
-                                </span>
-                            </DropdownMenuItem>
-
-                            <DropdownMenuItem
-                                onClick={() => {
-                                    if (!unsavedChanges) {
-                                        // Check if we're on the last page of the current chapter
-                                        if (
-                                            subsections.length > 0 &&
-                                            currentSubsectionIndex < subsections.length - 1
-                                        ) {
-                                            // Move to next page within the same chapter
-                                            setCurrentSubsectionIndex(currentSubsectionIndex + 1);
-                                        } else {
-                                            // Move to next chapter and reset to first page
-                                            const newChapter =
-                                                chapterNumber === totalChapters
-                                                    ? 1
-                                                    : chapterNumber + 1;
-                                            jumpToChapter(newChapter);
-                                            setCurrentSubsectionIndex(0);
-                                        }
-                                    } else if (showUnsavedWarning) {
-                                        showUnsavedWarning();
-                                    }
-                                }}
-                                className="cursor-pointer"
-                            >
-                                <i className="codicon codicon-chevron-right mr-2 h-4 w-4" />
-                                <span>
-                                    {subsections.length > 0 &&
-                                    currentSubsectionIndex < subsections.length - 1
-                                        ? "Next Page"
-                                        : "Next Chapter"}
-                                </span>
-                            </DropdownMenuItem>
-
-                            <DropdownMenuSeparator />
-                        </>
-                    )}
-
                 {/* Left Section Controls (Source Text Functionality) */}
                 {isSourceText && toggleScrollSync && (
                     <>
@@ -325,55 +209,6 @@ export function MobileHeaderMenu({
                 </DropdownMenuItem>
 
                 <DropdownMenuSeparator />
-
-                {/* Page Selector - only show on mobile when pages exist */}
-                {subsections.length > 0 && (
-                    <>
-                        <div className="px-3 py-1">
-                            <span className="text-sm text-muted-foreground">
-                                Current Page: {subsections[currentSubsectionIndex]?.label || ""}
-                            </span>
-                        </div>
-                        {subsections.map((section, index) => {
-                            const progress = calculateSubsectionProgress
-                                ? calculateSubsectionProgress(section, isSourceText)
-                                : { isFullyTranslated: false, isFullyValidated: false };
-                            const isActive = currentSubsectionIndex === index;
-                            const {
-                                textValidatedPercent,
-                                textCompletedPercent,
-                                audioValidatedPercent,
-                                audioCompletedPercent,
-                            } = deriveSubsectionPercentages(progress);
-                            return (
-                                <DropdownMenuItem
-                                    key={section.id}
-                                    onClick={() => setCurrentSubsectionIndex(index)}
-                                    className={`cursor-pointer ${
-                                        isActive
-                                            ? "bg-accent text-accent-foreground font-semibold"
-                                            : ""
-                                    }`}
-                                >
-                                    <i className="codicon codicon-location mr-2 h-4 w-4" />
-                                    <span>Go to {section.label}</span>
-                                    <ProgressDots
-                                        className="ml-auto"
-                                        audio={{
-                                            validatedPercent: audioValidatedPercent,
-                                            completedPercent: audioCompletedPercent,
-                                        }}
-                                        text={{
-                                            validatedPercent: textValidatedPercent,
-                                            completedPercent: textCompletedPercent,
-                                        }}
-                                    />
-                                </DropdownMenuItem>
-                            );
-                        })}
-                        <DropdownMenuSeparator />
-                    </>
-                )}
 
                 {/* Line Numbers */}
                 <DropdownMenuItem

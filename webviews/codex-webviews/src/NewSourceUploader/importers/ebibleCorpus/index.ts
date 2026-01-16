@@ -6,10 +6,10 @@ import {
 } from '../../types/common';
 import {
     createProgress,
-    createStandardCellId,
-    createProcessedCell,
     validateFileExtension,
+    addMilestoneCellsToNotebookPair,
 } from '../../utils/workflowHelpers';
+import { createEbibleVerseCellMetadata } from './cellMetadata';
 
 const SUPPORTED_EXTENSIONS = ['tsv', 'csv', 'txt'];
 
@@ -72,17 +72,24 @@ const parseFile = async (
 
         onProgress?.(createProgress('Creating Cells', 'Creating notebook cells...', 80));
 
-        // Convert verses to cells
-        const cells = verses.map((verse, index) => {
-            const cellId = createStandardCellId(file.name, verse.chapter, verse.verseNumber);
-            const content = formatVerseContent(verse);
-            return createProcessedCell(cellId, content, {
-                verseReference: verse.reference,
+        // Convert verses to cells using cellMetadata
+        const cells = verses.map((verse) => {
+            const { cellId, metadata } = createEbibleVerseCellMetadata({
                 book: verse.book,
                 chapter: verse.chapter,
                 verse: verse.verseNumber,
+                text: verse.text,
+                reference: verse.reference,
+                fileName: file.name,
                 cellLabel: verse.verseNumber.toString(),
             });
+            const content = formatVerseContent(verse);
+            return {
+                id: cellId,
+                content: content,
+                images: [],
+                metadata: metadata,
+            };
         });
 
         // Create notebook pair manually
@@ -94,8 +101,16 @@ const parseFile = async (
             metadata: {
                 id: `ebible-corpus-source-${Date.now()}`,
                 originalFileName: file.name,
+                sourceFile: file.name,
                 importerType: 'ebibleCorpus',
                 createdAt: new Date().toISOString(),
+                importContext: {
+                    importerType: 'ebibleCorpus',
+                    fileName: file.name,
+                    originalFileName: file.name,
+                    fileSize: file.size,
+                    importTimestamp: new Date().toISOString(),
+                },
                 format,
                 verseCount: verses.length,
                 books: Array.from(new Set(verses.map(v => v.book))),
@@ -123,11 +138,14 @@ const parseFile = async (
             codex: codexNotebook,
         };
 
+        // Add milestone cells to the notebook pair
+        const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
+
         onProgress?.(createProgress('Complete', 'eBible corpus processing complete', 100));
 
         return {
             success: true,
-            notebookPair,
+            notebookPair: notebookPairWithMilestones,
             metadata: {
                 format,
                 verseCount: verses.length,

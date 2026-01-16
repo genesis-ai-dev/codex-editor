@@ -5,6 +5,7 @@ import { createStandardizedFilename, isBiblicalImporterType } from "../../utils/
 import { CorpusMarker, findCanonicalCorpusMarker } from "../../utils/corpusMarkerUtils";
 import { CodexContentSerializer } from "../../serializer";
 import { CustomNotebookMetadata } from "../../../types";
+import { formatJsonForNotebookFile } from "../../utils/notebookFileFormattingUtils";
 
 export function checkCancellation(token?: vscode.CancellationToken): void {
     if (token?.isCancellationRequested) {
@@ -29,7 +30,7 @@ export async function writeNotebook(uri: vscode.Uri, notebook: CodexNotebookAsJS
         },
     }));
 
-    const serializedData = JSON.stringify(
+    const serializedData = formatJsonForNotebookFile(
         {
             cells,
             metadata: {
@@ -40,9 +41,7 @@ export async function writeNotebook(uri: vscode.Uri, notebook: CodexNotebookAsJS
                 edits: notebook.metadata.edits || [],
                 ...notebook.metadata,
             },
-        },
-        null,
-        2
+        }
     );
 
     if (!serializedData) {
@@ -50,7 +49,7 @@ export async function writeNotebook(uri: vscode.Uri, notebook: CodexNotebookAsJS
     }
 
     // Write the file directly without opening it
-    await vscode.workspace.fs.writeFile(uri, Buffer.from(serializedData, 'utf8'));
+    await vscode.workspace.fs.writeFile(uri, Buffer.from(serializedData, "utf8"));
 }
 
 /**
@@ -131,22 +130,21 @@ export async function createNoteBookPair({
 
         console.log(`[CODEX FILE CREATE] Importer type: "${importerType}", Biblical: ${isBiblical}`);
 
-        // Normalize corpusMarker to match existing files
+        // Use corpusMarker as-is from the importer (no normalization)
+        // This matches how other importers like Docx and Biblica work
         const incomingCorpusMarker = sourceNotebook.metadata?.corpusMarker;
         if (incomingCorpusMarker) {
-            const canonicalMarker = findCanonicalCorpusMarker(existingMarkers, incomingCorpusMarker);
-
-            if (canonicalMarker !== incomingCorpusMarker) {
-                console.log(`[CORPUS MARKER NORMALIZATION] Normalizing "${incomingCorpusMarker}" to "${canonicalMarker}"`);
-
-                // Update both source and codex notebooks with the canonical marker
-                sourceNotebook.metadata.corpusMarker = canonicalMarker;
-                codexNotebook.metadata.corpusMarker = canonicalMarker;
-
-                // Add to existing markers for subsequent files
-                existingMarkers.push(canonicalMarker);
+            // Check if an exact match exists in existing markers
+            const exactMatch = existingMarkers.find(m => m === incomingCorpusMarker);
+            if (exactMatch) {
+                // Exact match exists, use it to maintain consistency
+                sourceNotebook.metadata.corpusMarker = exactMatch;
+                codexNotebook.metadata.corpusMarker = exactMatch;
             } else {
-                // Add the original marker to the list for future normalization
+                // No exact match, use the incoming marker as-is
+                sourceNotebook.metadata.corpusMarker = incomingCorpusMarker;
+                codexNotebook.metadata.corpusMarker = incomingCorpusMarker;
+                // Add to existing markers for subsequent files
                 existingMarkers.push(incomingCorpusMarker);
             }
         }

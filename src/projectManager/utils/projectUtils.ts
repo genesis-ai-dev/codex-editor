@@ -46,13 +46,13 @@ export function disableSyncTemporarily() {
 
 export interface ProjectDetails {
     projectName?: string;
+    projectId?: string;
     projectCategory?: string;
     userName?: string;
     userEmail?: string;
     abbreviation?: string;
     sourceLanguage?: LanguageMetadata;
     targetLanguage?: LanguageMetadata;
-    projectId?: string;
 }
 
 interface CustomQuickPickItem extends vscode.QuickPickItem {

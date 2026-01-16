@@ -320,7 +320,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
     const [authError, setAuthError] = useState<string | null>(null);
     const [isForgettingPassword, setIsForgettingPassword] = useState(false);
-    const [resetEmail, setResetEmail] = useState("");
+    // const [resetEmail, setResetEmail] = useState("");
     const [resetEmailComplete, setResetEmailComplete] = useState(false);
     const [resetEmailErrorMessage, setResetEmailErrorMessage] = useState<string | null>(null);
 
@@ -347,7 +347,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
             const message = event.data;
             if (message.command === "passwordReset.success") {
                 setResetEmailComplete(true);
-                setResetEmail("");
+                // setResetEmail("");
                 setResetEmailErrorMessage(null);
                 setIsLoading(false);
             } else if (message.command === "passwordReset.error") {
@@ -719,7 +719,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     const handleBackToLogin = () => {
         setResetEmailComplete(false);
         setIsForgettingPassword(false);
-        setResetEmail("");
+        // setResetEmail("");
     };
 
     const handleForgotPassword = () => {
@@ -733,7 +733,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
 
         vscode.postMessage({
             command: "auth.requestPasswordReset",
-            resetEmail: resetEmail,
+            // resetEmail: resetEmail,
         } as MessagesToStartupFlowProvider);
     };
 
@@ -1119,6 +1119,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                         <>
                             <h2>Reset Password</h2>
                             <div className="flex flex-col gap-y-1.5 items-center [width:min(100%,400px)]">
+                                {/*
                                 <VSCodeTextField
                                     type="email"
                                     value={resetEmail}
@@ -1173,6 +1174,10 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                         ))}
                                     </div>
                                 )}
+                                */}
+                                <div className="text-center text-sm text-foreground">
+                                    We will open the password reset page in your default browser.
+                                </div>
                                 <div className="flex justify-center w-full mt-2">
                                     <VSCodeButton
                                         type="button"
@@ -1181,7 +1186,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                         className="relative flex justify-center items-center min-w-[160px]"
                                     >
                                         <span className="text-var(--vscode-button-foreground) w-full">
-                                            Send Reset Link
+                                            Open Reset Page
                                         </span>
                                     </VSCodeButton>
                                 </div>
@@ -1197,7 +1202,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                 style={{ fontSize: "2rem" }}
                             ></i>
                             <div className="text-xl">
-                                A password reset link has been sent to your email.
+                                Password reset page opened in your browser.
                             </div>
                         </div>
                     )}

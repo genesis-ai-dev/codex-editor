@@ -112,7 +112,7 @@ export class PublishProjectView {
                                                 const config = vscode.workspace.getConfiguration("codex-project-manager");
                                                 const currentUserName = config.get<string>("userName");
                                                 const currentUserEmail = config.get<string>("userEmail");
-                                                
+
                                                 // Check if user info is missing or default
                                                 const isNameMissing = !currentUserName || currentUserName === "Unknown" || currentUserName === "unknown";
                                                 const isEmailMissing = !currentUserEmail || currentUserEmail === "unknown" || currentUserEmail === "";
@@ -126,7 +126,7 @@ export class PublishProjectView {
                                                     }
 
                                                     if (isEmailMissing) {
-                                                         await config.update("userEmail", userInfo.email, vscode.ConfigurationTarget.Workspace);
+                                                        await config.update("userEmail", userInfo.email, vscode.ConfigurationTarget.Workspace);
                                                     }
 
                                                     // Sync to metadata.json
@@ -147,10 +147,28 @@ export class PublishProjectView {
                                         groupId?: number;
                                     };
 
+                                    // Get projectId from metadata and append to project name
+                                    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                                    if (!workspaceFolder) {
+                                        throw new Error("No workspace folder found");
+                                    }
+
+                                    const metadataPath = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
+                                    const metadataContent = await vscode.workspace.fs.readFile(metadataPath);
+                                    const metadata = JSON.parse(Buffer.from(metadataContent).toString());
+                                    const projectId = metadata.projectId || metadata.id;
+
+                                    if (!projectId) {
+                                        throw new Error("Project ID not found in metadata.json. Cannot publish project without project ID.");
+                                    }
+
+                                    // Append projectId to project name
+                                    const projectNameWithId = `${payload.name}-${projectId}`;
+
                                     const result = await vscode.commands.executeCommand(
                                         "frontier.publishWorkspace",
                                         {
-                                            name: payload.name,
+                                            name: projectNameWithId,
                                             description: payload.description,
                                             visibility: payload.visibility,
                                             groupId:

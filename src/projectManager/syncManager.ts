@@ -536,8 +536,25 @@ export class SyncManager {
                 this.pendingChanges.push(commitMessage);
             }
             if (showInfoOnConnectionIssues) {
-                vscode.window.showInformationMessage(
-                    "Sync already in progress. Your changes will sync automatically after completion."
+                // Use withProgress instead of showInformationMessage so it auto-dismisses when sync completes
+                vscode.window.withProgress(
+                    {
+                        location: vscode.ProgressLocation.Notification,
+                        title: "Sync in Progress",
+                        cancellable: false,
+                    },
+                    async (progress) => {
+                        progress.report({
+                            increment: 0,
+                            message: "Your changes will sync automatically after completion."
+                        });
+                        // Wait for sync to complete
+                        while (this.isSyncInProgress) {
+                            await new Promise(resolve => setTimeout(resolve, 200));
+                        }
+                        // Brief delay before auto-dismissing
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
                 );
             }
             return;
@@ -707,8 +724,15 @@ export class SyncManager {
             // Migrate comments before sync if needed
             const workspaceFolders = vscode.workspace.workspaceFolders;
             if (workspaceFolders && workspaceFolders.length > 0) {
-                const needsMigration = await CommentsMigrator.needsMigration(workspaceFolders[0].uri);
-                const inSourceControl = await CommentsMigrator.areCommentsFilesInSourceControl(workspaceFolders[0].uri);
+                const workspaceUri = workspaceFolders[0].uri;
+                const workspaceFsPath = workspaceUri.fsPath;
+
+                // These checks are independent and can be expensive on large projects; run in parallel.
+                const [needsMigration, inSourceControl, commentsHasLocalChanges] = await Promise.all([
+                    CommentsMigrator.needsMigration(workspaceUri),
+                    CommentsMigrator.areCommentsFilesInSourceControl(workspaceUri),
+                    hasLocalModifications(workspaceFsPath, ".project/comments.json"),
+                ]);
 
                 if (needsMigration && inSourceControl) {
                     this.currentSyncStage = "Migrating legacy comments...";
@@ -723,12 +747,6 @@ export class SyncManager {
                         // Don't fail sync due to migration errors
                     }
                 }
-
-                // Check if comments.json has local modifications that would be committed
-                const commentsHasLocalChanges = await hasLocalModifications(
-                    workspaceFolders[0].uri.fsPath,
-                    '.project/comments.json'
-                );
 
                 if (commentsHasLocalChanges) {
                     // Only run pre-sync repair if comments.json has local modifications
@@ -778,8 +796,11 @@ export class SyncManager {
 
             // Migrate comments after sync if new legacy files were pulled
             if (workspaceFolders && workspaceFolders.length > 0) {
-                const needsPostSyncMigration = await CommentsMigrator.needsMigration(workspaceFolders[0].uri);
-                const inSourceControl = await CommentsMigrator.areCommentsFilesInSourceControl(workspaceFolders[0].uri);
+                const workspaceUri = workspaceFolders[0].uri;
+                const [needsPostSyncMigration, inSourceControl] = await Promise.all([
+                    CommentsMigrator.needsMigration(workspaceUri),
+                    CommentsMigrator.areCommentsFilesInSourceControl(workspaceUri),
+                ]);
 
                 if (needsPostSyncMigration && inSourceControl) {
                     this.currentSyncStage = "Cleaning up legacy files...";
@@ -871,6 +892,28 @@ export class SyncManager {
             // Rebuild indexes in the background after successful sync (truly async)
             // Pass the sync result to optimize database synchronization
             this.rebuildIndexesInBackground(syncResult);
+
+            // Refresh webviews for affected codex files to show newly added cells
+            try {
+                const affectedCodexFiles = [
+                    ...syncResult.changedFiles.filter(f => f.endsWith('.codex')),
+                    ...syncResult.newFiles.filter(f => f.endsWith('.codex'))
+                ];
+
+                if (affectedCodexFiles.length > 0) {
+                    debug(`Refreshing webviews for ${affectedCodexFiles.length} affected codex file(s)`);
+                    const { GlobalProvider } = await import("../globalProvider");
+                    const provider = GlobalProvider.getInstance().getProvider("codex-cell-editor") as any;
+                    if (provider && typeof provider.refreshWebviewsForFiles === 'function') {
+                        await provider.refreshWebviewsForFiles(affectedCodexFiles);
+                    } else {
+                        debug("[SyncManager] Codex cell editor provider not available or missing refreshWebviewsForFiles method");
+                    }
+                }
+            } catch (error) {
+                console.error("[SyncManager] Error refreshing webviews after sync:", error);
+                // Don't fail sync if webview refresh fails
+            }
 
         } catch (error) {
             console.error("Error during background sync operation:", error);

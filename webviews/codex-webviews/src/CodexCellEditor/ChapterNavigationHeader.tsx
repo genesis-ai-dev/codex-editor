@@ -1,18 +1,15 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button } from "../components/ui/button";
-import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
+import { CELL_DISPLAY_MODES, extractChapterNumberFromMilestoneValue } from "./CodexCellEditor";
 import NotebookMetadataModal from "./NotebookMetadataModal";
 import { AutocompleteModal } from "./modals/AutocompleteModal";
-import { ChapterSelectorModal } from "./modals/ChapterSelectorModal";
 import { MobileHeaderMenu } from "./components/MobileHeaderMenu";
-import { type QuillCellContent, type CustomNotebookMetadata } from "../../../../types";
-import { EditMapUtils } from "../../../../src/utils/editMapUtils";
+import { MilestoneAccordion } from "./components/MilestoneAccordion";
 import {
-    getCellValueData,
-    cellHasAudioUsingAttachments,
-    computeValidationStats,
-    computeProgressPercents,
-} from "@sharedUtils";
+    type QuillCellContent,
+    type CustomNotebookMetadata,
+    type MilestoneIndex,
+} from "../../../../types";
 import {
     type FileStatus,
     type EditorPosition,
@@ -23,14 +20,12 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
-    DropdownMenuCheckboxItem,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
 import { Slider } from "../components/ui/slider";
 import { Alert, AlertDescription } from "../components/ui/alert";
-import { deriveSubsectionPercentages } from "./utils/progressUtils";
-import { ProgressDots } from "./components/ProgressDots";
+import { RenameModal } from "../components/RenameModal";
 
 interface ChapterNavigationHeaderProps {
     chapterNumber: number;
@@ -72,7 +67,6 @@ interface ChapterNavigationHeaderProps {
     onStopSingleCellTranslation?: () => void;
     currentSubsectionIndex: number;
     setCurrentSubsectionIndex: React.Dispatch<React.SetStateAction<number>>;
-    getSubsectionsForChapter: (chapterNum: number) => Subsection[];
     bibleBookMap?: Map<string, { name: string; [key: string]: any }>;
     vscode: any;
     fileStatus?: FileStatus;
@@ -88,6 +82,17 @@ interface ChapterNavigationHeaderProps {
     requiredAudioValidations?: number | null;
     showInlineBacktranslations?: boolean;
     onToggleInlineBacktranslations?: () => void;
+
+    // Milestone-based pagination props
+    milestoneIndex: MilestoneIndex | null;
+    currentMilestoneIndex: number;
+    setCurrentMilestoneIndex: React.Dispatch<React.SetStateAction<number>>;
+    getSubsectionsForMilestone: (milestoneIdx: number) => Subsection[];
+    requestCellsForMilestone: (milestoneIdx: number, subsectionIdx?: number) => void;
+    isLoadingCells?: boolean;
+    subsectionProgress?: Record<number, ProgressPercentages>;
+    allSubsectionProgress?: Record<number, Record<number, ProgressPercentages>>;
+    requestSubsectionProgress?: (milestoneIdx: number) => void;
 }
 
 export function ChapterNavigationHeader({
@@ -124,7 +129,6 @@ export function ChapterNavigationHeader({
     onStopSingleCellTranslation,
     currentSubsectionIndex,
     setCurrentSubsectionIndex,
-    getSubsectionsForChapter,
     bibleBookMap,
     vscode,
     fileStatus = "none",
@@ -140,13 +144,25 @@ export function ChapterNavigationHeader({
     requiredAudioValidations,
     showInlineBacktranslations = false,
     onToggleInlineBacktranslations,
+    // Milestone-based pagination props
+    milestoneIndex,
+    currentMilestoneIndex,
+    setCurrentMilestoneIndex,
+    getSubsectionsForMilestone,
+    requestCellsForMilestone,
+    isLoadingCells = false,
+    subsectionProgress,
+    allSubsectionProgress,
+    requestSubsectionProgress,
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
     const [autoDownloadAudioOnOpen, setAutoDownloadAudioOnOpenState] = useState<boolean>(false);
-    const [showChapterSelector, setShowChapterSelector] = useState(false);
+    const [showMilestoneAccordion, setShowMilestoneAccordion] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [milestoneNewName, setMilestoneNewName] = useState("");
+    const [showEditMilestoneModal, setShowEditMilestoneModal] = useState(false);
     const chapterTitleRef = useRef<HTMLDivElement>(null);
     const headerContainerRef = useRef<HTMLDivElement>(null);
     const [truncatedBookName, setTruncatedBookName] = useState<string | null>(null);
@@ -160,8 +176,23 @@ ChapterNavigationHeaderProps) {
     const [fontSize, setFontSize] = useState(metadata?.fontSize || 14);
     const [pendingFontSize, setPendingFontSize] = useState<number | null>(null);
 
-    // Get subsections early so it's available for all hooks
-    const subsections = getSubsectionsForChapter(chapterNumber);
+    // Get subsections for the current milestone
+    const subsections = useMemo(() => {
+        return getSubsectionsForMilestone(currentMilestoneIndex);
+    }, [getSubsectionsForMilestone, currentMilestoneIndex]);
+
+    // Get current milestone value for display
+    const currentMilestoneValue = useMemo(() => {
+        return milestoneIndex?.milestones[currentMilestoneIndex]?.value || "1";
+    }, [milestoneIndex, currentMilestoneIndex]);
+
+    // Total navigation units (milestones)
+    const totalNavigationUnits = milestoneIndex?.milestones.length || 0;
+
+    // Check if navigation buttons should be disabled (only 1 milestone and 1 subsection)
+    const shouldDisableNavigation = useMemo(() => {
+        return !!(milestoneIndex?.milestones.length === 1 && subsections.length <= 1);
+    }, [milestoneIndex?.milestones.length, subsections.length]);
 
     // Helper to determine if any translation is in progress
     const isAnyTranslationInProgress = isAutocompletingChapter || isTranslatingCell;
@@ -181,69 +212,13 @@ ChapterNavigationHeaderProps) {
         }
     }, [metadata?.autoDownloadAudioOnOpen]);
 
-    // Memoized dropdown item row to reduce re-renders
-    const MemoDropdownRow = useCallback(
-        ({
-            label,
-            isActive,
-            progress,
-            onClick,
-        }: {
-            label: string;
-            isActive: boolean;
-            progress: {
-                isFullyTranslated: boolean;
-                isFullyValidated: boolean;
-                percentTranslationsCompleted?: number;
-                percentTextValidatedTranslations?: number;
-                percentAudioTranslationsCompleted?: number;
-                percentAudioValidatedTranslations?: number;
-            };
-            onClick: () => void;
-        }) => {
-            const progressPercentages = deriveSubsectionPercentages(progress);
-            return (
-                <DropdownMenuItem
-                    onClick={onClick}
-                    className={`flex items-center justify-between cursor-pointer ${
-                        isActive ? "bg-accent text-accent-foreground font-semibold" : ""
-                    }`}
-                    role="menuitem"
-                >
-                    <span>{label}</span>
-                    <ProgressDots
-                        audio={{
-                            validatedPercent: progressPercentages.audioValidatedPercent,
-                            completedPercent: progressPercentages.audioCompletedPercent,
-                        }}
-                        text={{
-                            validatedPercent: progressPercentages.textValidatedPercent,
-                            completedPercent: progressPercentages.textCompletedPercent,
-                        }}
-                    />
-                </DropdownMenuItem>
-            );
-        },
-        []
-    );
-
-    // Determine the display name using the map
+    // Display milestone value directly (e.g., "Isaiah 1" or "1")
     const getDisplayTitle = useCallback(() => {
-        const firstMarker = translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]; // e.g., "GEN 1"
-        if (!firstMarker) return "Chapter"; // Fallback title
-
-        const parts = firstMarker.split(" ");
-        const bookAbbr = parts[0]; // e.g., "GEN"
-        const chapterNum = parts[1] || ""; // e.g., "1"
-
-        // Look up the localized name
-        const localizedName = bibleBookMap?.get(bookAbbr)?.name;
-
-        // Use localized name if found, otherwise use the abbreviation
-        const displayBookName = localizedName || bookAbbr;
-
-        return `${displayBookName}\u00A0${chapterNum}`;
-    }, [translationUnitsForSection, bibleBookMap]);
+        if (currentMilestoneValue) {
+            return currentMilestoneValue;
+        }
+        return "Section 1";
+    }, [currentMilestoneValue]);
 
     // Centralized title measurement logic
     const measureAndTruncateTitle = useCallback(() => {
@@ -564,6 +539,45 @@ ChapterNavigationHeaderProps) {
         }
     };
 
+    const handleEditMilestoneModalOpen = () => {
+        const currentMilestone = milestoneIndex?.milestones[currentMilestoneIndex];
+        if (currentMilestone) {
+            setMilestoneNewName(currentMilestone.value);
+            setShowEditMilestoneModal(true);
+        }
+    };
+
+    const handleEditMilestoneModalClose = () => {
+        setShowEditMilestoneModal(false);
+        setMilestoneNewName("");
+    };
+
+    const handleEditMilestoneModalConfirm = () => {
+        const currentMilestone = milestoneIndex?.milestones[currentMilestoneIndex];
+        if (
+            currentMilestone &&
+            milestoneNewName.trim() !== "" &&
+            milestoneNewName.trim() !== currentMilestone.value
+        ) {
+            // Send message to update milestone value
+            vscode.postMessage({
+                command: "updateMilestoneValue",
+                content: {
+                    milestoneIndex: currentMilestoneIndex,
+                    newValue: milestoneNewName.trim(),
+                },
+            });
+        }
+        handleEditMilestoneModalClose();
+    };
+
+    // Close accordion when rename modal opens
+    useEffect(() => {
+        if (showEditMilestoneModal) {
+            setShowMilestoneAccordion(false);
+        }
+    }, [showEditMilestoneModal]);
+
     const handleFontSizeChange = (value: number[]) => {
         const newFontSize = value[0];
         setFontSize(newFontSize);
@@ -597,20 +611,6 @@ ChapterNavigationHeaderProps) {
         }
     };
 
-    const handleTogglePrimarySidebar = () => {
-        if (vscode) {
-            vscode.postMessage({ command: "togglePrimarySidebar" });
-        }
-    };
-
-    const handleToggleSecondarySidebar = () => {
-        if (vscode) {
-            vscode.postMessage({ command: "toggleSecondarySidebar" });
-        }
-    };
-
-    // Removed unused getFileStatusButton to reduce dead code
-
     // Add CSS for rotation animation
     useEffect(() => {
         if (!document.getElementById("codex-animation-styles")) {
@@ -626,128 +626,62 @@ ChapterNavigationHeaderProps) {
         }
     }, []);
 
-    // Update the jumpToChapter function to be reusable
-    const jumpToChapter = (newChapter: number) => {
-        if (!unsavedChanges && newChapter !== chapterNumber) {
-            vscode.postMessage({
-                command: "jumpToChapter",
-                chapterNumber: newChapter,
-            });
-            setChapterNumber(newChapter);
-            // Reset to first page when jumping to a different chapter through chapter selector
-            setCurrentSubsectionIndex(0);
-        }
-    };
-
-    // Removed unused handlePreviousChapter/handleNextChapter to reduce dead code
+    // Navigation function for milestone-based navigation
+    const jumpToMilestone = useCallback(
+        (newMilestoneIdx: number, newSubsectionIdx: number = 0) => {
+            if (
+                !unsavedChanges &&
+                (newMilestoneIdx !== currentMilestoneIndex ||
+                    newSubsectionIdx !== currentSubsectionIndex)
+            ) {
+                // requestCellsForMilestone handles state updates internally
+                // (both for cached pages and when loading new pages)
+                requestCellsForMilestone(newMilestoneIdx, newSubsectionIdx);
+            }
+        },
+        [unsavedChanges, currentMilestoneIndex, currentSubsectionIndex, requestCellsForMilestone]
+    );
 
     // Use dynamic responsive state variables based on content overflow
     const shouldUseMinimalLayout = isVerySmallScreen; // Use minimal layout for very small screens only
     const shouldHideNavButtons = isVerySmallScreen; // Hide nav buttons on very small screens
 
     // Calculate progress for each subsection/page
-    const calculateSubsectionProgress = (
-        subsection: Subsection,
-        forSourceText: boolean = isSourceText
-    ) => {
-        // Use allCellsForChapter if available, otherwise fall back to translationUnitsForSection
-        const allChapterCells = allCellsForChapter || translationUnitsForSection;
-
-        // Get cells for this specific subsection from the full chapter data
-        const subsectionCells = allChapterCells.slice(subsection.startIndex, subsection.endIndex);
-
-        // Filter out paratext and merged cells for progress calculation
-        const validCells = subsectionCells.filter((cell) => {
-            const cellId = cell?.cellMarkers?.[0];
-            return cellId && !cellId.startsWith("paratext-") && !cell.merged;
-        });
-
-        const totalCells = validCells.length;
-        if (totalCells === 0) {
+    const calculateSubsectionProgress = (subsection: Subsection, subsectionIndex: number) => {
+        // Only use backend-calculated progress
+        if (subsectionProgress && subsectionProgress[subsectionIndex] !== undefined) {
+            const backendProgress = subsectionProgress[subsectionIndex];
             return {
-                isFullyTranslated: false,
-                isFullyValidated: false,
-                percentTranslationsCompleted: 0,
-                percentAudioTranslationsCompleted: 0,
-                percentFullyValidatedTranslations: 0,
-                percentAudioValidatedTranslations: 0,
-                percentTextValidatedTranslations: 0,
+                isFullyTranslated: backendProgress.percentTranslationsCompleted === 100,
+                isFullyValidated: backendProgress.percentFullyValidatedTranslations === 100,
+                percentTranslationsCompleted: backendProgress.percentTranslationsCompleted,
+                percentAudioTranslationsCompleted:
+                    backendProgress.percentAudioTranslationsCompleted,
+                percentFullyValidatedTranslations:
+                    backendProgress.percentFullyValidatedTranslations,
+                percentAudioValidatedTranslations:
+                    backendProgress.percentAudioValidatedTranslations,
+                percentTextValidatedTranslations: backendProgress.percentTextValidatedTranslations,
+                textValidationLevels: backendProgress.textValidationLevels,
+                audioValidationLevels: backendProgress.audioValidationLevels,
+                requiredTextValidations: backendProgress.requiredTextValidations,
+                requiredAudioValidations: backendProgress.requiredAudioValidations,
             };
         }
 
-        // Check if all cells have content (translated for target, existing for source)
-        const completedCells = validCells.filter((cell) => {
-            const hasContent =
-                cell.cellContent &&
-                cell.cellContent.trim().length > 0 &&
-                cell.cellContent !== "<span></span>";
-
-            if (forSourceText) {
-                // For source text, we just check if content exists
-                return hasContent;
-            } else {
-                // For target text, we check if it's been translated (has content)
-                return hasContent;
-            }
-        });
-        const isFullyTranslated = completedCells.length === totalCells;
-
-        // Calculate audio presence for subsection (mirrors chapter calculation)
-        const cellsWithAudioValues = validCells.filter((cell) =>
-            cellHasAudioUsingAttachments(
-                (cell as any).attachments,
-                (cell as any).metadata?.selectedAudioId
-            )
-        ).length;
-
-        // Check if all cells are validated
-        let isFullyValidated = false;
-        const minimumValidationsRequired =
-            (requiredValidations ?? undefined) !== undefined
-                ? (requiredValidations as number) ?? 1
-                : (window as any)?.initialData?.validationCount ?? 1;
-        const minimumAudioValidationsRequired =
-            (requiredAudioValidations ?? undefined) !== undefined
-                ? (requiredAudioValidations as number) ?? 1
-                : (window as any)?.initialData?.validationCountAudio ?? 1;
-
-        // Calculate validation data using shared utils
-        const cellWithValidatedData = validCells.map((cell) => getCellValueData(cell));
-
-        const { validatedCells, audioValidatedCells, fullyValidatedCells } = computeValidationStats(
-            cellWithValidatedData,
-            minimumValidationsRequired,
-            minimumAudioValidationsRequired
-        );
-
-        const {
-            percentTranslationsCompleted,
-            percentAudioTranslationsCompleted,
-            percentAudioValidatedTranslations,
-            percentTextValidatedTranslations,
-            percentFullyValidatedTranslations,
-        } = computeProgressPercents(
-            totalCells,
-            completedCells.length,
-            cellsWithAudioValues,
-            validatedCells,
-            audioValidatedCells,
-            fullyValidatedCells
-        );
-
-        if (isFullyTranslated) {
-            // Maintain existing gating for the boolean display in this header
-            isFullyValidated = fullyValidatedCells === totalCells;
-        }
-
+        // Return default values if backend progress is not available
         return {
-            isFullyTranslated,
-            isFullyValidated,
-            percentTranslationsCompleted,
-            percentAudioTranslationsCompleted,
-            percentFullyValidatedTranslations,
-            percentAudioValidatedTranslations,
-            percentTextValidatedTranslations,
+            isFullyTranslated: false,
+            isFullyValidated: false,
+            percentTranslationsCompleted: 0,
+            percentAudioTranslationsCompleted: 0,
+            percentFullyValidatedTranslations: 0,
+            percentAudioValidatedTranslations: 0,
+            percentTextValidatedTranslations: 0,
+            textValidationLevels: undefined,
+            audioValidationLevels: undefined,
+            requiredTextValidations: undefined,
+            requiredAudioValidations: undefined,
         };
     };
 
@@ -789,17 +723,6 @@ ChapterNavigationHeaderProps) {
                         openSourceText={openSourceText}
                         chapterNumber={chapterNumber}
                         isCorrectionEditorMode={isCorrectionEditorMode}
-                        totalChapters={totalChapters}
-                        setChapterNumber={setChapterNumber}
-                        jumpToChapter={jumpToChapter}
-                        showUnsavedWarning={() => {
-                            setShowUnsavedWarning(true);
-                            setTimeout(() => setShowUnsavedWarning(false), 3000);
-                        }}
-                        getSubsectionsForChapter={getSubsectionsForChapter}
-                        shouldHideNavButtons={shouldHideNavButtons}
-                        allCellsForChapter={allCellsForChapter}
-                        calculateSubsectionProgress={calculateSubsectionProgress}
                         autoDownloadAudioOnOpen={autoDownloadAudioOnOpen}
                         onToggleAutoDownloadAudio={(val) => {
                             setAutoDownloadAudioOnOpenState(!!val);
@@ -861,25 +784,43 @@ ChapterNavigationHeaderProps) {
                         className="inline-flex transition-all duration-200 ease-in-out"
                         variant="outline"
                         size="default"
+                        disabled={isLoadingCells || shouldDisableNavigation}
                         onClick={() => {
                             if (!unsavedChanges) {
-                                // Check if we're on the first page of the current chapter
+                                // Check if we're on the first page of the current section
                                 if (currentSubsectionIndex > 0) {
-                                    // Move to previous page within the same chapter
-                                    setCurrentSubsectionIndex(currentSubsectionIndex - 1);
+                                    // Move to previous page within the same section
+                                    jumpToMilestone(
+                                        currentMilestoneIndex,
+                                        currentSubsectionIndex - 1
+                                    );
                                 } else {
-                                    // Move to previous chapter
-                                    const newChapter =
-                                        chapterNumber === 1 ? totalChapters : chapterNumber - 1;
-                                    jumpToChapter(newChapter);
-
-                                    // When jumping to a new chapter, check if it has subsections
-                                    // and if so, jump to the last page
-                                    const newChapterSubsections =
-                                        getSubsectionsForChapter(newChapter);
-                                    if (newChapterSubsections.length > 0) {
-                                        setCurrentSubsectionIndex(newChapterSubsections.length - 1);
+                                    // Move to previous milestone
+                                    const newMilestoneIdx =
+                                        currentMilestoneIndex === 0
+                                            ? totalNavigationUnits - 1
+                                            : currentMilestoneIndex - 1;
+                                    // Get subsections for the new milestone
+                                    const newSubsections =
+                                        getSubsectionsForMilestone(newMilestoneIdx);
+                                    const lastSubsectionIdx =
+                                        newSubsections.length > 0 ? newSubsections.length - 1 : 0;
+                                    // Extract and cache the chapter number from the milestone value
+                                    if (milestoneIndex?.milestones[newMilestoneIdx]) {
+                                        const milestoneValue =
+                                            milestoneIndex.milestones[newMilestoneIdx].value;
+                                        const chapterNum =
+                                            extractChapterNumberFromMilestoneValue(milestoneValue);
+                                        if (chapterNum !== null) {
+                                            // Cache the chapter number so it persists when switching files
+                                            vscode.postMessage({
+                                                command: "jumpToChapter",
+                                                chapterNumber: chapterNum,
+                                            });
+                                            setChapterNumber(chapterNum);
+                                        }
                                     }
+                                    jumpToMilestone(newMilestoneIdx, lastSubsectionIdx);
                                 }
                             } else {
                                 // Show warning when there are unsaved changes
@@ -889,10 +830,10 @@ ChapterNavigationHeaderProps) {
                         }}
                         title={
                             unsavedChanges
-                                ? "Save changes first to change chapter"
+                                ? "Save changes first to change section"
                                 : currentSubsectionIndex > 0
                                 ? "Previous Page"
-                                : "Previous Chapter"
+                                : "Previous Milestone"
                         }
                     >
                         <i
@@ -909,9 +850,9 @@ ChapterNavigationHeaderProps) {
                     ref={chapterTitleRef}
                     className="chapter-title-container flex items-center min-w-0 max-w-full cursor-pointer rounded-md transition-all duration-200 ease-in-out px-2"
                     onClick={() => {
-                        // Always allow opening the chapter selector when there are no unsaved changes
+                        // Always allow opening the milestone accordion when there are no unsaved changes
                         if (!unsavedChanges) {
-                            setShowChapterSelector(!showChapterSelector);
+                            setShowMilestoneAccordion(!showMilestoneAccordion);
                         } else {
                             // Show warning when there are unsaved changes
                             setShowUnsavedWarning(true);
@@ -967,12 +908,10 @@ ChapterNavigationHeaderProps) {
                                 ({subsections[currentSubsectionIndex]?.label || ""})
                             </span>
                         )}
-                        <i
-                            className={`codicon ${
-                                showChapterSelector ? "codicon-chevron-up" : "codicon-chevron-down"
-                            } ml-1 flex-shrink-0 ${shouldUseMinimalLayout ? "hidden" : "inline"}`}
-                        />
                     </h1>
+                    <div className="flex items-center justify-center">
+                        <i className="codicon codicon-chevron-down"></i>
+                    </div>
                 </div>
 
                 {!shouldHideNavButtons && (
@@ -980,21 +919,41 @@ ChapterNavigationHeaderProps) {
                         className="inline-flex transition-all duration-200 ease-in-out"
                         variant="outline"
                         size="default"
+                        disabled={isLoadingCells || shouldDisableNavigation}
                         onClick={() => {
                             if (!unsavedChanges) {
-                                // Check if we're on the last page of the current chapter
+                                // Check if we're on the last page of the current section
                                 if (
                                     subsections.length > 0 &&
                                     currentSubsectionIndex < subsections.length - 1
                                 ) {
-                                    // Move to next page within the same chapter
-                                    setCurrentSubsectionIndex(currentSubsectionIndex + 1);
+                                    // Move to next page within the same section
+                                    jumpToMilestone(
+                                        currentMilestoneIndex,
+                                        currentSubsectionIndex + 1
+                                    );
                                 } else {
-                                    // Move to next chapter and reset to first page
-                                    const newChapter =
-                                        chapterNumber === totalChapters ? 1 : chapterNumber + 1;
-                                    jumpToChapter(newChapter);
-                                    setCurrentSubsectionIndex(0);
+                                    // Move to next milestone and reset to first page
+                                    const newMilestoneIdx =
+                                        currentMilestoneIndex === totalNavigationUnits - 1
+                                            ? 0
+                                            : currentMilestoneIndex + 1;
+                                    // Extract and cache the chapter number from the milestone value
+                                    if (milestoneIndex?.milestones[newMilestoneIdx]) {
+                                        const milestoneValue =
+                                            milestoneIndex.milestones[newMilestoneIdx].value;
+                                        const chapterNum =
+                                            extractChapterNumberFromMilestoneValue(milestoneValue);
+                                        if (chapterNum !== null) {
+                                            // Cache the chapter number so it persists when switching files
+                                            vscode.postMessage({
+                                                command: "jumpToChapter",
+                                                chapterNumber: chapterNum,
+                                            });
+                                            setChapterNumber(chapterNum);
+                                        }
+                                    }
+                                    jumpToMilestone(newMilestoneIdx, 0);
                                 }
                             } else {
                                 // Show warning when there are unsaved changes
@@ -1004,11 +963,11 @@ ChapterNavigationHeaderProps) {
                         }}
                         title={
                             unsavedChanges
-                                ? "Save changes first to change chapter"
+                                ? "Save changes first to change section"
                                 : subsections.length > 0 &&
                                   currentSubsectionIndex < subsections.length - 1
                                 ? "Next Page"
-                                : "Next Chapter"
+                                : "Next Milestone"
                         }
                     >
                         <i
@@ -1020,78 +979,6 @@ ChapterNavigationHeaderProps) {
                         />
                     </Button>
                 )}
-
-                {/* Page selector - shown when not using hamburger menu */}
-                {subsections.length > 0 && !shouldShowHamburger && (
-                    <div className="flex items-center ml-4 transition-all duration-200 ease-in-out">
-                        <span className="mr-2">Page:</span>
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button
-                                    variant="outline"
-                                    size="default"
-                                    className="flex items-center gap-2"
-                                >
-                                    {(() => {
-                                        const currentSection = subsections[currentSubsectionIndex];
-                                        const progress = calculateSubsectionProgress(
-                                            currentSection,
-                                            isSourceText
-                                        );
-                                        return (
-                                            <>
-                                                <span>{currentSection?.label || ""}</span>
-                                                {(() => {
-                                                    const percentages =
-                                                        deriveSubsectionPercentages(progress);
-                                                    return (
-                                                        <ProgressDots
-                                                            audio={{
-                                                                validatedPercent:
-                                                                    percentages.audioValidatedPercent,
-                                                                completedPercent:
-                                                                    percentages.audioCompletedPercent,
-                                                            }}
-                                                            text={{
-                                                                validatedPercent:
-                                                                    percentages.textValidatedPercent,
-                                                                completedPercent:
-                                                                    percentages.textCompletedPercent,
-                                                            }}
-                                                        />
-                                                    );
-                                                })()}
-                                                <i className="codicon codicon-chevron-down" />
-                                            </>
-                                        );
-                                    })()}
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent
-                                align="start"
-                                className="w-48"
-                                style={{ zIndex: 99999 }}
-                            >
-                                {subsections.map((section, index) => {
-                                    const progress = calculateSubsectionProgress(
-                                        section,
-                                        isSourceText
-                                    );
-                                    const isActive = currentSubsectionIndex === index;
-                                    return (
-                                        <MemoDropdownRow
-                                            key={section.id}
-                                            label={section.label}
-                                            isActive={isActive}
-                                            progress={progress}
-                                            onClick={() => setCurrentSubsectionIndex(index)}
-                                        />
-                                    );
-                                })}
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                    </div>
-                )}
             </div>
 
             {/* Desktop right controls - hidden when hamburger is active */}
@@ -1100,36 +987,6 @@ ChapterNavigationHeaderProps) {
                     shouldShowHamburger ? "hidden" : "flex"
                 } items-center justify-end ml-auto space-x-2`}
             >
-                {/* {getFileStatusButton()} // FIXME: we want to show the file status, but it needs to load immediately, and it needs to be more reliable. - test this and also think through UX */}
-                {/* Show left sidebar toggle only when editor is not leftmost
-                
-                // FIXME: editorPosition is always 'unknown' - this is not the right way to check this
-                
-                */}
-                {/*                 
-                {(editorPosition === "rightmost" ||
-                    editorPosition === "center" ||
-                    editorPosition === "single") && (
-                    <Button
-                        variant="outline"
-                        onClick={handleTogglePrimarySidebar}
-                        title="Toggle Primary Sidebar"
-                    >
-                        <i className="codicon codicon-layout-sidebar-left" />
-                    </Button>
-                )}
-                {/* Show right sidebar toggle only when editor is not rightmost */}
-                {/* {(editorPosition === "leftmost" ||
-                    editorPosition === "center" ||
-                    editorPosition === "single") && (
-                    <Button
-                        variant="outline"
-                        onClick={handleToggleSecondarySidebar}
-                        title="Toggle Secondary Sidebar"
-                    >
-                        <i className="codicon codicon-layout-sidebar-right" />
-                    </Button>
-                )} */}
                 {!isSourceText && (
                     <>
                         {isAnyTranslationInProgress ? (
@@ -1419,19 +1276,45 @@ ChapterNavigationHeaderProps) {
                 cellsToAutocompleteIds={cellsToAutocompleteIds}
                 cellsWithCurrentUserOptionIds={cellsWithCurrentUserOptionIds}
                 fullyValidatedByOthersIds={fullyValidatedByOthersIds}
-                defaultValue={Math.min(5, untranslatedCellIds.length > 0 ? untranslatedCellIds.length : 5)}
+                defaultValue={Math.min(
+                    5,
+                    untranslatedCellIds.length > 0 ? untranslatedCellIds.length : 5
+                )}
             />
 
-            <ChapterSelectorModal
-                isOpen={showChapterSelector}
-                onClose={() => setShowChapterSelector(false)}
-                onSelectChapter={jumpToChapter}
-                currentChapter={chapterNumber}
-                totalChapters={totalChapters}
-                bookTitle={getDisplayTitle().split("\u00A0")[0]}
+            <MilestoneAccordion
+                isOpen={showMilestoneAccordion}
+                onClose={() => setShowMilestoneAccordion(false)}
+                milestoneIndex={milestoneIndex}
+                currentMilestoneIndex={currentMilestoneIndex}
+                currentSubsectionIndex={currentSubsectionIndex}
+                getSubsectionsForMilestone={getSubsectionsForMilestone}
+                requestCellsForMilestone={requestCellsForMilestone}
+                allSubsectionProgress={allSubsectionProgress}
                 unsavedChanges={unsavedChanges}
+                isSourceText={isSourceText}
                 anchorRef={chapterTitleRef}
-                chapterProgress={chapterProgress}
+                calculateSubsectionProgress={calculateSubsectionProgress}
+                requestSubsectionProgress={requestSubsectionProgress}
+                handleEditMilestoneModalOpen={handleEditMilestoneModalOpen}
+            />
+
+            <RenameModal
+                open={showEditMilestoneModal}
+                title="Rename Milestone"
+                description="Enter new name for"
+                originalLabel={milestoneIndex?.milestones[currentMilestoneIndex]?.value || ""}
+                value={milestoneNewName}
+                placeholder="Enter milestone name"
+                confirmButtonLabel="Save"
+                disabled={
+                    !milestoneNewName.trim() ||
+                    milestoneNewName.trim() ===
+                        milestoneIndex?.milestones[currentMilestoneIndex]?.value
+                }
+                onClose={handleEditMilestoneModalClose}
+                onConfirm={handleEditMilestoneModalConfirm}
+                onValueChange={setMilestoneNewName}
             />
         </div>
     );

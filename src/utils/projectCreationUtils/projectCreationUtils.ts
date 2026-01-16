@@ -76,16 +76,18 @@ export async function createNewWorkspaceAndProject(context?: vscode.ExtensionCon
         await context.globalState.update("pendingProjectCreateName", fullProjectName);
         await context.globalState.update("pendingProjectCreateId", projectId);
     }
-
     await createProjectInNewFolder(projectName, projectId);
 }
 
 /**
  * Creates a new project in a new folder
  * TODO: let's ONLY use the .codex-projects directory as the parent folder
+ * @param folderNameOrProjectName - The folder name to create, or the project name (if actualProjectName is provided, this is treated as folder name)
+ * @param projectId - REQUIRED Project ID to append to folder name and pass to initialization
+ * @param actualProjectName - Optional: The actual project name (without projectId) to use in metadata. If not provided, folderNameOrProjectName is used as both folder name and project name.
  */
 const SHOULD_PROMPT_USER_FOR_PARENT_FOLDER = false;
-async function createProjectInNewFolder(projectName: string, projectId: string) {
+async function createProjectInNewFolder(folderNameOrProjectName: string, projectId: string, actualProjectName?: string) {
     if (!projectId || projectId.trim() === "") {
         throw new Error("projectId is required and cannot be empty for createProjectInNewFolder");
     }
@@ -93,13 +95,19 @@ async function createProjectInNewFolder(projectName: string, projectId: string) 
     const codexProjectsDir = await getCodexProjectsDirectory();
     let parentFolderUri: vscode.Uri[] | undefined;
 
+    // Determine folder name and project name
+    // If actualProjectName is provided, folderNameOrProjectName is the folder name (already includes projectId)
+    // Otherwise, folderNameOrProjectName is the project name and we append projectId
+    const folderName = actualProjectName ? folderNameOrProjectName : `${folderNameOrProjectName}-${projectId}`;
+    const projectNameForMetadata = actualProjectName || folderNameOrProjectName;
+
     if (SHOULD_PROMPT_USER_FOR_PARENT_FOLDER) {
         // Allow the user to choose a different location if they want
         parentFolderUri = await vscode.window.showOpenDialog({
             canSelectFolders: true,
             canSelectFiles: false,
             canSelectMany: false,
-            openLabel: `Choose location for "${projectName}" folder`,
+            openLabel: `Choose location for "${folderName}" folder`,
             defaultUri: codexProjectsDir,
         });
     } else {
@@ -119,10 +127,7 @@ async function createProjectInNewFolder(projectName: string, projectId: string) 
         return;
     }
 
-    // Append projectId to folder name for uniqueness and identification
-    const folderNameWithId = `${projectName}-${projectId}`;
-    const newFolderUri = vscode.Uri.joinPath(parentFolderUri[0], folderNameWithId);
-
+    const newFolderUri = vscode.Uri.joinPath(parentFolderUri[0], folderName);
     try {
         await vscode.workspace.fs.createDirectory(newFolderUri);
         await vscode.commands.executeCommand("vscode.openFolder", newFolderUri);
@@ -334,7 +339,9 @@ export async function createWorkspaceWithProjectName(projectName: string, projec
     if (!projectId || projectId.trim() === "") {
         throw new Error("projectId is required and cannot be empty for createWorkspaceWithProjectName");
     }
-    // Pass the name and projectId to createProjectInNewFolder which will handle appending
-    await createProjectInNewFolder(projectName, projectId);
+    // Append projectId to sanitized project name for unique folder name
+    const folderName = `${projectName}-${projectId}`;
+    // Pass the folderName, projectId, and the actual projectName separately
+    await createProjectInNewFolder(folderName, projectId, projectName);
 }
 

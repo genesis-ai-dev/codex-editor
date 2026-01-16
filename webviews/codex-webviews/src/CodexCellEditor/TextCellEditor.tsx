@@ -330,6 +330,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [isRecording, setIsRecording] = useState(false);
     const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
     const [recordingStatus, setRecordingStatus] = useState<string>("");
+    const [isAudioSaving, setIsAudioSaving] = useState<boolean>(false);
+    const audioSaveRequestIdRef = useRef<string | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const [confirmingDiscard, setConfirmingDiscard] = useState(false);
     const [showRecorder, setShowRecorder] = useState(() => {
@@ -624,9 +626,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
         []
     );
 
-    const makeChild = () => {
+    const makeChild = async () => {
         const parentCellId = cellMarkers[0];
-        const newChildId = generateChildCellId(parentCellId);
+        const newChildId = await generateChildCellId(parentCellId);
 
         const startTime = cellTimestamps?.startTime;
         const endTime = cellTimestamps?.endTime;
@@ -1040,7 +1042,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                 const preferred = event.data.tab as typeof activeTab;
 
-                if (event.data.tab === "editLabel" && cellType === CodexCellTypes.PARATEXT) {
+                if (
+                    event.data.tab === "editLabel" &&
+                    (cellType === CodexCellTypes.PARATEXT || cellType === CodexCellTypes.MILESTONE)
+                ) {
                     setActiveTab("source");
                 } else {
                     setActiveTab(preferred);
@@ -1190,6 +1195,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
     };
 
     const saveAudioToCell = (blob: Blob) => {
+        setIsAudioSaving(true);
+        setRecordingStatus("Saving audio…");
+
         // Generate a unique ID for the audio file
         const normalizedCellId = cellMarkers[0].replace(/\s+/g, "-").toLowerCase();
         const uniqueId = `audio-${normalizedCellId}-${Date.now()}-${Math.random()
@@ -1261,8 +1269,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 // ignore metadata decode errors
             }
             // Send to provider to save file
+            const requestId =
+                typeof crypto !== "undefined" && typeof (crypto as any).randomUUID === "function"
+                    ? (crypto as any).randomUUID()
+                    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            audioSaveRequestIdRef.current = requestId;
+
             const messageContent: EditorPostMessages = {
                 command: "saveAudioAttachment",
+                requestId,
                 content: {
                     cellId: cellMarkers[0],
                     audioData: base64data,
@@ -1619,6 +1634,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
             // Handle audio availability updates specifically for this cell
             if (message.type === "providerSendsAudioAttachments") {
+                // Clear cached audio data since selected audio might have changed
+                const { clearCachedAudio } = await import("../lib/audioCache");
+                clearCachedAudio(cellMarkers[0]);
+
                 // If we already have local audio (e.g., just recorded) or are loading, don't disrupt UI
                 if (audioBlob || isAudioLoading) {
                     return;
@@ -1711,6 +1730,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 message.type === "audioAttachmentSaved" &&
                 message.content.cellId === cellMarkers[0]
             ) {
+                const reqId = message?.content?.requestId as string | undefined;
+                const pendingReqId = audioSaveRequestIdRef.current;
+                // If provider echoes a requestId, only clear saving for the matching request.
+                if (reqId && pendingReqId && reqId !== pendingReqId) {
+                    return;
+                }
+
+                setIsAudioSaving(false);
+                audioSaveRequestIdRef.current = null;
+
                 if (message.content.success) {
                     setRecordingStatus("Audio saved successfully");
                 } else {
@@ -1831,28 +1860,32 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             role="button"
                             aria-label="Cell id and label"
                         >
-                            {cellType !== CodexCellTypes.PARATEXT && (
-                                <div className="flex items-center gap-x-1" title="Edit cell label">
-                                    <span className="text-lg font-semibold muted-foreground">
-                                        {displayEditableLabel()}
-                                    </span>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        title="Edit label"
-                                        onClick={() => {
-                                            setActiveTab("editLabel");
-                                        }}
+                            {cellType !== CodexCellTypes.PARATEXT &&
+                                cellType !== CodexCellTypes.MILESTONE && (
+                                    <div
+                                        className="flex items-center gap-x-1"
+                                        title="Edit cell label"
                                     >
-                                        <i
-                                            className="codicon codicon-edit"
-                                            style={{
-                                                fontSize: "0.9em",
+                                        <span className="text-lg font-semibold muted-foreground">
+                                            {displayEditableLabel()}
+                                        </span>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            title="Edit label"
+                                            onClick={() => {
+                                                setActiveTab("editLabel");
                                             }}
-                                        ></i>
-                                    </Button>
-                                </div>
-                            )}
+                                        >
+                                            <i
+                                                className="codicon codicon-edit"
+                                                style={{
+                                                    fontSize: "0.9em",
+                                                }}
+                                            ></i>
+                                        </Button>
+                                    </div>
+                                )}
                             <CommentsBadge
                                 cellId={cellMarkers[0]}
                                 unresolvedCount={unresolvedCommentsCount}
@@ -2119,11 +2152,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         className="flex w-full"
                         style={{ justifyContent: "stretch", display: "flex" }}
                     >
-                        {cellType !== CodexCellTypes.PARATEXT && (
-                            <TabsTrigger value="editLabel">
-                                <Tag className="mr-2 h-4 w-4" />
-                            </TabsTrigger>
-                        )}
+                        {cellType !== CodexCellTypes.PARATEXT &&
+                            cellType !== CodexCellTypes.MILESTONE && (
+                                <TabsTrigger value="editLabel">
+                                    <Tag className="mr-2 h-4 w-4" />
+                                </TabsTrigger>
+                            )}
                         <TabsTrigger value="source">
                             <FileCode className="mr-2 h-4 w-4" />
                             {!sourceText && (
@@ -2178,27 +2212,32 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         )}
                     </TabsList>
 
-                    <TabsContent value="editLabel">
-                        <div className="space-y-6">
-                            <div className="flex items-center gap-2">
-                                <Input
-                                    type="text"
-                                    value={editableLabel}
-                                    defaultValue={cellLabel}
-                                    onChange={handleLabelChange}
-                                    placeholder="Enter label..."
-                                    className="flex-1"
-                                />
-                                <RotateCcw
-                                    className="h-4 w-4 cursor-pointer"
-                                    onClick={() => {
-                                        setIsEditorControlsExpanded(!isEditorControlsExpanded);
-                                        discardLabelChanges();
-                                    }}
-                                />
-                            </div>
-                        </div>
-                    </TabsContent>
+                    {cellType !== CodexCellTypes.PARATEXT &&
+                        cellType !== CodexCellTypes.MILESTONE && (
+                            <TabsContent value="editLabel">
+                                <div className="space-y-6">
+                                    <div className="flex items-center gap-2">
+                                        <Input
+                                            type="text"
+                                            value={editableLabel}
+                                            defaultValue={cellLabel}
+                                            onChange={handleLabelChange}
+                                            placeholder="Enter label..."
+                                            className="flex-1"
+                                        />
+                                        <RotateCcw
+                                            className="h-4 w-4 cursor-pointer"
+                                            onClick={() => {
+                                                setIsEditorControlsExpanded(
+                                                    !isEditorControlsExpanded
+                                                );
+                                                discardLabelChanges();
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            </TabsContent>
+                        )}
                     <TabsContent value="source">
                         <div className="space-y-6">
                             {/* Source Text */}
@@ -2844,6 +2883,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         isRecording ? "animate-pulse" : ""
                                                     }`}
                                                 >
+                                                    {isAudioSaving && (
+                                                        <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                                                    )}
                                                     {recordingStatus}
                                                 </Badge>
                                             )}

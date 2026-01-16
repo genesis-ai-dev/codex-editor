@@ -38,7 +38,7 @@
         --editor-warning-foreground: var(--vscode-editorWarning-foreground, #bf8803);
         --charts-blue: var(--vscode-charts-blue, #1a85ff);
         --charts-green: var(--vscode-charts-green, #388a34);
-
+        --charts-blue-dark: var(--vscode-charts-blue-dark, #0052cc);
         /* Additional VSCode-specific colors - More subtle */
         --tab-active-background: var(--vscode-editor-background, #ffffff);
         --tab-active-foreground: var(--vscode-editor-foreground, #1f2937);
@@ -338,6 +338,7 @@
     --color-ring: var(--ring);
     --color-editor-warning-foreground: var(--editor-warning-foreground);
     --color-charts-blue: var(--charts-blue);
+    --color-charts-blue-dark: var(--charts-blue-dark);
     --color-charts-green: var(--charts-green);
 }
 
