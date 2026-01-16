@@ -1057,11 +1057,14 @@ async function executeCommandsAfter(
                                     
                                     // Validate and fix projectId/projectName AFTER migrations complete
                                     // This ensures projectName updates aren't overwritten by migrations
-                                    try {
-                                        const { validateAndFixProjectId } = await import("./utils/projectIdValidator");
-                                        await validateAndFixProjectId(workspaceFolders[0].uri);
-                                    } catch (validationError) {
-                                        console.error("[Extension] Error validating projectId after migrations:", validationError);
+                                    const workspaceFolders = vscode.workspace.workspaceFolders;
+                                    if (workspaceFolders && workspaceFolders.length > 0) {
+                                        try {
+                                            const { validateAndFixProjectId } = await import("./utils/projectIdValidator");
+                                            await validateAndFixProjectId(workspaceFolders[0].uri);
+                                        } catch (validationError) {
+                                            console.error("[Extension] Error validating projectId after migrations:", validationError);
+                                        }
                                     }
                                     
                                     const syncManager = SyncManager.getInstance();
