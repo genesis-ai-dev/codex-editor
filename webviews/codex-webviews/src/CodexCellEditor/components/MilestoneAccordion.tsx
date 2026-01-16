@@ -691,6 +691,7 @@ export function MilestoneAccordion({
                                     appearance="icon"
                                     title="Edit Milestone"
                                     onClick={handleEditMilestoneClick}
+                                    disabled={false}
                                 >
                                     <i className="codicon codicon-edit"></i>
                                 </VSCodeButton>
