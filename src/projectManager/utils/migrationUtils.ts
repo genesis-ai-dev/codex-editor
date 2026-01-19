@@ -3047,6 +3047,46 @@ export const migration_cellIdsToUuid = async (context?: vscode.ExtensionContext)
     }
 };
 
+async function migrateCellIdsWithSpacesToUuidForWorkspace(
+    workspaceFolder: vscode.WorkspaceFolder
+): Promise<{ processedFiles: number; migratedFiles: number; }> {
+    const codexFiles = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+    );
+    const sourceFiles = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(workspaceFolder, "**/*.source")
+    );
+    const codexTempFiles = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(workspaceFolder, "**/*.codex.tmp-*-*")
+    );
+    const sourceTempFiles = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(workspaceFolder, "**/*.source.tmp-*-*")
+    );
+
+    const allFiles = [...codexFiles, ...sourceFiles, ...codexTempFiles, ...sourceTempFiles];
+    if (allFiles.length === 0) {
+        return { processedFiles: 0, migratedFiles: 0 };
+    }
+
+    let processedFiles = 0;
+    let migratedFiles = 0;
+
+    for (const file of allFiles) {
+        try {
+            const wasMigrated = await migrateCellIdsWithSpacesToUuidForFile(file);
+            processedFiles++;
+            if (wasMigrated) {
+                migratedFiles++;
+            }
+        } catch (error) {
+            processedFiles++;
+            console.error(`Error processing ${file.fsPath}:`, error);
+        }
+    }
+
+    return { processedFiles, migratedFiles };
+}
+
 /**
  * Processes a single file to convert cell IDs to UUID format.
  * Returns true if the file was modified, false otherwise.
@@ -3162,6 +3202,98 @@ export async function migrateCellIdsToUuidForFile(fileUri: vscode.Uri): Promise<
         return false;
     } catch (error) {
         console.error(`Error migrating cell IDs to UUID for ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
+
+async function migrateCellIdsWithSpacesToUuidForFile(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = notebookData.cells || [];
+        if (cells.length === 0) return false;
+
+        let hasChanges = false;
+
+        let needsMigration = false;
+        for (const cell of cells) {
+            const cellId = cell?.metadata?.id;
+            if (typeof cellId === "string" && cellId.includes(" ")) {
+                needsMigration = true;
+                break;
+            }
+        }
+
+        if (!needsMigration) {
+            return false;
+        }
+
+        const idToUuidMap = new Map<string, string>();
+
+        for (const cell of cells) {
+            const md: any = cell.metadata || {};
+            const originalCellId = md.id;
+
+            if (typeof originalCellId !== "string") continue;
+            if (!originalCellId.includes(" ")) continue;
+
+            const newUuid = await generateCellIdFromHash(originalCellId);
+            idToUuidMap.set(originalCellId, newUuid);
+
+            const cellIdParts = originalCellId.split(":");
+            if (cellIdParts.length > 2) {
+                const parentOriginalId = cellIdParts.slice(0, 2).join(":");
+                if (!idToUuidMap.has(parentOriginalId)) {
+                    const parentUuid = await generateCellIdFromHash(parentOriginalId);
+                    idToUuidMap.set(parentOriginalId, parentUuid);
+                }
+            }
+        }
+
+        for (const cell of cells) {
+            const md: any = cell.metadata || {};
+            const originalCellId = md.id;
+
+            if (typeof originalCellId !== "string") continue;
+            if (!originalCellId.includes(" ")) continue;
+
+            const newUuid = idToUuidMap.get(originalCellId);
+            if (!newUuid) {
+                continue;
+            }
+
+            md.id = newUuid;
+            hasChanges = true;
+
+            const cellIdParts = originalCellId.split(":");
+            if (cellIdParts.length > 2) {
+                const parentOriginalId = cellIdParts.slice(0, 2).join(":");
+                const parentUuid = idToUuidMap.get(parentOriginalId);
+                if (parentUuid) {
+                    md.parentId = parentUuid;
+                }
+            }
+
+            cell.metadata = md;
+        }
+
+        if (hasChanges) {
+            const updatedContent = await serializer.serializeNotebook(
+                notebookData,
+                new vscode.CancellationTokenSource().token
+            );
+            await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+            return true;
+        }
+
+        return false;
+    } catch (error) {
+        console.error(`Error migrating spaced cell IDs to UUID for ${fileUri.fsPath}:`, error);
         return false;
     }
 }
@@ -3351,7 +3483,18 @@ export async function recoverTempFilesAndMergeDuplicates(
         }
 
         const workspaceFolder = workspaceFolders[0];
-
+        try {
+            const migrationResult = await migrateCellIdsWithSpacesToUuidForWorkspace(workspaceFolder);
+            if (migrationResult.migratedFiles > 0) {
+                console.log(
+                    `[Cleanup] Migrated spaced cell IDs to UUIDs in ${migrationResult.migratedFiles} of ` +
+                    `${migrationResult.processedFiles} files`
+                );
+            }
+        } catch (error) {
+            console.warn("[Cleanup] Cell ID UUID migration failed (non-critical):", error);
+        }
+        
         // Find all .tmp files matching the pattern: *.tmp-{timestamp}-{uuid}
         const tmpPattern = new vscode.RelativePattern(
             workspaceFolder,
@@ -3371,6 +3514,8 @@ export async function recoverTempFilesAndMergeDuplicates(
                 "#528: Pre-migration checkpoint: temp file recovery"
             );
         }
+
+
 
         // Group temp files by their original file path
         const tempFilesByOriginal = new Map<string, vscode.Uri[]>();
