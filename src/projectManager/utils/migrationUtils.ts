@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { randomUUID } from "crypto";
+import git from "isomorphic-git";
+import fs from "fs";
 import { CodexContentSerializer } from "@/serializer";
 import { vrefData } from "@/utils/verseRefUtils/verseData";
 import { EditMapUtils } from "@/utils/editMapUtils";
@@ -21,6 +23,70 @@ const DEBUG_MODE = false;
 function debug(...args: any[]): void {
     if (DEBUG_MODE) {
         console.log("[Extension]", ...args);
+    }
+}
+
+async function stageAndCommitAllWithMessage(
+    workspacePath: string,
+    message: string
+): Promise<void> {
+    try {
+        let hasGit = false;
+        try {
+            await git.resolveRef({ fs, dir: workspacePath, ref: "HEAD" });
+            hasGit = true;
+        } catch {
+            // No git repo or no commits; skip commit step
+        }
+
+        if (!hasGit) {
+            return;
+        }
+
+        const statusMatrix = await git.statusMatrix({ fs, dir: workspacePath });
+        const hasChanges = statusMatrix.some(([_, head, workdir, stage]) => {
+            return !(head === 1 && workdir === 1 && stage === 1);
+        });
+
+        if (!hasChanges) {
+            return;
+        }
+
+        await git.add({ fs, dir: workspacePath, filepath: "." });
+        const authApi = getAuthApi();
+        let userInfo;
+        try {
+            const authStatus = authApi?.getAuthStatus?.();
+            if (authStatus?.isAuthenticated) {
+                userInfo = await authApi?.getUserInfo();
+            }
+        } catch (error) {
+            console.warn("[Cleanup] Could not fetch user info for git commit author:", error);
+        }
+
+        const author = {
+            name:
+                userInfo?.username ||
+                vscode.workspace
+                    .getConfiguration("codex-project-manager")
+                    .get<string>("userName") ||
+                "Unknown",
+            email:
+                userInfo?.email ||
+                vscode.workspace
+                    .getConfiguration("codex-project-manager")
+                    .get<string>("userEmail") ||
+                "unknown",
+        };
+
+        await git.commit({
+            fs,
+            dir: workspacePath,
+            message,
+            author,
+        });
+    } catch (error) {
+        console.warn("[Cleanup] Unable to stage/commit changes (non-critical):", error);
     }
 }
 
@@ -3297,9 +3363,13 @@ export async function recoverTempFilesAndMergeDuplicates(
         if (tmpFiles.length === 0) {
             console.log("[Cleanup] No temp files found to recover");
             return result;
+        } else {
+            console.log(`[Cleanup] Found ${tmpFiles.length} temp file(s) to recover`);
+            await stageAndCommitAllWithMessage(
+                workspaceFolder.uri.fsPath,
+                "Pre-migration checkpoint: temp file recovery"
+            );
         }
-
-        console.log(`[Cleanup] Found ${tmpFiles.length} temp file(s) to recover`);
 
         // Group temp files by their original file path
         const tempFilesByOriginal = new Map<string, vscode.Uri[]>();
@@ -3411,6 +3481,11 @@ export async function recoverTempFilesAndMergeDuplicates(
                 result.errors++;
             }
         }
+
+        await stageAndCommitAllWithMessage(
+            workspaceFolder.uri.fsPath,
+            "Recovered temp files and merged duplicates"
+        );
 
         console.log(
             `[Cleanup] Recovery complete: ${result.recoveredFiles} files recovered, ` +
