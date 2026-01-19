@@ -13,7 +13,7 @@ import { extractParentCellIdFromParatext } from "../../providers/codexCellEditor
 import { generateCellIdFromHash, isUuidFormat } from "../../utils/uuidUtils";
 import { getCorrespondingSourceUri, getCorrespondingCodexUri } from "../../utils/codexNotebookUtils";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
-import { resolveCodexCustomMerge } from "./merge/resolvers";
+import { resolveCodexCustomMerge, mergeDuplicateCellsUsingResolverLogic } from "./merge/resolvers";
 import { atomicWriteUriText } from "../../utils/notebookSafeSaveUtils";
 import { normalizeNotebookFileText, formatJsonForNotebookFile } from "../../utils/notebookFileFormattingUtils";
 
@@ -3395,54 +3395,7 @@ async function mergeDuplicateCellsInFile(fileUri: vscode.Uri): Promise<boolean> 
                 // No duplicate, just add it
                 mergedCells.push(duplicateCells[0]);
             } else {
-                // Merge duplicates: combine edit histories and metadata
-                // Use the same logic as resolveCodexCustomMerge
-                const mergedCell = { ...duplicateCells[0] };
-
-                // Combine all edits from all duplicate cells
-                const allEdits: any[] = [];
-                for (const cell of duplicateCells) {
-                    if (cell.metadata?.edits) {
-                        allEdits.push(...cell.metadata.edits);
-                    }
-                }
-
-                // Sort by timestamp and deduplicate (same logic as resolveCodexCustomMerge)
-                allEdits.sort((a, b) => a.timestamp - b.timestamp);
-                const editMap = new Map<string, any>();
-                allEdits.forEach((edit) => {
-                    if (edit.editMap && Array.isArray(edit.editMap)) {
-                        const editMapKey = edit.editMap.join('.');
-                        const key = `${edit.timestamp}:${editMapKey}:${edit.value}`;
-                        if (!editMap.has(key)) {
-                            editMap.set(key, edit);
-                        }
-                    }
-                });
-
-                const uniqueEdits = Array.from(editMap.values()).sort((a, b) => a.timestamp - b.timestamp);
-
-                if (!mergedCell.metadata) {
-                    mergedCell.metadata = { id: cellId };
-                }
-                mergedCell.metadata.edits = uniqueEdits;
-
-                // Merge other metadata fields (keep non-null values, prefer later cells)
-                for (let i = 1; i < duplicateCells.length; i++) {
-                    const cell = duplicateCells[i];
-                    if (cell.metadata) {
-                        Object.keys(cell.metadata).forEach((key) => {
-                            if (key !== 'id' && key !== 'edits' && cell.metadata[key] != null) {
-                                // Prefer non-null values from later cells
-                                if (mergedCell.metadata[key] == null ||
-                                    (typeof cell.metadata[key] === 'string' && cell.metadata[key].length > 0)) {
-                                    mergedCell.metadata[key] = cell.metadata[key];
-                                }
-                            }
-                        });
-                    }
-                }
-
+                const mergedCell = mergeDuplicateCellsUsingResolverLogic(duplicateCells);
                 mergedCells.push(mergedCell);
             }
         }
