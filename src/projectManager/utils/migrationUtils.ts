@@ -3367,7 +3367,7 @@ export async function recoverTempFilesAndMergeDuplicates(
             console.log(`[Cleanup] Found ${tmpFiles.length} temp file(s) to recover`);
             await stageAndCommitAllWithMessage(
                 workspaceFolder.uri.fsPath,
-                "Pre-migration checkpoint: temp file recovery"
+                "#528: Pre-migration checkpoint: temp file recovery"
             );
         }
 
@@ -3484,7 +3484,7 @@ export async function recoverTempFilesAndMergeDuplicates(
 
         await stageAndCommitAllWithMessage(
             workspaceFolder.uri.fsPath,
-            "Recovered temp files and merged duplicates"
+            "#528: Recovered temp files and merged duplicates"
         );
 
         console.log(
