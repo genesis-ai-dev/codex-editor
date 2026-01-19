@@ -3365,6 +3365,7 @@ export async function recoverTempFilesAndMergeDuplicates(
             return result;
         } else {
             console.log(`[Cleanup] Found ${tmpFiles.length} temp file(s) to recover`);
+            // NOTE: this commit will only show if there is changes in the workspace
             await stageAndCommitAllWithMessage(
                 workspaceFolder.uri.fsPath,
                 "#528: Pre-migration checkpoint: temp file recovery"
