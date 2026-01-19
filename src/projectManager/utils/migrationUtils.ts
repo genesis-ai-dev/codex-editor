@@ -3437,34 +3437,9 @@ export const migration_recoverTempFilesAndMergeDuplicates = async (context?: vsc
             return;
         }
 
-        // Check if migration has already been run
-        const migrationKey = "tempFilesRecoveryAndDuplicateMergeCompleted";
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        let hasMigrationRun = false;
-
-        try {
-            hasMigrationRun = config.get(migrationKey, false);
-        } catch (e) {
-            // Setting might not be registered yet; fall back to workspaceState
-            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
-        }
-
-        if (hasMigrationRun) {
-            console.log("Temp files recovery and duplicate merge migration already completed, skipping");
-            return;
-        }
-
         console.log("Running temp files recovery and duplicate merge migration...");
 
         const result = await recoverTempFilesAndMergeDuplicates(context);
-
-        // Mark migration as completed
-        try {
-            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
-        } catch (e) {
-            // If configuration key is not registered, fall back to workspaceState
-            await context?.workspaceState.update(migrationKey, true);
-        }
 
         console.log(
             `Temp files recovery and duplicate merge migration completed: ` +

@@ -515,11 +515,6 @@
                         "default": false,
                         "description": "Internal flag indicating the documentContext hoist migration has completed."
                     },
-                    "codex-project-manager.tempFilesRecoveryAndDuplicateMergeCompleted": {
-                        "type": "boolean",
-                        "default": false,
-                        "description": "Internal flag indicating the temp files recovery and duplicate merge migration has completed."
-                    },
                     "codex-project-manager.projectName": {
                         "type": "string",
                         "default": "",
