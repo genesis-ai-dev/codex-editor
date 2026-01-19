@@ -11,6 +11,9 @@ import { extractParentCellIdFromParatext } from "../../providers/codexCellEditor
 import { generateCellIdFromHash, isUuidFormat } from "../../utils/uuidUtils";
 import { getCorrespondingSourceUri, getCorrespondingCodexUri } from "../../utils/codexNotebookUtils";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
+import { resolveCodexCustomMerge } from "./merge/resolvers";
+import { atomicWriteUriText } from "../../utils/notebookSafeSaveUtils";
+import { normalizeNotebookFileText, formatJsonForNotebookFile } from "../../utils/notebookFileFormattingUtils";
 
 // FIXME: move notebook format migration here
 
@@ -3096,3 +3099,385 @@ export async function migrateCellIdsToUuidForFile(fileUri: vscode.Uri): Promise<
         return false;
     }
 }
+
+/**
+ * Merges duplicate cells in a notebook file using the same logic as sync and save.
+ * Cells with the same ID are merged into one cell with combined edit history.
+ * Returns true if any changes were made.
+ */
+async function mergeDuplicateCellsInFile(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = notebookData.cells || [];
+        if (cells.length === 0) return false;
+
+        // Group cells by ID to find duplicates
+        const cellsById = new Map<string, any[]>();
+        for (const cell of cells) {
+            const cellId = cell.metadata?.id;
+            if (!cellId) continue;
+
+            if (!cellsById.has(cellId)) {
+                cellsById.set(cellId, []);
+            }
+            cellsById.get(cellId)!.push(cell);
+        }
+
+        // Find duplicate IDs
+        const duplicateIds: string[] = [];
+        for (const [cellId, cellList] of cellsById.entries()) {
+            if (cellList.length > 1) {
+                duplicateIds.push(cellId);
+            }
+        }
+
+        if (duplicateIds.length === 0) {
+            return false; // No duplicates found
+        }
+
+        console.log(
+            `[Cleanup] Found ${duplicateIds.length} duplicate cell ID(s) in ${fileUri.fsPath}: ${duplicateIds.join(", ")}`
+        );
+
+        // Merge duplicates: combine cells with the same ID into one cell
+        // Use the same logic as resolveCodexCustomMerge to combine edit histories
+        const mergedCells: any[] = [];
+        const processedIds = new Set<string>();
+
+        for (const cell of cells) {
+            const cellId = cell.metadata?.id;
+            if (!cellId) {
+                // Cell without ID - keep as is
+                mergedCells.push(cell);
+                continue;
+            }
+
+            if (processedIds.has(cellId)) {
+                // Already processed this ID - skip duplicate
+                continue;
+            }
+
+            processedIds.add(cellId);
+            const duplicateCells = cellsById.get(cellId)!;
+
+            if (duplicateCells.length === 1) {
+                // No duplicate, just add it
+                mergedCells.push(duplicateCells[0]);
+            } else {
+                // Merge duplicates: combine edit histories and metadata
+                // Use the same logic as resolveCodexCustomMerge
+                const mergedCell = { ...duplicateCells[0] };
+
+                // Combine all edits from all duplicate cells
+                const allEdits: any[] = [];
+                for (const cell of duplicateCells) {
+                    if (cell.metadata?.edits) {
+                        allEdits.push(...cell.metadata.edits);
+                    }
+                }
+
+                // Sort by timestamp and deduplicate (same logic as resolveCodexCustomMerge)
+                allEdits.sort((a, b) => a.timestamp - b.timestamp);
+                const editMap = new Map<string, any>();
+                allEdits.forEach((edit) => {
+                    if (edit.editMap && Array.isArray(edit.editMap)) {
+                        const editMapKey = edit.editMap.join('.');
+                        const key = `${edit.timestamp}:${editMapKey}:${edit.value}`;
+                        if (!editMap.has(key)) {
+                            editMap.set(key, edit);
+                        }
+                    }
+                });
+
+                const uniqueEdits = Array.from(editMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+
+                if (!mergedCell.metadata) {
+                    mergedCell.metadata = { id: cellId };
+                }
+                mergedCell.metadata.edits = uniqueEdits;
+
+                // Merge other metadata fields (keep non-null values, prefer later cells)
+                for (let i = 1; i < duplicateCells.length; i++) {
+                    const cell = duplicateCells[i];
+                    if (cell.metadata) {
+                        Object.keys(cell.metadata).forEach((key) => {
+                            if (key !== 'id' && key !== 'edits' && cell.metadata[key] != null) {
+                                // Prefer non-null values from later cells
+                                if (mergedCell.metadata[key] == null ||
+                                    (typeof cell.metadata[key] === 'string' && cell.metadata[key].length > 0)) {
+                                    mergedCell.metadata[key] = cell.metadata[key];
+                                }
+                            }
+                        });
+                    }
+                }
+
+                mergedCells.push(mergedCell);
+            }
+        }
+
+        // Create final notebook with merged cells
+        const finalNotebook = {
+            ...notebookData,
+            cells: mergedCells,
+        };
+
+        const finalContent = formatJsonForNotebookFile(finalNotebook);
+
+        // Write back using atomic write
+        await atomicWriteUriText(fileUri, normalizeNotebookFileText(finalContent));
+
+        console.log(`[Cleanup] Successfully merged duplicate cells in ${fileUri.fsPath}`);
+        return true;
+    } catch (error) {
+        console.error(`[Cleanup] Error merging duplicate cells in ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
+
+/**
+ * Finds the original file path for a temp file by removing the .tmp-{timestamp}-{uuid} suffix.
+ */
+function getOriginalFilePathFromTemp(tempFilePath: string): string | null {
+    // Pattern: filename.codex.tmp-{timestamp}-{uuid}
+    // We need to extract: filename.codex
+
+    const tmpPattern = /\.tmp-\d+-[a-f0-9-]+$/i;
+    if (!tmpPattern.test(tempFilePath)) {
+        return null; // Not a temp file
+    }
+
+    // Remove .tmp-{timestamp}-{uuid} suffix
+    const originalPath = tempFilePath.replace(tmpPattern, '');
+    return originalPath;
+}
+
+/**
+ * Recovers temp files by merging them into their original files.
+ * This handles the case where atomic writes were interrupted during sync or LLM saves.
+ * 
+ * Steps:
+ * 1. Find all .tmp files
+ * 2. For each temp file, merge it into the original file using resolveCodexCustomMerge
+ * 3. After merging, deduplicate any duplicate cells
+ * 4. Repeat step 3 as needed for each temp file that was merged
+ */
+export async function recoverTempFilesAndMergeDuplicates(
+    context?: vscode.ExtensionContext
+): Promise<{ recoveredFiles: number; mergedDuplicates: number; errors: number; }> {
+    const result = {
+        recoveredFiles: 0,
+        mergedDuplicates: 0,
+        errors: 0,
+    };
+
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            console.log("[Cleanup] No workspace folders found");
+            return result;
+        }
+
+        const workspaceFolder = workspaceFolders[0];
+
+        // Find all .tmp files matching the pattern: *.tmp-{timestamp}-{uuid}
+        const tmpPattern = new vscode.RelativePattern(
+            workspaceFolder,
+            "**/*.tmp-*-*"
+        );
+
+        const tmpFiles = await vscode.workspace.findFiles(tmpPattern);
+
+        if (tmpFiles.length === 0) {
+            console.log("[Cleanup] No temp files found to recover");
+            return result;
+        }
+
+        console.log(`[Cleanup] Found ${tmpFiles.length} temp file(s) to recover`);
+
+        // Group temp files by their original file path
+        const tempFilesByOriginal = new Map<string, vscode.Uri[]>();
+
+        for (const tmpFile of tmpFiles) {
+            const originalPath = getOriginalFilePathFromTemp(tmpFile.fsPath);
+            if (!originalPath) {
+                console.warn(`[Cleanup] Could not determine original file for temp file: ${tmpFile.fsPath}`);
+                result.errors++;
+                continue;
+            }
+
+            if (!tempFilesByOriginal.has(originalPath)) {
+                tempFilesByOriginal.set(originalPath, []);
+            }
+            tempFilesByOriginal.get(originalPath)!.push(tmpFile);
+        }
+
+        // Process each original file and its temp files
+        for (const [originalPath, tempFileUris] of tempFilesByOriginal.entries()) {
+            try {
+                const originalUri = vscode.Uri.file(originalPath);
+
+                // Check if original file exists
+                let originalExists = false;
+                try {
+                    await vscode.workspace.fs.stat(originalUri);
+                    originalExists = true;
+                } catch {
+                    // Original file doesn't exist - this temp file might be the only version
+                    console.log(`[Cleanup] Original file not found: ${originalPath}, will use temp file as original`);
+                }
+
+                // Read original file content (if it exists)
+                let originalContent = "";
+                if (originalExists) {
+                    try {
+                        const originalFileContent = await vscode.workspace.fs.readFile(originalUri);
+                        originalContent = new TextDecoder("utf-8").decode(originalFileContent);
+                    } catch (error) {
+                        console.warn(`[Cleanup] Could not read original file ${originalPath}:`, error);
+                        result.errors++;
+                        continue;
+                    }
+                }
+
+                // Merge each temp file into the original
+                let mergedContent = originalContent;
+                for (const tempUri of tempFileUris) {
+                    try {
+                        const tempFileContent = await vscode.workspace.fs.readFile(tempUri);
+                        const tempContent = new TextDecoder("utf-8").decode(tempFileContent);
+
+                        if (!mergedContent) {
+                            // No original content, use temp file as base
+                            mergedContent = tempContent;
+                        } else {
+                            // Merge temp file into original using the same logic as sync/save
+                            mergedContent = await resolveCodexCustomMerge(mergedContent, tempContent);
+                        }
+
+                        console.log(`[Cleanup] Merged temp file ${tempUri.fsPath} into ${originalPath}`);
+                    } catch (error) {
+                        console.error(`[Cleanup] Error reading temp file ${tempUri.fsPath}:`, error);
+                        result.errors++;
+                        continue;
+                    }
+                }
+
+                // Write merged content back to original file using atomic write
+                await atomicWriteUriText(originalUri, normalizeNotebookFileText(mergedContent));
+                result.recoveredFiles++;
+
+                // Now merge duplicate cells in the recovered file
+                let hasDuplicates = true;
+                let mergeIterations = 0;
+                const maxIterations = 10; // Prevent infinite loops
+
+                while (hasDuplicates && mergeIterations < maxIterations) {
+                    const hadDuplicates = await mergeDuplicateCellsInFile(originalUri);
+                    if (hadDuplicates) {
+                        result.mergedDuplicates++;
+                        mergeIterations++;
+                        console.log(
+                            `[Cleanup] Merged duplicate cells in ${originalPath} (iteration ${mergeIterations})`
+                        );
+                    } else {
+                        hasDuplicates = false;
+                    }
+                }
+
+                if (mergeIterations >= maxIterations) {
+                    console.warn(
+                        `[Cleanup] Reached max iterations for merging duplicates in ${originalPath}`
+                    );
+                }
+
+                // Delete temp files after successful merge
+                for (const tempUri of tempFileUris) {
+                    try {
+                        await vscode.workspace.fs.delete(tempUri);
+                        console.log(`[Cleanup] Deleted temp file: ${tempUri.fsPath}`);
+                    } catch (error) {
+                        console.warn(`[Cleanup] Could not delete temp file ${tempUri.fsPath}:`, error);
+                    }
+                }
+            } catch (error) {
+                console.error(`[Cleanup] Error processing original file ${originalPath}:`, error);
+                result.errors++;
+            }
+        }
+
+        console.log(
+            `[Cleanup] Recovery complete: ${result.recoveredFiles} files recovered, ` +
+            `${result.mergedDuplicates} duplicate merges, ${result.errors} errors`
+        );
+
+        return result;
+    } catch (error) {
+        console.error("[Cleanup] Error in recoverTempFilesAndMergeDuplicates:", error);
+        result.errors++;
+        return result;
+    }
+}
+
+/**
+ * Migration: Recover temp files and merge duplicate cells.
+ * This migration runs once to clean up any .tmp files left behind from interrupted saves
+ * and merge any duplicate cells that may have been created.
+ */
+export const migration_recoverTempFilesAndMergeDuplicates = async (context?: vscode.ExtensionContext) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        // Check if migration has already been run
+        const migrationKey = "tempFilesRecoveryAndDuplicateMergeCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        let hasMigrationRun = false;
+
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch (e) {
+            // Setting might not be registered yet; fall back to workspaceState
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
+
+        if (hasMigrationRun) {
+            console.log("Temp files recovery and duplicate merge migration already completed, skipping");
+            return;
+        }
+
+        console.log("Running temp files recovery and duplicate merge migration...");
+
+        const result = await recoverTempFilesAndMergeDuplicates(context);
+
+        // Mark migration as completed
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch (e) {
+            // If configuration key is not registered, fall back to workspaceState
+            await context?.workspaceState.update(migrationKey, true);
+        }
+
+        console.log(
+            `Temp files recovery and duplicate merge migration completed: ` +
+            `${result.recoveredFiles} files recovered, ${result.mergedDuplicates} duplicate merges, ${result.errors} errors`
+        );
+
+        if (result.recoveredFiles > 0 || result.mergedDuplicates > 0) {
+            vscode.window.showInformationMessage(
+                `Cleanup complete: ${result.recoveredFiles} files recovered, ${result.mergedDuplicates} duplicate cells merged`
+            );
+        }
+
+    } catch (error) {
+        console.error("Error running temp files recovery and duplicate merge migration:", error);
+    }
+};
