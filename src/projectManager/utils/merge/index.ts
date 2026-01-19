@@ -20,6 +20,7 @@ import { resolveConflictFiles } from "./resolvers";
 import { getAuthApi } from "../../../extension";
 import { ConflictFile } from "./types";
 import { getFrontierVersionStatus } from "../../utils/versionChecks";
+import { migration_recoverTempFilesAndMergeDuplicates } from "../migrationUtils";
 
 const DEBUG_MODE = false;
 function debug(...args: any[]): void {
@@ -129,7 +130,7 @@ export async function stageAndCommitAllAndSync(
         // This is intentionally non-destructive: we only warn/log so issues can be triaged.
         try {
             const conflictsArr = Array.isArray((conflictsResponse as any)?.conflicts)
-                ? ((conflictsResponse as any).conflicts as Array<{ filepath?: string }>)
+                ? ((conflictsResponse as any).conflicts as Array<{ filepath?: string; }>)
                 : [];
             const conflictPaths = new Set(
                 conflictsArr.map((c) => c?.filepath).filter((p): p is string => typeof p === "string")
@@ -220,6 +221,15 @@ export async function stageAndCommitAllAndSync(
         syncResult.success = true;
 
         debug(`📊 Git sync completed: ${syncResult.totalChanges} total changes (${syncResult.changedFiles.length} modified, ${syncResult.newFiles.length} new, ${syncResult.deletedFiles.length} deleted)`);
+
+        // Run temp files recovery and duplicate merge cleanup after successful commit
+        // This only runs once (checked internally by the migration function)
+        try {
+            await migration_recoverTempFilesAndMergeDuplicates(undefined);
+        } catch (cleanupError) {
+            // Don't fail the sync if cleanup fails - just log it
+            console.warn("[Sync] Temp files cleanup failed (non-critical):", cleanupError);
+        }
 
         // Only show completion message if requested (not during startup with splash screen)
         if (showCompletionMessage) {

@@ -20,7 +20,6 @@ import {
     migration_reorderMisplacedParatextCells,
     migration_addGlobalReferences,
     migration_cellIdsToUuid,
-    migration_recoverTempFilesAndMergeDuplicates,
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/contentIndexes/indexes";
 import { StatusBarItem } from "vscode";
@@ -618,7 +617,6 @@ export async function activate(context: vscode.ExtensionContext) {
         await migration_reorderMisplacedParatextCells(context);
         await migration_addGlobalReferences(context);
         await migration_cellIdsToUuid(context);
-        await migration_recoverTempFilesAndMergeDuplicates(context);
 
         // After migrations complete, check if initial sync needs to run
         // This handles the case where migrations completed but the configuration change event didn't fire
