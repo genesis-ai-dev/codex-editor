@@ -55,6 +55,9 @@ interface AppState {
     importSource: string; // Filename(s) of the imported file(s)
     availableSourceFiles: SourceFileUIData[];
     selectedTargetFilePath: string | null; // Single file to import into
+    metadataFields: string[]; // Available metadata fields in selected target file
+    selectedMatchColumn: string | null;
+    selectedMatchField: string | null;
     isLoading: boolean; // For loading indicators
     errorMessage: string | null; // For displaying errors in column selection
 }
@@ -78,6 +81,9 @@ const App: React.FC = () => {
             importSource: persistedState?.importSource || "",
             availableSourceFiles: persistedState?.availableSourceFiles || [],
             selectedTargetFilePath: persistedState?.selectedTargetFilePath || null,
+            metadataFields: persistedState?.metadataFields || [],
+            selectedMatchColumn: persistedState?.selectedMatchColumn || null,
+            selectedMatchField: persistedState?.selectedMatchField || null,
             isLoading: false,
             errorMessage: null,
         };
@@ -193,6 +199,9 @@ const App: React.FC = () => {
                             message.headers && message.headers.includes(prev.selectedColumn)
                                 ? prev.selectedColumn
                                 : null, // Preserve if valid
+                        metadataFields: [],
+                        selectedMatchColumn: null,
+                        selectedMatchField: null,
                         isLoading: false,
                         errorMessage: null,
                     }));
@@ -217,6 +226,16 @@ const App: React.FC = () => {
                         importData: null, // Clear data from the imported spreadsheet file
                         availableSourceFiles: [], // Clear source files list, not used in table view
                         // and will be re-populated if a new import occurs.
+                    }));
+                    break;
+                case "updateMetadataFields":
+                    setState((prev) => ({
+                        ...prev,
+                        metadataFields: message.fields || [],
+                        selectedMatchField:
+                            message.fields && message.fields.includes(prev.selectedMatchField)
+                                ? prev.selectedMatchField
+                                : null,
                     }));
                     break;
                 case "showError": // Generic error display
@@ -278,6 +297,8 @@ const App: React.FC = () => {
             selectedColumn: usingMulti ? undefined : state.selectedColumn,
             selectedColumns: usingMulti ? state.selectedColumns : undefined,
             selectedTargetFilePath: state.selectedTargetFilePath, // Send selected file path
+            matchColumn: state.selectedMatchColumn,
+            matchFieldPath: state.selectedMatchField,
         });
         setState((prev) => ({ ...prev, isLoading: true, errorMessage: null }));
     }, [
@@ -286,6 +307,8 @@ const App: React.FC = () => {
         state.selectedColumns,
         state.useMultiColumns,
         state.selectedTargetFilePath,
+        state.selectedMatchColumn,
+        state.selectedMatchField,
     ]);
 
     const handleSave = useCallback(() => {
@@ -367,6 +390,35 @@ const App: React.FC = () => {
             setState((prev) => ({
                 ...prev,
                 selectedTargetFilePath: filePath || null,
+                metadataFields: filePath ? prev.metadataFields : [],
+                selectedMatchField: filePath ? prev.selectedMatchField : null,
+            }));
+            if (filePath) {
+                vscode.postMessage({
+                    command: "requestMetadataFields",
+                    filePath,
+                });
+            } else {
+                vscode.postMessage({
+                    command: "requestMetadataFields",
+                    filePath: null,
+                });
+            }
+        };
+
+        const handleMatchColumnChange = (e: any) => {
+            const value = e.target.value;
+            setState((prev) => ({
+                ...prev,
+                selectedMatchColumn: value || null,
+            }));
+        };
+
+        const handleMatchFieldChange = (e: any) => {
+            const value = e.target.value;
+            setState((prev) => ({
+                ...prev,
+                selectedMatchField: value || null,
             }));
         };
 
@@ -483,6 +535,41 @@ const App: React.FC = () => {
                             </VSCodeOption>
                         ))}
                     </VSCodeDropdown>
+                    <h4>Match Settings (optional)</h4>
+                    <p>Map a column to a metadata field for matching (e.g. START → metadata.data.startTime).</p>
+                    <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+                        <VSCodeDropdown
+                            value={state.selectedMatchColumn || ""}
+                            onChange={handleMatchColumnChange}
+                            style={{ maxWidth: "280px" }}
+                            disabled={!state.selectedTargetFilePath}
+                        >
+                            <VSCodeOption value="">-- Match column --</VSCodeOption>
+                            {state.headers.map((header) => (
+                                <VSCodeOption key={header} value={header}>
+                                    {header}
+                                </VSCodeOption>
+                            ))}
+                        </VSCodeDropdown>
+                        <VSCodeDropdown
+                            value={state.selectedMatchField || ""}
+                            onChange={handleMatchFieldChange}
+                            style={{ maxWidth: "320px" }}
+                            disabled={!state.selectedTargetFilePath || state.metadataFields.length === 0}
+                        >
+                            <VSCodeOption value="">-- Metadata field --</VSCodeOption>
+                            {state.metadataFields.map((field) => (
+                                <VSCodeOption key={field} value={field}>
+                                    {field}
+                                </VSCodeOption>
+                            ))}
+                        </VSCodeDropdown>
+                    </div>
+                    {state.selectedTargetFilePath && state.metadataFields.length === 0 && (
+                        <p style={{ marginTop: "6px" }}>
+                            No metadata fields detected in this file.
+                        </p>
+                    )}
                     <VSCodeButton
                         onClick={handleProcessLabels}
                         disabled={
