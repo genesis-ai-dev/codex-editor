@@ -2927,6 +2927,25 @@ export const migration_cellIdsToUuid = async (context?: vscode.ExtensionContext)
             return;
         }
 
+        let hasSpaceInAnyFile = false;
+        for (const file of allFiles) {
+            const hasSpaceInIds = await fileHasCellIdWithSpace(file);
+            if (hasSpaceInIds) {
+                hasSpaceInAnyFile = true;
+                break;
+            }
+        }
+
+        if (!hasSpaceInAnyFile) {
+            console.log("No cell IDs with spaces found; assuming migration already completed, skipping");
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
+            return;
+        }
+
         let processedFiles = 0;
         let migratedFiles = 0;
 
@@ -2995,6 +3014,20 @@ export async function migrateCellIdsToUuidForFile(fileUri: vscode.Uri): Promise<
         if (cells.length === 0) return false;
 
         let hasChanges = false;
+
+        let hasSpaceInId = false;
+        for (const cell of cells) {
+            const md: any = cell.metadata || {};
+            const cellId = md.id;
+            if (typeof cellId === "string" && cellId.includes(" ")) {
+                hasSpaceInId = true;
+                break;
+            }
+        }
+
+        if (!hasSpaceInId) {
+            return false;
+        }
 
         // First pass: check if file needs migration (all cells already have UUIDs)
         let needsMigration = false;
@@ -3094,5 +3127,30 @@ export async function migrateCellIdsToUuidForFile(fileUri: vscode.Uri): Promise<
     } catch (error) {
         console.error(`Error migrating cell IDs to UUID for ${fileUri.fsPath}:`, error);
         return false;
+    }
+}
+
+async function fileHasCellIdWithSpace(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = notebookData.cells || [];
+        for (const cell of cells) {
+            const md: any = cell.metadata || {};
+            const cellId = md.id;
+            if (typeof cellId === "string" && cellId.includes(" ")) {
+                return true;
+            }
+        }
+
+        return false;
+    } catch (error) {
+        console.warn(`Unable to check cell IDs for ${fileUri.fsPath}, running migration anyway`, error);
+        return true;
     }
 }
