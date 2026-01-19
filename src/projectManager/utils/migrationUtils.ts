@@ -3049,7 +3049,7 @@ export const migration_cellIdsToUuid = async (context?: vscode.ExtensionContext)
 
 async function migrateCellIdsWithSpacesToUuidForWorkspace(
     workspaceFolder: vscode.WorkspaceFolder
-): Promise<{ processedFiles: number; migratedFiles: number; }> {
+): Promise<{ processedFiles: number; migratedFiles: number; migratedFileUris: vscode.Uri[]; }> {
     const codexFiles = await vscode.workspace.findFiles(
         new vscode.RelativePattern(workspaceFolder, "**/*.codex")
     );
@@ -3065,11 +3065,12 @@ async function migrateCellIdsWithSpacesToUuidForWorkspace(
 
     const allFiles = [...codexFiles, ...sourceFiles, ...codexTempFiles, ...sourceTempFiles];
     if (allFiles.length === 0) {
-        return { processedFiles: 0, migratedFiles: 0 };
+        return { processedFiles: 0, migratedFiles: 0, migratedFileUris: [] };
     }
 
     let processedFiles = 0;
     let migratedFiles = 0;
+    const migratedFileUris: vscode.Uri[] = [];
 
     for (const file of allFiles) {
         try {
@@ -3077,6 +3078,7 @@ async function migrateCellIdsWithSpacesToUuidForWorkspace(
             processedFiles++;
             if (wasMigrated) {
                 migratedFiles++;
+                migratedFileUris.push(file);
             }
         } catch (error) {
             processedFiles++;
@@ -3084,7 +3086,7 @@ async function migrateCellIdsWithSpacesToUuidForWorkspace(
         }
     }
 
-    return { processedFiles, migratedFiles };
+    return { processedFiles, migratedFiles, migratedFileUris };
 }
 
 /**
@@ -3298,6 +3300,31 @@ async function migrateCellIdsWithSpacesToUuidForFile(fileUri: vscode.Uri): Promi
     }
 }
 
+async function mergeDuplicateCellsWithIterations(
+    fileUri: vscode.Uri,
+    maxIterations: number = 10
+): Promise<number> {
+    let hasDuplicates = true;
+    let mergeIterations = 0;
+
+    while (hasDuplicates && mergeIterations < maxIterations) {
+        const hadDuplicates = await mergeDuplicateCellsInFile(fileUri);
+        if (hadDuplicates) {
+            mergeIterations++;
+        } else {
+            hasDuplicates = false;
+        }
+    }
+
+    if (mergeIterations >= maxIterations) {
+        console.warn(
+            `[Cleanup] Reached max iterations for merging duplicates in ${fileUri.fsPath}`
+        );
+    }
+
+    return mergeIterations;
+}
+
 /**
  * Merges duplicate cells in a notebook file using the same logic as sync and save.
  * Cells with the same ID are merged into one cell with combined edit history.
@@ -3490,11 +3517,22 @@ export async function recoverTempFilesAndMergeDuplicates(
                     `[Cleanup] Migrated spaced cell IDs to UUIDs in ${migrationResult.migratedFiles} of ` +
                     `${migrationResult.processedFiles} files`
                 );
+
+                // Deduplicate any files updated by the UUID migration
+                for (const migratedFile of migrationResult.migratedFileUris) {
+                    const mergeCount = await mergeDuplicateCellsWithIterations(migratedFile);
+                    if (mergeCount > 0) {
+                        result.mergedDuplicates += mergeCount;
+                        console.log(
+                            `[Cleanup] Merged duplicate cells in ${migratedFile.fsPath} (iterations ${mergeCount})`
+                        );
+                    }
+                }
             }
         } catch (error) {
             console.warn("[Cleanup] Cell ID UUID migration failed (non-critical):", error);
         }
-        
+
         // Find all .tmp files matching the pattern: *.tmp-{timestamp}-{uuid}
         const tmpPattern = new vscode.RelativePattern(
             workspaceFolder,
@@ -3590,26 +3628,11 @@ export async function recoverTempFilesAndMergeDuplicates(
                 result.recoveredFiles++;
 
                 // Now merge duplicate cells in the recovered file
-                let hasDuplicates = true;
-                let mergeIterations = 0;
-                const maxIterations = 10; // Prevent infinite loops
-
-                while (hasDuplicates && mergeIterations < maxIterations) {
-                    const hadDuplicates = await mergeDuplicateCellsInFile(originalUri);
-                    if (hadDuplicates) {
-                        result.mergedDuplicates++;
-                        mergeIterations++;
-                        console.log(
-                            `[Cleanup] Merged duplicate cells in ${originalPath} (iteration ${mergeIterations})`
-                        );
-                    } else {
-                        hasDuplicates = false;
-                    }
-                }
-
-                if (mergeIterations >= maxIterations) {
-                    console.warn(
-                        `[Cleanup] Reached max iterations for merging duplicates in ${originalPath}`
+                const mergeIterations = await mergeDuplicateCellsWithIterations(originalUri);
+                if (mergeIterations > 0) {
+                    result.mergedDuplicates += mergeIterations;
+                    console.log(
+                        `[Cleanup] Merged duplicate cells in ${originalPath} (iterations ${mergeIterations})`
                     );
                 }
 
