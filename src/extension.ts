@@ -56,7 +56,6 @@ import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/update
 import { fileExists } from "./utils/webviewUtils";
 import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
-import { registerTestingCommands } from "./evaluation/testingCommands";
 import { initializeABTesting } from "./utils/abTestingSetup";
 import {
     migration_addValidationsForUserEdits,
@@ -557,7 +556,6 @@ export async function activate(context: vscode.ExtensionContext) {
             registerProviders(context),
             registerCommands(context),
             initializeWebviews(context),
-            (async () => registerTestingCommands(context))(),
         ]);
 
         // Initialize A/B testing registry (always-on)
