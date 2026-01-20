@@ -11,6 +11,11 @@ import { CodexCellTypes, EditType } from "../../../../types/enums";
 import { EditHistory, ValidationEntry, FileEditHistory, ProjectEditHistory } from "../../../../types/index.d";
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../../utils/editMapUtils";
 import { normalizeAttachmentUrl } from "@/utils/pathUtils";
+import { formatJsonForNotebookFile } from "../../../utils/notebookFileFormattingUtils";
+import {
+    buildCellPositionContextMap,
+    insertUniqueCellsPreservingRelativePositions,
+} from "./utils/positionPreservationUtils";
 
 const DEBUG_MODE = false;
 function debugLog(...args: any[]): void {
@@ -748,111 +753,90 @@ function migrateEditHistoryInContent(content: string): string {
     }
 }
 
-/**
- * Represents the position context of a cell in its original array.
- * Used to preserve relative positioning when merging cells from different versions.
- */
-interface CellPositionContext {
-    /** The ID of the cell that came before this cell (null if first cell) */
-    previousCellId: string | null;
-    /** The ID of the cell that came after this cell (null if last cell) */
-    nextCellId: string | null;
-}
+function mergeTwoCellsUsingResolverLogic(
+    ourCell: CustomNotebookCellData,
+    theirCell: CustomNotebookCellData
+): CustomNotebookCellData {
+    const cellId = ourCell.metadata?.id || theirCell.metadata?.id;
 
-/**
- * Builds a map of cell position context for each cell in the array.
- * This tracks what cell came before and after each cell, enabling
- * position-preserving merges.
- *
- * @param cells Array of cells to build position context for
- * @returns Map from cell ID to its position context
- */
-function buildCellPositionContextMap(cells: CustomNotebookCellData[]): Map<string, CellPositionContext> {
-    const positionMap = new Map<string, CellPositionContext>();
+    // Use the same metadata conflict resolution as in the main resolver
+    const mergedCell = resolveMetadataConflictsUsingEditHistory(ourCell, theirCell);
 
-    for (let i = 0; i < cells.length; i++) {
-        const cell = cells[i];
-        const cellId = cell.metadata?.id;
-        if (!cellId) continue;
+    // Combine all edits from both cells and deduplicate
+    const allEdits = [
+        ...(ourCell.metadata?.edits || []),
+        ...(theirCell.metadata?.edits || [])
+    ].sort((a, b) => a.timestamp - b.timestamp);
 
-        const previousCellId = i > 0 ? (cells[i - 1].metadata?.id || null) : null;
-        const nextCellId = i < cells.length - 1 ? (cells[i + 1].metadata?.id || null) : null;
-
-        positionMap.set(cellId, { previousCellId, nextCellId });
-    }
-
-    return positionMap;
-}
-
-/**
- * Finds the best insertion index for a cell based on its position context.
- * Tries to find the previous or next neighbor in the result array and insert
- * relative to that position. If direct neighbors aren't found, traverses
- * indirect neighbors through the position context map.
- *
- * @param cellId The ID of the cell to insert
- * @param positionContext The cell's position context from its original array
- * @param resultCells The current result array
- * @param resultCellIndexMap Map from cell ID to index in resultCells for quick lookup
- * @param positionContextMap Full position context map for traversing indirect neighbors
- * @returns The index at which to insert the cell
- */
-function findInsertionIndex(
-    cellId: string,
-    positionContext: CellPositionContext,
-    resultCells: CustomNotebookCellData[],
-    resultCellIndexMap: Map<string, number>,
-    positionContextMap: Map<string, CellPositionContext>
-): number {
-    // First, try to find the previous cell and insert after it
-    if (positionContext.previousCellId) {
-        const prevIndex = resultCellIndexMap.get(positionContext.previousCellId);
-        if (prevIndex !== undefined) {
-            debugLog(`Cell ${cellId}: found previous neighbor ${positionContext.previousCellId} at index ${prevIndex}, inserting after`);
-            return prevIndex + 1;
+    // Remove duplicates based on timestamp, editMap and value, while merging validatedBy entries
+    const editMap = new Map<string, any>();
+    allEdits.forEach((edit) => {
+        if (edit.editMap && Array.isArray(edit.editMap)) {
+            const editMapKey = edit.editMap.join('.');
+            const key = `${edit.timestamp}:${editMapKey}:${edit.value}`;
+            if (!editMap.has(key)) {
+                editMap.set(key, edit);
+            } else {
+                const existingEdit = editMap.get(key)!;
+                mergeValidatedByArrays(existingEdit, edit);
+            }
         }
+    });
+
+    const uniqueEdits = Array.from(editMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+
+    if (!mergedCell.metadata) {
+        mergedCell.metadata = {
+            id: cellId,
+            type: CodexCellTypes.TEXT,
+            edits: [],
+        };
     }
+    mergedCell.metadata.edits = uniqueEdits;
 
-    // If previous cell not found, try to find the next cell and insert before it
-    if (positionContext.nextCellId) {
-        const nextIndex = resultCellIndexMap.get(positionContext.nextCellId);
-        if (nextIndex !== undefined) {
-            debugLog(`Cell ${cellId}: found next neighbor ${positionContext.nextCellId} at index ${nextIndex}, inserting before`);
-            return nextIndex;
-        }
+    // Merge attachments intelligently
+    const mergedAttachments = mergeAttachments(
+        ourCell.metadata?.attachments,
+        theirCell.metadata?.attachments
+    );
 
-        // If next neighbor not found, try to find an indirect neighbor
-        // Check if the next neighbor has a next neighbor that IS in the result
-        const nextNeighborContext = positionContextMap.get(positionContext.nextCellId);
-        if (nextNeighborContext?.nextCellId) {
-            const indirectNextIndex = resultCellIndexMap.get(nextNeighborContext.nextCellId);
-            if (indirectNextIndex !== undefined) {
-                debugLog(`Cell ${cellId}: found indirect next neighbor ${nextNeighborContext.nextCellId} (via ${positionContext.nextCellId}) at index ${indirectNextIndex}, inserting before`);
-                return indirectNextIndex;
+    // Resolve selection conflicts
+    const { selectedAudioId, selectionTimestamp } = resolveAudioSelection(
+        ourCell.metadata,
+        theirCell.metadata,
+        mergedAttachments
+    );
+
+    // Apply attachment and selection data to merged cell
+    mergedCell.metadata.attachments = mergedAttachments;
+    mergedCell.metadata.selectedAudioId = selectedAudioId;
+    mergedCell.metadata.selectionTimestamp = selectionTimestamp;
+
+    // Final safety check: ensure no string entries remain in validatedBy arrays
+    if (mergedCell.metadata?.edits) {
+        for (const edit of mergedCell.metadata.edits) {
+            if (edit.validatedBy) {
+                edit.validatedBy = edit.validatedBy.filter(isValidValidationEntry);
             }
         }
     }
 
-    // If neither neighbor found, append at the end
-    debugLog(`Cell ${cellId}: no neighbors found in result, appending at end`);
-    return resultCells.length;
+    return mergedCell;
 }
 
-/**
- * Rebuilds the index map after an insertion
- *
- * @param resultCells The result array
- * @returns Updated map from cell ID to index
- */
-function rebuildIndexMap(resultCells: CustomNotebookCellData[]): Map<string, number> {
-    const indexMap = new Map<string, number>();
-    for (let i = 0; i < resultCells.length; i++) {
-        const cellId = resultCells[i].metadata?.id;
-        if (cellId) {
-            indexMap.set(cellId, i);
-        }
+export function mergeDuplicateCellsUsingResolverLogic(
+    duplicateCells: CustomNotebookCellData[]
+): CustomNotebookCellData {
+    if (duplicateCells.length === 0) {
+        throw new Error("mergeDuplicateCellsUsingResolverLogic requires at least one cell");
     }
-    return indexMap;
+
+    let mergedCell = duplicateCells[0];
+    for (let i = 1; i < duplicateCells.length; i++) {
+        mergedCell = mergeTwoCellsUsingResolverLogic(mergedCell, duplicateCells[i]);
+    }
+
+    return mergedCell;
 }
 
 /**
@@ -980,66 +964,8 @@ export async function resolveCodexCustomMerge(
             // Note: even if both sides soft-delete a cell, we keep it in the merged output
             // so that deletion history and audit information are preserved.
 
-            // Use the new metadata conflict resolution function
-            const mergedCell = resolveMetadataConflictsUsingEditHistory(ourCell, theirCell);
-
-            // Combine all edits from both cells and deduplicate
-            const allEdits = [
-                ...(ourCell.metadata?.edits || []),
-                ...(theirCell.metadata?.edits || [])
-            ].sort((a, b) => a.timestamp - b.timestamp);
-
-            // Remove duplicates based on timestamp, editMap and value, while merging validatedBy entries
-            const editMap = new Map<string, any>();
-            allEdits.forEach((edit) => {
-                if (edit.editMap && Array.isArray(edit.editMap)) {
-                    const editMapKey = edit.editMap.join('.');
-                    const key = `${edit.timestamp}:${editMapKey}:${edit.value}`;
-                    if (!editMap.has(key)) {
-                        editMap.set(key, edit);
-                    } else {
-                        // Merge validatedBy arrays if both exist
-                        const existingEdit = editMap.get(key)!;
-                        mergeValidatedByArrays(existingEdit, edit);
-                    }
-                }
-            });
-
-            // Convert map back to array and sort
-            const uniqueEdits = Array.from(editMap.values()).sort((a, b) => a.timestamp - b.timestamp);
-
-            debugLog(`Filtered to ${uniqueEdits.length} unique edits for cell ${cellId}`);
-
-            // Update the merged cell with the deduplicated edits
-            if (!mergedCell.metadata) {
-                mergedCell.metadata = {
-                    id: cellId,
-                    type: CodexCellTypes.TEXT,
-                    edits: [],
-                };
-            }
-            mergedCell.metadata.edits = uniqueEdits;
-
-            // Do not stamp MERGE edits here; resolver should only merge histories
-
-            // Merge attachments intelligently
-            const mergedAttachments = mergeAttachments(
-                ourCell.metadata?.attachments,
-                theirCell.metadata?.attachments
-            );
-
-            // Resolve selection conflicts
-            const { selectedAudioId, selectionTimestamp } = resolveAudioSelection(
-                ourCell.metadata,
-                theirCell.metadata,
-                mergedAttachments
-            );
-
-            // Apply attachment and selection data to merged cell
-            mergedCell.metadata.attachments = mergedAttachments;
-            mergedCell.metadata.selectedAudioId = selectedAudioId;
-            mergedCell.metadata.selectionTimestamp = selectionTimestamp;
-
+            const mergedCell = mergeDuplicateCellsUsingResolverLogic([ourCell, theirCell]);
+            debugLog(`Filtered to ${mergedCell.metadata?.edits?.length ?? 0} unique edits for cell ${cellId}`);
             debugLog(`Pushing merged cell ${cellId} to results`);
             resultCells.push(mergedCell);
             theirCellsMap.delete(cellId);
@@ -1054,35 +980,24 @@ export async function resolveCodexCustomMerge(
     if (theirCellsMap.size > 0) {
         debugLog(`Processing ${theirCellsMap.size} unique cells from their version with position preservation`);
 
-        // Convert remaining cells to an array and sort by their original position in theirCells
-        // This ensures we process them in their original order
-        const theirUniqueCellIds = Array.from(theirCellsMap.keys());
+        // Keep the original order from "their" side, but place each unique cell near its closest neighbor
+        // that exists in our merged base list. This avoids repeated splice/reindex loops (O(n^2) behavior).
+        const theirUniqueCellIdSet = new Set<string>(theirCellsMap.keys());
         const theirCellsOriginalOrder = theirCells
-            .filter(cell => cell.metadata?.id && theirUniqueCellIds.includes(cell.metadata.id))
-            .map(cell => cell.metadata!.id!);
+            .map((c) => c.metadata?.id)
+            .filter((id): id is string => typeof id === "string" && theirUniqueCellIdSet.has(id));
 
-        // Process cells in their original order to maintain relative positioning
-        for (const cellId of theirCellsOriginalOrder) {
-            const cell = theirCellsMap.get(cellId);
-            if (!cell) continue;
+        const mergedWithUnique = insertUniqueCellsPreservingRelativePositions({
+            baseCells: resultCells,
+            theirUniqueCellIdsInOrder: theirCellsOriginalOrder,
+            theirUniqueCellsById: theirCellsMap,
+            theirPositionContextMap,
+            debugLog,
+        });
 
-            const positionContext = theirPositionContextMap.get(cellId);
-            if (!positionContext) {
-                // No position context, append at end
-                debugLog(`Adding their unique cell ${cellId} at end (no position context)`);
-                resultCells.push(cell);
-                continue;
-            }
-
-            // Build current index map for lookup
-            const resultCellIndexMap = rebuildIndexMap(resultCells);
-
-            // Find the best insertion index based on position context
-            const insertionIndex = findInsertionIndex(cellId, positionContext, resultCells, resultCellIndexMap, theirPositionContextMap);
-
-            debugLog(`Inserting their unique cell ${cellId} at index ${insertionIndex}`);
-            resultCells.splice(insertionIndex, 0, cell);
-        }
+        // Replace contents in-place for downstream logic that may still reference resultCells
+        resultCells.length = 0;
+        resultCells.push(...mergedWithUnique);
     }
 
     debugLog(`Merge complete. Final cell count: ${resultCells.length}`);
@@ -1100,14 +1015,13 @@ export async function resolveCodexCustomMerge(
     }
 
     // Return the full notebook structure with merged cells and metadata
-    return JSON.stringify(
+    // (formatted consistently for `.codex`/`.source` file writes)
+    return formatJsonForNotebookFile(
         {
             ...ourNotebook,
             cells: resultCells,
             metadata: mergedMetadata,
-        },
-        null,
-        2
+        }
     );
 }
 
@@ -2251,6 +2165,12 @@ export async function resolveConflictFiles(
         async (progress) => {
             const totalConflicts = conflicts.length;
             let processedConflicts = 0;
+            const reportProgress = (): void => {
+                progress.report({
+                    increment: (1 / totalConflicts) * 100,
+                    message: `Processing file ${processedConflicts}/${totalConflicts}`,
+                });
+            };
 
             // Ensure all parent directories exist before resolving/writing files.
             // This is critical for heal, where locally-created directories may not exist in a fresh clone.
@@ -2275,17 +2195,16 @@ export async function resolveConflictFiles(
                 // Continue; individual writes will still attempt and report errors.
             }
 
-            for (const conflict of conflicts) {
-                console.log("conflict", { conflict });
+            // Process conflicts with limited concurrency to reduce end-to-end delay on large conflict sets.
+            // This avoids long sequential runs (and avoids noisy per-conflict console logging).
+            const MAX_CONCURRENCY = 4;
+            let nextIndex = 0;
+
+            const processOne = async (conflict: ConflictFile): Promise<void> => {
                 // Validate conflict object structure
                 if (!isValidConflict(conflict)) {
                     console.error("Invalid conflict object:", conflict);
-                    processedConflicts++;
-                    progress.report({
-                        increment: (1 / totalConflicts) * 100,
-                        message: `Processing file ${processedConflicts}/${totalConflicts}`,
-                    });
-                    continue;
+                    return;
                 }
 
                 const normalizedFilepath = conflict.filepath.replace(/\\/g, "/").replace(/^\/+/, "");
@@ -2306,12 +2225,7 @@ export async function resolveConflictFiles(
                     } catch (e) {
                         console.error(`Error deleting file ${conflict.filepath}:`, e);
                     }
-                    processedConflicts++;
-                    progress.report({
-                        increment: (1 / totalConflicts) * 100,
-                        message: `Processing file ${processedConflicts}/${totalConflicts}`,
-                    });
-                    continue;
+                    return;
                 }
 
                 // Handle new file
@@ -2360,12 +2274,7 @@ export async function resolveConflictFiles(
                     } catch (e) {
                         console.error(`Error creating new file ${conflict.filepath}:`, e);
                     }
-                    processedConflicts++;
-                    progress.report({
-                        increment: (1 / totalConflicts) * 100,
-                        message: `Processing file ${processedConflicts}/${totalConflicts}`,
-                    });
-                    continue;
+                    return;
                 }
 
                 // Handle existing file with conflicts
@@ -2373,12 +2282,7 @@ export async function resolveConflictFiles(
                     await vscode.workspace.fs.stat(filePath);
                 } catch {
                     debugLog(`Skipping conflict resolution for missing file: ${conflict.filepath}`);
-                    processedConflicts++;
-                    progress.report({
-                        increment: (1 / totalConflicts) * 100,
-                        message: `Processing file ${processedConflicts}/${totalConflicts}`,
-                    });
-                    continue;
+                    return;
                 }
 
                 const resolvedFile = await resolveConflictFile(conflict, workspaceDir, options);
@@ -2388,12 +2292,24 @@ export async function resolveConflictFiles(
                         resolution: "modified",
                     });
                 }
-                processedConflicts++;
-                progress.report({
-                    increment: (1 / totalConflicts) * 100,
-                    message: `Processing file ${processedConflicts}/${totalConflicts}`,
-                });
-            }
+            };
+
+            const worker = async (): Promise<void> => {
+                while (nextIndex < conflicts.length) {
+                    const i = nextIndex++;
+                    const conflict = conflicts[i];
+
+                    try {
+                        await processOne(conflict);
+                    } finally {
+                        processedConflicts++;
+                        reportProgress();
+                    }
+                }
+            };
+
+            const workerCount = Math.min(MAX_CONCURRENCY, conflicts.length);
+            await Promise.all(Array.from({ length: workerCount }, () => worker()));
         }
     );
 

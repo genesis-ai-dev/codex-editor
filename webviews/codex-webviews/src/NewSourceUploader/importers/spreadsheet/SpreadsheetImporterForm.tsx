@@ -1,6 +1,12 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { ImporterComponentProps, ImportedContent, AlignedCell, WriteNotebooksWithAttachmentsMessage } from "../../types/plugin";
+import {
+    ImporterComponentProps,
+    ImportedContent,
+    AlignedCell,
+    WriteNotebooksWithAttachmentsMessage,
+} from "../../types/plugin";
 import { NotebookPair } from "../../types/common";
+import { v4 as uuidv4 } from "uuid";
 import { Button } from "../../../components/ui/button";
 import {
     Card,
@@ -26,7 +32,6 @@ import {
     XCircle,
     ArrowLeft,
     FileSpreadsheet,
-    Hash,
     Type,
     Languages,
     Download,
@@ -36,6 +41,8 @@ import {
 import { parseSpreadsheetFile, validateSpreadsheetFile } from "./parser";
 import { ParsedSpreadsheet, ColumnType, ColumnTypeSelection } from "./types";
 import { AlignmentPreview } from "../../components/AlignmentPreview";
+import { addMilestoneCellsToNotebookPair } from "../../utils/workflowHelpers";
+import { createSpreadsheetCellMetadata } from "./cellMetadata";
 
 export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props) => {
     const { onComplete, onCancel, wizardContext, onTranslationComplete, alignContent } = props;
@@ -66,48 +73,58 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
 
     const debugLog = useCallback((message: string) => {
         setDebugLogs((prev) => [...prev, `${new Date().toISOString()} ${message}`]);
-        try { console.log(`[SpreadsheetImporter] ${message}`); } catch (e) { /* noop */ }
+        try {
+            console.log(`[SpreadsheetImporter] ${message}`);
+        } catch (e) {
+            /* noop */
+        }
     }, []);
 
     const downloadTemplate = useCallback(() => {
         try {
             const csv = [
-                'ID,Source,Attachments',
-                'MyDoc 1:1,Hello world,https://example.com/audio1.mp3',
-                'MyDoc 1:2,Second row,"https://example.com/a1.mp3 https://example.com/a2.wav"',
-            ].join('\n');
+                "GlobalReferences,Source,Attachments",
+                "GEN 1:1,Hello world,https://example.com/audio1.mp3",
+                'GEN 1:2,Second row,"https://example.com/a1.mp3 https://example.com/a2.wav"',
+            ].join("\n");
 
             // Try Blob + anchor click
-            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
             const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
+            const a = document.createElement("a");
             a.href = url;
-            a.download = 'spreadsheet-template.csv';
-            a.rel = 'noopener';
-            a.style.display = 'none';
+            a.download = "spreadsheet-template.csv";
+            a.rel = "noopener";
+            a.style.display = "none";
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
 
             // Fallback: navigate a hidden iframe (some webviews block anchor download)
-            const iframe = document.createElement('iframe');
-            iframe.style.display = 'none';
+            const iframe = document.createElement("iframe");
+            iframe.style.display = "none";
             iframe.src = url;
             document.body.appendChild(iframe);
             setTimeout(() => {
-                try { document.body.removeChild(iframe); } catch (e) { /* noop */ }
+                try {
+                    document.body.removeChild(iframe);
+                } catch (e) {
+                    /* noop */
+                }
                 URL.revokeObjectURL(url);
             }, 1500);
         } catch (e) {
-            console.error('Template download failed', e);
+            console.error("Template download failed", e);
             // Last resort: send a notification
             try {
                 (window as any).vscodeApi?.postMessage({
-                    command: 'notification',
-                    type: 'error',
-                    message: 'Template download failed. Please check Webview console.',
+                    command: "notification",
+                    type: "error",
+                    message: "Template download failed. Please check Webview console.",
                 });
-            } catch (e2) { /* noop */ }
+            } catch (e2) {
+                /* noop */
+            }
         }
     }, []);
 
@@ -115,19 +132,23 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
     useEffect(() => {
         const handler = (event: MessageEvent) => {
             const msg: any = (event && (event as any).data) || {};
-            if (!msg || typeof msg !== 'object') return;
-            if (msg.command === 'attachmentProgress') {
-                debugLog(`EXT progress ${msg.current}/${msg.total}: ${msg.message || ''}`);
-            } else if (msg.command === 'notification') {
+            if (!msg || typeof msg !== "object") return;
+            if (msg.command === "attachmentProgress") {
+                debugLog(`EXT progress ${msg.current}/${msg.total}: ${msg.message || ""}`);
+            } else if (msg.command === "notification") {
                 debugLog(`EXT notification [${msg.type}]: ${msg.message}`);
-            } else if (msg.command === 'downloadResourceProgress') {
+            } else if (msg.command === "downloadResourceProgress") {
                 debugLog(`EXT download: ${JSON.stringify(msg.progress)}`);
-            } else if (msg.command === 'downloadResourceComplete') {
-                debugLog(`EXT download complete: success=${msg.success}${msg.error ? ` error=${msg.error}` : ''}`);
+            } else if (msg.command === "downloadResourceComplete") {
+                debugLog(
+                    `EXT download complete: success=${msg.success}${
+                        msg.error ? ` error=${msg.error}` : ""
+                    }`
+                );
             }
         };
-        window.addEventListener('message', handler as any);
-        return () => window.removeEventListener('message', handler as any);
+        window.addEventListener("message", handler as any);
+        return () => window.removeEventListener("message", handler as any);
     }, [debugLog]);
 
     const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -165,7 +186,7 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
             data.columns.forEach((col) => {
                 const name = col.name.toLowerCase();
                 if (name.includes("id") || name.includes("key") || name.includes("reference")) {
-                    autoMapping[col.index] = "id";
+                    autoMapping[col.index] = "globalReferences";
                 } else if (
                     name.includes("source") ||
                     name.includes("original") ||
@@ -208,10 +229,111 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
         return Object.values(columnMapping).filter((t) => t === type).length;
     };
 
-    const createCellId = (docName: string, rowIndex: number): string => {
-        const cleanDocName = docName.replace(/\s+/g, "");
-        return `${cleanDocName} 1:${rowIndex + 1}`;
+    const parseGlobalReferencesField = (raw: unknown): string[] => {
+        if (raw === null || raw === undefined) return [];
+        const value = String(raw).trim();
+        if (!value) return [];
+
+        // Prefer explicit delimiters first to avoid splitting verse refs by spaces.
+        const primaryParts = value
+            .split(/[\n;|]+/g)
+            .map((s) => s.trim())
+            .filter(Boolean);
+
+        if (primaryParts.length > 1) return primaryParts;
+
+        // If only one part and commas are present, treat commas as delimiters.
+        if (value.includes(",")) {
+            return value
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean);
+        }
+
+        return primaryParts;
     };
+
+    const spreadsheetGlobalReferencesAligner = useCallback(
+        async (
+            targetCells: any[],
+            _sourceCells: any[],
+            importedContent: ImportedContent[]
+        ): Promise<AlignedCell[]> => {
+            const aligned: AlignedCell[] = [];
+
+            // Map globalReference -> first matching target cell
+            const refToTarget = new Map<string, any>();
+            for (const cell of targetCells || []) {
+                const refs: unknown = cell?.metadata?.data?.globalReferences;
+                if (Array.isArray(refs)) {
+                    for (const r of refs) {
+                        const key = String(r ?? "").trim();
+                        if (key && !refToTarget.has(key)) {
+                            refToTarget.set(key, cell);
+                        }
+                    }
+                }
+            }
+
+            const usedTargetIds = new Set<string>();
+            const remainder: ImportedContent[] = [];
+
+            // Pass 1: match by globalReferences
+            for (const item of importedContent) {
+                const refs: unknown =
+                    (item as any).globalReferences ?? (item as any).data?.globalReferences;
+                const refList = Array.isArray(refs)
+                    ? refs.map((r) => String(r ?? "").trim()).filter(Boolean)
+                    : [];
+                const match = refList.map((r) => refToTarget.get(r)).find((c) => c);
+
+                const targetId = match?.metadata?.id ? String(match.metadata.id) : undefined;
+                if (match && targetId && !usedTargetIds.has(targetId)) {
+                    usedTargetIds.add(targetId);
+                    aligned.push({
+                        notebookCell: match,
+                        importedContent: item,
+                        alignmentMethod: "custom",
+                        confidence: 0.95,
+                    });
+                } else {
+                    remainder.push(item);
+                }
+            }
+
+            // Pass 2: fallback sequential into remaining empty target cells
+            const emptyTargets = (targetCells || []).filter((cell) => {
+                const id = cell?.metadata?.id ? String(cell.metadata.id) : "";
+                if (!id || usedTargetIds.has(id)) return false;
+                const v = typeof cell?.value === "string" ? cell.value.trim() : "";
+                return v === "";
+            });
+
+            let emptyIdx = 0;
+            for (const item of remainder) {
+                const next = emptyTargets[emptyIdx++];
+                if (next) {
+                    aligned.push({
+                        notebookCell: next,
+                        importedContent: item,
+                        alignmentMethod: "sequential",
+                        confidence: 0.6,
+                    });
+                } else {
+                    aligned.push({
+                        notebookCell: null,
+                        importedContent: item,
+                        isParatext: true,
+                        alignmentMethod: "sequential",
+                        confidence: 0.2,
+                    });
+                }
+            }
+
+            return aligned;
+        },
+        []
+    );
 
     const handleImport = async () => {
         if (!parsedData) return;
@@ -219,8 +341,8 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
         const sourceColumnIndex = Object.keys(columnMapping).find(
             (key) => columnMapping[parseInt(key)] === "source"
         );
-        const idColumnIndex = Object.keys(columnMapping).find(
-            (key) => columnMapping[parseInt(key)] === "id"
+        const globalReferencesColumnIndex = Object.keys(columnMapping).find(
+            (key) => columnMapping[parseInt(key)] === "globalReferences"
         );
         const targetColumnIndex = Object.keys(columnMapping).find(
             (key) => columnMapping[parseInt(key)] === "target"
@@ -250,20 +372,24 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                 const importedContent: ImportedContent[] = parsedData.rows
                     .filter((row) => row[parseInt(targetColumnIndex!)]?.trim())
                     .map((row, index) => {
-                        const id = idColumnIndex
-                            ? row[parseInt(idColumnIndex)]?.trim() ||
-                              createCellId(parsedData.filename, index)
-                            : createCellId(parsedData.filename, index);
+                        const globalReferences = globalReferencesColumnIndex
+                            ? parseGlobalReferencesField(row[parseInt(globalReferencesColumnIndex)])
+                            : [];
 
                         return {
-                            id,
+                            id: uuidv4(),
                             content: row[parseInt(targetColumnIndex!)],
                             rowIndex: index,
+                            globalReferences,
                         };
                     });
 
                 setIsAligning(true);
-                const aligned = await alignContent!(importedContent, selectedSource!.path);
+                const aligned = await alignContent!(
+                    importedContent,
+                    selectedSource!.path,
+                    spreadsheetGlobalReferencesAligner
+                );
                 setAlignedCells(aligned);
                 setShowPreview(true);
             } else {
@@ -271,22 +397,24 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                 const sourceCells = parsedData.rows
                     .filter((row) => row[parseInt(sourceColumnIndex!)]?.trim())
                     .map((row, index) => {
-                        const id = idColumnIndex
-                            ? row[parseInt(idColumnIndex)]?.trim() ||
-                              createCellId(parsedData.filename, index)
-                            : createCellId(parsedData.filename, index);
+                        const globalReferences = globalReferencesColumnIndex
+                            ? parseGlobalReferencesField(row[parseInt(globalReferencesColumnIndex)])
+                            : [];
+
+                        // Create cell metadata (always generates UUID)
+                        const { cellId, metadata: cellMetadata } = createSpreadsheetCellMetadata({
+                            originalContent: row[parseInt(sourceColumnIndex!)],
+                            rowIndex: index,
+                            originalRow: Object.keys(row),
+                            fileName: selectedFile!.name,
+                            globalReferences,
+                        });
 
                         return {
-                            id,
+                            id: cellId,
                             content: row[parseInt(sourceColumnIndex!)],
                             images: [],
-                            metadata: {
-                                id,
-                                data: {
-                                    rowIndex: index,
-                                    originalRow: row,
-                                },
-                            },
+                            metadata: cellMetadata,
                         };
                     });
 
@@ -297,8 +425,16 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                         metadata: {
                             id: parsedData.filename,
                             originalFileName: selectedFile!.name,
+                            sourceFile: selectedFile!.name,
                             importerType: "spreadsheet",
                             createdAt: new Date().toISOString(),
+                            importContext: {
+                                importerType: "spreadsheet",
+                                fileName: selectedFile!.name,
+                                originalFileName: selectedFile!.name,
+                                fileSize: selectedFile!.size,
+                                importTimestamp: new Date().toISOString(),
+                            },
                             delimiter: parsedData.delimiter,
                             columnCount: parsedData.columns.length,
                             rowCount: parsedData.rows.length,
@@ -313,18 +449,30 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                         metadata: {
                             id: parsedData.filename,
                             originalFileName: selectedFile!.name,
+                            sourceFile: selectedFile!.name,
                             importerType: "spreadsheet",
                             createdAt: new Date().toISOString(),
+                            importContext: {
+                                importerType: "spreadsheet",
+                                fileName: selectedFile!.name,
+                                originalFileName: selectedFile!.name,
+                                fileSize: selectedFile!.size,
+                                importTimestamp: new Date().toISOString(),
+                            },
                         },
                     },
                 };
+
+                // Add milestone cells to the notebook pair
+                const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
 
                 // If attachments column present, fetch audio URLs and send with notebooks
                 if (attachmentsColumnIndex !== undefined) {
                     const docId = parsedData.filename.replace(/\s+/g, "");
                     const allAttachments: WriteNotebooksWithAttachmentsMessage["attachments"] = [];
 
-                    const looksLikeAudioName = (name: string) => /\.(mp3|wav|m4a|aac|ogg|webm|flac)$/i.test(name || "");
+                    const looksLikeAudioName = (name: string) =>
+                        /\.(mp3|wav|m4a|aac|ogg|webm|flac)$/i.test(name || "");
                     const sanitizeFileName = (name: string) => {
                         const base = (name || "").trim();
                         let out = "";
@@ -333,7 +481,18 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                             const code = base.charCodeAt(i);
                             // Skip reserved characters and ASCII control codes (0x00-0x1F)
                             if (code < 32) continue;
-                            if (ch === '<' || ch === '>' || ch === ':' || ch === '"' || ch === '/' || ch === '\\' || ch === '|' || ch === '?' || ch === '*') continue;
+                            if (
+                                ch === "<" ||
+                                ch === ">" ||
+                                ch === ":" ||
+                                ch === '"' ||
+                                ch === "/" ||
+                                ch === "\\" ||
+                                ch === "|" ||
+                                ch === "?" ||
+                                ch === "*"
+                            )
+                                continue;
                             out += ch;
                         }
                         return out;
@@ -350,14 +509,20 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                             // ignore URL parse errors
                         }
                         // If URL does not yield a plausible audio filename, fall back to first column in the row
-                        if (!looksLikeAudioName(candidate) && row && row[0] && looksLikeAudioName(row[0])) {
+                        if (
+                            !looksLikeAudioName(candidate) &&
+                            row &&
+                            row[0] &&
+                            looksLikeAudioName(row[0])
+                        ) {
                             candidate = row[0].trim();
                         }
                         candidate = candidate || fallback;
                         return sanitizeFileName(candidate);
                     };
 
-                    const isAudioByExt = (name: string) => /\.(mp3|wav|m4a|aac|ogg|webm|flac)$/i.test(name);
+                    const isAudioByExt = (name: string) =>
+                        /\.(mp3|wav|m4a|aac|ogg|webm|flac)$/i.test(name);
 
                     // Convert Google Drive view/share links to a direct-download endpoint
                     const toGoogleDriveDirect = (raw: string): string | null => {
@@ -377,20 +542,26 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                                     return `https://drive.usercontent.google.com/uc?id=${id}&export=download`;
                                 }
                             }
-                        } catch (e) { /* noop */ }
+                        } catch (e) {
+                            /* noop */
+                        }
                         return null;
                     };
 
                     const fetchAsDataUrl = async (url: string) => {
                         try {
                             const normalizedUrl = url.trim();
-                            const sanitizedUrl = normalizedUrl.replace(/^@+/, '');
+                            const sanitizedUrl = normalizedUrl.replace(/^@+/, "");
                             if (!/^https?:|^data:/i.test(sanitizedUrl)) {
-                                throw new Error(`Attachment must be a full URL (http(s) or data:). Got: ${sanitizedUrl}`);
+                                throw new Error(
+                                    `Attachment must be a full URL (http(s) or data:). Got: ${sanitizedUrl}`
+                                );
                             }
                             const driveDirect = toGoogleDriveDirect(sanitizedUrl);
                             const effectiveUrl = driveDirect || sanitizedUrl;
-                            const encodedUrl = effectiveUrl.startsWith("data:") ? effectiveUrl : encodeURI(effectiveUrl);
+                            const encodedUrl = effectiveUrl.startsWith("data:")
+                                ? effectiveUrl
+                                : encodeURI(effectiveUrl);
                             debugLog(`FETCH ${encodedUrl}`);
                             const res = await fetch(encodedUrl);
                             debugLog(`RESPONSE ${encodedUrl} -> ${res.status} ${res.statusText}`);
@@ -399,12 +570,26 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                             const mime = blob.type || "";
                             debugLog(`MIME ${encodedUrl} -> ${mime || "unknown"}`);
                             // Some hosts return octet-stream; try to infer from Content-Disposition filename or URL
-                            const cd = (res.headers && (res.headers.get ? res.headers.get("content-disposition") : null)) || "";
+                            const cd =
+                                (res.headers &&
+                                    (res.headers.get
+                                        ? res.headers.get("content-disposition")
+                                        : null)) ||
+                                "";
                             const cdNameMatch = cd.match(/filename\*?=(?:UTF-8''|")?([^";\r\n]+)/i);
-                            const cdFileName = cdNameMatch ? decodeURIComponent(cdNameMatch[1].replace(/"/g, "")) : "";
-                            const seemsAudio = mime.startsWith("audio/") || isAudioByExt(cdFileName) || isAudioByExt(encodedUrl);
+                            const cdFileName = cdNameMatch
+                                ? decodeURIComponent(cdNameMatch[1].replace(/"/g, ""))
+                                : "";
+                            const seemsAudio =
+                                mime.startsWith("audio/") ||
+                                isAudioByExt(cdFileName) ||
+                                isAudioByExt(encodedUrl);
                             if (!seemsAudio) {
-                                throw new Error(`Not audio (mime: ${mime || "unknown"}${cdFileName ? ", cd=" + cdFileName : ""})`);
+                                throw new Error(
+                                    `Not audio (mime: ${mime || "unknown"}${
+                                        cdFileName ? ", cd=" + cdFileName : ""
+                                    })`
+                                );
                             }
                             const reader = new FileReader();
                             const dataUrl: string = await new Promise((resolve, reject) => {
@@ -431,20 +616,53 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                         const sourceText = row[parseInt(sourceColumnIndex!)]?.trim();
                         if (!sourceText) continue;
 
-                        const id = (idColumnIndex
-                            ? row[parseInt(idColumnIndex)]?.trim() || createCellId(parsedData.filename, i)
-                            : createCellId(parsedData.filename, i));
+                        // Find the corresponding cell by rowIndex (since we now use UUIDs or spreadsheet IDs)
+                        const correspondingCell = sourceCells.find(
+                            (cell) => cell.metadata?.data?.rowIndex === i
+                        );
+
+                        if (!correspondingCell) {
+                            debugLog(
+                                `Skipping attachment for row ${i} - no corresponding cell found`
+                            );
+                            continue;
+                        }
+
+                        const id = correspondingCell.id;
 
                         let firstAttachmentId: string | null = null;
                         for (const u of urls) {
-                            const attachmentId = `audio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                            // Validate that the URL appears to be an audio file before processing
+                            const normalizedUrl = u.trim().replace(/^@+/, "");
+                            const isAudioUrl =
+                                isAudioByExt(normalizedUrl) ||
+                                normalizedUrl.startsWith("data:audio/") ||
+                                /\.(mp3|wav|m4a|aac|ogg|webm|flac)(\?|#|$)/i.test(normalizedUrl);
+
+                            if (!isAudioUrl) {
+                                debugLog(`Skipping non-audio URL: ${normalizedUrl}`);
+                                continue;
+                            }
+
+                            const attachmentId = `audio-${Date.now()}-${Math.random()
+                                .toString(36)
+                                .substr(2, 9)}`;
                             if (!firstAttachmentId) firstAttachmentId = attachmentId;
                             let fileName = fileNameFromUrl(u, attachmentId, row as any);
+
                             try {
                                 const { dataUrl, mime } = await fetchAsDataUrl(u);
+
+                                // Double-check that the fetched content is actually audio
+                                if (!mime.startsWith("audio/") && !isAudioByExt(fileName)) {
+                                    debugLog(`Skipping non-audio content: ${u} (mime: ${mime})`);
+                                    continue;
+                                }
+
                                 if (!/\.[a-z0-9]+$/i.test(fileName)) {
                                     fileName = `${attachmentId}.${mime.split("/").pop() || "mp3"}`;
                                 }
+
                                 allAttachments.push({
                                     cellId: id,
                                     attachmentId,
@@ -454,40 +672,82 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                                     startTime: 0,
                                     endTime: Number.NaN,
                                 } as any);
+
+                                const urlPath = `.project/attachments/files/${docId}/${fileName}`;
+                                const cell = notebookPair.source.cells.find(
+                                    (c) => c.metadata?.id === id
+                                );
+                                if (cell) {
+                                    (cell.metadata as any).attachments = {
+                                        ...((cell.metadata as any).attachments || {}),
+                                        [attachmentId]: {
+                                            url: urlPath,
+                                            type: "audio",
+                                            createdAt: Date.now(),
+                                            updatedAt: Date.now(),
+                                            isDeleted: false,
+                                            startTime: 0,
+                                            endTime: Number.NaN,
+                                        },
+                                    };
+                                    (cell.metadata as any).selectedAudioId =
+                                        (cell.metadata as any).selectedAudioId || firstAttachmentId;
+                                    (cell.metadata as any).selectionTimestamp = Date.now();
+                                }
                             } catch (e: any) {
-                                // Fallback: let the extension download the remote file (avoids webview CORS)
-                                // Reapply the same Drive conversion here to store an effective URL pointer
-                                const raw = u.trim().replace(/^@+/, '');
+                                // Only create fallback for audio URLs that failed to fetch
+                                // Check if it's likely an audio file before creating fallback
+                                const raw = u.trim().replace(/^@+/, "");
                                 const driveDirect = toGoogleDriveDirect(raw);
                                 const effectiveUrl = driveDirect || raw;
-                                debugLog(`FALLBACK remote download pointer for ${effectiveUrl}`);
-                                allAttachments.push({
-                                    cellId: id,
-                                    attachmentId,
-                                    fileName,
-                                    remoteUrl: effectiveUrl,
-                                    startTime: 0,
-                                    endTime: Number.NaN,
-                                } as any);
-                            }
 
-                            const urlPath = `.project/attachments/files/${docId}/${fileName}`;
-                            const cell = notebookPair.source.cells.find((c) => c.metadata?.id === id);
-                            if (cell) {
-                                (cell.metadata as any).attachments = {
-                                    ...((cell.metadata as any).attachments || {}),
-                                    [attachmentId]: {
-                                        url: urlPath,
-                                        type: "audio",
-                                        createdAt: Date.now(),
-                                        updatedAt: Date.now(),
-                                        isDeleted: false,
+                                // Only create fallback if URL looks like audio
+                                if (
+                                    isAudioByExt(effectiveUrl) ||
+                                    effectiveUrl.startsWith("data:audio/")
+                                ) {
+                                    debugLog(
+                                        `FALLBACK remote download pointer for audio URL: ${effectiveUrl}`
+                                    );
+                                    allAttachments.push({
+                                        cellId: id,
+                                        attachmentId,
+                                        fileName: fileNameFromUrl(
+                                            effectiveUrl,
+                                            attachmentId,
+                                            row as any
+                                        ),
+                                        remoteUrl: effectiveUrl,
                                         startTime: 0,
                                         endTime: Number.NaN,
-                                    },
-                                };
-                                (cell.metadata as any).selectedAudioId = (cell.metadata as any).selectedAudioId || firstAttachmentId;
-                                (cell.metadata as any).selectionTimestamp = Date.now();
+                                    } as any);
+
+                                    const cell = notebookPair.source.cells.find(
+                                        (c) => c.metadata?.id === id
+                                    );
+                                    if (cell) {
+                                        (cell.metadata as any).attachments = {
+                                            ...((cell.metadata as any).attachments || {}),
+                                            [attachmentId]: {
+                                                url: effectiveUrl,
+                                                type: "audio",
+                                                createdAt: Date.now(),
+                                                updatedAt: Date.now(),
+                                                isDeleted: false,
+                                                startTime: 0,
+                                                endTime: Number.NaN,
+                                            },
+                                        };
+                                        (cell.metadata as any).selectedAudioId =
+                                            (cell.metadata as any).selectedAudioId ||
+                                            firstAttachmentId;
+                                        (cell.metadata as any).selectionTimestamp = Date.now();
+                                    }
+                                } else {
+                                    debugLog(
+                                        `Skipping non-audio URL that failed to fetch: ${effectiveUrl}`
+                                    );
+                                }
                             }
                         }
                     }
@@ -503,10 +763,12 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                     } as any;
                     // Queue the import so the user can review debug output first
                     setPendingImport(message);
-                    setPendingNotebookPair(notebookPair);
-                    debugLog(`Prepared import with ${allAttachments.length} attachment(s). Click 'Complete import' to proceed.`);
+                    setPendingNotebookPair(notebookPairWithMilestones);
+                    debugLog(
+                        `Prepared import with ${allAttachments.length} attachment(s). Click 'Complete import' to proceed.`
+                    );
                 } else {
-                    onComplete!(notebookPair);
+                    onComplete!(notebookPairWithMilestones);
                 }
                 setIsDirty(false);
             }
@@ -559,11 +821,17 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                         </CardTitle>
                         {!isTranslationImport && (
                             <div className="flex items-center gap-2">
-                                <Button onClick={downloadTemplate} aria-label="Download CSV template">
+                                <Button
+                                    onClick={downloadTemplate}
+                                    aria-label="Download CSV template"
+                                >
                                     <Download className="h-3 w-3 mr-1" /> Template
                                 </Button>
-                                <Button onClick={() => setDebugOpen((v) => !v)} title="Toggle debug console">
-                                    {debugOpen ? 'Hide Debug' : 'Debug'}
+                                <Button
+                                    onClick={() => setDebugOpen((v) => !v)}
+                                    title="Toggle debug console"
+                                >
+                                    {debugOpen ? "Hide Debug" : "Debug"}
                                 </Button>
                             </div>
                         )}
@@ -577,7 +845,7 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                 <CardContent className="space-y-4">
                     {debugOpen && (
                         <div className="rounded border border-gray-700 bg-black/70 text-white p-2 max-h-48 overflow-auto font-mono text-xs whitespace-pre-wrap">
-                            {debugLogs.length ? debugLogs.join("\n") : 'No debug output yet.'}
+                            {debugLogs.length ? debugLogs.join("\n") : "No debug output yet."}
                         </div>
                     )}
                     {/* Column mapping interface */}
@@ -606,16 +874,10 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="unused">Not used</SelectItem>
-                                        <SelectItem
-                                            value="id"
-                                            disabled={
-                                                getColumnTypeCount("id") > 0 &&
-                                                columnMapping[column.index] !== "id"
-                                            }
-                                        >
+                                        <SelectItem value="globalReferences">
                                             <div className="flex items-center gap-2">
-                                                <Hash className="h-4 w-4" />
-                                                ID Column
+                                                <LinkIcon className="h-4 w-4" />
+                                                Global References
                                             </div>
                                         </SelectItem>
                                         {!isTranslationImport && (
@@ -668,10 +930,10 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
 
                     {/* Summary */}
                     <div className="flex gap-2 pt-4 border-t">
-                        {getColumnTypeCount("id") > 0 && (
+                        {getColumnTypeCount("globalReferences") > 0 && (
                             <Badge variant="secondary">
-                                <Hash className="h-3 w-3 mr-1" />
-                                ID Column
+                                <LinkIcon className="h-3 w-3 mr-1" />
+                                Global References
                             </Badge>
                         )}
                         {getColumnTypeCount("source") > 0 && (
@@ -707,7 +969,10 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                             Back
                         </Button>
                         {pendingImport && (
-                            <Button onClick={handleCompleteImport} className="flex-1 bg-green-600 hover:bg-green-700 text-white">
+                            <Button
+                                onClick={handleCompleteImport}
+                                className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                            >
                                 Complete import
                             </Button>
                         )}
@@ -758,11 +1023,24 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                                 <div className="space-y-1 text-sm text-yellow-800">
                                     <div className="font-medium">CSV Columns</div>
                                     <ul className="list-disc ml-5 space-y-1">
-                                        <li><span className="font-medium">ID</span> (optional): unique cell id. If omitted we generate like "DocName 1:1".</li>
-                                        <li><span className="font-medium">Source</span> (required): your source text per row.</li>
-                                        <li><span className="font-medium">Attachments</span> (optional): audio URLs separated by comma, semicolon, or space.</li>
+                                        <li>
+                                            <span className="font-medium">ID</span> (optional):
+                                            unique cell id. If omitted we generate like "DocName
+                                            1:1".
+                                        </li>
+                                        <li>
+                                            <span className="font-medium">Source</span> (required):
+                                            your source text per row.
+                                        </li>
+                                        <li>
+                                            <span className="font-medium">Attachments</span>{" "}
+                                            (optional): audio URLs separated by comma, semicolon, or
+                                            space.
+                                        </li>
                                     </ul>
-                                    <div className="text-xs text-yellow-800">Supported audio: mp3, wav, m4a, aac, ogg, webm, flac.</div>
+                                    <div className="text-xs text-yellow-800">
+                                        Supported audio: mp3, wav, m4a, aac, ogg, webm, flac.
+                                    </div>
                                 </div>
                             </div>
                             <Button onClick={downloadTemplate} title="Download CSV template">
@@ -816,13 +1094,17 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                         <XCircle className="h-4 w-4" />
                         <AlertDescription className="flex items-start justify-between gap-3 w-full">
                             <span>{error}</span>
-                            <Button variant="outline" size="sm" onClick={() => setDebugOpen((v) => !v)}>
-                                {debugOpen ? 'Hide Details' : 'Show Details'}
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setDebugOpen((v) => !v)}
+                            >
+                                {debugOpen ? "Hide Details" : "Show Details"}
                             </Button>
                         </AlertDescription>
                         {debugOpen && (
                             <div className="mt-2 max-h-40 overflow-auto rounded bg-black/60 text-xs text-white p-2 font-mono whitespace-pre-wrap">
-                                {debugLogs.length ? debugLogs.join("\n") : 'No debug output yet.'}
+                                {debugLogs.length ? debugLogs.join("\n") : "No debug output yet."}
                             </div>
                         )}
                     </Alert>

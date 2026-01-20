@@ -5,7 +5,7 @@ import { promisify } from "util";
 import { exec } from "child_process";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { createNoteBookPair } from "./codexFIleCreateUtils";
-import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteResponseMessage, WriteNotebooksWithAttachmentsMessage, SelectAudioFileMessage, ReprocessAudioFileMessage, RequestAudioSegmentMessage, FinalizeAudioImportMessage, UpdateAudioSegmentsMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
+import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteResponseMessage, WriteNotebooksWithAttachmentsMessage, SelectAudioFileMessage, ReprocessAudioFileMessage, RequestAudioSegmentMessage, FinalizeAudioImportMessage, UpdateAudioSegmentsMessage, SaveFileMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
 import {
     handleSelectAudioFile,
     handleReprocessAudioFile,
@@ -19,11 +19,13 @@ import { CodexCell } from "../../utils/codexNotebookUtils";
 import { CodexCellTypes } from "../../../types/enums";
 import { importBookNamesFromXmlContent } from "../../bookNameSettings/bookNameSettings";
 import { createStandardizedFilename, extractUsfmCodeFromFilename, getBookDisplayName } from "../../utils/bookNameUtils";
+import { formatJsonForNotebookFile } from "../../utils/notebookFileFormattingUtils";
 import { CodexContentSerializer } from "../../serializer";
 import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { migrateLocalizedBooksToMetadata as migrateLocalizedBooks } from "./localizedBooksMigration/localizedBooksMigration";
 import { removeLocalizedBooksJsonIfPresent as removeLocalizedBooksJson } from "./localizedBooksMigration/removeLocalizedBooksJson";
+import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
 // import { parseRtfWithPandoc as parseRtfNode } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/pandocNodeBridge";
 
 const execAsync = promisify(exec);
@@ -123,7 +125,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 } else if (message.command === "writeNotebooks") {
                     await this.handleWriteNotebooks(message as WriteNotebooksMessage, token, webviewPanel);
                 } else if (message.command === "writeNotebooksWithAttachments") {
-                    await this.handleWriteNotebooksWithAttachments(message as WriteNotebooksWithAttachmentsMessage, token, webviewPanel);
+                    await this.handleWriteNotebooksWithAttachments(message as WriteNotebooksWithAttachmentsMessage, document, token, webviewPanel);
                     // Success notification and inventory update are now handled in handleWriteNotebooks
                 } else if (message.command === "overwriteResponse") {
                     const response = message as OverwriteResponseMessage;
@@ -317,8 +319,12 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         message as FinalizeAudioImportMessage,
                         token,
                         webviewPanel,
-                        (msg, tok, pan) => this.handleWriteNotebooks(msg as WriteNotebooksMessage, tok, pan)
+                        async (msg, tok, pan) => {
+                            await this.handleWriteNotebooks(msg as WriteNotebooksMessage, tok, pan);
+                        }
                     );
+                } else if (message.command === "saveFile") {
+                    await this.handleSaveFile(message as SaveFileMessage, webviewPanel);
                 }
             } catch (error) {
                 console.error("Error handling message:", error);
@@ -370,21 +376,53 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
         // Basic normalization (trim whitespace) - full normalization with existing files 
         // happens in createNoteBookPair to preserve casing from existing files
-        const trimmedCorpusMarker = corpusMarker ? corpusMarker.trim() : undefined;
+        const trimmedCorpusMarker = corpusMarker?.trim();
 
-        // Derive fileDisplayName from originalName without the file extension
-        const originalName = processedNotebook.metadata.originalFileName;
-        let fileDisplayName = originalName && typeof originalName === "string" && originalName.trim() !== ""
-            ? path.basename(originalName.trim(), path.extname(originalName.trim()))
-            : undefined;
+        // Use fileDisplayName from metadata if it exists, otherwise derive from originalName
+        // IMPORTANT: Always preserve fileDisplayName from metadata if it exists (e.g., "Hebrew Genesis", "Greek Matthew")
+        let fileDisplayName = processedNotebook.metadata?.fileDisplayName;
 
-        // For biblical books (NT/OT), convert USFM codes to full names during import
-        if (fileDisplayName && (trimmedCorpusMarker === "NT" || trimmedCorpusMarker === "OT")) {
+        // Check if this is a Macula importer - if so, always preserve fileDisplayName from metadata
+        const isMaculaImporter = processedNotebook.metadata?.importerType === "macula";
+
+        // For Macula importer, if fileDisplayName is already set and starts with "Hebrew" or "Greek", preserve it
+        if (isMaculaImporter && fileDisplayName && (fileDisplayName.startsWith("Hebrew ") || fileDisplayName.startsWith("Greek "))) {
+            // Keep the existing fileDisplayName - don't override it
+        } else if (!fileDisplayName) {
+            // Derive fileDisplayName from originalName without the file extension
+            const originalName = processedNotebook.metadata.originalFileName;
+            fileDisplayName = originalName && typeof originalName === "string" && originalName.trim() !== ""
+                ? path.basename(originalName.trim(), path.extname(originalName.trim()))
+                : undefined;
+
+            // For biblical books (NT/OT), convert USFM codes to full names during import
+            // Also handle Macula corpus markers: "Hebrew Bible" and "Greek Bible"
+            const isNTMarker = trimmedCorpusMarker === "NT" || trimmedCorpusMarker === "greek bible";
+            const isOTMarker = trimmedCorpusMarker === "OT" || trimmedCorpusMarker === "hebrew bible";
+
+            if (fileDisplayName && (isNTMarker || isOTMarker)) {
+                const usfmCode = extractUsfmCodeFromFilename(fileDisplayName);
+                if (usfmCode) {
+                    // Convert USFM code to full book name
+                    fileDisplayName = await getBookDisplayName(usfmCode);
+                    // Add language prefix for Macula importer: "Hebrew" for OT, "Greek" for NT
+                    if (isMaculaImporter) {
+                        const languagePrefix = isNTMarker ? "Greek" : "Hebrew";
+                        fileDisplayName = `${languagePrefix} ${fileDisplayName}`;
+                    }
+                }
+            }
+        } else if (isMaculaImporter && fileDisplayName && !fileDisplayName.startsWith("Hebrew ") && !fileDisplayName.startsWith("Greek ")) {
+            // For Macula importer, if fileDisplayName exists but doesn't have language prefix, add it
+            // First try to convert USFM code to full name if it's a code
             const usfmCode = extractUsfmCodeFromFilename(fileDisplayName);
             if (usfmCode) {
-                // Convert USFM code to full book name
                 fileDisplayName = await getBookDisplayName(usfmCode);
             }
+            // Add appropriate language prefix based on corpus marker
+            const isNTMarker = trimmedCorpusMarker === "NT" || trimmedCorpusMarker === "greek bible";
+            const languagePrefix = isNTMarker ? "Greek" : "Hebrew";
+            fileDisplayName = `${languagePrefix} ${fileDisplayName}`;
         }
 
         const metadata: CustomNotebookMetadata = {
@@ -396,28 +434,24 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             sourceCreatedAt: processedNotebook.metadata.createdAt,
             corpusMarker: trimmedCorpusMarker,
             textDirection: (processedNotebook.metadata.textDirection as "ltr" | "rtl" | undefined) || "ltr",
-            ...(fileDisplayName && { fileDisplayName }),
-            ...(processedNotebook.metadata.videoUrl && { videoUrl: processedNotebook.metadata.videoUrl }),
+            ...(fileDisplayName ? { fileDisplayName } : {}),
+            ...(processedNotebook.metadata.videoUrl ? { videoUrl: processedNotebook.metadata.videoUrl } : {}),
             ...(processedNotebook.metadata)?.audioOnly !== undefined
                 ? { audioOnly: processedNotebook.metadata.audioOnly as boolean }
                 : {},
             // Preserve document structure metadata and other custom fields
-            ...(processedNotebook.metadata.documentStructure && {
-                documentStructure: processedNotebook.metadata.documentStructure
-            }),
-            ...(processedNotebook.metadata.wordCount && {
-                wordCount: processedNotebook.metadata.wordCount
-            }),
-            ...(processedNotebook.metadata.mammothMessages && {
-                mammothMessages: processedNotebook.metadata.mammothMessages
-            }),
-            // Preserve DOCX round-trip structure
-            ...(processedNotebook.metadata?.docxDocument && {
-                docxDocument: processedNotebook.metadata.docxDocument
-            }),
-            ...(processedNotebook.metadata?.originalHash && {
-                originalHash: processedNotebook.metadata.originalHash
-            }),
+            ...(processedNotebook.metadata.documentStructure
+                ? { documentStructure: processedNotebook.metadata.documentStructure }
+                : {}),
+            ...(processedNotebook.metadata.wordCount !== undefined
+                ? { wordCount: processedNotebook.metadata.wordCount }
+                : {}),
+            ...(processedNotebook.metadata.mammothMessages
+                ? { mammothMessages: processedNotebook.metadata.mammothMessages }
+                : {}),
+            ...(processedNotebook.metadata?.originalHash
+                ? { originalHash: processedNotebook.metadata.originalHash }
+                : {}),
             ...(processedNotebook.metadata?.importerType && {
                 importerType: processedNotebook.metadata.importerType
             }),
@@ -468,13 +502,16 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (workspaceFolder) {
             for (const pair of message.notebookPairs) {
-                if (pair.source.metadata?.originalFileData) {
+                if ("originalFileData" in pair.source.metadata && pair.source.metadata.originalFileData) {
                     // Save the original file in attachments
                     const originalFileName = pair.source.metadata.originalFileName || 'document.docx';
+                    // Store originals under attachments/files/originals for consistency with other attachment storage.
+                    // (Some existing projects may have originals under attachments/originals; exporter will fallback.)
                     const originalsDir = vscode.Uri.joinPath(
                         workspaceFolder.uri,
                         '.project',
                         'attachments',
+                        'files',
                         'originals'
                     );
                     await vscode.workspace.fs.createDirectory(originalsDir);
@@ -488,6 +525,10 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         : Buffer.from(fileData);
 
                     await vscode.workspace.fs.writeFile(originalFileUri, buffer);
+
+                    // CRITICAL: Do not persist original binary content into JSON notebooks.
+                    // The original template is stored in `.project/attachments/originals/<originalFileName>`.
+                    delete pair.source.metadata.originalFileData;
                 }
             }
         }
@@ -500,7 +541,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             message.notebookPairs.map(async pair => {
                 // For codex notebooks, remove the original file data to avoid duplication
                 const codexPair = { ...pair.codex };
-                if (codexPair.metadata?.originalFileData) {
+                if ("originalFileData" in codexPair.metadata && codexPair.metadata.originalFileData) {
                     codexPair.metadata = { ...codexPair.metadata };
                     delete codexPair.metadata.originalFileData;
                 }
@@ -572,6 +613,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
      */
     private async handleWriteNotebooksWithAttachments(
         message: WriteNotebooksWithAttachmentsMessage,
+        document: vscode.TextDocument,
         token: vscode.CancellationToken,
         webviewPanel: vscode.WebviewPanel
     ): Promise<void> {
@@ -741,7 +783,11 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     // Process batch in parallel
                     await Promise.all(batch.map(async (attachment) => {
                         const { cellId, attachmentId, fileName, dataBase64, sourceFileId, isFromVideo, remoteUrl } = attachment as any;
-                        const docSegment = (cellId || "").split(" ")[0] || "UNKNOWN";
+
+
+                        const docSegment =
+                            getAttachmentDocumentSegmentFromUri(document.uri) ||
+                            "UNKNOWN";
                         const filesDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "attachments", "files", docSegment);
                         const pointersDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "attachments", "pointers", docSegment);
                         await vscode.workspace.fs.createDirectory(filesDir);
@@ -1006,7 +1052,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             // Write the updated notebook back to disk
             await vscode.workspace.fs.writeFile(
                 targetFileUri,
-                Buffer.from(JSON.stringify(updatedNotebook, null, 2))
+                Buffer.from(formatJsonForNotebookFile(updatedNotebook))
             );
 
             // Show success message with statistics
@@ -1329,6 +1375,76 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 requestId: requestId,
                 success: false,
                 error: error instanceof Error ? error.message : "Unknown error occurred"
+            });
+        }
+    }
+
+    /**
+     * Handle saveFile command from webview - saves a file using VS Code's save dialog
+     */
+    private async handleSaveFile(message: SaveFileMessage, webviewPanel: vscode.WebviewPanel): Promise<void> {
+        try {
+            const { fileName, dataBase64, mime } = message;
+
+            // Extract base64 data (handle data: URL format)
+            let base64Data = dataBase64;
+            if (base64Data.includes(',')) {
+                // Remove data: URL prefix if present
+                base64Data = base64Data.split(',')[1];
+            }
+
+            // Convert base64 to Buffer
+            const buffer = Buffer.from(base64Data, 'base64');
+
+            if (buffer.length === 0) {
+                throw new Error('File data is empty');
+            }
+
+            // Show save dialog
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            const defaultUri = workspaceFolder
+                ? vscode.Uri.joinPath(workspaceFolder.uri, fileName)
+                : undefined;
+
+            const saveUri = await vscode.window.showSaveDialog({
+                defaultUri,
+                saveLabel: 'Save',
+                filters: mime
+                    ? {
+                        'All Files': ['*'],
+                        [mime]: [fileName.split('.').pop() || '*']
+                    }
+                    : undefined
+            });
+
+            if (!saveUri) {
+                // User cancelled
+                webviewPanel.webview.postMessage({
+                    command: "notification",
+                    type: "info",
+                    message: "File save cancelled"
+                });
+                return;
+            }
+
+            // Write file
+            await vscode.workspace.fs.writeFile(saveUri, buffer);
+
+            // Send success notification
+            webviewPanel.webview.postMessage({
+                command: "notification",
+                type: "success",
+                message: `File saved successfully: ${path.basename(saveUri.fsPath)}`
+            });
+
+            console.log(`[NEW SOURCE UPLOADER] File saved: ${saveUri.fsPath} (${buffer.length} bytes)`);
+
+        } catch (error) {
+            console.error("[NEW SOURCE UPLOADER] Error saving file:", error);
+            webviewPanel.webview.postMessage({
+                command: "notification",
+                type: "error",
+                message: error instanceof Error ? error.message : "Failed to save file"
             });
         }
     }

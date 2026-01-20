@@ -9,7 +9,7 @@ import { Alert, AlertDescription } from "../../../components/ui/alert";
 import { Upload, Music, Play, Pause, ArrowLeft, Check, AlertTriangle, Settings, ChevronDown, ChevronRight, Trash2, Plus } from "lucide-react";
 import { Slider } from "../../../components/ui/slider";
 import { NotebookPair, ProcessedCell } from "../../types/common";
-import { createProcessedCell } from "../../utils/workflowHelpers";
+import { createProcessedCell, addMilestoneCellsToNotebookPair } from "../../utils/workflowHelpers";
 import { CodexCellTypes } from "types/enums";
 
 const vscode: { postMessage: (message: any) => void } = (window as any).vscodeApi;
@@ -660,9 +660,18 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                     metadata: {
                         id: docId,
                         originalFileName: file.fileName,
+                        sourceFile: file.fileName,
                         importerType: "audio",
                         createdAt: nowIso,
                         audioOnly: true,
+                        importContext: {
+                            importerType: "audio",
+                            fileName: file.fileName,
+                            originalFileName: file.fileName,
+                            importTimestamp: nowIso,
+                            thresholdDb: file.thresholdDb,
+                            minDuration: file.minDuration,
+                        },
                     },
                 },
                 codex: {
@@ -671,14 +680,25 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                     metadata: {
                         id: docId,
                         originalFileName: file.fileName,
+                        sourceFile: file.fileName,
                         importerType: "audio",
                         createdAt: nowIso,
                         audioOnly: true,
+                        importContext: {
+                            importerType: "audio",
+                            fileName: file.fileName,
+                            originalFileName: file.fileName,
+                            importTimestamp: nowIso,
+                            thresholdDb: file.thresholdDb,
+                            minDuration: file.minDuration,
+                        },
                     },
                 },
             };
 
-            notebookPairs.push(notebookPair);
+            // Add milestone cells to the notebook pair
+            const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
+            notebookPairs.push(notebookPairWithMilestones);
             allSegmentMappings.push({ sessionId: file.sessionId, mappings: segmentMappings });
         });
 

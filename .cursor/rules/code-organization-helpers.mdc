@@ -1,0 +1,630 @@
+---
+description: Code organization rules for reusing helpers and keeping files clean and focused
+globs:
+alwaysApply: true
+---
+
+# Code Organization: Helper Functions and Utils
+
+## Overview
+
+This project follows a principle of keeping files focused, maintainable, and reasonably sized. Helper functions should be extracted and reused rather than duplicated across files.
+
+## General Principles
+
+### 1. Extract Reusable Logic
+
+When you find yourself:
+
+- Writing similar code in multiple places
+- Creating functions that could be useful elsewhere
+- Adding utility logic that's not core to the current file's purpose
+
+**Extract it into a helper function** and place it in an appropriate utils file.
+
+### 2. Utils File Location Strategy
+
+**Place utils files near their primary usage:**
+
+- **Co-located utils**: Create `utils.ts` or `utils/` directory in the same directory as the files that use them
+- **Shared utils**: For cross-directory usage, place in a common `utils/` directory at the appropriate level
+- **Domain-specific utils**: Keep utils close to their domain (e.g., `cellUtils.ts` near cell-related code)
+
+### Examples:
+
+```
+src/providers/codexCellEditorProvider/
+├── codexCellEditorProvider.ts
+├── codexDocument.ts
+└── utils/
+    ├── cellUtils.ts          # Cell-specific utilities
+    └── documentUtils.ts      # Document-specific utilities
+
+src/utils/
+├── uuidUtils.ts              # General UUID utilities
+└── fileUtils.ts              # General file utilities
+```
+
+### 3. File Size Guidelines
+
+**Target file sizes:**
+
+- **Ideal**: Under 500 lines
+- **Acceptable**: 500-1000 lines
+- **Refactor when**: Over 1000 lines (unless it's a complex but cohesive module)
+
+**When a file grows too large:**
+
+1. Identify logical sections or responsibilities
+2. Extract helper functions to utils files
+3. Consider splitting into multiple files if responsibilities diverge
+4. Keep related code together, separate unrelated concerns
+
+### 4. Helper Function Guidelines
+
+**Create helpers for:**
+
+- **Repeated patterns**: Same logic used in 2+ places
+- **Complex calculations**: Non-trivial transformations or computations
+- **Data validation**: Input validation and sanitization
+- **Format conversions**: Data format transformations
+- **Common operations**: Frequently used operations (e.g., UUID generation, date formatting)
+
+**Keep in the file when:**
+
+- Used only once and tightly coupled to the file's core purpose
+- Very simple (1-2 lines) and adding a helper would reduce clarity
+- Part of a cohesive algorithm that shouldn't be split
+
+### 5. Utils File Organization
+
+**Structure utils files logically:**
+
+```typescript
+// Good: Grouped by purpose
+export function formatCellId(book: string, chapter: number, verse: number): string {
+    // ...
+}
+
+export function parseCellId(cellId: string): { book: string; chapter: number; verse: number } {
+    // ...
+}
+
+// Related functions grouped together
+export function validateCellId(cellId: string): boolean {
+    // ...
+}
+```
+
+**Avoid:**
+
+- Mixing unrelated utilities in the same file
+- Creating utils files with only one function (unless it's complex and reusable)
+- Deeply nested utils directories (prefer flat structure)
+
+### 6. Import Patterns
+
+**Use clear, descriptive imports:**
+
+```typescript
+// Good: Clear what you're importing
+import { formatCellId, parseCellId } from "./utils/cellUtils";
+import { generateUuid } from "../utils/uuidUtils";
+
+// Avoid: Importing everything
+import * as utils from "./utils"; // Only if truly needed
+```
+
+### 7. Refactoring Existing Code
+
+When working with existing code:
+
+1. **Identify duplication**: Look for similar patterns across files
+2. **Extract gradually**: Don't refactor everything at once - extract as you work
+3. **Maintain compatibility**: Ensure extracted helpers maintain the same behavior
+4. **Update imports**: Update all files using the extracted logic
+5. **Add tests**: Ensure extracted helpers are properly tested
+
+### 8. Examples
+
+**Before (duplicated logic):**
+
+```typescript
+// File A
+const cellId = `${book}_${chapter.toString().padStart(3, "0")}_${verse.toString().padStart(3, "0")}`;
+
+// File B
+const cellId = `${book}_${chapter.toString().padStart(3, "0")}_${verse.toString().padStart(3, "0")}`;
+```
+
+**After (extracted helper):**
+
+```typescript
+// utils/cellUtils.ts
+export function formatCellId(book: string, chapter: number, verse: number): string {
+    return `${book}_${chapter.toString().padStart(3, "0")}_${verse.toString().padStart(3, "0")}`;
+}
+
+// File A & B
+import { formatCellId } from "./utils/cellUtils";
+const cellId = formatCellId(book, chapter, verse);
+```
+
+## Type Safety: Always Use Proper Types
+
+### 1. Never Use `any` Type
+
+**Always check type files first** before using `any`. The project maintains comprehensive type definitions in the `types/` directory.
+
+**Primary type files to check:**
+
+- `types/index.d.ts` - Main type definitions for the project
+- `types/enums.ts` - Enum definitions
+- `types/TsvTypes.d.ts` - TSV-related types
+- `types/usfm-grammar.d.ts` - USFM grammar types
+
+### 2. Type Discovery Process
+
+**Before typing a variable or parameter:**
+
+1. **Check existing types**: Search `types/index.d.ts` for relevant interfaces/types
+2. **Check domain-specific types**: Look for types in related files (e.g., message types, cell types)
+3. **Check imports**: Review what types are already imported in similar files
+4. **Create new types**: Only if no suitable type exists, create a new one in the appropriate type file
+
+### 3. Common Type Patterns
+
+**Instead of `any`, use:**
+
+```typescript
+// Bad: Using any
+function processMessage(message: any) {
+    // ...
+}
+
+// Good: Using proper type
+import { ChatMessageWithContext } from "../../types";
+function processMessage(message: ChatMessageWithContext) {
+    // ...
+}
+
+// Good: Using union types when multiple types are possible
+function handleContent(content: GlobalContentType) {
+    // ...
+}
+
+// Good: Using generic types when appropriate
+function processData<T extends Dictionary>(data: T): T {
+    // ...
+}
+```
+
+### 4. Type Narrowing
+
+**When dealing with unknown data:**
+
+```typescript
+// Bad: Using any
+function handleData(data: any) {
+    return data.someProperty;
+}
+
+// Good: Type guards and narrowing
+function handleData(data: unknown) {
+    if (isChatMessage(data)) {
+        return data.content; // TypeScript knows this is ChatMessage
+    }
+    throw new Error("Invalid data type");
+}
+
+function isChatMessage(data: unknown): data is ChatMessage {
+    return typeof data === "object" && data !== null && "role" in data && "content" in data;
+}
+```
+
+### 5. Message and Command Types
+
+**For webview/provider communication:**
+
+```typescript
+// Bad: Using any for command data
+interface Message {
+    command: {
+        name: string;
+        data?: any; // ❌ Don't do this
+    };
+}
+
+// Good: Define specific types for each command
+interface Message {
+    command: {
+        name: "updateCell" | "deleteCell" | "createCell";
+        data?: UpdateCellData | DeleteCellData | CreateCellData;
+    };
+}
+```
+
+**Always check `types/index.d.ts` for existing message types** before creating new ones.
+
+### 6. When Types Don't Exist
+
+**If you need a type that doesn't exist:**
+
+1. **Check if it should be added to `types/index.d.ts`** (for project-wide types)
+2. **Create a local type** if it's file-specific:
+    ```typescript
+    // At the top of the file, before the function
+    type LocalHelperType = {
+        property: string;
+        value: number;
+    };
+    ```
+3. **Consider if it should be shared**: If used in 2+ files, add to `types/index.d.ts`
+
+### 7. Type Import Patterns
+
+**Import types from the types directory:**
+
+```typescript
+// Good: Import specific types
+import type { ChatMessage, ChatMessageThread, NotebookComment } from "../../types";
+
+// Good: Import types alongside values if needed
+import { CodexCellTypes } from "../../types/enums";
+
+// Avoid: Importing everything
+import * as Types from "../../types"; // Only if truly needed
+```
+
+### 8. Refactoring Existing `any` Types
+
+**When encountering `any` in existing code:**
+
+1. **Identify the actual shape**: Understand what data structure is being used
+2. **Find or create the type**: Check type files, create if needed
+3. **Replace gradually**: Update one usage at a time, test thoroughly
+4. **Update related code**: Ensure all related functions/types are updated
+
+### 9. Type Safety Checklist
+
+Before committing code, verify:
+
+- [ ] No `any` types used (except in type guards or when absolutely necessary)
+- [ ] All imports from `types/` directory are correct
+- [ ] Function parameters have explicit types
+- [ ] Return types are specified
+- [ ] Generic types are used appropriately
+- [ ] Type guards are used for runtime type checking when needed
+
+## ES6+ Modern JavaScript Features
+
+### 1. Always Prefer ES6+ Syntax
+
+**Use modern JavaScript/TypeScript features** instead of older patterns. This improves readability, maintainability, and takes advantage of language improvements.
+
+### 2. Variable Declarations
+
+**Use `const` and `let` instead of `var`:**
+
+```typescript
+// Bad: Using var
+var count = 0;
+var name = "John";
+
+// Good: Using const/let
+const name = "John"; // Use const for values that don't change
+let count = 0; // Use let for values that change
+```
+
+**Guidelines:**
+
+- Use `const` by default for variables that don't need reassignment
+- Use `let` only when the variable needs to be reassigned
+- Never use `var` (no block scoping, hoisting issues)
+
+### 3. Arrow Functions
+
+**Prefer arrow functions overall unless older method is necessary:**
+
+```typescript
+// Bad: Function expressions
+const numbers = [1, 2, 3];
+const doubled = numbers.map(function (n) {
+    return n * 2;
+});
+
+// Good: Arrow function expressions
+const someArrowFunction = (aParam: number): number => {
+    return aParam + 3;
+};
+
+// Good: Arrow functions
+const numbers = [1, 2, 3];
+const doubled = numbers.map((n) => n * 2);
+
+// Good: Arrow functions for callbacks
+setTimeout(() => {
+    console.log("Done");
+}, 1000);
+
+// Good: Arrow functions preserve 'this' context
+class MyClass {
+    handleClick = () => {
+        // 'this' is correctly bound
+        this.doSomething();
+    };
+}
+```
+
+**When to use regular functions:**
+
+- Methods in classes (unless you need `this` binding)
+- Functions that need their own `this` context
+- Functions that need to be hoisted
+
+### 4. Template Literals
+
+**Use template literals for string concatenation:**
+
+```typescript
+// Bad: String concatenation
+const message = "Hello, " + name + "! You have " + count + " items.";
+
+// Good: Template literals
+const message = `Hello, ${name}! You have ${count} items.`;
+
+// Good: Multi-line strings
+const html = `
+    <div>
+        <h1>${title}</h1>
+        <p>${content}</p>
+    </div>
+`;
+```
+
+### 5. Destructuring
+
+**Use destructuring for objects and arrays:**
+
+```typescript
+// Bad: Manual property access
+const book = data.book;
+const chapter = data.chapter;
+const verse = data.verse;
+
+// Good: Object destructuring
+const { book, chapter, verse } = data;
+
+// Good: Destructuring with renaming
+const { book: bookName, chapter: chapterNum } = data;
+
+// Good: Destructuring with defaults
+const { book = "GEN", chapter = 1 } = data;
+
+// Good: Array destructuring
+const [first, second, third] = items;
+const [head, ...rest] = items;
+
+// Good: Function parameter destructuring
+function processCell({ book, chapter, verse }: CellData) {
+    // ...
+}
+
+// Good: Nested destructuring
+const {
+    user: { name, email },
+    settings: { theme },
+} = config;
+```
+
+### 6. Spread Operator
+
+**Use spread operator for arrays and objects:**
+
+```typescript
+// Bad: Manual array copying/merging
+const newArray = oldArray.slice();
+const merged = array1.concat(array2);
+const allItems = [item1, item2, item3];
+
+// Good: Spread operator
+const newArray = [...oldArray];
+const merged = [...array1, ...array2];
+const allItems = [item1, item2, item3];
+
+// Good: Object spreading
+const updated = { ...original, newProperty: value };
+const merged = { ...obj1, ...obj2 };
+
+// Good: Removing properties
+const { removed, ...rest } = object;
+```
+
+### 7. Default Parameters
+
+**Use default parameters instead of manual checks:**
+
+```typescript
+// Bad: Manual default handling
+function formatCellId(book, chapter, verse) {
+    book = book || "GEN";
+    chapter = chapter || 1;
+    verse = verse || 1;
+    // ...
+}
+
+// Good: Default parameters
+function formatCellId(book: string = "GEN", chapter: number = 1, verse: number = 1): string {
+    // ...
+}
+```
+
+### 8. Object Property Shorthand
+
+**Use shorthand when property and variable names match:**
+
+```typescript
+// Bad: Verbose object creation
+const cell = {
+    book: book,
+    chapter: chapter,
+    verse: verse,
+};
+
+// Good: Property shorthand
+const cell = {
+    book,
+    chapter,
+    verse,
+};
+
+// Good: Method shorthand
+const obj = {
+    getName() {
+        return this.name;
+    },
+};
+```
+
+### 9. Array Methods
+
+**Use modern array methods instead of loops:**
+
+```typescript
+// Bad: Traditional for loop
+const doubled = [];
+for (let i = 0; i < numbers.length; i++) {
+    doubled.push(numbers[i] * 2);
+}
+
+// Good: Array methods
+const doubled = numbers.map((n) => n * 2);
+const evens = numbers.filter((n) => n % 2 === 0);
+const sum = numbers.reduce((acc, n) => acc + n, 0);
+const found = items.find((item) => item.id === targetId);
+const hasMatch = items.some((item) => item.active);
+const allActive = items.every((item) => item.active);
+```
+
+### 10. Async/Await
+
+**Use async/await instead of promise chains:**
+
+```typescript
+// Bad: Promise chains
+function fetchData() {
+    return fetch(url)
+        .then((response) => response.json())
+        .then((data) => {
+            return processData(data);
+        })
+        .catch((error) => {
+            console.error(error);
+        });
+}
+
+// Good: Async/await
+async function fetchData() {
+    try {
+        const response = await fetch(url);
+        const data = await response.json();
+        return processData(data);
+    } catch (error) {
+        console.error(error);
+        throw error;
+    }
+}
+
+// Good: Parallel async operations
+const [data1, data2, data3] = await Promise.all([fetch1(), fetch2(), fetch3()]);
+```
+
+### 11. Optional Chaining and Nullish Coalescing
+
+**Use optional chaining and nullish coalescing:**
+
+```typescript
+// Bad: Manual null checks
+const value = obj && obj.property && obj.property.nested;
+const name = user ? user.name : "Unknown";
+
+// Good: Optional chaining
+const value = obj?.property?.nested;
+const name = user?.name ?? "Unknown";
+
+// Good: Nullish coalescing (only checks null/undefined)
+const count = input ?? 0; // Only defaults if null or undefined
+const enabled = settings.enabled ?? true;
+```
+
+### 12. Modules (Import/Export)
+
+**Use ES6 module syntax:**
+
+```typescript
+// Bad: CommonJS
+const utils = require("./utils");
+module.exports = { formatCellId };
+
+// Good: ES6 modules
+import { formatCellId, parseCellId } from "./utils/cellUtils";
+import type { CellData } from "../../types";
+export { formatCellId };
+export default class CellEditor {}
+
+// Good: Named exports preferred over default exports
+export function formatCellId() {}
+export const CELL_CONSTANT = "value";
+```
+
+### 13. Classes
+
+**Use ES6 classes with proper syntax:**
+
+```typescript
+// Good: ES6 class syntax
+class CellEditor {
+    private cells: Cell[] = [];
+
+    constructor(private config: EditorConfig) {}
+
+    public addCell(cell: Cell): void {
+        this.cells.push(cell);
+    }
+
+    private validateCell(cell: Cell): boolean {
+        // ...
+    }
+
+    static createDefault(): CellEditor {
+        return new CellEditor(defaultConfig);
+    }
+}
+```
+
+### 14. ES6+ Checklist
+
+Before committing code, verify:
+
+- [ ] Using `const`/`let` instead of `var`
+- [ ] Using arrow functions for callbacks
+- [ ] Using template literals for strings
+- [ ] Using destructuring where appropriate
+- [ ] Using spread operator for copying/merging
+- [ ] Using default parameters
+- [ ] Using object property shorthand
+- [ ] Using modern array methods (map, filter, reduce, etc.)
+- [ ] Using async/await instead of promise chains
+- [ ] Using optional chaining and nullish coalescing
+- [ ] Using ES6 module syntax (import/export)
+
+## Benefits
+
+Following these guidelines ensures:
+
+- **Maintainability**: Changes to logic happen in one place
+- **Testability**: Utils can be tested independently
+- **Readability**: Files focus on their core purpose
+- **Reusability**: Helpers can be easily discovered and reused
+- **Consistency**: Same logic produces consistent results across the codebase
+- **Type Safety**: Proper types catch errors at compile time and improve IDE support

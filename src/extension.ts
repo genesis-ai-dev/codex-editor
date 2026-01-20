@@ -16,9 +16,13 @@ import {
     migration_chatSystemMessageToMetadata,
     migration_lineNumbersSettings,
     migration_editHistoryFormat,
+    migration_addMilestoneCells,
+    migration_reorderMisplacedParatextCells,
+    migration_addGlobalReferences,
+    migration_cellIdsToUuid,
+    migration_recoverTempFilesAndMergeDuplicates,
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/contentIndexes/indexes";
-import { migrateSourceFiles } from "./utils/codexNotebookUtils";
 import { StatusBarItem } from "vscode";
 import { Database } from "fts5-sql-bundle";
 import {
@@ -53,10 +57,15 @@ import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/update
 import { fileExists } from "./utils/webviewUtils";
 import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
-import { migrateAudioAttachments } from "./utils/audioAttachmentsMigrationUtils";
 import { registerTestingCommands } from "./evaluation/testingCommands";
 import { initializeABTesting } from "./utils/abTestingSetup";
-import { migration_addValidationsForUserEdits, migration_moveTimestampsToMetadataData, migration_promoteCellTypeToTopLevel, migration_addImporterTypeToMetadata } from "./projectManager/utils/migrationUtils";
+import {
+    migration_addValidationsForUserEdits,
+    migration_moveTimestampsToMetadataData,
+    migration_promoteCellTypeToTopLevel,
+    migration_addImporterTypeToMetadata,
+    migration_hoistDocumentContextToNotebookMetadata,
+} from "./projectManager/utils/migrationUtils";
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
 import * as fs from "fs";
@@ -225,7 +234,7 @@ async function restoreTabLayout(context: vscode.ExtensionContext) {
                         if (!(await fileExists(uri))) {
                             return; // Skip missing files
                         }
-                        
+
                         if (viewType && viewType !== "default") {
                             await vscode.commands.executeCommand(
                                 "vscode.openWith",
@@ -265,12 +274,12 @@ async function restoreTabLayout(context: vscode.ExtensionContext) {
     for (const tab of codexTabs) {
         try {
             const uri = vscode.Uri.parse(tab.uri);
-            
+
             // Check if file exists before trying to open
             if (!(await fileExists(uri))) {
                 continue; // Skip missing files
             }
-            
+
             await vscode.commands.executeCommand(
                 "vscode.openWith",
                 uri,
@@ -367,16 +376,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 // Don't fail startup due to migration errors
             }
 
-            // Migrate audio attachments to new folder structure (async, don't block startup)
-            try {
-                migrateAudioAttachments(vscode.workspace.workspaceFolders[0]).catch(error => {
-                    console.error("[Extension] Error during audio attachments migration:", error);
-                    // Silent fallback - don't block startup if migration fails
-                });
-            } catch (error) {
-                console.error("[Extension] Error during audio attachments migration:", error);
-                // Don't fail startup due to migration errors
-            }
         }
         stepStart = trackTiming("Migrating Legacy Comments", migrationStart);
 
@@ -402,13 +401,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 // Don't fail startup due to git config update errors
             }
 
-            // Auto-migrate legacy .x-m4a audio files silently (non-blocking)
-            // Similar to database corruption repair - runs automatically without user notification
-            import("./utils/audioFileValidation")
-                .then(({ autoMigrateLegacyAudioFiles }) => autoMigrateLegacyAudioFiles())
-                .catch(error => {
-                    console.error("[Extension] Error auto-migrating legacy audio files:", error);
-                });
         }
         stepStart = trackTiming("Updating Git Configuration", gitConfigStart);
 
@@ -604,16 +596,65 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Execute post-activation tasks
         const postActivationStart = globalThis.performance.now();
+
         await executeCommandsAfter(context);
         // NOTE: migration_chatSystemMessageSetting() now runs BEFORE sync (see line ~768)
         await temporaryMigrationScript_checkMatthewNotebook();
         await migration_changeDraftFolderToFilesFolder();
-        await migrateSourceFiles();
         await migration_lineNumbersSettings(context);
         await migration_moveTimestampsToMetadataData(context);
         await migration_promoteCellTypeToTopLevel(context);
         await migration_editHistoryFormat(context);
         await migration_addImporterTypeToMetadata(context);
+        await migration_hoistDocumentContextToNotebookMetadata(context);
+        await migration_addMilestoneCells(context);
+        await migration_reorderMisplacedParatextCells(context);
+        await migration_addGlobalReferences(context);
+        await migration_cellIdsToUuid(context);
+        await migration_recoverTempFilesAndMergeDuplicates(context);
+
+        // After migrations complete, trigger sync directly
+        // (All migrations have finished executing since they're awaited sequentially)
+        try {
+            const hasCodexProject = await checkIfMetadataAndGitIsInitialized();
+            if (hasCodexProject) {
+                const authApi = getAuthApi();
+                if (authApi && typeof (authApi as any).getAuthStatus === "function") {
+                    const authStatus = authApi.getAuthStatus();
+                    if (authStatus.isAuthenticated) {
+                        // Check if this is a heal workspace
+                        const pendingHealSync = context.globalState.get<any>("codex.pendingHealSync");
+                        const workspaceFolderPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                        const isHealWorkspace =
+                            !!pendingHealSync &&
+                            typeof pendingHealSync.projectPath === "string" &&
+                            typeof workspaceFolderPath === "string" &&
+                            path.normalize(pendingHealSync.projectPath) === path.normalize(workspaceFolderPath);
+
+                        const syncManager = SyncManager.getInstance();
+                        if (isHealWorkspace && pendingHealSync?.commitMessage) {
+                            await syncManager.executeSync(String(pendingHealSync.commitMessage), true, context, false);
+                            // Clear the pending flag and show success message if needed
+                            await context.globalState.update("codex.pendingHealSync", undefined);
+                            if (pendingHealSync?.showSuccessMessage) {
+                                const projectName = pendingHealSync?.projectName || "Project";
+                                const backupFileName = pendingHealSync?.backupFileName;
+                                vscode.window.showInformationMessage(
+                                    backupFileName
+                                        ? `Project "${projectName}" has been healed and synced successfully! Backup saved to: ${backupFileName}`
+                                        : `Project "${projectName}" has been healed and synced successfully!`
+                                );
+                            }
+                        } else {
+                            await syncManager.executeSync("Initial workspace sync", true, context, false);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error("❌ [POST-MIGRATIONS] Error triggering sync after migrations:", error);
+        }
+
         trackTiming("Running Post-activation Tasks", postActivationStart);
 
         // Register update commands and check for updates (non-blocking)
@@ -857,7 +898,9 @@ async function executeCommandsBefore(context: vscode.ExtensionContext) {
     registerCommandsBefore(context);
 }
 
-async function executeCommandsAfter(context: vscode.ExtensionContext) {
+async function executeCommandsAfter(
+    context: vscode.ExtensionContext
+) {
     try {
         // Update splash screen for post-activation tasks
         updateSplashScreenSync(90, "Configuring editor settings...");
@@ -896,79 +939,30 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
         // Restore tab layout after splash screen closes
         await restoreTabLayout(context);
 
-        // Now run the sync operation after workspace has loaded (only if a Codex project is open)
-
-        // First check if there's actually a Codex project open
+        // Sync has already run after migrations complete, so we don't need to run it again here
+        // Just handle heal workspace success message if needed (as a backup, in case the post-migration
+        // sync didn't show it for some reason)
         const hasCodexProject = await checkIfMetadataAndGitIsInitialized();
-
-        // If we just completed a heal, we may have a pending heal sync to run (with a specific commit message).
-        const pendingHealSync = context.globalState.get<any>("codex.pendingHealSync");
-        const workspaceFolderPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        const isHealWorkspace =
-            !!pendingHealSync &&
-            typeof pendingHealSync.projectPath === "string" &&
-            typeof workspaceFolderPath === "string" &&
-            path.normalize(pendingHealSync.projectPath) === path.normalize(workspaceFolderPath);
-
-        // CRITICAL: Run migrations and disable VS Code's Git BEFORE first sync
-        // This must happen after checking project exists but BEFORE any Git operations
         if (hasCodexProject) {
-            // Run chatSystemMessage migration FIRST to ensure correct key is synced
-            await migration_chatSystemMessageSetting();
-            debug("✅ [PRE-SYNC] Completed chatSystemMessage namespace migration");
-            // Migrate chatSystemMessage from settings.json to metadata.json
-            await migration_chatSystemMessageToMetadata(context);
-            debug("✅ [PRE-SYNC] Completed chatSystemMessage to metadata.json migration");
+            const pendingHealSync = context.globalState.get<any>("codex.pendingHealSync");
+            if (pendingHealSync?.showSuccessMessage) {
+                const workspaceFolderPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                const isHealWorkspace =
+                    !!pendingHealSync &&
+                    typeof pendingHealSync.projectPath === "string" &&
+                    typeof workspaceFolderPath === "string" &&
+                    path.normalize(pendingHealSync.projectPath) === path.normalize(workspaceFolderPath);
 
-            const { ensureGitDisabledInSettings } = await import("./projectManager/utils/projectUtils");
-            await ensureGitDisabledInSettings();
-            debug("✅ [PRE-SYNC] Disabled VS Code Git before sync operations");
-        }
-        if (!hasCodexProject) {
-            debug("⏭️ [POST-WORKSPACE] No Codex project open, skipping post-workspace sync");
-        } else if (authApi && typeof (authApi as any).getAuthStatus === "function") {
-            try {
-                const authStatus = authApi.getAuthStatus();
-                if (authStatus.isAuthenticated) {
-                    debug("🔄 [POST-WORKSPACE] Codex project detected and user authenticated, proceeding to sync...");
-
-                    {
-                        const syncStart = globalThis.performance.now();
-                        const syncManager = SyncManager.getInstance();
-                        try {
-                            if (isHealWorkspace && pendingHealSync?.commitMessage) {
-                                await syncManager.executeSync(String(pendingHealSync.commitMessage), true, context, false);
-                            } else {
-                                await syncManager.executeSync("Initial workspace sync", true, context, false);
-                            }
-                            const syncDuration = globalThis.performance.now() - syncStart;
-                            debug(`✅ [POST-WORKSPACE] Sync completed after workspace load: ${syncDuration.toFixed(2)}ms`);
-
-                            // If this was a heal-triggered sync, clear the pending flag and show success message.
-                            if (isHealWorkspace) {
-                                await context.globalState.update("codex.pendingHealSync", undefined);
-                                if (pendingHealSync?.showSuccessMessage) {
-                                    const projectName = pendingHealSync?.projectName || "Project";
-                                    const backupFileName = pendingHealSync?.backupFileName;
-                                    vscode.window.showInformationMessage(
-                                        backupFileName
-                                            ? `Project "${projectName}" has been healed and synced successfully! Backup saved to: ${backupFileName}`
-                                            : `Project "${projectName}" has been healed and synced successfully!`
-                                    );
-                                }
-                            }
-                        } catch (error) {
-                            console.error("❌ [POST-WORKSPACE] Error during post-workspace sync:", error);
-                        }
-                    }
-                } else {
-                    debug("⏭️ [POST-WORKSPACE] User is not authenticated, skipping post-workspace sync");
+                if (isHealWorkspace) {
+                    const projectName = pendingHealSync?.projectName || "Project";
+                    const backupFileName = pendingHealSync?.backupFileName;
+                    vscode.window.showInformationMessage(
+                        backupFileName
+                            ? `Project "${projectName}" has been healed and synced successfully! Backup saved to: ${backupFileName}`
+                            : `Project "${projectName}" has been healed and synced successfully!`
+                    );
                 }
-            } catch (error) {
-                console.error("❌ [POST-WORKSPACE] Error checking auth status for post-workspace sync:", error);
             }
-        } else {
-            debug("⏭️ [POST-WORKSPACE] Auth API not available, skipping post-workspace sync");
         }
 
         // Check if we need to show the welcome view after initialization

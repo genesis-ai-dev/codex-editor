@@ -1,4 +1,5 @@
 import { ProcessedCell } from "../../types/common";
+import { v4 as uuidv4 } from "uuid";
 
 interface ParsedSection {
     content: string;
@@ -36,13 +37,19 @@ function parseJsonData(data: any, fileName: string, sectionIndex: number = 1): P
             // Array of objects - each object becomes a section
             data.forEach((item, index) => {
                 const section = parseObjectToSection(item);
+                const legacyId = `${fileName} ${index + 1}:1`;
+                const id = uuidv4();
                 cells.push({
-                    id: `${fileName} ${index + 1}:1`,
+                    id,
                     content: section.content,
                     metadata: {
                         type: "json-object",
                         ...section.metadata,
                         sectionIndex: index + 1,
+                        data: {
+                            originalText: section.content,
+                            globalReferences: [legacyId],
+                        },
                     },
                     images: [],
                 });
@@ -56,12 +63,18 @@ function parseJsonData(data: any, fileName: string, sectionIndex: number = 1): P
                 return String(item);
             }).join('\n\n');
 
+            const legacyId = `${fileName} ${sectionIndex}:1`;
+            const id = uuidv4();
             cells.push({
-                id: `${fileName} ${sectionIndex}:1`,
+                id,
                 content: content,
                 metadata: {
                     type: "json-array",
                     arrayLength: data.length,
+                    data: {
+                        originalText: content,
+                        globalReferences: [legacyId],
+                    },
                 },
                 images: [],
             });
@@ -69,23 +82,35 @@ function parseJsonData(data: any, fileName: string, sectionIndex: number = 1): P
     } else if (typeof data === 'object' && data !== null) {
         // Single object
         const section = parseObjectToSection(data);
+        const legacyId = `${fileName} ${sectionIndex}:1`;
+        const id = uuidv4();
         cells.push({
-            id: `${fileName} ${sectionIndex}:1`,
+            id,
             content: section.content,
             metadata: {
                 type: "json-object",
                 ...section.metadata,
+                data: {
+                    originalText: section.content,
+                    globalReferences: [legacyId],
+                },
             },
             images: [],
         });
     } else {
         // Primitive value
+        const legacyId = `${fileName} ${sectionIndex}:1`;
+        const id = uuidv4();
         cells.push({
-            id: `${fileName} ${sectionIndex}:1`,
+            id,
             content: String(data),
             metadata: {
                 type: "json-primitive",
                 valueType: typeof data,
+                data: {
+                    originalText: String(data),
+                    globalReferences: [legacyId],
+                },
             },
             images: [],
         });

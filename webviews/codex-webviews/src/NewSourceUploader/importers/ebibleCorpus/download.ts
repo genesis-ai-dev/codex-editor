@@ -6,13 +6,13 @@ import {
 } from '../../types/common';
 import {
     createProgress,
-    createStandardCellId,
-    createProcessedCell,
+    addMilestoneCellsToNotebookPair,
 } from '../../utils/workflowHelpers';
 import {
     createNotebookPair,
 } from '../common/usfmUtils';
 import { getCorpusMarkerForBook } from '../../utils/corpusUtils';
+import { createEbibleVerseCellMetadata } from './cellMetadata';
 
 // This is a special importer that doesn't use files but downloads from eBible repository
 const SUPPORTED_EXTENSIONS: string[] = []; // No file extensions since this is download-based
@@ -340,16 +340,23 @@ const createBookNotebooks = (
     const notebookPairs: Record<string, any> = {};
 
     for (const [bookCode, verses] of Object.entries(bookGroups)) {
-        // Create cells for this book
+        // Create cells for this book using cellMetadata
         const cells = verses.map((verse) => {
-            return createProcessedCell(verse.vref, verse.text, {
-                type: 'verse',
+            const { cellId, metadata } = createEbibleVerseCellMetadata({
                 book: verse.book,
                 chapter: verse.chapter,
                 verse: verse.verse,
+                text: verse.text,
+                reference: verse.vref,
+                fileName: `${bookCode}.ebible`,
                 cellLabel: verse.verse.toString(),
-                originalText: verse.text,
             });
+            return {
+                id: cellId,
+                content: verse.text,
+                images: [],
+                metadata: metadata,
+            };
         });
 
         // Use USFM book code for filename instead of full book name
@@ -369,7 +376,10 @@ const createBookNotebooks = (
             }
         );
 
-        notebookPairs[bookCode] = notebookPair;
+        // Add milestone cells to the notebook pair
+        const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
+
+        notebookPairs[bookCode] = notebookPairWithMilestones;
     }
 
     return notebookPairs;
