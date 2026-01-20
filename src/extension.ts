@@ -59,6 +59,7 @@ import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/proje
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 import { registerTestingCommands } from "./evaluation/testingCommands";
 import { initializeABTesting } from "./utils/abTestingSetup";
+import { dumpActiveWebviews } from "./utils/webviewTracker";
 import {
     migration_addValidationsForUserEdits,
     migration_moveTimestampsToMetadataData,
@@ -560,6 +561,12 @@ export async function activate(context: vscode.ExtensionContext) {
             initializeWebviews(context),
             (async () => registerTestingCommands(context))(),
         ]);
+
+        context.subscriptions.push(
+            vscode.commands.registerCommand("codex-editor.debugWebviews", () => {
+                dumpActiveWebviews();
+            })
+        );
 
         // Initialize A/B testing registry (always-on)
         initializeABTesting();

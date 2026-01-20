@@ -3,6 +3,7 @@ import * as path from "path";
 
 import { getAuthApi } from "../../extension";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
+import { trackWebviewPanel } from "../../utils/webviewTracker";
 import { StartupFlowGlobalState } from "../StartupFlow/StartupFlowProvider";
 
 const DEBUG_MODE = false;
@@ -278,6 +279,7 @@ export class WelcomeViewProvider {
                 retainContextWhenHidden: true,
             }
         );
+        trackWebviewPanel(this._panel, WelcomeViewProvider.viewType, "WelcomeViewProvider.show");
 
         // Set the webview's html content
         this._panel.webview.html = this._getHtmlForWebview();

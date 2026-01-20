@@ -1,5 +1,6 @@
 "use strict";
 import * as vscode from "vscode";
+import { trackWebviewPanel } from "../../../../utils/webviewTracker";
 import { getWorkSpaceFolder, getWorkSpaceUri } from "../../../../utils";
 import { IndexingStatusBarHandler } from "../statusBarHandler";
 
@@ -1013,6 +1014,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                         vscode.ViewColumn.One,
                         {}
                     );
+                    trackWebviewPanel(panel, "fileInfo", "contentIndexes.getFileInfo");
 
                     // Generate HTML content
                     panel.webview.html = `

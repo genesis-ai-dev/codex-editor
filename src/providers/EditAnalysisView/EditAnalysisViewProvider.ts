@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { analyzeEditHistory } from "../../activationHelpers/contextAware/contentIndexes/indexes/editHistory";
 import { readLocalProjectSettings, writeLocalProjectSettings } from "../../utils/localProjectSettings";
+import { trackWebviewPanel } from "../../utils/webviewTracker";
 
 export class EditAnalysisProvider implements vscode.Disposable {
     public static readonly viewType = "codex-editor.editAnalysis";
@@ -28,6 +29,7 @@ export class EditAnalysisProvider implements vscode.Disposable {
                 retainContextWhenHidden: true,
             }
         );
+        trackWebviewPanel(this._panel, EditAnalysisProvider.viewType, "EditAnalysisProvider.show");
 
         this._panel.onDidDispose(() => {
             this._panel = undefined;

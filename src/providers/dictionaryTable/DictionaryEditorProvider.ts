@@ -18,6 +18,7 @@ import {
     deleteWord,
     updateWord,
 } from "../../sqldb";
+import { trackWebviewPanel } from "../../utils/webviewTracker";
 
 type FetchPageResult = {
     entries: DictionaryEntry[];
@@ -60,6 +61,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         webviewPanel: vscode.WebviewPanel,
         _token: vscode.CancellationToken
     ): Promise<void> {
+        trackWebviewPanel(webviewPanel, DictionaryEditorProvider.viewType, "DictionaryEditorProvider.resolveCustomTextEditor");
         this.document = await this.handleFetchPage(this.page, this.pageSize, this.searchQuery);
         webviewPanel.webview.options = {
             enableScripts: true,

@@ -3,8 +3,15 @@ import * as vscode from "vscode";
 import * as xml2js from "xml2js";
 import { addMetadataEdit } from "@/utils/editMapUtils";
 import { getCorrespondingSourceUri } from "@/utils/codexNotebookUtils";
+import { trackWebviewPanel } from "../utils/webviewTracker";
+
+let currentPanel: vscode.WebviewPanel | undefined;
 
 export async function openBookNameEditor() {
+    if (currentPanel) {
+        currentPanel.reveal();
+        return;
+    }
     const panel = vscode.window.createWebviewPanel(
         "bookNameEditor",
         "Edit Book Names",
@@ -14,6 +21,11 @@ export async function openBookNameEditor() {
             retainContextWhenHidden: true,
         }
     );
+    trackWebviewPanel(panel, "bookNameEditor", "openBookNameEditor");
+    currentPanel = panel;
+    panel.onDidDispose(() => {
+        currentPanel = undefined;
+    });
 
     // Dynamic import for fs and path
     const fs = await import("fs");

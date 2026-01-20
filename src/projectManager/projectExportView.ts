@@ -1,8 +1,15 @@
 import { CodexExportFormat } from "../exportHandler/exportHandler";
 import * as vscode from "vscode";
 import { safePostMessageToPanel } from "../utils/webviewUtils";
+import { trackWebviewPanel } from "../utils/webviewTracker";
+
+let currentPanel: vscode.WebviewPanel | undefined;
 
 export async function openProjectExportView(context: vscode.ExtensionContext) {
+    if (currentPanel) {
+        currentPanel.reveal();
+        return;
+    }
     const panel = vscode.window.createWebviewPanel(
         "projectExportView",
         "Export Project",
@@ -12,6 +19,11 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
             retainContextWhenHidden: true,
         }
     );
+    trackWebviewPanel(panel, "projectExportView", "openProjectExportView");
+    currentPanel = panel;
+    panel.onDidDispose(() => {
+        currentPanel = undefined;
+    });
 
     // Get project configuration
     const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");

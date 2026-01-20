@@ -13,6 +13,7 @@ import { copyToTempStorage, getColumnHeaders } from "./utils";
 import { updateCellLabels } from "./updater";
 import { getNonce } from "../providers/dictionaryTable/utilities/getNonce";
 import { safePostMessageToPanel } from "../utils/webviewUtils";
+import { trackWebviewPanel } from "../utils/webviewTracker";
 
 const DEBUG_CELL_LABEL_IMPORTER = false;
 function debug(message: string, ...args: any[]): void {
@@ -20,6 +21,8 @@ function debug(message: string, ...args: any[]): void {
         console.log(`[CellLabelImporter] ${message}`, ...args);
     }
 }
+
+let currentPanel: vscode.WebviewPanel | undefined;
 
 // Interface for the cell label data
 interface CellLabelData {
@@ -142,6 +145,10 @@ async function getHtmlForCellLabelImporterView(
 }
 
 export async function openCellLabelImporter(context: vscode.ExtensionContext) {
+    if (currentPanel) {
+        currentPanel.reveal();
+        return;
+    }
     const panel = vscode.window.createWebviewPanel(
         "cellLabelImporter",
         "Import Cell Labels (React)",
@@ -155,9 +162,16 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
             ],
         }
     );
+    trackWebviewPanel(panel, "cellLabelImporter", "openCellLabelImporter");
 
     context.subscriptions.push(panel);
     let disposables: vscode.Disposable[] = [];
+    currentPanel = panel;
+    panel.onDidDispose(() => {
+        currentPanel = undefined;
+        disposables.forEach((d) => d.dispose());
+        disposables = [];
+    });
 
     // --- Variables to manage temporary files and import sources for the current session ---
     let currentSessionTempFileUris: vscode.Uri[] = [];

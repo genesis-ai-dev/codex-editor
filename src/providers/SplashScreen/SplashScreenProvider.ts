@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { ActivationTiming } from "../../extension";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
+import { trackWebviewPanel } from "../../utils/webviewTracker";
 
 const DEBUG_SPLASH_SCREEN_PROVIDER = false;
 function debug(message: string, ...args: any[]): void {
@@ -61,6 +62,7 @@ export class SplashScreenProvider {
                 retainContextWhenHidden: true,
             }
         );
+        trackWebviewPanel(this._panel, SplashScreenProvider.viewType, "SplashScreenProvider.show");
         debug("[SplashScreen] Panel created successfully");
 
         // Set webview options

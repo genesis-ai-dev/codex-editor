@@ -7,6 +7,7 @@ import {
 } from "../../activationHelpers/contextAware/contentIndexes/indexes/wordsIndex";
 import { readSourceAndTargetFiles } from "../../activationHelpers/contextAware/contentIndexes/indexes/fileReaders";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
+import { trackWebviewPanel } from "../../utils/webviewTracker";
 
 export class WordsViewProvider implements vscode.Disposable {
     public static readonly viewType = "frontier.wordsView";
@@ -43,6 +44,7 @@ export class WordsViewProvider implements vscode.Disposable {
                 retainContextWhenHidden: true,
             }
         );
+        trackWebviewPanel(this._panel, WordsViewProvider.viewType, "WordsViewProvider.show");
 
         this._panel.onDidDispose(() => {
             this._panel = undefined;
