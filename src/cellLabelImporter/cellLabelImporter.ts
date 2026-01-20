@@ -303,7 +303,14 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
             case "processLabels":
                 try {
                     safePostMessageToPanel(panel, { command: "setLoading", isLoading: true });
-                    const { data, selectedColumn, selectedColumns, selectedTargetFilePath } = message;
+                    const {
+                        data,
+                        selectedColumn,
+                        selectedColumns,
+                        selectedTargetFilePath,
+                        matchColumn,
+                        matchFieldPath,
+                    } = message;
 
                     if (!data || (!selectedColumn && (!selectedColumns || selectedColumns.length === 0))) {
                         vscode.window.showErrorMessage(
@@ -346,7 +353,11 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                                 data, // Data already has normalized headers from importFile
                                 filesToProcess,
                                 targetFiles,
-                                labelSelector as any // string or string[]
+                                labelSelector as any, // string or string[]
+                                {
+                                    matchColumn,
+                                    matchFieldPath,
+                                }
                             );
 
                             safePostMessageToPanel(panel, {
@@ -388,6 +399,41 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                     currentSessionTempFileUris = []; // Reset for next import
                     currentImportSourceNames = []; // Reset for next import
                     safePostMessageToPanel(panel, { command: "setLoading", isLoading: false });
+                }
+                break;
+
+            case "requestMetadataFields":
+                try {
+                    const filePath: string | null = message.filePath;
+                    if (!filePath) {
+                        safePostMessageToPanel(panel, {
+                            command: "updateMetadataFields",
+                            fields: [],
+                        });
+                        break;
+                    }
+
+                    const { sourceFiles } = await loadSourceAndTargetFiles();
+                    const selectedFile = sourceFiles.find((file) => file.uri.fsPath === filePath);
+                    if (!selectedFile) {
+                        safePostMessageToPanel(panel, {
+                            command: "updateMetadataFields",
+                            fields: [],
+                        });
+                        break;
+                    }
+
+                    const fields = getMetadataFieldsForFile(selectedFile);
+                    safePostMessageToPanel(panel, {
+                        command: "updateMetadataFields",
+                        fields,
+                    });
+                } catch (error: any) {
+                    console.error("Error during requestMetadataFields:", error);
+                    safePostMessageToPanel(panel, {
+                        command: "updateMetadataFields",
+                        fields: [],
+                    });
                 }
                 break;
 
@@ -475,6 +521,41 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
 
     // Add the panel itself to disposables managed by the extension context
     context.subscriptions.push(panel);
+}
+
+function collectMetadataFieldPaths(
+    value: any,
+    prefix: string,
+    fields: Set<string>
+): void {
+    if (value === null || value === undefined) return;
+    if (Array.isArray(value)) return;
+
+    if (typeof value === "object") {
+        for (const key of Object.keys(value)) {
+            if (key === "edits") continue;
+            const nextPrefix = `${prefix}.${key}`;
+            const nextValue = value[key];
+            if (nextValue !== null && typeof nextValue === "object" && !Array.isArray(nextValue)) {
+                collectMetadataFieldPaths(nextValue, nextPrefix, fields);
+            } else if (nextValue !== undefined) {
+                fields.add(nextPrefix);
+            }
+        }
+        return;
+    }
+
+    fields.add(prefix);
+}
+
+function getMetadataFieldsForFile(file: FileData): string[] {
+    const fields = new Set<string>();
+    file.cells.forEach((cell) => {
+        if (cell.metadata) {
+            collectMetadataFieldPaths(cell.metadata, "metadata", fields);
+        }
+    });
+    return Array.from(fields).sort();
 }
 
 // Load source and target files

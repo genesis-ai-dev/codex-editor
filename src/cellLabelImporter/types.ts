@@ -30,6 +30,10 @@ export interface ImportedRow {
 export interface CellMetadata {
     type?: string;
     id?: string;
+    data?: {
+        startTime?: number;
+        endTime?: number;
+    };
     edits?: Array<{
         cellValue: string;
         timestamp: number;
@@ -46,6 +50,11 @@ export interface FileData {
         value: string;
         metadata?: CellMetadata;
     }>;
+}
+
+export interface MatchOptions {
+    matchColumn?: string | null;
+    matchFieldPath?: string | null;
 }
 
 // Options for web view content
