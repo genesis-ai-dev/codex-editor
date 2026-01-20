@@ -553,6 +553,14 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const textValidationLevels = computeLevelPercents(textValidationCounts, minimumValidationsRequired);
             const audioValidationLevels = computeLevelPercents(audioValidationCounts, minimumAudioValidationsRequired);
 
+            // Compute average health from cells
+            const healthValues = unmergedCells
+                .map((cell) => cell.metadata?.health)
+                .filter((h): h is number => typeof h === 'number');
+            const averageHealth = healthValues.length > 0
+                ? healthValues.reduce((sum, h) => sum + h, 0) / healthValues.length
+                : 0.3; // Default to baseline if no health data
+
             const {
                 percentTranslationsCompleted,
                 percentAudioTranslationsCompleted,
@@ -589,6 +597,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                     audioValidationLevels,
                     requiredTextValidations: minimumValidationsRequired,
                     requiredAudioValidations: minimumAudioValidationsRequired,
+                    averageHealth,
                 },
                 sortOrder,
                 fileDisplayName: metadata?.fileDisplayName,
@@ -665,6 +674,14 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const averageTextValidationLevels = avgArray('textValidationLevels', textLen);
             const averageAudioValidationLevels = avgArray('audioValidationLevels', audioLen);
 
+            // Compute average health for the corpus group
+            const healthValues = itemsInGroup
+                .map((item) => item.progress?.averageHealth)
+                .filter((h): h is number => typeof h === 'number');
+            const groupAverageHealth = healthValues.length > 0
+                ? healthValues.reduce((sum, h) => sum + h, 0) / healthValues.length
+                : 0.3;
+
             const sortedItems = itemsInGroup.sort((a, b) => {
                 if (a.sortOrder && b.sortOrder) {
                     return a.sortOrder.localeCompare(b.sortOrder);
@@ -689,6 +706,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                     audioValidationLevels: averageAudioValidationLevels,
                     requiredTextValidations: vscode.workspace.getConfiguration("codex-project-manager").get<number>("validationCount", 1) || 1,
                     requiredAudioValidations: vscode.workspace.getConfiguration("codex-project-manager").get<number>("validationCountAudio", 1) || 1,
+                    averageHealth: groupAverageHealth,
                 },
             });
         });

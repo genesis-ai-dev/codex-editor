@@ -7,7 +7,7 @@ import { Progress } from "../components/ui/progress";
 import "../tailwind.css";
 import { CodexItem } from "types";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
-import { Languages } from "lucide-react";
+import { Languages, Heart } from "lucide-react";
 import { RenameModal } from "../components/RenameModal";
 
 // Declare the acquireVsCodeApi function
@@ -611,6 +611,7 @@ function NavigationView() {
             audioValidationLevels?: number[];
             requiredTextValidations?: number;
             requiredAudioValidations?: number;
+            averageHealth?: number;
         }
     ) => {
         if (typeof progress !== "object") return null;
@@ -645,8 +646,53 @@ function NavigationView() {
         const requiredText = progress.requiredTextValidations;
         const requiredAudio = progress.requiredAudioValidations;
 
+        // Health indicator - compute color and percentage
+        const health = progress.averageHealth ?? 0.3;
+        const healthPercent = Math.round(health * 100);
+        const getHealthColor = (h: number) => {
+            if (h < 0.3) return "#ef4444"; // red
+            if (h < 0.7) return "#eab308"; // yellow
+            return "#22c55e"; // green
+        };
+        const healthColor = getHealthColor(health);
+
         return (
             <div className="flex flex-col gap-y-4 pl-7">
+                {/* Health indicator - compact pill at the top */}
+                <div className="flex items-center gap-2 -mb-2">
+                    <Heart className="h-3 w-3 opacity-60" style={{ color: healthColor }} />
+                    <div
+                        className="flex items-center gap-1.5"
+                        title={`Average cell health: ${healthPercent}%`}
+                    >
+                        <div
+                            style={{
+                                width: "40px",
+                                height: "4px",
+                                borderRadius: "2px",
+                                backgroundColor: `${healthColor}33`,
+                                overflow: "hidden",
+                            }}
+                        >
+                            <div
+                                style={{
+                                    width: `${healthPercent}%`,
+                                    height: "100%",
+                                    backgroundColor: healthColor,
+                                    borderRadius: "2px",
+                                    transition: "width 0.3s ease",
+                                }}
+                            />
+                        </div>
+                        <span
+                            className="text-[10px] opacity-60"
+                            style={{ color: healthColor, minWidth: "28px" }}
+                        >
+                            {healthPercent}%
+                        </span>
+                    </div>
+                </div>
+
                 <div className="flex gap-x-1">
                     <span className="opacity-70 font-light">
                         <Languages className="h-[14px] w-[14px]" />

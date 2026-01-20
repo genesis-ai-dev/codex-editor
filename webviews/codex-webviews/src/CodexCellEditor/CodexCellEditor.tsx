@@ -1191,6 +1191,22 @@ const CodexCellEditor: React.FC = () => {
 
             // Listen for individual validation state updates to refresh progress
             if (message.type === "providerUpdatesValidationState") {
+                // Update cell health in translationUnits when validation includes health
+                if (message.content?.cellId && message.content?.health !== undefined) {
+                    setTranslationUnits((prevUnits) =>
+                        prevUnits.map((unit) =>
+                            unit.cellMarkers[0] === message.content.cellId
+                                ? {
+                                      ...unit,
+                                      metadata: {
+                                          ...unit.metadata,
+                                          health: message.content.health,
+                                      },
+                                  }
+                                : unit
+                        )
+                    );
+                }
                 // Refresh progress for current milestone after text validation completes
                 const milestoneIdx = currentMilestoneIndexRef.current;
                 if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
@@ -1200,6 +1216,22 @@ const CodexCellEditor: React.FC = () => {
 
             // Listen for audio validation state updates to refresh progress
             if (message.type === "providerUpdatesAudioValidationState") {
+                // Update cell health in translationUnits when audio validation includes health
+                if (message.content?.cellId && message.content?.health !== undefined) {
+                    setTranslationUnits((prevUnits) =>
+                        prevUnits.map((unit) =>
+                            unit.cellMarkers[0] === message.content.cellId
+                                ? {
+                                      ...unit,
+                                      metadata: {
+                                          ...unit.metadata,
+                                          health: message.content.health,
+                                      },
+                                  }
+                                : unit
+                        )
+                    );
+                }
                 // Refresh progress for current milestone after audio validation completes
                 const milestoneIdx = currentMilestoneIndexRef.current;
                 if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
