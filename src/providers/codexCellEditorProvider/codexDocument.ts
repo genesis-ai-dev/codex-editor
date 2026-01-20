@@ -646,46 +646,45 @@ export class CodexCellDocument implements vscode.CustomDocument {
             content
         );
     }
-
-    public public async save(cancellation: vscode.CancellationToken): Promise<void> {
-    const ourContent = formatJsonForNotebookFile(this._documentData);
-
-    // If a file exists but can't be read, we must not overwrite (this can permanently nuke data).
-    const existing = await readExistingFileOrThrow(this.uri);
-
-    if (existing.kind === "missing") {
-        // Initial write when file does not yet exist
-        await atomicWriteUriText(this.uri, ourContent);
-    } else {
-        const { resolveCodexCustomMerge } = await import("../../projectManager/utils/merge/resolvers");
-        const mergedContent = await resolveCodexCustomMerge(ourContent, existing.content);
-
-        // Safety: never write empty/invalid JSON to disk
-        let candidate =
-            typeof mergedContent === "string" && mergedContent.trim().length > 0
-                ? mergedContent
-                : ourContent;
-
-        candidate = normalizeNotebookFileText(candidate);
-
-        try {
-            JSON.parse(candidate);
-        } catch {
-            candidate = normalizeNotebookFileText(ourContent);
+    public async save(cancellation: vscode.CancellationToken): Promise<void> {
+        const ourContent = formatJsonForNotebookFile(this._documentData);
+    
+        // If a file exists but can't be read, we must not overwrite (this can permanently nuke data).
+        const existing = await readExistingFileOrThrow(this.uri);
+    
+        if (existing.kind === "missing") {
+            // Initial write when file does not yet exist
+            await atomicWriteUriText(this.uri, ourContent);
+        } else {
+            const { resolveCodexCustomMerge } = await import("../../projectManager/utils/merge/resolvers");
+            const mergedContent = await resolveCodexCustomMerge(ourContent, existing.content);
+    
+            // Safety: never write empty/invalid JSON to disk
+            let candidate =
+                typeof mergedContent === "string" && mergedContent.trim().length > 0
+                    ? mergedContent
+                    : ourContent;
+    
+            candidate = normalizeNotebookFileText(candidate);
+    
+            try {
+                JSON.parse(candidate);
+            } catch {
+                candidate = normalizeNotebookFileText(ourContent);
+            }
+    
+            await atomicWriteUriText(this.uri, candidate);
         }
-
-        await atomicWriteUriText(this.uri, candidate);
+    
+        // Record save timestamp to prevent file watcher from reverting our own save
+        this._lastSaveTimestamp = Date.now();
+    
+        // IMMEDIATE AI LEARNING - Update all cells with content to ensure validation changes are persisted
+        await this.syncAllCellsToDatabase();
+    
+        this._edits = []; // Clear edits after saving
+        this._isDirty = false; // Reset dirty flag
     }
-
-    // Record save timestamp to prevent file watcher from reverting our own save
-    this._lastSaveTimestamp = Date.now();
-
-    // IMMEDIATE AI LEARNING - Update all cells with content to ensure validation changes are persisted
-    await this.syncAllCellsToDatabase();
-
-    this._edits = []; // Clear edits after saving
-    this._isDirty = false; // Reset dirty flag
-}
 
 
     public async saveAs(
