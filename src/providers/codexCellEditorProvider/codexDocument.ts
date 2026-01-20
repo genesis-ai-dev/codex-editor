@@ -317,11 +317,16 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         // Set health on cell metadata if provided (for LLM generations)
-        if (health !== undefined) {
+        // Only assign health when the cell has actual content - empty cells should not have health scores
+        const hasContent = newContent && newContent.trim().length > 0 && newContent !== "<span></span>";
+        if (health !== undefined && hasContent) {
             cellToUpdate.metadata.health = health;
-        } else if (cellToUpdate.metadata.health === undefined) {
-            // Initialize with base health if not set
+        } else if (cellToUpdate.metadata.health === undefined && hasContent) {
+            // Initialize with base health if not set and cell has content
             cellToUpdate.metadata.health = 0.3;
+        } else if (!hasContent) {
+            // Clear health if cell becomes empty
+            cellToUpdate.metadata.health = undefined;
         }
 
         // For user edits, only add the edit if content has actually changed
