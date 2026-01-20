@@ -26,6 +26,7 @@ import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager"
 import { migrateLocalizedBooksToMetadata as migrateLocalizedBooks } from "./localizedBooksMigration/localizedBooksMigration";
 import { removeLocalizedBooksJsonIfPresent as removeLocalizedBooksJson } from "./localizedBooksMigration/removeLocalizedBooksJson";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
+import { trackWebviewPanel } from "../../utils/webviewTracker";
 // import { parseRtfWithPandoc as parseRtfNode } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/pandocNodeBridge";
 
 const execAsync = promisify(exec);
@@ -102,6 +103,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         webviewPanel: vscode.WebviewPanel,
         token: vscode.CancellationToken
     ): Promise<void> {
+        trackWebviewPanel(webviewPanel, NewSourceUploaderProvider.viewType, "NewSourceUploaderProvider.resolveCustomTextEditor");
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         webviewPanel.webview.options = {
             enableScripts: true,

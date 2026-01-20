@@ -26,6 +26,7 @@ import JSZip from "jszip";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 
 import { safePostMessageToPanel, safeIsVisible, safeSetHtml, safeSetOptions } from "../../utils/webviewUtils";
+import { trackWebviewPanel } from "../../utils/webviewTracker";
 import * as path from "path";
 import * as fs from "fs";
 import git from "isomorphic-git";
@@ -197,6 +198,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         _token: vscode.CancellationToken
     ): void | Thenable<void> {
         this.webviewPanel = webviewPanel;
+        trackWebviewPanel(webviewPanel, StartupFlowProvider.viewType, "StartupFlowProvider.resolveCustomTextEditor");
         this.disposables.push(webviewPanel);
 
         // Set options before content

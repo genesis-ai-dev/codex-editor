@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
+import { trackWebviewPanel } from "../../utils/webviewTracker";
 export class VideoPlayerProvider
     implements vscode.TextDocumentContentProvider, vscode.CustomTextEditorProvider
 {
@@ -30,6 +31,7 @@ export class VideoPlayerProvider
         webviewPanel: vscode.WebviewPanel,
         _token: vscode.CancellationToken
     ): Promise<void> {
+        trackWebviewPanel(webviewPanel, VideoPlayerProvider.viewType, "VideoPlayerProvider.resolveCustomTextEditor");
         webviewPanel.webview.options = {
             enableScripts: true,
             localResourceRoots: [this.context.extensionUri],

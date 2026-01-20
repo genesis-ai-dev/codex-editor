@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { callLLM } from "../utils/llmUtils";
 import { CompletionConfig } from "@/utils/llmUtils";
 import { MetadataManager } from "../utils/metadataManager";
+import { trackWebviewPanel } from "../utils/webviewTracker";
 
 interface ProjectLanguage {
     tag: string;
@@ -15,6 +16,8 @@ function debug(message: string, ...args: any[]): void {
         console.log(`[CopilotSettings] ${message}`, ...args);
     }
 }
+
+let currentPanel: vscode.WebviewPanel | undefined;
 
 export async function debugValidationSetting() {
     const config = vscode.workspace.getConfiguration("codex-editor-extension");
@@ -34,6 +37,10 @@ export async function debugValidationSetting() {
 }
 
 export async function openSystemMessageEditor() {
+    if (currentPanel) {
+        currentPanel.reveal();
+        return;
+    }
     const panel = vscode.window.createWebviewPanel(
         "systemMessageEditor",
         "Copilot Settings",
@@ -43,6 +50,11 @@ export async function openSystemMessageEditor() {
             retainContextWhenHidden: true,
         }
     );
+    trackWebviewPanel(panel, "systemMessageEditor", "openSystemMessageEditor");
+    currentPanel = panel;
+    panel.onDidDispose(() => {
+        currentPanel = undefined;
+    });
 
     const scriptUri = panel.webview.asWebviewUri(
         vscode.Uri.joinPath(

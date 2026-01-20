@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
+import { trackWebviewPanel } from "../../utils/webviewTracker";
 import { GlobalProvider } from "../../globalProvider";
 import { getAuthApi } from "../../extension";
 import { updateProjectSettings, updateMetadataFile } from "../../projectManager/utils/projectUtils";
@@ -253,6 +254,7 @@ export class PublishProjectView {
                 ],
             }
         );
+        trackWebviewPanel(panel, "frontierPublishProject", "PublishProjectView.createOrShow");
 
         PublishProjectView.currentPanel = new PublishProjectView(
             panel,

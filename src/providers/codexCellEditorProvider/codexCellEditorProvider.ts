@@ -28,6 +28,7 @@ import { SyncManager } from "../../projectManager/syncManager";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 import { getNonce } from "../dictionaryTable/utilities/getNonce";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
+import { trackWebviewPanel } from "../../utils/webviewTracker";
 import path from "path";
 import * as fs from "fs";
 import { getAuthApi } from "@/extension";
@@ -488,6 +489,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         _token: vscode.CancellationToken
     ): Promise<void> {
         debug("Resolving custom editor for:", document.uri.toString());
+        trackWebviewPanel(webviewPanel, CodexCellEditorProvider.viewType, "CodexCellEditorProvider.resolveCustomEditor");
 
         // Store the webview panel with its document URI as the key
         this.webviewPanels.set(document.uri.toString(), webviewPanel);

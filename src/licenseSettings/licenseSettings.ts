@@ -1,8 +1,15 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
+import { trackWebviewPanel } from "../utils/webviewTracker";
+
+let currentPanel: vscode.WebviewPanel | undefined;
 
 export async function openLicenseEditor() {
+    if (currentPanel) {
+        currentPanel.reveal();
+        return;
+    }
     const panel = vscode.window.createWebviewPanel(
         "licenseEditor",
         "Project License",
@@ -12,6 +19,11 @@ export async function openLicenseEditor() {
             retainContextWhenHidden: true,
         }
     );
+    trackWebviewPanel(panel, "licenseEditor", "openLicenseEditor");
+    currentPanel = panel;
+    panel.onDidDispose(() => {
+        currentPanel = undefined;
+    });
 
     // Get workspace folder
     const workspaceFolders = vscode.workspace.workspaceFolders;

@@ -4,6 +4,7 @@ import { CustomWebviewProvider } from "./providers/parallelPassagesWebview/custo
 import { GlobalContentType, GlobalMessage } from "../types";
 import { getNonce } from "./providers/dictionaryTable/utilities/getNonce";
 import { safePostMessageToView } from "./utils/webviewUtils";
+import { trackWebviewView } from "./utils/webviewTracker";
 
 
 
@@ -11,6 +12,7 @@ import { safePostMessageToView } from "./utils/webviewUtils";
 export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider {
     protected _view?: vscode.WebviewView;
     protected _context: vscode.ExtensionContext;
+    private viewDisposables: vscode.Disposable[] = [];
 
     constructor(context: vscode.ExtensionContext) {
         this._context = context;
@@ -28,6 +30,12 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
 
     // Common webview resolution
     public resolveWebviewView(webviewView: vscode.WebviewView) {
+        trackWebviewView(webviewView, this.getWebviewId(), "BaseWebviewProvider.resolveWebviewView");
+        // Clean up any previous view-specific disposables before replacing the view
+        if (this.viewDisposables.length > 0) {
+            this.viewDisposables.forEach((d) => d.dispose());
+            this.viewDisposables = [];
+        }
         this._view = webviewView;
 
         webviewView.webview.options = {
@@ -38,7 +46,7 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
         webviewView.webview.html = this.getHtmlForWebview(webviewView);
 
         // Set up message handling with common handlers
-        webviewView.webview.onDidReceiveMessage(async (message: any) => {
+        const messageDisposable = webviewView.webview.onDidReceiveMessage(async (message: any) => {
             // Handle global messages first
             if ("destination" in message) {
                 GlobalProvider.getInstance().handleMessage(message);
@@ -54,6 +62,15 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
             // Pass to child class for specific handling
             await this.handleMessage(message);
         });
+        this.viewDisposables.push(messageDisposable);
+
+        const disposeDisposable = webviewView.onDidDispose(() => {
+            this._view = undefined;
+            this.viewDisposables.forEach((d) => d.dispose());
+            this.viewDisposables = [];
+            this.onWebviewDisposed();
+        });
+        this.viewDisposables.push(disposeDisposable);
 
         // Call child class initialization if needed
         this.onWebviewResolved(webviewView);
@@ -62,6 +79,11 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
     // Optional hook for child classes
     protected onWebviewResolved(webviewView: vscode.WebviewView): void {
         // Child classes can override this for additional initialization
+    }
+
+    // Optional hook for cleanup when the webview is disposed
+    protected onWebviewDisposed(): void {
+        // Child classes can override this for cleanup
     }
 
     // Common message handlers

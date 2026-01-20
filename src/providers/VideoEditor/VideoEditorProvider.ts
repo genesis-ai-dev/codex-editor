@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { trackWebviewPanel } from "../../utils/webviewTracker";
 
 export class VideoEditorProvider implements vscode.CustomTextEditorProvider {
     public static readonly viewType = "codex.videoEditor";
@@ -10,6 +11,7 @@ export class VideoEditorProvider implements vscode.CustomTextEditorProvider {
         webviewPanel: vscode.WebviewPanel,
         _token: vscode.CancellationToken
     ): Promise<void> {
+        trackWebviewPanel(webviewPanel, VideoEditorProvider.viewType, "VideoEditorProvider.resolveCustomTextEditor");
         // Set the HTML content for the webview
         webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
 
