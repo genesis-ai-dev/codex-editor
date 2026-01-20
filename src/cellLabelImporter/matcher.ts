@@ -1,4 +1,4 @@
-import { CellLabelData, FileData, ImportedRow, CellMetadata } from "./types";
+import { CellLabelData, FileData, ImportedRow, CellMetadata, MatchOptions } from "./types";
 import { convertTimestampToSeconds, parseTimestampRange } from "./utils";
 
 /**
@@ -8,7 +8,8 @@ export async function matchCellLabels(
     importedRows: ImportedRow[],
     sourceFiles: FileData[],
     targetFiles: FileData[],
-    labelColumnOrColumns: string | string[]
+    labelColumnOrColumns: string | string[],
+    matchOptions?: MatchOptions
 ): Promise<CellLabelData[]> {
     const result: CellLabelData[] = [];
     console.log(
@@ -17,10 +18,55 @@ export async function matchCellLabels(
 
     // Create a map of all cells by their start time, and also keep a sorted list for nearest match
     // CRITICAL: Now tracking fileUri to ensure labels go to the correct file
-    const cellMap = new Map<number, { cellId: string; currentLabel?: string; fileUri: string; }>();
+    const cellMap = new Map<
+        number,
+        { cellId: string; currentLabel?: string; fileUri: string; startTimeSeconds?: number; endTimeSeconds?: number; }
+    >();
     // Also create an exact ID lookup for direct ID-based matching
-    const idMap = new Map<string, { cellId: string; currentLabel?: string; fileUri: string; }>();
+    const idMap = new Map<string, { cellId: string; currentLabel?: string; fileUri: string; startTimeSeconds?: number; endTimeSeconds?: number; }>();
+    // Optional: match using a specific metadata field
+    const matchNumberMap = new Map<
+        number,
+        { cellId: string; currentLabel?: string; fileUri: string; startTimeSeconds?: number; endTimeSeconds?: number; }
+    >();
+    const matchStringMap = new Map<
+        string,
+        { cellId: string; currentLabel?: string; fileUri: string; startTimeSeconds?: number; endTimeSeconds?: number; }
+    >();
+    const matchNumberValues: number[] = [];
     const cellTimes: number[] = [];
+
+    const normalizeTimestampSeconds = (value?: number): number | undefined => {
+        if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+        // If timestamps are in ms, convert to seconds (guard for long recordings)
+        if (value > 100000) return value / 1000;
+        return value;
+    };
+
+    const matchColumn = matchOptions?.matchColumn?.toString().trim() || "";
+    const matchFieldPath = matchOptions?.matchFieldPath?.toString().trim() || "";
+    const hasMatchMapping = !!(matchColumn && matchFieldPath);
+    const matchFieldPathLower = matchFieldPath.toLowerCase();
+    const shouldUseMatchColumnForTime = hasMatchMapping && matchFieldPathLower.includes("time");
+
+    const getMetadataValueByPath = (
+        metadata: CellMetadata | undefined,
+        path: string
+    ): any => {
+        if (!metadata || !path) return undefined;
+        const normalizedPath = path.startsWith("metadata.")
+            ? path.slice("metadata.".length)
+            : path;
+        if (!normalizedPath) return undefined;
+        const parts = normalizedPath.split(".");
+        let current: any = metadata;
+        for (const part of parts) {
+            if (current === null || current === undefined) return undefined;
+            if (typeof current !== "object") return undefined;
+            current = current[part];
+        }
+        return current;
+    };
 
     // Extract all cells from source files and create a time-based lookup
     sourceFiles.forEach((file) => {
@@ -28,25 +74,66 @@ export async function matchCellLabels(
             if (cell.metadata?.id) {
                 const cellId = cell.metadata.id;
                 const fileUri = file.uri.fsPath;
+                const metadata = cell.metadata as CellMetadata;
+                const startTimeFromMetadata = normalizeTimestampSeconds(metadata?.data?.startTime);
+                const endTimeFromMetadata = normalizeTimestampSeconds(metadata?.data?.endTime);
+
+                const matchEntry = {
+                    cellId,
+                    currentLabel: metadata.cellLabel,
+                    fileUri,
+                    startTimeSeconds: startTimeFromMetadata,
+                    endTimeSeconds: endTimeFromMetadata,
+                };
 
                 // Populate exact ID map (trim to be safe)
                 idMap.set(String(cellId).trim(), {
                     cellId,
-                    currentLabel: (cell.metadata as CellMetadata).cellLabel,
+                    currentLabel: metadata.cellLabel,
                     fileUri,
+                    startTimeSeconds: startTimeFromMetadata,
+                    endTimeSeconds: endTimeFromMetadata,
                 });
 
-                // Extract the start time from the cell ID (e.g., "cue-25.192-29.029")
-                const timeMatch = cellId.match(/cue-(\d+(?:\.\d+)?)-/);
-                if (timeMatch && timeMatch[1]) {
-                    const startTimeSeconds = parseFloat(timeMatch[1]);
+                if (hasMatchMapping) {
+                    const matchValue = getMetadataValueByPath(metadata, matchFieldPath);
+                    if (matchValue !== undefined && matchValue !== null) {
+                        if (typeof matchValue === "number") {
+                            const normalized = normalizeTimestampSeconds(matchValue);
+                            if (normalized !== undefined && !matchNumberMap.has(normalized)) {
+                                matchNumberMap.set(normalized, matchEntry);
+                                matchNumberValues.push(normalized);
+                            }
+                        } else {
+                            const asString = String(matchValue).trim();
+                            if (asString && !matchStringMap.has(asString)) {
+                                matchStringMap.set(asString, matchEntry);
+                            }
+                        }
+                    }
+                }
+
+                // Prefer metadata timestamps for matching; fall back to parsing legacy cue IDs
+                let startTimeSeconds = startTimeFromMetadata;
+                let endTimeSeconds = endTimeFromMetadata;
+                if (!startTimeSeconds) {
+                    const timeMatch = cellId.match(/cue-(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
+                    if (timeMatch && timeMatch[1]) {
+                        startTimeSeconds = parseFloat(timeMatch[1]);
+                        endTimeSeconds = endTimeSeconds ?? parseFloat(timeMatch[2]);
+                    }
+                }
+
+                if (startTimeSeconds) {
                     // For time-based matching, we store per timestamp (may conflict across files)
                     // but we'll prefer exact ID matches when available
                     if (!cellMap.has(startTimeSeconds)) {
                         cellMap.set(startTimeSeconds, {
                             cellId,
-                            currentLabel: (cell.metadata as CellMetadata).cellLabel,
+                            currentLabel: metadata.cellLabel,
                             fileUri,
+                            startTimeSeconds,
+                            endTimeSeconds,
                         });
                         cellTimes.push(startTimeSeconds);
                     }
@@ -56,6 +143,7 @@ export async function matchCellLabels(
     });
     console.log(`[matchCellLabels] Populated cellMap with ${cellMap.size} cells from ${sourceFiles.length} files.`);
     cellTimes.sort((a, b) => a - b);
+    matchNumberValues.sort((a, b) => a - b);
 
     // Process each imported row
     importedRows.forEach((row) => {
@@ -74,24 +162,43 @@ export async function matchCellLabels(
                 : "";
         const hasExplicitId = rowId.length > 0;
 
-        if (isCue || hasExplicitId) {
+        const isMatchCandidate =
+            hasMatchMapping &&
+            row[matchColumn] !== undefined &&
+            row[matchColumn] !== null &&
+            row[matchColumn] !== "";
+
+        if (isCue || hasExplicitId || isMatchCandidate) {
             // Find start time from best available source in this priority:
-            // 1) explicit numeric start field ("start")
-            // 2) ID like "... cue-<start>-<end>"
-            // 3) TIMESTAMP range like "50.634 --> 51.468"
-            // 4) any time-like field
+            // 1) user-mapped match column (when mapping to a time field)
+            // 2) explicit numeric start field ("start")
+            // 3) ID like "... cue-<start>-<end>"
+            // 4) TIMESTAMP range like "50.634 --> 51.468"
+            // 5) any time-like field
             let startTimeSeconds = 0;
             let startTimeDisplay = "";
             const rowKeys = Object.keys(row);
 
+            if (shouldUseMatchColumnForTime) {
+                const mappedValue = row[matchColumn];
+                if (mappedValue !== undefined && mappedValue !== null && mappedValue !== "") {
+                    startTimeDisplay = String(mappedValue);
+                    if (typeof mappedValue === "number") {
+                        startTimeSeconds = mappedValue;
+                    } else {
+                        startTimeSeconds = convertTimestampToSeconds(String(mappedValue));
+                    }
+                }
+            }
+
             // 1) STARTTIME or START
-            if (row["STARTTIME"]) {
+            if (!startTimeSeconds && row["STARTTIME"]) {
                 startTimeDisplay = row["STARTTIME"];
                 startTimeSeconds = convertTimestampToSeconds(row["STARTTIME"] || "");
-            } else if (row["START"]) {
+            } else if (!startTimeSeconds && row["START"]) {
                 startTimeDisplay = row["START"];
                 startTimeSeconds = convertTimestampToSeconds(row["START"] || "");
-            } else if (typeof row["ID"] === "string") {
+            } else if (!startTimeSeconds && typeof row["ID"] === "string") {
                 const idMatch = row["ID"].match(/cue-(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
                 if (idMatch) {
                     startTimeSeconds = parseFloat(idMatch[1]);
@@ -128,6 +235,61 @@ export async function matchCellLabels(
 
             // Attempt exact ID match first (preferred)
             let match = hasExplicitId ? idMap.get(rowId) : undefined;
+
+            if (!match && hasMatchMapping) {
+                const mappedValue = row[matchColumn];
+                if (mappedValue !== undefined && mappedValue !== null && mappedValue !== "") {
+                    if (matchNumberValues.length > 0) {
+                        let numericValue: number | undefined;
+                        if (typeof mappedValue === "number") {
+                            numericValue = mappedValue;
+                        } else {
+                            const parsed = convertTimestampToSeconds(String(mappedValue));
+                            numericValue = parsed || undefined;
+                        }
+                        if (numericValue !== undefined) {
+                            const normalized = normalizeTimestampSeconds(numericValue) ?? numericValue;
+                            match = matchNumberMap.get(normalized);
+                            if (!match) {
+                                const hasMs =
+                                    String(mappedValue).match(/[.,]\d{1,3}$/) ||
+                                    String(numericValue).includes(".");
+                                const threshold = hasMs ? 0.3 : 0.6; // seconds
+                                let lo = 0,
+                                    hi = matchNumberValues.length - 1;
+                                while (lo <= hi) {
+                                    const mid = (lo + hi) >> 1;
+                                    if (matchNumberValues[mid] < normalized) lo = mid + 1;
+                                    else hi = mid - 1;
+                                }
+                                const candidates: number[] = [];
+                                if (lo < matchNumberValues.length) candidates.push(matchNumberValues[lo]);
+                                if (lo - 1 >= 0) candidates.push(matchNumberValues[lo - 1]);
+
+                                let bestTime: number | null = null;
+                                let bestDiff = Number.POSITIVE_INFINITY;
+                                for (const t of candidates) {
+                                    const diff = Math.abs(t - normalized);
+                                    if (diff < bestDiff && diff <= threshold) {
+                                        bestDiff = diff;
+                                        bestTime = t;
+                                    }
+                                }
+                                if (bestTime !== null) {
+                                    match = matchNumberMap.get(bestTime);
+                                }
+                            }
+                        }
+                    }
+
+                    if (!match && matchStringMap.size > 0) {
+                        const asString = String(mappedValue).trim();
+                        if (asString) {
+                            match = matchStringMap.get(asString);
+                        }
+                    }
+                }
+            }
 
             // If we don't have an exact match and no start time could be identified,
             // then we cannot do time-based matching; skip this row.
@@ -232,6 +394,14 @@ export async function matchCellLabels(
                         }
                     }
                 }
+            }
+
+            // Final fallback if we matched a UUID-based cell with metadata timestamps
+            if (!startTimeDisplay && match?.startTimeSeconds) {
+                startTimeDisplay = String(match.startTimeSeconds);
+            }
+            if (!endTimeDisplay && match?.endTimeSeconds) {
+                endTimeDisplay = String(match.endTimeSeconds);
             }
 
             // Build character string from any CHARACTER LABEL columns if present
