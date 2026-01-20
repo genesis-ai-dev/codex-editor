@@ -553,13 +553,15 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const textValidationLevels = computeLevelPercents(textValidationCounts, minimumValidationsRequired);
             const audioValidationLevels = computeLevelPercents(audioValidationCounts, minimumAudioValidationsRequired);
 
-            // Compute average health from cells
+            // Compute average health from cells - only include cells that have content
+            // Empty cells should not have health scores and should not count towards average
             const healthValues = unmergedCells
+                .filter((cell) => cell.value && cell.value.trim().length > 0 && cell.value !== "<span></span>")
                 .map((cell) => cell.metadata?.health)
                 .filter((h): h is number => typeof h === 'number');
             const averageHealth = healthValues.length > 0
                 ? healthValues.reduce((sum, h) => sum + h, 0) / healthValues.length
-                : 0.3; // Default to baseline if no health data
+                : undefined; // No health data for files with only empty cells
 
             const {
                 percentTranslationsCompleted,
@@ -674,13 +676,13 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const averageTextValidationLevels = avgArray('textValidationLevels', textLen);
             const averageAudioValidationLevels = avgArray('audioValidationLevels', audioLen);
 
-            // Compute average health for the corpus group
+            // Compute average health for the corpus group - only from items that have health data
             const healthValues = itemsInGroup
                 .map((item) => item.progress?.averageHealth)
                 .filter((h): h is number => typeof h === 'number');
             const groupAverageHealth = healthValues.length > 0
                 ? healthValues.reduce((sum, h) => sum + h, 0) / healthValues.length
-                : 0.3;
+                : undefined; // No health data if no items have health
 
             const sortedItems = itemsInGroup.sort((a, b) => {
                 if (a.sortOrder && b.sortOrder) {

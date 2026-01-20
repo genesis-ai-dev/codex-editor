@@ -1288,8 +1288,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 </div>
                                 {getAlertDot()}
                                 {/* Health Indicator - positioned below the inline action buttons */}
-                                {!isSourceText && (
-                                    <HealthIndicator health={cell.metadata?.health ?? 0.3} />
+                                {/* Only show health indicator for non-empty cells */}
+                                {!isSourceText && cell.cellContent && cell.cellContent.trim() !== "" && (
+                                    <HealthIndicator health={cell.metadata?.health} />
                                 )}
                             </div>
                         )}
