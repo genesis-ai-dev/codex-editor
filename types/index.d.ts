@@ -930,6 +930,7 @@ type CustomCellMetaData = BaseCustomCellMetaData & {
     cellLabel?: string;
     selectedAudioId?: string; // Points to attachment key for explicit audio selection
     selectionTimestamp?: number; // Timestamp when selectedAudioId was last set
+    health?: number; // Cell health score 0.0-1.0 (0.3 for new/unverified cells, calculated from examples for LLM-generated)
 };
 
 export type CustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {
@@ -1763,6 +1764,7 @@ interface CodexItem {
         audioValidationLevels?: number[];
         requiredTextValidations?: number;
         requiredAudioValidations?: number;
+        averageHealth?: number; // Average health score 0-1 for all cells in the file
     };
     sortOrder?: string;
     isProjectDictionary?: boolean;
