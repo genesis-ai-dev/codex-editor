@@ -21,6 +21,7 @@ export const CODEX_PROJECT_MIGRATION_FLAG_KEYS = [
     "paratextReorderMigrationCompleted",
     "globalReferencesMigrationCompleted",
     "cellIdsToUuidMigrationCompleted",
+    "tempFilesRecoveryAndDuplicateMergeCompleted",
 ] as const;
 
 export type CodexProjectMigrationFlagKey = (typeof CODEX_PROJECT_MIGRATION_FLAG_KEYS)[number];
