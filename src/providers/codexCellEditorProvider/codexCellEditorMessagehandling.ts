@@ -2416,12 +2416,26 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
             // Store the files path in metadata (not the pointer path) so we can directly read the actual file
             const relativePath = toPosixPath(path.relative(workspaceFolder.uri.fsPath, filesPath));
+
+            // Get current username for createdBy field
+            let createdBy: string = "anonymous";
+            try {
+                const authApi = await provider.getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                if (userInfo?.username) {
+                    createdBy = userInfo.username;
+                }
+            } catch (error) {
+                console.warn("Failed to get username for audio attachment:", error);
+            }
+
             await document.updateCellAttachment(typedEvent.content.cellId, sanitizedAudioId, {
                 url: relativePath,
                 type: "audio",
                 createdAt: Date.now(),
                 updatedAt: Date.now(),
                 isDeleted: false,
+                createdBy: createdBy,
                 // Persist optional metadata if provided by client
                 ...(typedEvent.content.metadata ? { metadata: typedEvent.content.metadata } : {}),
             } as any);

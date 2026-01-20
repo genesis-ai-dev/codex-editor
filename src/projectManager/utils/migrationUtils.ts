@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { randomUUID } from "crypto";
+import git from "isomorphic-git";
+import fs from "fs";
 import { CodexContentSerializer } from "@/serializer";
 import { vrefData } from "@/utils/verseRefUtils/verseData";
 import { EditMapUtils } from "@/utils/editMapUtils";
@@ -11,6 +13,9 @@ import { extractParentCellIdFromParatext } from "../../providers/codexCellEditor
 import { generateCellIdFromHash, isUuidFormat } from "../../utils/uuidUtils";
 import { getCorrespondingSourceUri, getCorrespondingCodexUri } from "../../utils/codexNotebookUtils";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
+import { resolveCodexCustomMerge, mergeDuplicateCellsUsingResolverLogic } from "./merge/resolvers";
+import { atomicWriteUriText } from "../../utils/notebookSafeSaveUtils";
+import { normalizeNotebookFileText, formatJsonForNotebookFile } from "../../utils/notebookFileFormattingUtils";
 
 // FIXME: move notebook format migration here
 
@@ -18,6 +23,70 @@ const DEBUG_MODE = false;
 function debug(...args: any[]): void {
     if (DEBUG_MODE) {
         console.log("[Extension]", ...args);
+    }
+}
+
+async function stageAndCommitAllWithMessage(
+    workspacePath: string,
+    message: string
+): Promise<void> {
+    try {
+        let hasGit = false;
+        try {
+            await git.resolveRef({ fs, dir: workspacePath, ref: "HEAD" });
+            hasGit = true;
+        } catch {
+            // No git repo or no commits; skip commit step
+        }
+
+        if (!hasGit) {
+            return;
+        }
+
+        const statusMatrix = await git.statusMatrix({ fs, dir: workspacePath });
+        const hasChanges = statusMatrix.some(([_, head, workdir, stage]) => {
+            return !(head === 1 && workdir === 1 && stage === 1);
+        });
+
+        if (!hasChanges) {
+            return;
+        }
+
+        await git.add({ fs, dir: workspacePath, filepath: "." });
+        const authApi = getAuthApi();
+        let userInfo;
+        try {
+            const authStatus = authApi?.getAuthStatus?.();
+            if (authStatus?.isAuthenticated) {
+                userInfo = await authApi?.getUserInfo();
+            }
+        } catch (error) {
+            console.warn("[Cleanup] Could not fetch user info for git commit author:", error);
+        }
+
+        const author = {
+            name:
+                userInfo?.username ||
+                vscode.workspace
+                    .getConfiguration("codex-project-manager")
+                    .get<string>("userName") ||
+                "Unknown",
+            email:
+                userInfo?.email ||
+                vscode.workspace
+                    .getConfiguration("codex-project-manager")
+                    .get<string>("userEmail") ||
+                "unknown",
+        };
+
+        await git.commit({
+            fs,
+            dir: workspacePath,
+            message,
+            author,
+        });
+    } catch (error) {
+        console.warn("[Cleanup] Unable to stage/commit changes (non-critical):", error);
     }
 }
 
@@ -2978,6 +3047,48 @@ export const migration_cellIdsToUuid = async (context?: vscode.ExtensionContext)
     }
 };
 
+async function migrateCellIdsWithSpacesToUuidForWorkspace(
+    workspaceFolder: vscode.WorkspaceFolder
+): Promise<{ processedFiles: number; migratedFiles: number; migratedFileUris: vscode.Uri[]; }> {
+    const codexFiles = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+    );
+    const sourceFiles = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(workspaceFolder, "**/*.source")
+    );
+    const codexTempFiles = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(workspaceFolder, "**/*.codex.tmp-*-*")
+    );
+    const sourceTempFiles = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(workspaceFolder, "**/*.source.tmp-*-*")
+    );
+
+    const allFiles = [...codexFiles, ...sourceFiles, ...codexTempFiles, ...sourceTempFiles];
+    if (allFiles.length === 0) {
+        return { processedFiles: 0, migratedFiles: 0, migratedFileUris: [] };
+    }
+
+    let processedFiles = 0;
+    let migratedFiles = 0;
+    const migratedFileUris: vscode.Uri[] = [];
+
+    for (const file of allFiles) {
+        try {
+            const wasMigrated = await migrateCellIdsWithSpacesToUuidForFile(file);
+            processedFiles++;
+            if (wasMigrated) {
+                migratedFiles++;
+                migratedFileUris.push(file);
+            }
+        } catch (error) {
+            processedFiles++;
+            console.error(`Error processing ${file.fsPath}:`, error);
+        }
+    }
+
+    return { processedFiles, migratedFiles, migratedFileUris };
+}
+
 /**
  * Processes a single file to convert cell IDs to UUID format.
  * Returns true if the file was modified, false otherwise.
@@ -3096,3 +3207,449 @@ export async function migrateCellIdsToUuidForFile(fileUri: vscode.Uri): Promise<
         return false;
     }
 }
+
+async function migrateCellIdsWithSpacesToUuidForFile(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = notebookData.cells || [];
+        if (cells.length === 0) return false;
+
+        let hasChanges = false;
+
+        let needsMigration = false;
+        for (const cell of cells) {
+            const cellId = cell?.metadata?.id;
+            if (typeof cellId === "string" && cellId.includes(" ")) {
+                needsMigration = true;
+                break;
+            }
+        }
+
+        if (!needsMigration) {
+            return false;
+        }
+
+        const idToUuidMap = new Map<string, string>();
+
+        for (const cell of cells) {
+            const md: any = cell.metadata || {};
+            const originalCellId = md.id;
+
+            if (typeof originalCellId !== "string") continue;
+            if (!originalCellId.includes(" ")) continue;
+
+            const newUuid = await generateCellIdFromHash(originalCellId);
+            idToUuidMap.set(originalCellId, newUuid);
+
+            const cellIdParts = originalCellId.split(":");
+            if (cellIdParts.length > 2) {
+                const parentOriginalId = cellIdParts.slice(0, 2).join(":");
+                if (!idToUuidMap.has(parentOriginalId)) {
+                    const parentUuid = await generateCellIdFromHash(parentOriginalId);
+                    idToUuidMap.set(parentOriginalId, parentUuid);
+                }
+            }
+        }
+
+        for (const cell of cells) {
+            const md: any = cell.metadata || {};
+            const originalCellId = md.id;
+
+            if (typeof originalCellId !== "string") continue;
+            if (!originalCellId.includes(" ")) continue;
+
+            const newUuid = idToUuidMap.get(originalCellId);
+            if (!newUuid) {
+                continue;
+            }
+
+            md.id = newUuid;
+            hasChanges = true;
+
+            const cellIdParts = originalCellId.split(":");
+            if (cellIdParts.length > 2) {
+                const parentOriginalId = cellIdParts.slice(0, 2).join(":");
+                const parentUuid = idToUuidMap.get(parentOriginalId);
+                if (parentUuid) {
+                    md.parentId = parentUuid;
+                }
+            }
+
+            cell.metadata = md;
+        }
+
+        if (hasChanges) {
+            const updatedContent = await serializer.serializeNotebook(
+                notebookData,
+                new vscode.CancellationTokenSource().token
+            );
+            await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+            return true;
+        }
+
+        return false;
+    } catch (error) {
+        console.error(`Error migrating spaced cell IDs to UUID for ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
+
+async function mergeDuplicateCellsWithIterations(
+    fileUri: vscode.Uri,
+    maxIterations: number = 10
+): Promise<number> {
+    let hasDuplicates = true;
+    let mergeIterations = 0;
+
+    while (hasDuplicates && mergeIterations < maxIterations) {
+        const hadDuplicates = await mergeDuplicateCellsInFile(fileUri);
+        if (hadDuplicates) {
+            mergeIterations++;
+        } else {
+            hasDuplicates = false;
+        }
+    }
+
+    if (mergeIterations >= maxIterations) {
+        console.warn(
+            `[Cleanup] Reached max iterations for merging duplicates in ${fileUri.fsPath}`
+        );
+    }
+
+    return mergeIterations;
+}
+
+/**
+ * Merges duplicate cells in a notebook file using the same logic as sync and save.
+ * Cells with the same ID are merged into one cell with combined edit history.
+ * Returns true if any changes were made.
+ */
+async function mergeDuplicateCellsInFile(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = notebookData.cells || [];
+        if (cells.length === 0) return false;
+
+        // Group cells by ID to find duplicates
+        const cellsById = new Map<string, any[]>();
+        for (const cell of cells) {
+            const cellId = cell.metadata?.id;
+            if (!cellId) continue;
+
+            if (!cellsById.has(cellId)) {
+                cellsById.set(cellId, []);
+            }
+            cellsById.get(cellId)!.push(cell);
+        }
+
+        // Find duplicate IDs
+        const duplicateIds: string[] = [];
+        for (const [cellId, cellList] of cellsById.entries()) {
+            if (cellList.length > 1) {
+                duplicateIds.push(cellId);
+            }
+        }
+
+        if (duplicateIds.length === 0) {
+            return false; // No duplicates found
+        }
+
+        console.log(
+            `[Cleanup] Found ${duplicateIds.length} duplicate cell ID(s) in ${fileUri.fsPath}: ${duplicateIds.join(", ")}`
+        );
+
+        // Merge duplicates: combine cells with the same ID into one cell
+        // Use the same logic as resolveCodexCustomMerge to combine edit histories
+        const mergedCells: any[] = [];
+        const processedIds = new Set<string>();
+
+        for (const cell of cells) {
+            const cellId = cell.metadata?.id;
+            if (!cellId) {
+                // Cell without ID - keep as is
+                mergedCells.push(cell);
+                continue;
+            }
+
+            if (processedIds.has(cellId)) {
+                // Already processed this ID - skip duplicate
+                continue;
+            }
+
+            processedIds.add(cellId);
+            const duplicateCells = cellsById.get(cellId)!;
+
+            if (duplicateCells.length === 1) {
+                // No duplicate, just add it
+                mergedCells.push(duplicateCells[0]);
+            } else {
+                const mergedCell = mergeDuplicateCellsUsingResolverLogic(duplicateCells);
+                mergedCells.push(mergedCell);
+            }
+        }
+
+        // Create final notebook with merged cells
+        const finalNotebook = {
+            ...notebookData,
+            cells: mergedCells,
+        };
+
+        const finalContent = formatJsonForNotebookFile(finalNotebook);
+
+        // Write back using atomic write
+        await atomicWriteUriText(fileUri, normalizeNotebookFileText(finalContent));
+
+        console.log(`[Cleanup] Successfully merged duplicate cells in ${fileUri.fsPath}`);
+        return true;
+    } catch (error) {
+        console.error(`[Cleanup] Error merging duplicate cells in ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
+
+/**
+ * Finds the original file path for a temp file by removing the .tmp-{timestamp}-{uuid} suffix.
+ */
+function getOriginalFilePathFromTemp(tempFilePath: string): string | null {
+    // Pattern: filename.codex.tmp-{timestamp}-{uuid}
+    // We need to extract: filename.codex
+
+    const tmpPattern = /\.tmp-\d+-[a-f0-9-]+$/i;
+    if (!tmpPattern.test(tempFilePath)) {
+        return null; // Not a temp file
+    }
+
+    // Remove .tmp-{timestamp}-{uuid} suffix
+    const originalPath = tempFilePath.replace(tmpPattern, '');
+    return originalPath;
+}
+
+/**
+ * Recovers temp files by merging them into their original files.
+ * This handles the case where atomic writes were interrupted during sync or LLM saves.
+ * 
+ * Steps:
+ * 1. Find all .tmp files
+ * 2. For each temp file, merge it into the original file using resolveCodexCustomMerge
+ * 3. After merging, deduplicate any duplicate cells
+ * 4. Repeat step 3 as needed for each temp file that was merged
+ */
+export async function recoverTempFilesAndMergeDuplicates(
+    context?: vscode.ExtensionContext
+): Promise<{ recoveredFiles: number; mergedDuplicates: number; errors: number; }> {
+    const result = {
+        recoveredFiles: 0,
+        mergedDuplicates: 0,
+        errors: 0,
+    };
+
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            console.log("[Cleanup] No workspace folders found");
+            return result;
+        }
+
+        const workspaceFolder = workspaceFolders[0];
+        try {
+            const migrationResult = await migrateCellIdsWithSpacesToUuidForWorkspace(workspaceFolder);
+            if (migrationResult.migratedFiles > 0) {
+                console.log(
+                    `[Cleanup] Migrated spaced cell IDs to UUIDs in ${migrationResult.migratedFiles} of ` +
+                    `${migrationResult.processedFiles} files`
+                );
+
+                // Deduplicate any files updated by the UUID migration
+                for (const migratedFile of migrationResult.migratedFileUris) {
+                    const mergeCount = await mergeDuplicateCellsWithIterations(migratedFile);
+                    if (mergeCount > 0) {
+                        result.mergedDuplicates += mergeCount;
+                        console.log(
+                            `[Cleanup] Merged duplicate cells in ${migratedFile.fsPath} (iterations ${mergeCount})`
+                        );
+                    }
+                }
+            }
+        } catch (error) {
+            console.warn("[Cleanup] Cell ID UUID migration failed (non-critical):", error);
+        }
+
+        // Find all .tmp files matching the pattern: *.tmp-{timestamp}-{uuid}
+        const tmpPattern = new vscode.RelativePattern(
+            workspaceFolder,
+            "**/*.tmp-*-*"
+        );
+
+        const tmpFiles = await vscode.workspace.findFiles(tmpPattern);
+
+        if (tmpFiles.length === 0) {
+            console.log("[Cleanup] No temp files found to recover");
+            return result;
+        } else {
+            console.log(`[Cleanup] Found ${tmpFiles.length} temp file(s) to recover`);
+            // NOTE: this commit will only show if there is changes in the workspace
+            await stageAndCommitAllWithMessage(
+                workspaceFolder.uri.fsPath,
+                "#528: Pre-migration checkpoint: temp file recovery"
+            );
+        }
+
+
+
+        // Group temp files by their original file path
+        const tempFilesByOriginal = new Map<string, vscode.Uri[]>();
+
+        for (const tmpFile of tmpFiles) {
+            const originalPath = getOriginalFilePathFromTemp(tmpFile.fsPath);
+            if (!originalPath) {
+                console.warn(`[Cleanup] Could not determine original file for temp file: ${tmpFile.fsPath}`);
+                result.errors++;
+                continue;
+            }
+
+            if (!tempFilesByOriginal.has(originalPath)) {
+                tempFilesByOriginal.set(originalPath, []);
+            }
+            tempFilesByOriginal.get(originalPath)!.push(tmpFile);
+        }
+
+        // Process each original file and its temp files
+        for (const [originalPath, tempFileUris] of tempFilesByOriginal.entries()) {
+            try {
+                const originalUri = vscode.Uri.file(originalPath);
+
+                // Check if original file exists
+                let originalExists = false;
+                try {
+                    await vscode.workspace.fs.stat(originalUri);
+                    originalExists = true;
+                } catch {
+                    // Original file doesn't exist - this temp file might be the only version
+                    console.log(`[Cleanup] Original file not found: ${originalPath}, will use temp file as original`);
+                }
+
+                // Read original file content (if it exists)
+                let originalContent = "";
+                if (originalExists) {
+                    try {
+                        const originalFileContent = await vscode.workspace.fs.readFile(originalUri);
+                        originalContent = new TextDecoder("utf-8").decode(originalFileContent);
+                    } catch (error) {
+                        console.warn(`[Cleanup] Could not read original file ${originalPath}:`, error);
+                        result.errors++;
+                        continue;
+                    }
+                }
+
+                // Merge each temp file into the original
+                let mergedContent = originalContent;
+                for (const tempUri of tempFileUris) {
+                    try {
+                        const tempFileContent = await vscode.workspace.fs.readFile(tempUri);
+                        const tempContent = new TextDecoder("utf-8").decode(tempFileContent);
+
+                        if (!mergedContent) {
+                            // No original content, use temp file as base
+                            mergedContent = tempContent;
+                        } else {
+                            // Merge temp file into original using the same logic as sync/save
+                            mergedContent = await resolveCodexCustomMerge(mergedContent, tempContent);
+                        }
+
+                        console.log(`[Cleanup] Merged temp file ${tempUri.fsPath} into ${originalPath}`);
+                    } catch (error) {
+                        console.error(`[Cleanup] Error reading temp file ${tempUri.fsPath}:`, error);
+                        result.errors++;
+                        continue;
+                    }
+                }
+
+                // Write merged content back to original file using atomic write
+                await atomicWriteUriText(originalUri, normalizeNotebookFileText(mergedContent));
+                result.recoveredFiles++;
+
+                // Now merge duplicate cells in the recovered file
+                const mergeIterations = await mergeDuplicateCellsWithIterations(originalUri);
+                if (mergeIterations > 0) {
+                    result.mergedDuplicates += mergeIterations;
+                    console.log(
+                        `[Cleanup] Merged duplicate cells in ${originalPath} (iterations ${mergeIterations})`
+                    );
+                }
+
+                // Delete temp files after successful merge
+                for (const tempUri of tempFileUris) {
+                    try {
+                        await vscode.workspace.fs.delete(tempUri);
+                        console.log(`[Cleanup] Deleted temp file: ${tempUri.fsPath}`);
+                    } catch (error) {
+                        console.warn(`[Cleanup] Could not delete temp file ${tempUri.fsPath}:`, error);
+                    }
+                }
+            } catch (error) {
+                console.error(`[Cleanup] Error processing original file ${originalPath}:`, error);
+                result.errors++;
+            }
+        }
+
+        await stageAndCommitAllWithMessage(
+            workspaceFolder.uri.fsPath,
+            "#528: Recovered temp files and merged duplicates"
+        );
+
+        console.log(
+            `[Cleanup] Recovery complete: ${result.recoveredFiles} files recovered, ` +
+            `${result.mergedDuplicates} duplicate merges, ${result.errors} errors`
+        );
+
+        return result;
+    } catch (error) {
+        console.error("[Cleanup] Error in recoverTempFilesAndMergeDuplicates:", error);
+        result.errors++;
+        return result;
+    }
+}
+
+/**
+ * Migration: Recover temp files and merge duplicate cells.
+ * This migration runs once to clean up any .tmp files left behind from interrupted saves
+ * and merge any duplicate cells that may have been created.
+ */
+export const migration_recoverTempFilesAndMergeDuplicates = async (context?: vscode.ExtensionContext) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        console.log("Running temp files recovery and duplicate merge migration...");
+
+        const result = await recoverTempFilesAndMergeDuplicates(context);
+
+        console.log(
+            `Temp files recovery and duplicate merge migration completed: ` +
+            `${result.recoveredFiles} files recovered, ${result.mergedDuplicates} duplicate merges, ${result.errors} errors`
+        );
+
+        if (result.recoveredFiles > 0 || result.mergedDuplicates > 0) {
+            vscode.window.showInformationMessage(
+                `Cleanup complete: ${result.recoveredFiles} files recovered, ${result.mergedDuplicates} duplicate cells merged`
+            );
+        }
+
+    } catch (error) {
+        console.error("Error running temp files recovery and duplicate merge migration:", error);
+    }
+};

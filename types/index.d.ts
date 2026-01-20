@@ -919,6 +919,7 @@ type CustomCellMetaData = BaseCustomCellMetaData & {
             isDeleted: boolean;
             isMissing?: boolean;
             validatedBy?: ValidationEntry[];
+            createdBy?: string;
         };
     };
     cellLabel?: string;

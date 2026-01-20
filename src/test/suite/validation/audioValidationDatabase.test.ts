@@ -63,6 +63,7 @@ suite("Audio Validation Database Integration Test Suite", () => {
             document.updateCellAttachment(cellId, audioId, {
                 url: "test-audio.webm",
                 type: "audio",
+                createdBy: "anonymous",
                 createdAt: Date.now(),
                 updatedAt: Date.now(),
                 isDeleted: false,
@@ -155,6 +156,7 @@ suite("Audio Validation Database Integration Test Suite", () => {
             document.updateCellAttachment(cellId, audioId, {
                 url: "test-audio.webm",
                 type: "audio",
+                createdBy: "anonymous",
                 createdAt: Date.now(),
                 updatedAt: Date.now(),
                 isDeleted: false,
@@ -228,6 +230,7 @@ suite("Audio Validation Database Integration Test Suite", () => {
             document.updateCellAttachment(cellId, audioId, {
                 url: "test-audio.webm",
                 type: "audio",
+                createdBy: "anonymous",
                 createdAt: Date.now(),
                 updatedAt: Date.now(),
                 isDeleted: false,
@@ -310,6 +313,7 @@ suite("Audio Validation Database Integration Test Suite", () => {
             document.updateCellAttachment(cellId, audioId, {
                 url: "test-audio.webm",
                 type: "audio",
+                createdBy: "anonymous",
                 createdAt: Date.now(),
                 updatedAt: Date.now(),
                 isDeleted: false,
@@ -437,6 +441,7 @@ suite("Audio Validation Database Integration Test Suite", () => {
             document.updateCellAttachment(cellId, audioId, {
                 url: "test-audio.webm",
                 type: "audio",
+                createdBy: "anonymous",
                 createdAt: Date.now(),
                 updatedAt: Date.now(),
                 isDeleted: false,
@@ -505,6 +510,7 @@ suite("Audio Validation Database Integration Test Suite", () => {
             document.updateCellAttachment(cellId, audioId, {
                 url: "test-audio.webm",
                 type: "audio",
+                createdBy: "anonymous",
                 createdAt: Date.now(),
                 updatedAt: Date.now(),
                 isDeleted: false,
@@ -595,6 +601,7 @@ suite("Audio Validation Database Integration Test Suite", () => {
             document.updateCellAttachment(cellId, audioId, {
                 url: "test-audio.webm",
                 type: "audio",
+                createdBy: "anonymous",
                 createdAt: Date.now(),
                 updatedAt: Date.now(),
                 isDeleted: false,

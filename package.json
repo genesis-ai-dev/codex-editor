@@ -9,12 +9,12 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.13.0",
+    "version": "0.15.0",
     "engines": {
         "node": ">=18.0.0",
         "vscode": "^1.78.0"
     },
-    "categories": [
+    "categories": [ 
         "Other"
     ],
     "activationEvents": [
