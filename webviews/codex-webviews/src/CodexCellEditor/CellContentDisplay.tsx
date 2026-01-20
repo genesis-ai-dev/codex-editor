@@ -21,6 +21,7 @@ import { CELL_DISPLAY_MODES } from "./CodexCellEditor"; // Import the cell displ
 import "./TranslationAnimations.css"; // Import the animation CSS
 import { useTooltip } from "./contextProviders/TooltipContext";
 import CommentsBadge from "./CommentsBadge";
+import HealthIndicator from "./HealthIndicator";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import ReactMarkdown from "react-markdown";
 import {
@@ -1122,8 +1123,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                             {lineNumber}
                                         </div>
                                     )}
-                                    {/* Audio Validation Button - show for non-source text only */}
-                                    {!isSourceText && SHOW_VALIDATION_BUTTON && (
+                                    {/* Audio Validation Button - show only when audio exists */}
+                                    {!isSourceText && SHOW_VALIDATION_BUTTON &&
+                                        audioState !== "none" && audioState !== "deletedOnly" && (
                                         <div className="flex items-center justify-center gap-x-px">
                                             <AudioValidationButton
                                                 cellId={cellIds[0]}
@@ -1133,17 +1135,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                 currentUsername={currentUsername}
                                                 requiredAudioValidations={requiredAudioValidations}
                                                 setShowSparkleButton={setShowSparkleButton}
-                                                disabled={
-                                                    isInTranslationProcess ||
-                                                    audioState === "none" ||
-                                                    audioState === "deletedOnly"
-                                                }
+                                                disabled={isInTranslationProcess}
                                                 disabledReason={
                                                     isInTranslationProcess
                                                         ? "Translation in progress"
-                                                        : audioState === "none" ||
-                                                          audioState === "deletedOnly"
-                                                        ? "Audio validation requires audio"
                                                         : undefined
                                                 }
                                             />
@@ -1274,6 +1269,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                     )}
                                 </div>
                                 {getAlertDot()}
+                                {/* Health Indicator - positioned below the inline action buttons */}
+                                {!isSourceText && (
+                                    <HealthIndicator health={cell.metadata?.health ?? 0.3} />
+                                )}
                             </div>
                         )}
                     </div>

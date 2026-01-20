@@ -76,6 +76,7 @@ export function convertCellToQuillContent(cell: CustomNotebookCellData): QuillCe
             selectionTimestamp: cell.metadata?.selectionTimestamp,
             parentId: cell.metadata?.parentId,
             isLocked: cell.metadata?.isLocked,
+            health: cell.metadata?.health,
         },
     };
 }
