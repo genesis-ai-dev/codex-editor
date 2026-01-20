@@ -647,51 +647,55 @@ function NavigationView() {
         const requiredAudio = progress.requiredAudioValidations;
 
         // Health indicator - compute color and percentage
-        const health = progress.averageHealth ?? 0.3;
-        const healthPercent = Math.round(health * 100);
+        // Only show health indicator when there's actual health data (not for empty files)
+        const health = progress.averageHealth;
+        const hasHealthData = typeof health === 'number';
+        const healthPercent = hasHealthData ? Math.round(health * 100) : 0;
         const getHealthColor = (h: number) => {
             if (h < 0.3) return "#ef4444"; // red
             if (h < 0.7) return "#eab308"; // yellow
             return "#22c55e"; // green
         };
-        const healthColor = getHealthColor(health);
+        const healthColor = hasHealthData ? getHealthColor(health) : "#888";
 
         return (
             <div className="flex flex-col gap-y-4 pl-7">
-                {/* Health indicator - compact pill at the top */}
-                <div className="flex items-center gap-2 -mb-2">
-                    <Heart className="h-3 w-3 opacity-60" style={{ color: healthColor }} />
-                    <div
-                        className="flex items-center gap-1.5"
-                        title={`Average cell health: ${healthPercent}%`}
-                    >
+                {/* Health indicator - compact pill at the top, only shown when health data exists */}
+                {hasHealthData && (
+                    <div className="flex items-center gap-2 -mb-2">
+                        <Heart className="h-3 w-3 opacity-60" style={{ color: healthColor }} />
                         <div
-                            style={{
-                                width: "40px",
-                                height: "4px",
-                                borderRadius: "2px",
-                                backgroundColor: `${healthColor}33`,
-                                overflow: "hidden",
-                            }}
+                            className="flex items-center gap-1.5"
+                            title={`Average cell health: ${healthPercent}%`}
                         >
                             <div
                                 style={{
-                                    width: `${healthPercent}%`,
-                                    height: "100%",
-                                    backgroundColor: healthColor,
+                                    width: "40px",
+                                    height: "4px",
                                     borderRadius: "2px",
-                                    transition: "width 0.3s ease",
+                                    backgroundColor: `${healthColor}33`,
+                                    overflow: "hidden",
                                 }}
-                            />
+                            >
+                                <div
+                                    style={{
+                                        width: `${healthPercent}%`,
+                                        height: "100%",
+                                        backgroundColor: healthColor,
+                                        borderRadius: "2px",
+                                        transition: "width 0.3s ease",
+                                    }}
+                                />
+                            </div>
+                            <span
+                                className="text-[10px] opacity-60"
+                                style={{ color: healthColor, minWidth: "28px" }}
+                            >
+                                {healthPercent}%
+                            </span>
                         </div>
-                        <span
-                            className="text-[10px] opacity-60"
-                            style={{ color: healthColor, minWidth: "28px" }}
-                        >
-                            {healthPercent}%
-                        </span>
                     </div>
-                </div>
+                )}
 
                 <div className="flex gap-x-1">
                     <span className="opacity-70 font-light">
