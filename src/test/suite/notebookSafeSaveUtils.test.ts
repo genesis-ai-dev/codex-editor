@@ -18,7 +18,8 @@ suite("notebookSafeSaveUtils", () => {
             readFile: sinon.stub().rejects(new Error("ENOENT")),
             stat: sinon.stub().rejects(new Error("ENOENT")),
             writeFile: sinon.stub().resolves(),
-            rename: sinon.stub().resolves(), delete: sinon.stub().resolves(),
+            rename: sinon.stub().resolves(), 
+            delete: sinon.stub().resolves(),
         };
 
         const result = await readExistingFileOrThrowWithFs(fs, uri);
