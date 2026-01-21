@@ -1113,10 +1113,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const subsectionIndex = currentPosition?.subsectionIndex ?? provider.getCachedSubsection(docUri);
 
         // Save milestone index to preserve position after refresh
-        // Use the milestone index from the event, which comes from the React component's current state
-        const milestoneIndexToPreserve = typedEvent.content.milestoneIndex;
         provider.currentMilestoneSubsectionMap.set(docUri, {
-            milestoneIndex: milestoneIndexToPreserve,
+            milestoneIndex: typedEvent.content.milestoneIndex,
             subsectionIndex: subsectionIndex,
         });
 
@@ -1125,8 +1123,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             await document.refreshAuthor();
 
             // Update the milestone cell value in codex file
-            // NOTE: This will fire onDidChangeForVsCodeAndWebview event, which will trigger updateWebview()
-            // But updateWebview() will now use the milestone index we just set above
             await document.updateCellContent(
                 milestoneCellId,
                 typedEvent.content.newValue,
@@ -1241,9 +1237,31 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
                 // Save the source document
                 try {
+                    const sourcePanelBeforeSave = provider.getWebviewPanels().get(sourceUri.toString());
+                    const sourceViewColumn = sourcePanelBeforeSave?.viewColumn ?? vscode.ViewColumn.Active;
+                    const sourceWasActive = sourcePanelBeforeSave?.active ?? false;
+
                     await provider.saveCustomDocument(sourceDocument, cancellationToken);
                     sourceUpdateSucceeded = true;
                     debug(`[updateMilestoneValue] Successfully updated and saved milestone in source file: ${sourceUri.fsPath}`);
+
+                    const sourcePanelAfterSave = provider.getWebviewPanels().get(sourceUri.toString());
+                    if (sourcePanelBeforeSave && !sourcePanelAfterSave) {
+                        try {
+                            await vscode.commands.executeCommand(
+                                "vscode.openWith",
+                                sourceDocument.uri,
+                                "codex.cellEditor",
+                                { viewColumn: sourceViewColumn, preserveFocus: !sourceWasActive }
+                            );
+                            await new Promise((resolve) => setTimeout(resolve, 100));
+                        } catch (restoreError) {
+                            console.warn(
+                                `[updateMilestoneValue] Failed to restore source webview after save:`,
+                                restoreError
+                            );
+                        }
+                    }
 
                     // Refresh the source webview panel if it's open
                     const sourcePanel = provider.getWebviewPanels().get(sourceUri.toString());
