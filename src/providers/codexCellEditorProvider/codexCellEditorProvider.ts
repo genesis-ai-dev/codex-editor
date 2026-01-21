@@ -2336,7 +2336,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     public async refreshWebview(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument) {
         debug("Refreshing webview");
-
         const notebookData = this.getDocumentAsJson(document);
         const isSourceText = this.isSourceText(document.uri);
         const videoUrl = this.getVideoUrl(notebookData.metadata?.videoUrl, webviewPanel);
@@ -2360,7 +2359,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             this.getTextDirection(document),
             isSourceText
         );
-        
+
         // Get bundled metadata to avoid separate requests
         const config = vscode.workspace.getConfiguration("codex-project-manager");
         const validationCount = config.get("validationCount", 1);
