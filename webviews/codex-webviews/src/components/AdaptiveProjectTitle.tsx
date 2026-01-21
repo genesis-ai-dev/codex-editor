@@ -80,7 +80,8 @@ export const AdaptiveProjectTitle: React.FC<AdaptiveProjectTitleProps> = ({
 
                 while (i < text.length) {
                     let currentLine = "";
-                    let lastGoodBreakIndex = -1; // Last position where we could break (space, dash, underscore)
+                    let lastGoodBreakIndex = -1; // Position in currentLine where we could break
+                    let lastGoodBreakTextIndex = -1; // Position in TEXT where we could break
                     let lastGoodBreakChar = "";
                     
                     // Build up the current line character by character
@@ -92,6 +93,7 @@ export const AdaptiveProjectTitle: React.FC<AdaptiveProjectTitleProps> = ({
                         // Check if this is a good break point
                         if (char === " " || char === "-" || char === "_") {
                             lastGoodBreakIndex = currentLine.length;
+                            lastGoodBreakTextIndex = i; // Track position in TEXT
                             lastGoodBreakChar = char;
                         }
                         
@@ -109,14 +111,11 @@ export const AdaptiveProjectTitle: React.FC<AdaptiveProjectTitleProps> = ({
                                 // For dashes and underscores, include the separator at end of line
                                 if (lastGoodBreakChar === "-" || lastGoodBreakChar === "_") {
                                     lineToAdd += lastGoodBreakChar;
-                                    i = breakPoint + 1; // Start next line after the separator
-                                } else {
-                                    // For spaces, don't include the space (it's already in lineToAdd if we want it)
-                                    // Actually, spaces should stay - so include it
-                                    i = breakPoint + 1; // Start next line after the space
                                 }
                                 
                                 lines.push(lineToAdd);
+                                // Continue from after the separator in the TEXT
+                                i = lastGoodBreakTextIndex + 1;
                             } else {
                                 // No good break point - break in the middle of the word
                                 // Take at least one character
@@ -165,7 +164,7 @@ export const AdaptiveProjectTitle: React.FC<AdaptiveProjectTitleProps> = ({
                     const testLines = breakIntoLines(title, currentFontSize);
                     
                     // If we need 3 or more lines, reduce font size and try again
-                    if (testLines.length >= 3) {
+                    if (testLines.length > 3) { //could be >=
                         currentFontSize -= 0.5;
                         continue;
                     }
