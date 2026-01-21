@@ -1458,6 +1458,15 @@ suite("CodexCellEditorProvider Test Suite", () => {
     });
 
     test("git commit is triggered on document save operations", async () => {
+        // Ensure the temp file exists before opening
+        try {
+            await vscode.workspace.fs.stat(tempUri);
+        } catch {
+            // File doesn't exist, recreate it with the same content
+            const content = JSON.stringify(codexSubtitleContent, null, 2);
+            await vscode.workspace.fs.writeFile(tempUri, Buffer.from(content, "utf-8"));
+        }
+
         const provider = new CodexCellEditorProvider(context);
         const document = await provider.openCustomDocument(
             tempUri,
