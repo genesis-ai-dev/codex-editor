@@ -119,7 +119,7 @@ export class SQLiteIndexManager {
     public addProgressEntry(step: string, duration: number, startTime: number): void {
         this.progressTimings.push({ step, duration, startTime });
         updateSplashScreenTimings(this.progressTimings);
-        console.log(`[Index] ${step}: ${duration.toFixed(2)}ms`);
+        debug(`[Index] ${step}: ${duration.toFixed(2)}ms`);
     }
 
     async initialize(context: vscode.ExtensionContext): Promise<void> {
@@ -169,7 +169,7 @@ export class SQLiteIndexManager {
             this.db = new this.sql!.Database(fileContent);
             stepStart = this.trackProgress("Parse database structure", stepStart);
 
-            console.log("Loaded existing index database");
+            debug("Loaded existing index database");
 
             // Ensure schema is up to date
             await this.ensureSchema();
@@ -199,7 +199,7 @@ export class SQLiteIndexManager {
             }
 
             stepStart = this.trackProgress("AI preparing fresh learning space", stepStart);
-            console.log("Creating new index database");
+            debug("Creating new index database");
             this.db = new this.sql!.Database();
 
             await this.createSchema();
@@ -519,7 +519,7 @@ export class SQLiteIndexManager {
                 debug("FULL RECREATION: No partial migrations - deleting and recreating database from scratch for maximum reliability");
 
                 // Log schema recreation to console instead of showing to user
-                console.log(`[SQLiteIndex] 🔄 AI updating database schema (v${currentVersion} → v${CURRENT_SCHEMA_VERSION}). Recreating for reliability...`);
+                debug(`[SQLiteIndex] 🔄 AI updating database schema (v${currentVersion} → v${CURRENT_SCHEMA_VERSION}). Recreating for reliability...`);
 
                 // CRITICAL: Delete the database file completely and recreate from scratch
                 // This handles ALL cases: old schemas, corrupted databases, future schema versions, etc.
@@ -1856,7 +1856,7 @@ export class SQLiteIndexManager {
 
             const ftsQuery = escapedWords.join(" OR ");
 
-            console.log(`[searchGreekText] Words extracted: ${words.length} - ${words.slice(0, 5).join(', ')}...`);
+            debug(`[searchGreekText] Words extracted: ${words.length} - ${words.slice(0, 5).join(', ')}...`);
 
 
             sql = `

@@ -287,7 +287,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         // Get auth token for authenticated requests
                         try {
                             authToken = await frontierApi.authProvider.getToken();
-                            console.log(`[getAsrConfig] Token retrieved: ${authToken ? `present (length: ${authToken.length})` : 'empty/undefined'}`);
+                            debug(`[getAsrConfig] Token retrieved: ${authToken ? `present (length: ${authToken.length})` : 'empty/undefined'}`);
                             if (!authToken) {
                                 console.error("[getAsrConfig] ERROR: ASR endpoint requires authentication but token retrieval returned empty value");
                             }
@@ -310,14 +310,14 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
             // Warn if using authenticated endpoint without token
             const isAuthenticatedEndpoint = endpoint.includes('api.frontierrnd.com') || endpoint.includes('frontier');
-            console.log(`[getAsrConfig] Calculation: isAuthenticatedEndpoint=${isAuthenticatedEndpoint}, hasToken=${!!authToken}`);
+            debug(`[getAsrConfig] Calculation: isAuthenticatedEndpoint=${isAuthenticatedEndpoint}, hasToken=${!!authToken}`);
             if (isAuthenticatedEndpoint && !authToken) {
                 console.error(`[getAsrConfig] ERROR: ASR endpoint appears to require authentication but no token was retrieved!`);
                 console.error(`[getAsrConfig] Endpoint: ${endpoint}`);
                 console.error(`[getAsrConfig] This will cause transcription to fail. Please check authentication status.`);
             }
 
-            console.log(`[getAsrConfig] Sending config: endpoint=${endpoint}, hasToken=${!!authToken}`);
+            debug(`[getAsrConfig] Sending config: endpoint=${endpoint}, hasToken=${!!authToken}`);
             safePostMessageToPanel(webviewPanel, {
                 type: "asrConfig",
                 content: { endpoint, authToken }
@@ -918,17 +918,17 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     stopAutocompleteChapter: ({ provider }) => {
-        console.log("stopAutocompleteChapter message received");
+        debug("stopAutocompleteChapter message received");
         const cancelled = provider.cancelAutocompleteChapter();
         if (cancelled) {
             vscode.window.showInformationMessage("Autocomplete operation stopped.");
         } else {
-            console.log("No active autocomplete operation to stop");
+            debug("No active autocomplete operation to stop");
         }
     },
 
     stopSingleCellTranslation: ({ provider }) => {
-        console.log("stopSingleCellTranslation message received");
+        debug("stopSingleCellTranslation message received");
 
         // Try the new robust single cell queue system first
         const cancelledQueue = provider.cancelSingleCellQueue();
@@ -945,7 +945,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     cellError: ({ event, provider }) => {
-        console.log("cellError message received", { event });
+        debug("cellError message received", { event });
         const cellId = (event as any).content?.cellId;
         if (cellId && typeof cellId === "string") {
             provider.markCellComplete(cellId);
@@ -968,7 +968,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         };
         await document.updateNotebookMetadata(updatedMetadata);
         await document.save(new vscode.CancellationTokenSource().token);
-        console.log("Text direction updated successfully.");
+        debug("Text direction updated successfully.");
         provider.postMessageToWebview(webviewPanel, {
             type: "providerUpdatesNotebookMetadataForWebview",
             content: await document.getNotebookMetadata(),
@@ -1035,26 +1035,26 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     deleteCell: ({ event, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "deleteCell"; }>;
-        console.log("deleteCell (soft) message received", { event });
+        debug("deleteCell (soft) message received", { event });
         // Soft-delete: mark the cell as deleted in metadata instead of removing it
         document.softDeleteCell(typedEvent.content.cellId);
     },
 
     updateCellTimestamps: ({ event, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellTimestamps"; }>;
-        console.log("updateCellTimestamps message received", { event });
+        debug("updateCellTimestamps message received", { event });
         document.updateCellTimestamps(typedEvent.content.cellId, typedEvent.content.timestamps);
     },
 
     updateCellLabel: ({ event, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellLabel"; }>;
-        console.log("updateCellLabel message received", { event });
+        debug("updateCellLabel message received", { event });
         document.updateCellLabel(typedEvent.content.cellId, typedEvent.content.cellLabel);
     },
 
     updateCellIsLocked: ({ event, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellIsLocked"; }>;
-        console.log("updateCellIsLocked message received", { event });
+        debug("updateCellIsLocked message received", { event });
         document.updateCellIsLocked(typedEvent.content.cellId, typedEvent.content.isLocked);
     },
 
@@ -1106,17 +1106,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         let codexSaveSucceeded = false;
         let sourceUpdateSucceeded = false;
 
-        // Preserve current milestone index and subsection BEFORE any document changes
-        // This ensures that document change events will use the correct milestone index
+        // Preserve current milestone index and subsection before refreshing webview
+        // Get current subsection from map if available, otherwise use cached subsection
         const docUri = document.uri.toString();
         const currentPosition = provider.currentMilestoneSubsectionMap.get(docUri);
         const subsectionIndex = currentPosition?.subsectionIndex ?? provider.getCachedSubsection(docUri);
 
         // Save milestone index to preserve position after refresh
-        // Use the milestone index from the event, which comes from the React component's current state
-        const milestoneIndexToPreserve = typedEvent.content.milestoneIndex;
         provider.currentMilestoneSubsectionMap.set(docUri, {
-            milestoneIndex: milestoneIndexToPreserve,
+            milestoneIndex: typedEvent.content.milestoneIndex,
             subsectionIndex: subsectionIndex,
         });
 
@@ -1125,8 +1123,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             await document.refreshAuthor();
 
             // Update the milestone cell value in codex file
-            // NOTE: This will fire onDidChangeForVsCodeAndWebview event, which will trigger updateWebview()
-            // But updateWebview() will now use the milestone index we just set above
             await document.updateCellContent(
                 milestoneCellId,
                 typedEvent.content.newValue,
@@ -1144,7 +1140,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             try {
                 await provider.saveCustomDocument(document, cancellationToken);
                 codexSaveSucceeded = true;
-                console.log(`[updateMilestoneValue] Successfully updated and saved milestone in codex file: ${document.uri.fsPath}`);
+                debug(`[updateMilestoneValue] Successfully updated and saved milestone in codex file: ${document.uri.fsPath}`);
             } catch (saveError) {
                 console.error(`[updateMilestoneValue] Failed to save codex file ${document.uri.fsPath}:`, saveError);
                 vscode.window.showErrorMessage(
@@ -1241,9 +1237,31 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
                 // Save the source document
                 try {
+                    const sourcePanelBeforeSave = provider.getWebviewPanels().get(sourceUri.toString());
+                    const sourceViewColumn = sourcePanelBeforeSave?.viewColumn ?? vscode.ViewColumn.Active;
+                    const sourceWasActive = sourcePanelBeforeSave?.active ?? false;
+
                     await provider.saveCustomDocument(sourceDocument, cancellationToken);
                     sourceUpdateSucceeded = true;
-                    console.log(`[updateMilestoneValue] Successfully updated and saved milestone in source file: ${sourceUri.fsPath}`);
+                    debug(`[updateMilestoneValue] Successfully updated and saved milestone in source file: ${sourceUri.fsPath}`);
+
+                    const sourcePanelAfterSave = provider.getWebviewPanels().get(sourceUri.toString());
+                    if (sourcePanelBeforeSave && !sourcePanelAfterSave) {
+                        try {
+                            await vscode.commands.executeCommand(
+                                "vscode.openWith",
+                                sourceDocument.uri,
+                                "codex.cellEditor",
+                                { viewColumn: sourceViewColumn, preserveFocus: !sourceWasActive }
+                            );
+                            await new Promise((resolve) => setTimeout(resolve, 100));
+                        } catch (restoreError) {
+                            console.warn(
+                                `[updateMilestoneValue] Failed to restore source webview after save:`,
+                                restoreError
+                            );
+                        }
+                    }
 
                     // Refresh the source webview panel if it's open
                     const sourcePanel = provider.getWebviewPanels().get(sourceUri.toString());
@@ -1290,20 +1308,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             return;
         }
 
-        // Before refreshing, verify that the milestone index is still valid after the document update
-        // Rebuild milestone index to ensure we have the latest state
-        const updatedMilestoneIndex = document.buildMilestoneIndex();
-        const preservedPosition = provider.currentMilestoneSubsectionMap.get(docUri);
-
-        if (preservedPosition) {
-            // Validate that the preserved milestone index is still valid
-            if (preservedPosition.milestoneIndex >= 0 && preservedPosition.milestoneIndex < updatedMilestoneIndex.milestones.length) {
-                // Valid milestone index, proceed with refresh
-            } else {
-                // Invalid milestone index in map - refreshWebview will handle the fallback logic
-            }
-        }
-
         // Only refresh if deferRefresh is not set to true
         refreshWebviewIfNotDeferred();
     },
@@ -1315,7 +1319,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     updateNotebookMetadata: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "updateNotebookMetadata"; }>;
-        console.log("updateNotebookMetadata message received", { event });
+        debug("updateNotebookMetadata message received", { event });
         const newMetadata = typedEvent.content;
         await document.updateNotebookMetadata(newMetadata);
         await document.save(new vscode.CancellationTokenSource().token);
@@ -1324,7 +1328,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     pickVideoFile: async ({ document, webviewPanel, provider }) => {
-        console.log("pickVideoFile message received");
+        debug("pickVideoFile message received");
         const result = await vscode.window.showOpenDialog({
             canSelectMany: false,
             openLabel: "Select Video File",
@@ -1343,13 +1347,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     replaceDuplicateCells: ({ event, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "replaceDuplicateCells"; }>;
-        console.log("replaceDuplicateCells message received", { event });
+        debug("replaceDuplicateCells message received", { event });
         document.replaceDuplicateCells(typedEvent.content);
     },
 
     saveTimeBlocks: ({ event, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "saveTimeBlocks"; }>;
-        console.log("saveTimeBlocks message received", { event });
+        debug("saveTimeBlocks message received", { event });
         typedEvent.content.forEach((cell) => {
             document.updateCellTimestamps(cell.id, {
                 startTime: cell.begin,
@@ -1360,7 +1364,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     supplyRecentEditHistory: async ({ event }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "supplyRecentEditHistory"; }>;
-        console.log("supplyRecentEditHistory message received", { event });
+        debug("supplyRecentEditHistory message received", { event });
         await vscode.commands.executeCommand(
             "codex-smart-edits.supplyRecentEditHistory",
             typedEvent.content.cellId,
@@ -1405,7 +1409,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     togglePinPrompt: async ({ event }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "togglePinPrompt"; }>;
-        console.log("togglePinPrompt message received", { event });
+        debug("togglePinPrompt message received", { event });
         await vscode.commands.executeCommand(
             "codex-smart-edits.togglePinPrompt",
             typedEvent.content.cellId,
@@ -1525,7 +1529,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const { recordVariantSelection } = await import("../../utils/abTestingUtils");
         await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, names, testName);
 
-        console.log(`A/B test feedback recorded: Cell ${cellId}, variant ${selectedIndex}, test ${testId}, took ${selectionTimeMs}ms`);
+        debug(`A/B test feedback recorded: Cell ${cellId}, variant ${selectedIndex}, test ${testId}, took ${selectionTimeMs}ms`);
     },
 
     updateCellDisplayMode: async ({ event, document, webviewPanel, provider }) => {
@@ -1535,7 +1539,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         };
         await document.updateNotebookMetadata(updatedMetadata);
         await document.save(new vscode.CancellationTokenSource().token);
-        console.log("Cell display mode updated successfully.");
+        debug("Cell display mode updated successfully.");
         provider.postMessageToWebview(webviewPanel, {
             type: "providerUpdatesNotebookMetadataForWebview",
             content: await document.getNotebookMetadata(),
@@ -1605,7 +1609,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     options: ["See more", "See less"],
                     winner: buttonChoice === "more" ? 0 : 1,
                 });
-                console.log(`Recorded frequency preference A/B test: ${buttonChoice} won`);
+                debug(`Recorded frequency preference A/B test: ${buttonChoice} won`);
             } catch (analyticsError) {
                 console.warn("[A/B] Failed to post frequency preference analytics", analyticsError);
             }
@@ -1715,7 +1719,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     closeCurrentDocument: async ({ event }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "closeCurrentDocument"; }>;
-        console.log("Close document request received:", typedEvent.content);
+        debug("Close document request received:", typedEvent.content);
         const fileUri = typedEvent.content?.uri;
         const isSourceDocument = typedEvent.content?.isSource === true;
 
@@ -1741,7 +1745,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
 
             if (!found) {
-                console.log("Could not find the specific editor to close, closing active editor");
+                debug("Could not find the specific editor to close, closing active editor");
                 await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
             }
         } else if (isSourceDocument) {
@@ -1767,7 +1771,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     toggleSidebar: async ({ event }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "toggleSidebar"; }>;
-        console.log("toggleSidebar message received");
+        debug("toggleSidebar message received");
         await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
         if (typedEvent.content?.isOpening) {
             await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
@@ -1775,12 +1779,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     triggerSync: ({ provider }) => {
-        console.log("triggerSync message received");
+        debug("triggerSync message received");
         provider.triggerSync();
     },
 
     toggleCorrectionEditorMode: ({ provider }) => {
-        console.log("toggleCorrectionEditorMode message received");
+        debug("toggleCorrectionEditorMode message received");
         provider.toggleCorrectionEditorMode();
     },
 
@@ -1788,7 +1792,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const typedEvent = event as Extract<EditorPostMessages, { command: "cancelMerge"; }>;
         const cellId = typedEvent.content.cellId;
 
-        console.log("cancelMerge message received for cell:", cellId);
+        debug("cancelMerge message received for cell:", cellId);
 
         try {
             // Get the current cell data and remove the merged flag
@@ -1831,7 +1835,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // Save the current document
             await document.save(new vscode.CancellationTokenSource().token);
 
-            console.log(`Successfully unmerged cell in source: ${cellId}`);
+            debug(`Successfully unmerged cell in source: ${cellId}`);
 
             // Also unmerge the corresponding cell in the target file (like merge function does)
             const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
@@ -1854,7 +1858,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     triggerReindexing: async () => {
-        console.log("Triggering reindexing after all translations completed");
+        debug("Triggering reindexing after all translations completed");
         await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
     },
 
@@ -2219,7 +2223,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     saveAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "saveAudioAttachment"; }>;
         const requestId = typedEvent.requestId;
-        console.log("saveAudioAttachment message received", {
+        debug("saveAudioAttachment message received", {
             cellId: typedEvent.content.cellId,
             audioId: typedEvent.content.audioId,
             fileExtension: typedEvent.content.fileExtension
@@ -2547,7 +2551,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     restoreAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "restoreAudioAttachment"; }>;
-        console.log("restoreAudioAttachment message received", {
+        debug("restoreAudioAttachment message received", {
             cellId: typedEvent.content.cellId,
             audioId: typedEvent.content.audioId
         });
@@ -2572,7 +2576,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     selectAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "selectAudioAttachment"; }>;
-        console.log("selectAudioAttachment message received", {
+        debug("selectAudioAttachment message received", {
             cellId: typedEvent.content.cellId,
             audioId: typedEvent.content.audioId
         });
@@ -2696,7 +2700,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const typedEvent = event as Extract<EditorPostMessages, { command: "confirmCellMerge"; }>;
         const { currentCellId, previousCellId, currentContent, previousContent, message } = typedEvent.content;
 
-        console.log("confirmCellMerge message received for cells:", { currentCellId, previousCellId });
+        debug("confirmCellMerge message received for cells:", { currentCellId, previousCellId });
 
         try {
             // Check if we're working with a source file and need to check for child cells
@@ -2900,7 +2904,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         const selectedAtt = previousCell.metadata.attachments[selectedId];
                         if (selectedAtt && selectedAtt.type === "audio" && !selectedAtt.isDeleted) {
                             previousAttachment = { attachmentId: selectedId, attachment: selectedAtt };
-                            console.log(`[mergeCellWithPrevious] Using selected audio attachment: ${selectedId} for cell ${previousCellId}`);
+                            debug(`[mergeCellWithPrevious] Using selected audio attachment: ${selectedId} for cell ${previousCellId}`);
                         }
                     }
 
@@ -2916,7 +2920,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         if (attachments.length > 0) {
                             const [attachmentId, attachment] = attachments[0];
                             previousAttachment = { attachmentId, attachment };
-                            console.log(`[mergeCellWithPrevious] Using latest audio attachment: ${attachmentId} (updatedAt: ${attachment.updatedAt}) for cell ${previousCellId}`);
+                            debug(`[mergeCellWithPrevious] Using latest audio attachment: ${attachmentId} (updatedAt: ${attachment.updatedAt}) for cell ${previousCellId}`);
                         }
                     }
 
@@ -2951,7 +2955,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
                     if (previousAudioPath && currentAudioPath) {
                         // Both cells have audio - merge them
-                        console.log(`[mergeCellWithPrevious] Merging audio files: ${previousAudioPath} + ${currentAudioPath}`);
+                        debug(`[mergeCellWithPrevious] Merging audio files: ${previousAudioPath} + ${currentAudioPath}`);
 
                         // Determine output filename using previous cell's globalReferences or ID
                         // Try to get cell from document to access globalReferences
@@ -3078,7 +3082,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             const basenameWithoutExt = path.basename(outputFilename, ext);
                             tempOutputPath = path.join(outputDir, `${basenameWithoutExt}_tmp_${timestamp}${ext}`);
                             outputPath = tempOutputPath;
-                            console.log(`[mergeCellWithPrevious] WARNING: Output path matches input path, using temporary path: ${tempOutputPath}`);
+                            debug(`[mergeCellWithPrevious] WARNING: Output path matches input path, using temporary path: ${tempOutputPath}`);
                         }
 
                         // Merge audio files using FFmpeg
@@ -3103,7 +3107,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                         vscode.Uri.file(finalOutputPath),
                                         { overwrite: true }
                                     );
-                                    console.log(`[mergeCellWithPrevious] Successfully moved temporary file to final location: ${finalOutputPath}`);
+                                    debug(`[mergeCellWithPrevious] Successfully moved temporary file to final location: ${finalOutputPath}`);
 
                                     // Verify final file exists
                                     if (!(await pathExists(finalOutputPath))) {
@@ -3182,7 +3186,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             // Set as selected audio
                             previousCell.metadata.selectedAudioId = newAttachmentId;
 
-                            console.log(`[mergeCellWithPrevious] Successfully merged audio files and updated attachment metadata`);
+                            debug(`[mergeCellWithPrevious] Successfully merged audio files and updated attachment metadata`);
                         } else {
                             console.warn(`[mergeCellWithPrevious] Audio merge failed, continuing with text merge only`);
                             vscode.window.showWarningMessage("Audio files could not be merged, but text merge completed successfully.");
@@ -3203,7 +3207,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 updatedAt: timestamp
                             };
                             previousCell.metadata.selectedAudioId = copyAttachmentId;
-                            console.log(`[mergeCellWithPrevious] Preserved audio attachment from ${sourceCellId}`);
+                            debug(`[mergeCellWithPrevious] Preserved audio attachment from ${sourceCellId}`);
                         }
                     }
                 } catch (audioError) {
@@ -3241,7 +3245,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // Save the document
             await document.save(new vscode.CancellationTokenSource().token);
 
-            console.log(`Successfully merged cell ${currentCellId} with ${previousCellId}`);
+            debug(`Successfully merged cell ${currentCellId} with ${previousCellId}`);
 
             // Refresh the webview content
             provider.refreshWebview(webviewPanel, document);
@@ -3471,10 +3475,10 @@ export const handleGlobalMessage = async (
     provider: CodexCellEditorProvider,
     event: GlobalMessage
 ) => {
-    console.log("handleGlobalMessage", { event });
+    debug("handleGlobalMessage", { event });
     switch (event.command) {
         case "applyTranslation": {
-            console.log("applyTranslation message received", { event });
+            debug("applyTranslation message received", { event });
             if (provider.currentDocument && event.content.type === "cellAndText") {
                 provider.currentDocument.updateCellContent(
                     event.content.cellId,
@@ -3485,7 +3489,7 @@ export const handleGlobalMessage = async (
             break;
         }
         case "refreshAllEditors": {
-            console.log("refreshAllEditors message received", { event });
+            debug("refreshAllEditors message received", { event });
             // Send refreshMetadata message to all open editor webviews
             provider.getWebviewPanels().forEach((panel) => {
                 provider.postMessageToWebview(panel, {

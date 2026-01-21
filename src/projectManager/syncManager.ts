@@ -195,7 +195,7 @@ export class SyncManager {
 
                 switch (status.status) {
                     case 'started':
-                        console.log('[Sync] 🔄 Sync operation started');
+                        debug('[Sync] 🔄 Sync operation started');
                         // Only show Frontier progress if this sync wasn't initiated by Codex
                         if (this.codexInitiatedSyncCount === 0) {
                             this.isSyncInProgress = true;
@@ -224,12 +224,12 @@ export class SyncManager {
                                 phase === 'fetching' ? '⬇️' :
                                     phase === 'pushing' ? '⬆️' :
                                         phase === 'merging' ? '🔀' : '⚙️';
-                            console.log(`[Sync] ${phaseEmoji} ${this.currentSyncStage}`);
+                            debug(`[Sync] ${phaseEmoji} ${this.currentSyncStage}`);
                             debug(`[SyncManager] Progress update: ${this.currentSyncStage}`);
                         }
                         break;
                     case 'completed':
-                        console.log('[Sync] ✅ Sync completed successfully');
+                        debug('[Sync] ✅ Sync completed successfully');
                         this.isSyncInProgress = false;
                         this.currentSyncStage = status.message || 'Sync complete';
                         this.notifySyncStatusListeners();
