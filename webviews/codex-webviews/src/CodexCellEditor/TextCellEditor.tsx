@@ -1508,7 +1508,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         const file = event.target.files?.[0];
 
         if (file && (file.type.startsWith("audio/") || file.type.startsWith("video/"))) {
-            console.log("Valid audio file detected, setting audio blob");
+            debug("Valid audio file detected, setting audio blob");
             setAudioBlob(file);
 
             // Clean up old URL if exists

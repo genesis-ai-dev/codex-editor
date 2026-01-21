@@ -393,8 +393,9 @@ const CodexCellEditor: React.FC = () => {
                                 window.removeEventListener("message", onMsg);
                                 resolved = true;
                                 const config = ev.data.content;
-                                console.log(
-                                    `[BatchTranscription] Received ASR config: endpoint=${
+                                debug(
+                                    "batchTranscription",
+                                    `Received ASR config: endpoint=${
                                         config.endpoint
                                     }, hasToken=${!!config.authToken}`
                                 );
@@ -491,9 +492,7 @@ const CodexCellEditor: React.FC = () => {
                         const blob = await (await fetch(audioInfo.audioData)).blob();
 
                         // Transcribe
-                        console.log(
-                            `[BatchTranscription] Creating client for cell ${cellId}: endpoint=${wsEndpoint}, hasToken=${!!asrConfig.authToken}`
-                        );
+                        debug("batchTranscription", `Creating client for cell ${cellId}: endpoint=${wsEndpoint}, hasToken=${!!asrConfig.authToken}`);
                         const client = new WhisperTranscriptionClient(
                             wsEndpoint,
                             asrConfig.authToken
@@ -873,7 +872,7 @@ const CodexCellEditor: React.FC = () => {
             }
             if (message?.type === "configurationChanged") {
                 // Configuration changes now send validationCount directly, no need to re-request
-                console.log("Configuration changed - validation count will be sent directly");
+                debug("validationConfig", "Configuration changed - validation count will be sent directly");
             }
         },
         []
@@ -2672,7 +2671,7 @@ const CodexCellEditor: React.FC = () => {
 
     // Update toggle functions to use the shared VS Code API instance
     const togglePrimarySidebar = () => {
-        console.log("togglePrimarySidebar");
+        debug("togglePrimarySidebar", "Toggling primary sidebar");
         // Send the opposite of the current state as we're about to toggle it
         vscode.postMessage({
             command: "toggleSidebar",
