@@ -34,6 +34,7 @@ import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
 import { Progress } from "../components/ui/progress";
 import { Separator } from "../components/ui/separator";
+import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
 import {
     Dialog,
@@ -58,6 +59,7 @@ import {
     Settings,
     X,
     Check,
+    AlertCircle,
     FileCode,
     RefreshCcw,
     ListOrdered,
@@ -119,6 +121,7 @@ interface CellEditorProps {
     cell: QuillCellContent;
     isSaving?: boolean;
     saveError?: boolean;
+    saveErrorMessage?: string | null;
     saveRetryCount?: number;
     footnoteOffset?: number;
     prevEndTime?: number;
@@ -233,6 +236,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     cell,
     isSaving = false,
     saveError = false,
+    saveErrorMessage = null,
     saveRetryCount = 0,
     footnoteOffset = 1,
     prevEndTime,
@@ -3004,6 +3008,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Save error message */}
+            {saveError && saveErrorMessage && (
+                <div className="p-4">
+                    <Alert variant="destructive">
+                        <AlertTitle className="flex items-center gap-1">
+                            <AlertCircle className="h-4 w-4" />
+                            Save Failed
+                        </AlertTitle>
+                        <AlertDescription className="mt-1">
+                            {saveErrorMessage}. Please try again.
+                        </AlertDescription>
+                    </Alert>
+                </div>
+            )}
         </Card>
     );
 };

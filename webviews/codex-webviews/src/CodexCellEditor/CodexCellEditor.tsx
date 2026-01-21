@@ -269,6 +269,7 @@ const CodexCellEditor: React.FC = () => {
     const [fileStatus, setFileStatus] = useState<"dirty" | "syncing" | "synced" | "none">("none");
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState(false);
+    const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
     const [saveRetryCount, setSaveRetryCount] = useState(0);
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const pendingSaveRequestIdRef = useRef<string | null>(null);
@@ -1911,6 +1912,7 @@ const CodexCellEditor: React.FC = () => {
 
         // Reset error state and show saving spinner
         setSaveError(false);
+        setSaveErrorMessage(null);
         setIsSaving(true);
 
         // Track this save so we can wait for the provider's explicit ack (after disk persistence)
@@ -1925,6 +1927,7 @@ const CodexCellEditor: React.FC = () => {
             debug("editor", "Save operation timed out", { cellId, attempt: currentRetryCount + 1 });
             setIsSaving(false);
             setSaveError(true);
+            setSaveErrorMessage("Save operation timed out. Please try again.");
             setSaveRetryCount((prev) => prev + 1);
         }, SAVE_TIMEOUT_MS);
 
@@ -1957,6 +1960,7 @@ const CodexCellEditor: React.FC = () => {
                 pendingSaveRequestIdRef.current = null;
                 setIsSaving(false);
                 setSaveError(false);
+                setSaveErrorMessage(null);
                 setSaveRetryCount(0);
                 handleCloseEditor();
                 return;
@@ -1965,6 +1969,8 @@ const CodexCellEditor: React.FC = () => {
             // Save failed: keep editor open for manual retry
             setIsSaving(false);
             setSaveError(true);
+            const errorMessage = message?.content?.error || "Failed to save. Please try again.";
+            setSaveErrorMessage(errorMessage);
             setSaveRetryCount((prev) => prev + 1);
         },
         []
@@ -2959,6 +2965,7 @@ const CodexCellEditor: React.FC = () => {
                             isAudioOnly={Boolean(metadata?.audioOnly)}
                             isSaving={isSaving}
                             saveError={saveError}
+                            saveErrorMessage={saveErrorMessage}
                             saveRetryCount={saveRetryCount}
                             isCorrectionEditorMode={isCorrectionEditorMode}
                             fontSize={

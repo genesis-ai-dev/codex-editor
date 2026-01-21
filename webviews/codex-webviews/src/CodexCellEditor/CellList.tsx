@@ -52,6 +52,7 @@ export interface CellListProps {
     }; // Cells that have audio attachments
     isSaving?: boolean;
     saveError?: boolean; // Whether there was a save error/timeout
+    saveErrorMessage?: string | null; // Error message to display when save fails
     saveRetryCount?: number; // Number of save retry attempts
     isCorrectionEditorMode?: boolean; // Whether correction editor mode is active
     fontSize?: number; // Font size for responsive styling
@@ -106,6 +107,7 @@ const CellList: React.FC<CellListProps> = ({
     audioAttachments,
     isSaving = false,
     saveError = false,
+    saveErrorMessage = null,
     saveRetryCount = 0,
     isCorrectionEditorMode = false,
     fontSize = 14,
@@ -878,6 +880,7 @@ const CellList: React.FC<CellListProps> = ({
                             openCellById={openCellById}
                             isSaving={isSaving}
                             saveError={saveError}
+                            saveErrorMessage={saveErrorMessage}
                             saveRetryCount={saveRetryCount}
                             footnoteOffset={calculateFootnoteOffset(i) + 1}
                             audioAttachments={audioAttachments}
