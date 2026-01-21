@@ -1100,8 +1100,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         let codexSaveSucceeded = false;
         let sourceUpdateSucceeded = false;
 
-        // Preserve current milestone index and subsection BEFORE any document changes
-        // This ensures that document change events will use the correct milestone index
+        // Preserve current milestone index and subsection before refreshing webview
+        // Get current subsection from map if available, otherwise use cached subsection
         const docUri = document.uri.toString();
         const currentPosition = provider.currentMilestoneSubsectionMap.get(docUri);
         const subsectionIndex = currentPosition?.subsectionIndex ?? provider.getCachedSubsection(docUri);
