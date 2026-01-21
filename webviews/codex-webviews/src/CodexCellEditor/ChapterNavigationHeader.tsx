@@ -559,21 +559,7 @@ ChapterNavigationHeaderProps) {
             milestoneNewName.trim() !== "" &&
             milestoneNewName.trim() !== currentMilestone.value
         ) {
-            // Validate that the milestone index is still valid before sending
-            if (
-                currentMilestoneIndex < 0 ||
-                currentMilestoneIndex >= (milestoneIndex?.milestones.length || 0)
-            ) {
-                console.error(
-                    `[handleEditMilestoneModalConfirm] Invalid milestone index: ${currentMilestoneIndex}, total milestones: ${
-                        milestoneIndex?.milestones.length || 0
-                    }`
-                );
-                return;
-            }
-
             // Send message to update milestone value
-            // Use currentMilestoneIndex from React state, which should be synchronized with provider's map
             vscode.postMessage({
                 command: "updateMilestoneValue",
                 content: {

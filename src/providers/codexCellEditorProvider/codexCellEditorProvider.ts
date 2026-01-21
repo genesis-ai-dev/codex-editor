@@ -1327,15 +1327,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     ): Promise<void> {
         debug("Saving custom document:", document.uri.toString(),);
 
-        // Capture webview state before save (in case it gets closed during atomic write)
-        const webviewPanelBeforeSave = this.webviewPanels.get(document.uri.toString());
-        let viewColumn: vscode.ViewColumn | undefined;
-        let wasActive = false;
-        if (webviewPanelBeforeSave) {
-            viewColumn = webviewPanelBeforeSave.viewColumn ?? vscode.ViewColumn.Active;
-            wasActive = webviewPanelBeforeSave.active;
-        }
-
         try {
             // Set status to syncing
             this.updateFileStatus("syncing");
@@ -1343,24 +1334,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Save the document
             await document.save(cancellation);
             debug("Document save completed, isDirty should be false:", document.isDirty);
-
-            // Check if webview was closed during save (due to atomic write rename triggering deletion detection)
-            const webviewPanelAfterSave = this.webviewPanels.get(document.uri.toString());
-            if (webviewPanelBeforeSave && !webviewPanelAfterSave) {
-                // Restore the webview by reopening the document
-                try {
-                    await vscode.commands.executeCommand(
-                        "vscode.openWith",
-                        document.uri,
-                        "codex.cellEditor",
-                        { viewColumn: viewColumn ?? vscode.ViewColumn.Active, preserveFocus: !wasActive }
-                    );
-                    // Wait a bit for the webview to be created
-                    await new Promise(resolve => setTimeout(resolve, 100));
-                } catch (restoreError) {
-                    console.error(`[SaveCustomDocument] Failed to restore webview:`, restoreError);
-                }
-            }
 
             // Get the SyncManager singleton
             const syncManager = SyncManager.getInstance();
@@ -2364,15 +2337,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     public async refreshWebview(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument) {
         debug("Refreshing webview");
 
-        // Check if webview is disposed before attempting to use it
-        try {
-            // Try to access webview property to check if disposed
-            const _ = webviewPanel.webview;
-        } catch (error) {
-            debug("Webview is disposed, skipping refresh");
-            return;
-        }
-
         const notebookData = this.getDocumentAsJson(document);
         const isSourceText = this.isSourceText(document.uri);
         const videoUrl = this.getVideoUrl(notebookData.metadata?.videoUrl, webviewPanel);
@@ -2390,20 +2354,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
         this.refreshInFlight.add(docKey);
 
-        try {
-            webviewPanel.webview.html = this.getHtmlForWebview(
-                webviewPanel.webview,
-                document,
-                this.getTextDirection(document),
-                isSourceText
-            );
-        } catch (error) {
-            // Webview was disposed between check and use, clean up and return
-            this.refreshInFlight.delete(docKey);
-            debug("Webview disposed while setting HTML in refreshWebview");
-            return;
-        }
-
+        webviewPanel.webview.html = this.getHtmlForWebview(
+            webviewPanel.webview,
+            document,
+            this.getTextDirection(document),
+            isSourceText
+        );
+        
         // Get bundled metadata to avoid separate requests
         const config = vscode.workspace.getConfiguration("codex-project-manager");
         const validationCount = config.get("validationCount", 1);
@@ -2490,19 +2447,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
 
         // Schedule updates to wait for webview ready signal
-        // IMPORTANT: Capture the milestone index values in the closure to ensure they're not affected by any changes
-        // that might happen between now and when the webview sends the ready signal
-        const capturedMilestoneIndex = initialMilestoneIndex;
-        const capturedSubsectionIndex = initialSubsectionIndex;
-
         this.scheduleWebviewUpdate(document.uri.toString(), () => {
             // Send paginated initial content with milestone index
             this.postMessageToWebview(webviewPanel, {
                 type: "providerSendsInitialContentPaginated",
                 milestoneIndex: milestoneIndex,
                 cells: processedInitialCells,
-                currentMilestoneIndex: capturedMilestoneIndex,
-                currentSubsectionIndex: capturedSubsectionIndex,
+                currentMilestoneIndex: initialMilestoneIndex,
+                currentSubsectionIndex: initialSubsectionIndex,
                 isSourceText: isSourceText,
                 sourceCellMap: initialSourceCellMap,
                 username: username,
@@ -2545,13 +2497,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         videoPath: string | undefined,
         webviewPanel: vscode.WebviewPanel
     ): string | null {
-        try {
-            return processVideoUrl(videoPath, webviewPanel.webview);
-        } catch (error) {
-            // Webview is disposed, return null
-            debug("Webview disposed in getVideoUrl, returning null");
-            return null;
-        }
+        return processVideoUrl(videoPath, webviewPanel.webview);
     }
 
     public updateCellIdState(cellId: string, uri: string, document?: CodexCellDocument) {

@@ -773,16 +773,9 @@ const CodexCellEditor: React.FC = () => {
                 cellsCacheRef.current.clear();
                 loadedPagesRef.current.clear();
 
-                // Use milestone/subsection indices from message if provided (from provider's map),
-                // otherwise fall back to refs (webview's current state)
-                const milestoneIdx =
-                    message.milestoneIndex !== undefined
-                        ? message.milestoneIndex
-                        : currentMilestoneIndexRef.current;
-                const subsectionIdx =
-                    message.subsectionIndex !== undefined
-                        ? message.subsectionIndex
-                        : currentSubsectionIndexRef.current;
+                // Use refs to get current values without adding them to dependency array
+                const milestoneIdx = currentMilestoneIndexRef.current;
+                const subsectionIdx = currentSubsectionIndexRef.current;
 
                 // Request fresh cells for the current page
                 if (requestCellsForMilestoneRef.current) {
