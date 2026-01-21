@@ -71,7 +71,6 @@ export function registerTestingCommands(context: vscode.ExtensionContext) {
 			"llmEndpoint",
 			"api_key",
 			"model",
-			"customModel",
 			"contextSize",
 			"additionalResourcesDirectory",
 			"experimentalContextOmission",
