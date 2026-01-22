@@ -222,7 +222,7 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                         </>
                     ) : (
                         <>
-                            Save & Continue
+                            Save and Start Translating
                             <i className="codicon codicon-arrow-right" style={{ marginLeft: "4px" }}></i>
                         </>
                     )}

@@ -171,7 +171,7 @@ export const IntentSelection: React.FC<IntentSelectionProps> = ({
                         className="px-8 py-2"
                     >
                         <FileText className="h-4 w-4 mr-2" />
-                        Open Translation File
+                        Continue
                     </Button>
                 </div>
             )}
