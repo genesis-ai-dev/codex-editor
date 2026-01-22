@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { randomUUID } from "crypto";
+import git from "isomorphic-git";
+import fs from "fs";
 import { CodexContentSerializer } from "@/serializer";
 import { vrefData } from "@/utils/verseRefUtils/verseData";
 import { EditMapUtils } from "@/utils/editMapUtils";
@@ -11,6 +13,9 @@ import { extractParentCellIdFromParatext } from "../../providers/codexCellEditor
 import { generateCellIdFromHash, isUuidFormat } from "../../utils/uuidUtils";
 import { getCorrespondingSourceUri, getCorrespondingCodexUri } from "../../utils/codexNotebookUtils";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
+import { resolveCodexCustomMerge, mergeDuplicateCellsUsingResolverLogic } from "./merge/resolvers";
+import { atomicWriteUriText } from "../../utils/notebookSafeSaveUtils";
+import { normalizeNotebookFileText, formatJsonForNotebookFile } from "../../utils/notebookFileFormattingUtils";
 
 // FIXME: move notebook format migration here
 
@@ -18,6 +23,70 @@ const DEBUG_MODE = false;
 function debug(...args: any[]): void {
     if (DEBUG_MODE) {
         console.log("[Extension]", ...args);
+    }
+}
+
+async function stageAndCommitAllWithMessage(
+    workspacePath: string,
+    message: string
+): Promise<void> {
+    try {
+        let hasGit = false;
+        try {
+            await git.resolveRef({ fs, dir: workspacePath, ref: "HEAD" });
+            hasGit = true;
+        } catch {
+            // No git repo or no commits; skip commit step
+        }
+
+        if (!hasGit) {
+            return;
+        }
+
+        const statusMatrix = await git.statusMatrix({ fs, dir: workspacePath });
+        const hasChanges = statusMatrix.some(([_, head, workdir, stage]) => {
+            return !(head === 1 && workdir === 1 && stage === 1);
+        });
+
+        if (!hasChanges) {
+            return;
+        }
+
+        await git.add({ fs, dir: workspacePath, filepath: "." });
+        const authApi = getAuthApi();
+        let userInfo;
+        try {
+            const authStatus = authApi?.getAuthStatus?.();
+            if (authStatus?.isAuthenticated) {
+                userInfo = await authApi?.getUserInfo();
+            }
+        } catch (error) {
+            console.warn("[Cleanup] Could not fetch user info for git commit author:", error);
+        }
+
+        const author = {
+            name:
+                userInfo?.username ||
+                vscode.workspace
+                    .getConfiguration("codex-project-manager")
+                    .get<string>("userName") ||
+                "Unknown",
+            email:
+                userInfo?.email ||
+                vscode.workspace
+                    .getConfiguration("codex-project-manager")
+                    .get<string>("userEmail") ||
+                "unknown",
+        };
+
+        await git.commit({
+            fs,
+            dir: workspacePath,
+            message,
+            author,
+        });
+    } catch (error) {
+        console.warn("[Cleanup] Unable to stage/commit changes (non-critical):", error);
     }
 }
 
@@ -114,7 +183,7 @@ export const migration_moveTimestampsToMetadataData = async (context?: vscode.Ex
             await context?.workspaceState.update(migrationKey, true);
         }
 
-        console.log(`Timestamps data migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        debug(`Timestamps data migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
         if (migratedFiles > 0) {
             vscode.window.showInformationMessage(
                 `Subtitle timestamps migration complete: ${migratedFiles} files updated`
@@ -150,11 +219,11 @@ export const migration_promoteCellTypeToTopLevel = async (context?: vscode.Exten
         }
 
         if (hasMigrationRun) {
-            console.log("Cell type promotion migration already completed, skipping");
+            debug("Cell type promotion migration already completed, skipping");
             return;
         }
 
-        console.log("Running cell type promotion migration...");
+        debug("Running cell type promotion migration...");
 
         const workspaceFolder = workspaceFolders[0];
         const codexFiles = await vscode.workspace.findFiles(
@@ -210,7 +279,7 @@ export const migration_promoteCellTypeToTopLevel = async (context?: vscode.Exten
             await context?.workspaceState.update(migrationKey, true);
         }
 
-        console.log(`Cell type promotion migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        debug(`Cell type promotion migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
         if (migratedFiles > 0) {
             vscode.window.showInformationMessage(
                 `Cell type normalization complete: ${migratedFiles} files updated`
@@ -245,14 +314,14 @@ export const migration_changeDraftFolderToFilesFolder = async () => {
                     await vscode.workspace.fs.rename(draftsUri, filesUri, {
                         overwrite: false,
                     });
-                    console.log('Renamed "drafts" folder to "files".');
+                    debug('Renamed "drafts" folder to "files".');
                 }
             } catch (error) {
                 // If the 'drafts' folder doesn't exist, we quietly pass
-                console.log('The "drafts" folder does not exist. No action needed.');
+                debug('The "drafts" folder does not exist. No action needed.');
             }
         } catch (error) {
-            console.log('The "metadata.json" file does not exist. No action needed.');
+            debug('The "metadata.json" file does not exist. No action needed.');
         }
     }
 };
@@ -261,7 +330,7 @@ export const migration_chatSystemMessageToMetadata = async (context?: vscode.Ext
     try {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
         if (!workspaceFolder) {
-            console.log('[Migration] No workspace folder found, skipping chatSystemMessage migration');
+            debug('[Migration] No workspace folder found, skipping chatSystemMessage migration');
             return;
         }
 
@@ -350,7 +419,7 @@ export const migration_chatSystemMessageToMetadata = async (context?: vscode.Ext
                     if (generatedValue) {
                         const result = await MetadataManager.setChatSystemMessage(generatedValue, workspaceFolder);
                         if (result.success) {
-                            console.log('[Migration] Successfully generated and saved chatSystemMessage to metadata.json');
+                            debug('[Migration] Successfully generated and saved chatSystemMessage to metadata.json');
                         } else {
                             console.warn('[Migration] Generated chatSystemMessage but failed to save:', result.error);
                         }
@@ -384,7 +453,7 @@ export const migration_chatSystemMessageToMetadata = async (context?: vscode.Ext
             : undefined;
 
         if (recheckChatSystemMessage && recheckChatSystemMessage.trim() !== "") {
-            console.log('[Migration] chatSystemMessage already exists in metadata.json, skipping migration from settings.json');
+            debug('[Migration] chatSystemMessage already exists in metadata.json, skipping migration from settings.json');
             // Mark migration as completed since value already exists
             try {
                 await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
@@ -405,7 +474,7 @@ export const migration_chatSystemMessageToMetadata = async (context?: vscode.Ext
             return;
         }
 
-        console.log('[Migration] Successfully migrated chatSystemMessage to metadata.json');
+        debug('[Migration] Successfully migrated chatSystemMessage to metadata.json');
 
         // Remove from settings.json (both namespaces)
         if (newValue) {
@@ -415,7 +484,7 @@ export const migration_chatSystemMessageToMetadata = async (context?: vscode.Ext
 
             try {
                 await codexConfig.update("chatSystemMessage", undefined, targetScope);
-                console.log('[Migration] Removed chatSystemMessage from codex-editor-extension namespace');
+                debug('[Migration] Removed chatSystemMessage from codex-editor-extension namespace');
             } catch (error) {
                 console.warn('[Migration] Failed to remove chatSystemMessage from codex-editor-extension namespace:', error);
             }
@@ -428,13 +497,13 @@ export const migration_chatSystemMessageToMetadata = async (context?: vscode.Ext
 
             try {
                 await oldConfig.update("chatSystemMessage", undefined, targetScope);
-                console.log('[Migration] Removed chatSystemMessage from translators-copilot namespace');
+                debug('[Migration] Removed chatSystemMessage from translators-copilot namespace');
             } catch (error) {
                 console.warn('[Migration] Failed to remove chatSystemMessage from translators-copilot namespace:', error);
             }
         }
 
-        console.log('[Migration] chatSystemMessage migration completed successfully');
+        debug('[Migration] chatSystemMessage migration completed successfully');
 
         // Mark migration as completed
         try {
@@ -479,7 +548,7 @@ export const migration_chatSystemMessageSetting = async () => {
                 console.warn(`  New (codex-editor-extension): ${JSON.stringify(newValue)}`);
                 console.warn('  → Keeping NEW value and deleting old key...');
             } else {
-                console.log('Both chatSystemMessage keys exist with same value. Removing deprecated key...');
+                debug('Both chatSystemMessage keys exist with same value. Removing deprecated key...');
             }
 
             const targetScope = oldSettingInspection?.workspaceValue ? vscode.ConfigurationTarget.Workspace :
@@ -502,7 +571,7 @@ export const migration_chatSystemMessageSetting = async () => {
                 if (stillExists) {
                     console.error('⚠️ Failed to delete old chatSystemMessage key! It may still exist in a different scope.');
                 } else {
-                    console.log('✅ Successfully removed deprecated setting (new key already exists).');
+                    debug('✅ Successfully removed deprecated setting (new key already exists).');
                 }
             } catch (error) {
                 console.error('❌ Error removing deprecated chatSystemMessage:', error);
@@ -512,13 +581,13 @@ export const migration_chatSystemMessageSetting = async () => {
 
         // CASE 2: Only new key exists - nothing to do
         if (hasNewValue && !oldValue) {
-            console.log('New chatSystemMessage setting already exists, old setting not found. No migration needed.');
+            debug('New chatSystemMessage setting already exists, old setting not found. No migration needed.');
             return;
         }
 
         // CASE 3: Only old key exists - migrate and delete
         if (!hasNewValue && oldValue) {
-            console.log('Migrating chatSystemMessage from translators-copilot to codex-editor-extension namespace...');
+            debug('Migrating chatSystemMessage from translators-copilot to codex-editor-extension namespace...');
 
             const targetScope = oldSettingInspection?.workspaceValue ? vscode.ConfigurationTarget.Workspace :
                 oldSettingInspection?.workspaceFolderValue ? vscode.ConfigurationTarget.WorkspaceFolder :
@@ -531,22 +600,22 @@ export const migration_chatSystemMessageSetting = async () => {
                 targetScope
             );
 
-            console.log(`Successfully migrated chatSystemMessage setting to ${targetScope === vscode.ConfigurationTarget.Workspace ? 'workspace' :
+            debug(`Successfully migrated chatSystemMessage setting to ${targetScope === vscode.ConfigurationTarget.Workspace ? 'workspace' :
                 targetScope === vscode.ConfigurationTarget.WorkspaceFolder ? 'workspace folder' : 'global'} scope.`);
 
             // Delete the old key
-            console.log('Removing deprecated translators-copilot.chatSystemMessage setting...');
+            debug('Removing deprecated translators-copilot.chatSystemMessage setting...');
             await oldConfig.update(
                 "chatSystemMessage",
                 undefined, // Setting to undefined removes the key
                 targetScope
             );
-            console.log('Successfully removed deprecated setting.');
+            debug('Successfully removed deprecated setting.');
             return;
         }
 
         // CASE 4: Neither key exists - nothing to do
-        console.log('No chatSystemMessage setting found in either namespace. No migration needed.');
+        debug('No chatSystemMessage setting found in either namespace. No migration needed.');
     } catch (error) {
         console.error('Error during chatSystemMessage migration:', error);
     }
@@ -603,7 +672,7 @@ export async function temporaryMigrationScript_checkMatthewNotebook() {
         }
     } catch (error) {
         // If MAT.codex doesn't exist, we silently ignore
-        console.log("MAT.codex not found. Skipping migration.");
+        debug("MAT.codex not found. Skipping migration.");
     }
 }
 
@@ -627,11 +696,11 @@ export const migration_editHistoryFormat = async (context?: vscode.ExtensionCont
         }
 
         if (hasMigrationRun) {
-            console.log("Edit history format migration already completed, skipping");
+            debug("Edit history format migration already completed, skipping");
             return;
         }
 
-        console.log("Running edit history format migration...");
+        debug("Running edit history format migration...");
 
         const workspaceFolder = workspaceFolders[0];
 
@@ -694,7 +763,7 @@ export const migration_editHistoryFormat = async (context?: vscode.ExtensionCont
             await context?.workspaceState.update(migrationKey, true);
         }
 
-        console.log(`Edit history format migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        debug(`Edit history format migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
         if (migratedFiles > 0) {
             vscode.window.showInformationMessage(
                 `Edit history format migration complete: ${migratedFiles} files updated`
@@ -726,7 +795,7 @@ export const migration_addValidationsForUserEdits = async () => {
         );
 
         if (codexFiles.length === 0) {
-            console.log("No codex files found for validation migration");
+            debug("No codex files found for validation migration");
             return;
         }
 
@@ -760,7 +829,7 @@ export const migration_addValidationsForUserEdits = async () => {
             }
         );
 
-        console.log(
+        debug(
             `Validation migration completed: ${processedFiles} files processed, ${migratedFiles} files updated`
         );
         if (migratedFiles > 0) {
@@ -994,7 +1063,7 @@ async function migrateEditHistoryForFile(fileUri: vscode.Uri): Promise<boolean> 
                         delete edit.cellValue; // Remove old property
                         hasChanges = true;
 
-                        console.log(`Migrated edit in cell ${cell.metadata.id}: converted cellValue to value with editMap`);
+                        debug(`Migrated edit in cell ${cell.metadata.id}: converted cellValue to value with editMap`);
                     }
                 }
             }
@@ -1038,11 +1107,11 @@ export const migration_lineNumbersSettings = async (context?: vscode.ExtensionCo
         }
 
         if (hasMigrationRun) {
-            console.log("Line numbers migration already completed, skipping");
+            debug("Line numbers migration already completed, skipping");
             return;
         }
 
-        console.log("Running line numbers migration...");
+        debug("Running line numbers migration...");
 
         const workspaceFolder = workspaceFolders[0];
 
@@ -1057,7 +1126,7 @@ export const migration_lineNumbersSettings = async (context?: vscode.ExtensionCo
         const allNotebookFiles = [...codexFiles, ...sourceFiles];
 
         if (allNotebookFiles.length === 0) {
-            console.log("No codex or source files found, skipping migration");
+            debug("No codex or source files found, skipping migration");
             return;
         }
 
@@ -1085,7 +1154,7 @@ export const migration_lineNumbersSettings = async (context?: vscode.ExtensionCo
                         if (probablyBible) {
                             const added = await addCellLabelsToBibleBook(file);
                             if (added) {
-                                console.log(`Added verse-number labels for ${path.basename(file.fsPath)}`);
+                                debug(`Added verse-number labels for ${path.basename(file.fsPath)}`);
                             }
                         }
 
@@ -1107,7 +1176,7 @@ export const migration_lineNumbersSettings = async (context?: vscode.ExtensionCo
             await context?.workspaceState.update(migrationKey, true);
         }
 
-        console.log(`Line numbers migration completed: ${processedFiles} files processed`);
+        debug(`Line numbers migration completed: ${processedFiles} files processed`);
         vscode.window.showInformationMessage(
             `Line numbers setup complete: ${processedFiles} files configured`
         );
@@ -1464,14 +1533,14 @@ async function migrateImporterTypeForFile(fileUri: vscode.Uri): Promise<boolean>
             if (standardized && standardized !== existingImporterType) {
                 notebookData.metadata.importerType = standardized;
                 hasChanges = true;
-                console.log(
+                debug(
                     `Standardized importerType in ${path.basename(fileUri.fsPath)}: "${existingImporterType}" → "${standardized}"`
                 );
             } else if (!standardized) {
                 // Invalid importerType, remove it
                 delete notebookData.metadata.importerType;
                 hasChanges = true;
-                console.log(
+                debug(
                     `Removed invalid importerType "${existingImporterType}" from ${path.basename(fileUri.fsPath)}`
                 );
             }
@@ -1483,7 +1552,7 @@ async function migrateImporterTypeForFile(fileUri: vscode.Uri): Promise<boolean>
             if (inferred) {
                 notebookData.metadata.importerType = inferred;
                 hasChanges = true;
-                console.log(
+                debug(
                     `Inferred importerType "${inferred}" from corpusMarker "${corpusMarker}" in ${path.basename(fileUri.fsPath)}`
                 );
             }
@@ -1532,11 +1601,11 @@ export const migration_addImporterTypeToMetadata = async (context?: vscode.Exten
         }
 
         if (hasMigrationRun) {
-            console.log("ImporterType migration already completed, skipping");
+            debug("ImporterType migration already completed, skipping");
             return;
         }
 
-        console.log("Running importerType migration...");
+        debug("Running importerType migration...");
 
         const workspaceFolder = workspaceFolders[0];
 
@@ -1551,7 +1620,7 @@ export const migration_addImporterTypeToMetadata = async (context?: vscode.Exten
         const allFiles = [...codexFiles, ...sourceFiles];
 
         if (allFiles.length === 0) {
-            console.log("No codex or source files found, skipping importerType migration");
+            debug("No codex or source files found, skipping importerType migration");
             return;
         }
 
@@ -1594,7 +1663,7 @@ export const migration_addImporterTypeToMetadata = async (context?: vscode.Exten
             await context?.workspaceState.update(migrationKey, true);
         }
 
-        console.log(`ImporterType migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        debug(`ImporterType migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
         if (migratedFiles > 0) {
             vscode.window.showInformationMessage(
                 `ImporterType migration complete: ${migratedFiles} files updated`
@@ -1683,11 +1752,11 @@ export const migration_hoistDocumentContextToNotebookMetadata = async (
         }
 
         if (hasMigrationRun) {
-            console.log("DocumentContext hoist migration already completed, skipping");
+            debug("DocumentContext hoist migration already completed, skipping");
             return;
         }
 
-        console.log("Running documentContext hoist migration...");
+        debug("Running documentContext hoist migration...");
 
         const workspaceFolder = workspaceFolders[0];
         const codexFiles = await vscode.workspace.findFiles(
@@ -1873,7 +1942,7 @@ export const migration_hoistDocumentContextToNotebookMetadata = async (
             await context?.workspaceState.update(migrationKey, true);
         }
 
-        console.log(
+        debug(
             `DocumentContext hoist migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`
         );
         if (migratedFiles > 0) {
@@ -2325,11 +2394,11 @@ export const migration_addMilestoneCells = async (context?: vscode.ExtensionCont
         }
 
         if (hasMigrationRun) {
-            console.log("Milestone cells migration already completed, skipping");
+            debug("Milestone cells migration already completed, skipping");
             return;
         }
 
-        console.log("Running milestone cells migration...");
+        debug("Running milestone cells migration...");
 
         const workspaceFolder = workspaceFolders[0];
 
@@ -2342,7 +2411,7 @@ export const migration_addMilestoneCells = async (context?: vscode.ExtensionCont
         );
 
         if (codexFiles.length === 0 && sourceFiles.length === 0) {
-            console.log("No codex or source files found, skipping milestone cells migration");
+            debug("No codex or source files found, skipping milestone cells migration");
             // Mark migration as completed even when no files exist to prevent re-running
             try {
                 await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
@@ -2421,7 +2490,7 @@ export const migration_addMilestoneCells = async (context?: vscode.ExtensionCont
             await context?.workspaceState.update(migrationKey, true);
         }
 
-        console.log(`Milestone cells migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        debug(`Milestone cells migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
         if (migratedFiles > 0) {
             vscode.window.showInformationMessage(
                 `Milestone cells migration complete: ${migratedFiles} files updated`
@@ -2460,11 +2529,11 @@ export const migration_reorderMisplacedParatextCells = async (context?: vscode.E
         }
 
         if (hasMigrationRun) {
-            console.log("Paratext reorder migration already completed, skipping");
+            debug("Paratext reorder migration already completed, skipping");
             return;
         }
 
-        console.log("Running paratext reorder migration...");
+        debug("Running paratext reorder migration...");
 
         const workspaceFolder = workspaceFolders[0];
 
@@ -2479,7 +2548,7 @@ export const migration_reorderMisplacedParatextCells = async (context?: vscode.E
         const allFiles = [...codexFiles, ...sourceFiles];
 
         if (allFiles.length === 0) {
-            console.log("No codex or source files found, skipping paratext reorder migration");
+            debug("No codex or source files found, skipping paratext reorder migration");
             // Mark migration as completed even when no files exist to prevent re-running
             try {
                 await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
@@ -2529,7 +2598,7 @@ export const migration_reorderMisplacedParatextCells = async (context?: vscode.E
             await context?.workspaceState.update(migrationKey, true);
         }
 
-        console.log(`Paratext reorder migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        debug(`Paratext reorder migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
         if (migratedFiles > 0) {
             vscode.window.showInformationMessage(
                 `Paratext reorder migration complete: ${migratedFiles} files updated`
@@ -2722,11 +2791,11 @@ export const migration_addGlobalReferences = async (context?: vscode.ExtensionCo
         }
 
         if (hasMigrationRun) {
-            console.log("Global references migration already completed, skipping");
+            debug("Global references migration already completed, skipping");
             return;
         }
 
-        console.log("Running global references migration...");
+        debug("Running global references migration...");
 
         const workspaceFolder = workspaceFolders[0];
 
@@ -2741,7 +2810,7 @@ export const migration_addGlobalReferences = async (context?: vscode.ExtensionCo
         const allFiles = [...codexFiles, ...sourceFiles];
 
         if (allFiles.length === 0) {
-            console.log("No codex or source files found, skipping global references migration");
+            debug("No codex or source files found, skipping global references migration");
             // Mark migration as completed even when no files exist to prevent re-running
             try {
                 await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
@@ -2791,7 +2860,7 @@ export const migration_addGlobalReferences = async (context?: vscode.ExtensionCo
             await context?.workspaceState.update(migrationKey, true);
         }
 
-        console.log(`Global references migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        debug(`Global references migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
         if (migratedFiles > 0) {
             vscode.window.showInformationMessage(
                 `Global references migration complete: ${migratedFiles} files updated`
@@ -2897,11 +2966,11 @@ export const migration_cellIdsToUuid = async (context?: vscode.ExtensionContext)
         }
 
         if (hasMigrationRun) {
-            console.log("Cell IDs to UUID migration already completed, skipping");
+            debug("Cell IDs to UUID migration already completed, skipping");
             return;
         }
 
-        console.log("Running cell IDs to UUID migration...");
+        debug("Running cell IDs to UUID migration...");
 
         const workspaceFolder = workspaceFolders[0];
 
@@ -2916,7 +2985,7 @@ export const migration_cellIdsToUuid = async (context?: vscode.ExtensionContext)
         const allFiles = [...codexFiles, ...sourceFiles];
 
         if (allFiles.length === 0) {
-            console.log("No codex or source files found, skipping cell IDs to UUID migration");
+            debug("No codex or source files found, skipping cell IDs to UUID migration");
             // Mark migration as completed even when no files exist to prevent re-running
             try {
                 await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
@@ -2966,7 +3035,7 @@ export const migration_cellIdsToUuid = async (context?: vscode.ExtensionContext)
             await context?.workspaceState.update(migrationKey, true);
         }
 
-        console.log(`Cell IDs to UUID migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        debug(`Cell IDs to UUID migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
         if (migratedFiles > 0) {
             vscode.window.showInformationMessage(
                 `Cell IDs to UUID migration complete: ${migratedFiles} files updated`
@@ -2977,6 +3046,48 @@ export const migration_cellIdsToUuid = async (context?: vscode.ExtensionContext)
         console.error("Error running cell IDs to UUID migration:", error);
     }
 };
+
+async function migrateCellIdsWithSpacesToUuidForWorkspace(
+    workspaceFolder: vscode.WorkspaceFolder
+): Promise<{ processedFiles: number; migratedFiles: number; migratedFileUris: vscode.Uri[]; }> {
+    const codexFiles = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+    );
+    const sourceFiles = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(workspaceFolder, "**/*.source")
+    );
+    const codexTempFiles = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(workspaceFolder, "**/*.codex.tmp-*-*")
+    );
+    const sourceTempFiles = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(workspaceFolder, "**/*.source.tmp-*-*")
+    );
+
+    const allFiles = [...codexFiles, ...sourceFiles, ...codexTempFiles, ...sourceTempFiles];
+    if (allFiles.length === 0) {
+        return { processedFiles: 0, migratedFiles: 0, migratedFileUris: [] };
+    }
+
+    let processedFiles = 0;
+    let migratedFiles = 0;
+    const migratedFileUris: vscode.Uri[] = [];
+
+    for (const file of allFiles) {
+        try {
+            const wasMigrated = await migrateCellIdsWithSpacesToUuidForFile(file);
+            processedFiles++;
+            if (wasMigrated) {
+                migratedFiles++;
+                migratedFileUris.push(file);
+            }
+        } catch (error) {
+            processedFiles++;
+            console.error(`Error processing ${file.fsPath}:`, error);
+        }
+    }
+
+    return { processedFiles, migratedFiles, migratedFileUris };
+}
 
 /**
  * Processes a single file to convert cell IDs to UUID format.
@@ -3096,3 +3207,449 @@ export async function migrateCellIdsToUuidForFile(fileUri: vscode.Uri): Promise<
         return false;
     }
 }
+
+async function migrateCellIdsWithSpacesToUuidForFile(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = notebookData.cells || [];
+        if (cells.length === 0) return false;
+
+        let hasChanges = false;
+
+        let needsMigration = false;
+        for (const cell of cells) {
+            const cellId = cell?.metadata?.id;
+            if (typeof cellId === "string" && cellId.includes(" ")) {
+                needsMigration = true;
+                break;
+            }
+        }
+
+        if (!needsMigration) {
+            return false;
+        }
+
+        const idToUuidMap = new Map<string, string>();
+
+        for (const cell of cells) {
+            const md: any = cell.metadata || {};
+            const originalCellId = md.id;
+
+            if (typeof originalCellId !== "string") continue;
+            if (!originalCellId.includes(" ")) continue;
+
+            const newUuid = await generateCellIdFromHash(originalCellId);
+            idToUuidMap.set(originalCellId, newUuid);
+
+            const cellIdParts = originalCellId.split(":");
+            if (cellIdParts.length > 2) {
+                const parentOriginalId = cellIdParts.slice(0, 2).join(":");
+                if (!idToUuidMap.has(parentOriginalId)) {
+                    const parentUuid = await generateCellIdFromHash(parentOriginalId);
+                    idToUuidMap.set(parentOriginalId, parentUuid);
+                }
+            }
+        }
+
+        for (const cell of cells) {
+            const md: any = cell.metadata || {};
+            const originalCellId = md.id;
+
+            if (typeof originalCellId !== "string") continue;
+            if (!originalCellId.includes(" ")) continue;
+
+            const newUuid = idToUuidMap.get(originalCellId);
+            if (!newUuid) {
+                continue;
+            }
+
+            md.id = newUuid;
+            hasChanges = true;
+
+            const cellIdParts = originalCellId.split(":");
+            if (cellIdParts.length > 2) {
+                const parentOriginalId = cellIdParts.slice(0, 2).join(":");
+                const parentUuid = idToUuidMap.get(parentOriginalId);
+                if (parentUuid) {
+                    md.parentId = parentUuid;
+                }
+            }
+
+            cell.metadata = md;
+        }
+
+        if (hasChanges) {
+            const updatedContent = await serializer.serializeNotebook(
+                notebookData,
+                new vscode.CancellationTokenSource().token
+            );
+            await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+            return true;
+        }
+
+        return false;
+    } catch (error) {
+        console.error(`Error migrating spaced cell IDs to UUID for ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
+
+async function mergeDuplicateCellsWithIterations(
+    fileUri: vscode.Uri,
+    maxIterations: number = 10
+): Promise<number> {
+    let hasDuplicates = true;
+    let mergeIterations = 0;
+
+    while (hasDuplicates && mergeIterations < maxIterations) {
+        const hadDuplicates = await mergeDuplicateCellsInFile(fileUri);
+        if (hadDuplicates) {
+            mergeIterations++;
+        } else {
+            hasDuplicates = false;
+        }
+    }
+
+    if (mergeIterations >= maxIterations) {
+        console.warn(
+            `[Cleanup] Reached max iterations for merging duplicates in ${fileUri.fsPath}`
+        );
+    }
+
+    return mergeIterations;
+}
+
+/**
+ * Merges duplicate cells in a notebook file using the same logic as sync and save.
+ * Cells with the same ID are merged into one cell with combined edit history.
+ * Returns true if any changes were made.
+ */
+async function mergeDuplicateCellsInFile(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = notebookData.cells || [];
+        if (cells.length === 0) return false;
+
+        // Group cells by ID to find duplicates
+        const cellsById = new Map<string, any[]>();
+        for (const cell of cells) {
+            const cellId = cell.metadata?.id;
+            if (!cellId) continue;
+
+            if (!cellsById.has(cellId)) {
+                cellsById.set(cellId, []);
+            }
+            cellsById.get(cellId)!.push(cell);
+        }
+
+        // Find duplicate IDs
+        const duplicateIds: string[] = [];
+        for (const [cellId, cellList] of cellsById.entries()) {
+            if (cellList.length > 1) {
+                duplicateIds.push(cellId);
+            }
+        }
+
+        if (duplicateIds.length === 0) {
+            return false; // No duplicates found
+        }
+
+        debug(
+            `[Cleanup] Found ${duplicateIds.length} duplicate cell ID(s) in ${fileUri.fsPath}: ${duplicateIds.join(", ")}`
+        );
+
+        // Merge duplicates: combine cells with the same ID into one cell
+        // Use the same logic as resolveCodexCustomMerge to combine edit histories
+        const mergedCells: any[] = [];
+        const processedIds = new Set<string>();
+
+        for (const cell of cells) {
+            const cellId = cell.metadata?.id;
+            if (!cellId) {
+                // Cell without ID - keep as is
+                mergedCells.push(cell);
+                continue;
+            }
+
+            if (processedIds.has(cellId)) {
+                // Already processed this ID - skip duplicate
+                continue;
+            }
+
+            processedIds.add(cellId);
+            const duplicateCells = cellsById.get(cellId)!;
+
+            if (duplicateCells.length === 1) {
+                // No duplicate, just add it
+                mergedCells.push(duplicateCells[0]);
+            } else {
+                const mergedCell = mergeDuplicateCellsUsingResolverLogic(duplicateCells);
+                mergedCells.push(mergedCell);
+            }
+        }
+
+        // Create final notebook with merged cells
+        const finalNotebook = {
+            ...notebookData,
+            cells: mergedCells,
+        };
+
+        const finalContent = formatJsonForNotebookFile(finalNotebook);
+
+        // Write back using atomic write
+        await atomicWriteUriText(fileUri, normalizeNotebookFileText(finalContent));
+
+        debug(`[Cleanup] Successfully merged duplicate cells in ${fileUri.fsPath}`);
+        return true;
+    } catch (error) {
+        console.error(`[Cleanup] Error merging duplicate cells in ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
+
+/**
+ * Finds the original file path for a temp file by removing the .tmp-{timestamp}-{uuid} suffix.
+ */
+function getOriginalFilePathFromTemp(tempFilePath: string): string | null {
+    // Pattern: filename.codex.tmp-{timestamp}-{uuid}
+    // We need to extract: filename.codex
+
+    const tmpPattern = /\.tmp-\d+-[a-f0-9-]+$/i;
+    if (!tmpPattern.test(tempFilePath)) {
+        return null; // Not a temp file
+    }
+
+    // Remove .tmp-{timestamp}-{uuid} suffix
+    const originalPath = tempFilePath.replace(tmpPattern, '');
+    return originalPath;
+}
+
+/**
+ * Recovers temp files by merging them into their original files.
+ * This handles the case where atomic writes were interrupted during sync or LLM saves.
+ * 
+ * Steps:
+ * 1. Find all .tmp files
+ * 2. For each temp file, merge it into the original file using resolveCodexCustomMerge
+ * 3. After merging, deduplicate any duplicate cells
+ * 4. Repeat step 3 as needed for each temp file that was merged
+ */
+export async function recoverTempFilesAndMergeDuplicates(
+    context?: vscode.ExtensionContext
+): Promise<{ recoveredFiles: number; mergedDuplicates: number; errors: number; }> {
+    const result = {
+        recoveredFiles: 0,
+        mergedDuplicates: 0,
+        errors: 0,
+    };
+
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            debug("[Cleanup] No workspace folders found");
+            return result;
+        }
+
+        const workspaceFolder = workspaceFolders[0];
+        try {
+            const migrationResult = await migrateCellIdsWithSpacesToUuidForWorkspace(workspaceFolder);
+            if (migrationResult.migratedFiles > 0) {
+                debug(
+                    `[Cleanup] Migrated spaced cell IDs to UUIDs in ${migrationResult.migratedFiles} of ` +
+                    `${migrationResult.processedFiles} files`
+                );
+
+                // Deduplicate any files updated by the UUID migration
+                for (const migratedFile of migrationResult.migratedFileUris) {
+                    const mergeCount = await mergeDuplicateCellsWithIterations(migratedFile);
+                    if (mergeCount > 0) {
+                        result.mergedDuplicates += mergeCount;
+                        debug(
+                            `[Cleanup] Merged duplicate cells in ${migratedFile.fsPath} (iterations ${mergeCount})`
+                        );
+                    }
+                }
+            }
+        } catch (error) {
+            console.warn("[Cleanup] Cell ID UUID migration failed (non-critical):", error);
+        }
+
+        // Find all .tmp files matching the pattern: *.tmp-{timestamp}-{uuid}
+        const tmpPattern = new vscode.RelativePattern(
+            workspaceFolder,
+            "**/*.tmp-*-*"
+        );
+
+        const tmpFiles = await vscode.workspace.findFiles(tmpPattern);
+
+        if (tmpFiles.length === 0) {
+            debug("[Cleanup] No temp files found to recover");
+            return result;
+        } else {
+            debug(`[Cleanup] Found ${tmpFiles.length} temp file(s) to recover`);
+            // NOTE: this commit will only show if there is changes in the workspace
+            await stageAndCommitAllWithMessage(
+                workspaceFolder.uri.fsPath,
+                "#528: Pre-migration checkpoint: temp file recovery"
+            );
+        }
+
+
+
+        // Group temp files by their original file path
+        const tempFilesByOriginal = new Map<string, vscode.Uri[]>();
+
+        for (const tmpFile of tmpFiles) {
+            const originalPath = getOriginalFilePathFromTemp(tmpFile.fsPath);
+            if (!originalPath) {
+                console.warn(`[Cleanup] Could not determine original file for temp file: ${tmpFile.fsPath}`);
+                result.errors++;
+                continue;
+            }
+
+            if (!tempFilesByOriginal.has(originalPath)) {
+                tempFilesByOriginal.set(originalPath, []);
+            }
+            tempFilesByOriginal.get(originalPath)!.push(tmpFile);
+        }
+
+        // Process each original file and its temp files
+        for (const [originalPath, tempFileUris] of tempFilesByOriginal.entries()) {
+            try {
+                const originalUri = vscode.Uri.file(originalPath);
+
+                // Check if original file exists
+                let originalExists = false;
+                try {
+                    await vscode.workspace.fs.stat(originalUri);
+                    originalExists = true;
+                } catch {
+                    // Original file doesn't exist - this temp file might be the only version
+                    debug(`[Cleanup] Original file not found: ${originalPath}, will use temp file as original`);
+                }
+
+                // Read original file content (if it exists)
+                let originalContent = "";
+                if (originalExists) {
+                    try {
+                        const originalFileContent = await vscode.workspace.fs.readFile(originalUri);
+                        originalContent = new TextDecoder("utf-8").decode(originalFileContent);
+                    } catch (error) {
+                        console.warn(`[Cleanup] Could not read original file ${originalPath}:`, error);
+                        result.errors++;
+                        continue;
+                    }
+                }
+
+                // Merge each temp file into the original
+                let mergedContent = originalContent;
+                for (const tempUri of tempFileUris) {
+                    try {
+                        const tempFileContent = await vscode.workspace.fs.readFile(tempUri);
+                        const tempContent = new TextDecoder("utf-8").decode(tempFileContent);
+
+                        if (!mergedContent) {
+                            // No original content, use temp file as base
+                            mergedContent = tempContent;
+                        } else {
+                            // Merge temp file into original using the same logic as sync/save
+                            mergedContent = await resolveCodexCustomMerge(mergedContent, tempContent);
+                        }
+
+                        debug(`[Cleanup] Merged temp file ${tempUri.fsPath} into ${originalPath}`);
+                    } catch (error) {
+                        console.error(`[Cleanup] Error reading temp file ${tempUri.fsPath}:`, error);
+                        result.errors++;
+                        continue;
+                    }
+                }
+
+                // Write merged content back to original file using atomic write
+                await atomicWriteUriText(originalUri, normalizeNotebookFileText(mergedContent));
+                result.recoveredFiles++;
+
+                // Now merge duplicate cells in the recovered file
+                const mergeIterations = await mergeDuplicateCellsWithIterations(originalUri);
+                if (mergeIterations > 0) {
+                    result.mergedDuplicates += mergeIterations;
+                    debug(
+                        `[Cleanup] Merged duplicate cells in ${originalPath} (iterations ${mergeIterations})`
+                    );
+                }
+
+                // Delete temp files after successful merge
+                for (const tempUri of tempFileUris) {
+                    try {
+                        await vscode.workspace.fs.delete(tempUri);
+                        debug(`[Cleanup] Deleted temp file: ${tempUri.fsPath}`);
+                    } catch (error) {
+                        console.warn(`[Cleanup] Could not delete temp file ${tempUri.fsPath}:`, error);
+                    }
+                }
+            } catch (error) {
+                console.error(`[Cleanup] Error processing original file ${originalPath}:`, error);
+                result.errors++;
+            }
+        }
+
+        await stageAndCommitAllWithMessage(
+            workspaceFolder.uri.fsPath,
+            "#528: Recovered temp files and merged duplicates"
+        );
+
+        debug(
+            `[Cleanup] Recovery complete: ${result.recoveredFiles} files recovered, ` +
+            `${result.mergedDuplicates} duplicate merges, ${result.errors} errors`
+        );
+
+        return result;
+    } catch (error) {
+        console.error("[Cleanup] Error in recoverTempFilesAndMergeDuplicates:", error);
+        result.errors++;
+        return result;
+    }
+}
+
+/**
+ * Migration: Recover temp files and merge duplicate cells.
+ * This migration runs once to clean up any .tmp files left behind from interrupted saves
+ * and merge any duplicate cells that may have been created.
+ */
+export const migration_recoverTempFilesAndMergeDuplicates = async (context?: vscode.ExtensionContext) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        debug("Running temp files recovery and duplicate merge migration...");
+
+        const result = await recoverTempFilesAndMergeDuplicates(context);
+
+        debug(
+            `Temp files recovery and duplicate merge migration completed: ` +
+            `${result.recoveredFiles} files recovered, ${result.mergedDuplicates} duplicate merges, ${result.errors} errors`
+        );
+
+        if (result.recoveredFiles > 0 || result.mergedDuplicates > 0) {
+            vscode.window.showInformationMessage(
+                `Cleanup complete: ${result.recoveredFiles} files recovered, ${result.mergedDuplicates} duplicate cells merged`
+            );
+        }
+
+    } catch (error) {
+        console.error("Error running temp files recovery and duplicate merge migration:", error);
+    }
+};

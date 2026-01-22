@@ -63,10 +63,7 @@ export async function callLLM(
                 : undefined,
         });
 
-        let model = config.model;
-        if (model === "custom") {
-            model = config.customModel;
-        }
+        const model = "default";
         if ((config as any)?.debugMode) {
             console.debug("[callLLM] model", model);
         }
@@ -93,10 +90,10 @@ export async function callLLM(
                 // Wrap the completion call to ensure cleanup
                 try {
                     const completion = await openai.chat.completions.create({
-                        model: model,
+                        model,
                         messages: messages as ChatCompletionMessageParam[],
-                        // GPT-5: temperature must be 1; keep defaults for others
-                        ...(model?.toLowerCase?.() === "gpt-5" ? { temperature: 1 } : { temperature: config.temperature }),
+                        // Let the server decide temperature for the default model.
+                        ...(model.toLowerCase() === "default" ? {} : (model.toLowerCase() === "gpt-5" ? { temperature: 1 } : { temperature: config.temperature })),
                     }, {
                         signal: abortController.signal
                     });
@@ -127,9 +124,9 @@ export async function callLLM(
             } else {
                 // No cancellation token provided, use the original logic
                 const completion = await openai.chat.completions.create({
-                    model: model,
+                    model,
                     messages: messages as ChatCompletionMessageParam[],
-                    ...(model?.toLowerCase?.() === "gpt-5" ? { temperature: 1 } : { temperature: config.temperature }),
+                    ...(model.toLowerCase() === "default" ? {} : (model.toLowerCase() === "gpt-5" ? { temperature: 1 } : { temperature: config.temperature })),
                 });
 
                 if (
@@ -330,7 +327,6 @@ export interface CompletionConfig {
     endpoint: string;
     apiKey: string;
     model: string;
-    customModel: string;
     contextSize: string;
     additionalResourceDirectory: string;
     contextOmission: boolean;
@@ -359,8 +355,7 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
         const completionConfig: CompletionConfig = {
             endpoint: (config.get("llmEndpoint") as string) || "https://api.openai.com/v1",
             apiKey: (config.get("api_key") as string) || "",
-            model: (config.get("model") as string) || "gpt-4o",
-            customModel: (config.get("customModel") as string) || "",
+            model: "default",
             contextSize: (config.get("contextSize") as string) || "large",
             additionalResourceDirectory: (config.get("additionalResourcesDirectory") as string) || "",
             contextOmission: (config.get("experimentalContextOmission") as boolean) || false,

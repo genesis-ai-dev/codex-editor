@@ -1573,10 +1573,10 @@ async function updateGitignoreFile(): Promise<void> {
 
             if (gitignoreExists) {
                 debug("Rewrote .gitignore file to match standard format");
-                console.log("Updated .gitignore to standard format");
+                debug("Updated .gitignore to standard format");
             } else {
                 debug("Created new .gitignore file");
-                console.log("Created .gitignore file with standard ignore patterns");
+                debug("Created .gitignore file with standard ignore patterns");
             }
         } catch (error) {
             console.error("Failed to write .gitignore file:", error);
@@ -1644,10 +1644,10 @@ async function updateGitattributesFile(): Promise<void> {
 
             if (gitattributesExists) {
                 debug("Rewrote .gitattributes file to match standard format");
-                console.log("Updated .gitattributes to standard format");
+                debug("Updated .gitattributes to standard format");
             } else {
                 debug("Created new .gitattributes file");
-                console.log("Created .gitattributes file with standard LFS attributes");
+                debug("Created .gitattributes file with standard LFS attributes");
             }
         } catch (error) {
             console.error("Failed to write .gitattributes file:", error);
@@ -1712,7 +1712,7 @@ export async function ensureGitDisabledInSettings(): Promise<void> {
         // Set git.enabled to false at workspace level
         await gitConfig.update("enabled", false, vscode.ConfigurationTarget.Workspace);
         debug("Set git.enabled to false in workspace settings");
-        console.log("Disabled VS Code's built-in Git integration for this project");
+        debug("Disabled VS Code's built-in Git integration for this project");
     } catch (error) {
         console.error("Failed to update git.enabled setting:", error);
     }

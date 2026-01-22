@@ -328,10 +328,9 @@ export async function generateChatSystemMessage(
 
         const llmConfig: CompletionConfig = {
             apiKey: config.get("openAIKey") || "",
-            model: config.get("model") || "gpt-4o",
+            model: "default",
             endpoint: config.get("endpoint") || "https://api.openai.com/v1",
             temperature: 0.3,
-            customModel: "",
             contextSize: "2000",
             additionalResourceDirectory: "",
             contextOmission: false,
