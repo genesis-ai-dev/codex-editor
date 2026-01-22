@@ -61,19 +61,19 @@ export interface RemoteUpdatingEntry {
 export function normalizeUpdateEntry(entry: any): RemoteUpdatingEntry {
     const normalized: any = { ...entry };
 
-    // Migrate deleted → cancelled
+    // Normalize legacy field: deleted → cancelled
     if ('deleted' in normalized && !('cancelled' in normalized)) {
         normalized.cancelled = normalized.deleted;
         delete normalized.deleted;
     }
 
-    // Migrate deletedBy → cancelledBy
+    // Normalize legacy field: deletedBy → cancelledBy
     if ('deletedBy' in normalized && !('cancelledBy' in normalized)) {
         normalized.cancelledBy = normalized.deletedBy;
         delete normalized.deletedBy;
     }
 
-    // Migrate obliterate → clearEntry
+    // Normalize legacy field: obliterate → clearEntry
     if ('obliterate' in normalized && !('clearEntry' in normalized)) {
         normalized.clearEntry = normalized.obliterate;
         delete normalized.obliterate;
@@ -103,10 +103,11 @@ export function normalizeSwapUserEntry(entry: any): ProjectSwapUserEntry {
                 ? normalized.createdAt
                 : Date.now();
     const executed = Boolean(normalized.executed) && !cancelled;
-    const userToUpdate = normalized.userToUpdate || normalized.userToHeal || "";
+    // Support legacy field name userToUpdate for backward compatibility
+    const userToSwap = normalized.userToSwap || normalized.userToUpdate || "";
 
     return {
-        userToUpdate,
+        userToSwap,
         createdAt,
         updatedAt,
         executed,
@@ -531,7 +532,7 @@ export async function checkRemoteProjectRequirements(
 function evaluateSwapRequirement(
     swapInfo: RemoteProjectRequirementsResult["swapInfo"],
     currentUsername?: string | null
-): { required: boolean; reason: string } {
+): { required: boolean; reason: string; } {
     if (!swapInfo) {
         return { required: false, reason: "No swap configured" };
     }
@@ -541,23 +542,23 @@ function evaluateSwapRequirement(
     }
 
     if (swapInfo.swapStatus === "pending") {
-        return { required: true, reason: "Project has been migrated to a new repository" };
+        return { required: true, reason: "Project has been swapped to a new repository" };
     }
 
-    if (swapInfo.swapStatus === "migrating" || swapInfo.swapStatus === "failed") {
+    if (swapInfo.swapStatus === "swapping" || swapInfo.swapStatus === "failed") {
         return {
             required: true,
-            reason: swapInfo.swapStatus === "migrating" ? "Migration in progress" : "Migration failed - needs retry",
+            reason: swapInfo.swapStatus === "swapping" ? "Swap in progress" : "Swap failed - needs retry",
         };
     }
 
     if (swapInfo.swapStatus === "completed" && currentUsername) {
         const entries = (swapInfo.swappedUsers || []).map(entry => normalizeSwapUserEntry(entry));
         const hasCompleted = entries.some(
-            (entry) => entry.userToUpdate === currentUsername && entry.executed
+            (entry) => entry.userToSwap === currentUsername && entry.executed
         );
         if (!hasCompleted) {
-            return { required: true, reason: "Project migrated; user not swapped yet" };
+            return { required: true, reason: "Project swapped; user not swapped yet" };
         }
     }
 
@@ -579,7 +580,7 @@ async function hasUserSwappedInNewProject(
         normalizeSwapUserEntry(entry)
     );
     return entries.some(
-        (entry) => entry.userToUpdate === currentUsername && entry.executed
+        (entry) => entry.userToSwap === currentUsername && entry.executed
     );
 }
 

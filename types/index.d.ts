@@ -1190,7 +1190,7 @@ type ProjectMetadata = {
         /** @deprecated Use initiateRemoteUpdatingFor instead - kept for backward compatibility during migration */
         initiateRemoteHealingFor?: RemoteUpdatingEntry[];
         abbreviation?: string;
-        /** Project swap information for migrating to a new Git repository */
+        /** Project swap information for swapping to a new Git repository */
         projectSwap?: ProjectSwapInfo;
     };
     idAuthorities: {
@@ -1346,7 +1346,7 @@ export interface RemoteUpdatingEntry {
 }
 
 export interface ProjectSwapUserEntry {
-    userToUpdate: string;
+    userToSwap: string;
     createdAt: number;
     updatedAt: number;
     executed: boolean;
@@ -1359,7 +1359,7 @@ export interface RemoteHealingEntry extends RemoteUpdatingEntry {
 }
 
 /**
- * Project Swap - Migrate entire team from old Git repository to new one with clean history
+ * Project Swap - Swap entire team from old Git repository to new one with clean history
  * 
  * This allows instance administrators to move all users to a fresh repository while
  * preserving all working files (.codex, .source, uncommitted changes, etc.)
@@ -1393,7 +1393,7 @@ export interface ProjectSwapInfo {
     swapReason?: string;
 
     /** Current status of the swap operation */
-    swapStatus: "pending" | "migrating" | "completed" | "failed" | "cancelled";
+    swapStatus: "pending" | "swapping" | "completed" | "failed" | "cancelled";
 
     /** For chained swaps (Project A → B → C), tracks previous project URL */
     previousProjectUrl?: string;
@@ -1407,7 +1407,7 @@ export interface ProjectSwapInfo {
     /** @deprecated Use newProjectName instead */
     projectName?: string;
 
-    /** List of users who have successfully swapped/migrated to the new repository */
+    /** List of users who have successfully swapped to the new repository */
     swappedUsers?: ProjectSwapUserEntry[];
 }
 
@@ -1416,7 +1416,7 @@ export interface ProjectSwapInfo {
  * Stored in localProjectSettings.json
  */
 export interface LocalProjectSwap {
-    /** Whether a swap migration is pending for this user */
+    /** Whether a swap is pending for this user */
     pendingSwap: boolean;
 
     /** Matches projectUUID from metadata.json */
@@ -1425,13 +1425,13 @@ export interface LocalProjectSwap {
     /** Path to backup .zip file */
     backupPath?: string;
 
-    /** Whether migration is currently in progress */
-    migrationInProgress: boolean;
+    /** Whether swap is currently in progress */
+    swapInProgress: boolean;
 
-    /** Number of migration attempts */
-    migrationAttempts: number;
+    /** Number of swap attempts */
+    swapAttempts: number;
 
-    /** Timestamp of last migration attempt */
+    /** Timestamp of last swap attempt */
     lastAttemptTimestamp?: number;
 
     /** Error from last failed attempt */

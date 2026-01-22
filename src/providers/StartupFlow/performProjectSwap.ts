@@ -17,7 +17,7 @@ const DEBUG = true;
 const debugLog = DEBUG ? (...args: any[]) => console.log("[ProjectSwap]", ...args) : () => { };
 
 /**
- * Perform a complete project swap migration
+ * Perform a complete project swap
  * Backs up old project, clones new one, merges files, updates remotes
  * 
  * @param progress - VS Code progress reporter
@@ -43,8 +43,8 @@ export async function performProjectSwap(
     const localSwap: LocalProjectSwap = {
         pendingSwap: true,
         swapUUID,
-        migrationInProgress: true,
-        migrationAttempts: 1,
+        swapInProgress: true,
+        swapAttempts: 1,
     };
 
     try {
@@ -122,12 +122,12 @@ export async function performProjectSwap(
             await swapDirectories(tmpPath, newProjectPath, targetProjectPath);
 
             // Step 9: Update local settings
-            progress.report({ increment: 5, message: "Finalizing migration..." });
+            progress.report({ increment: 5, message: "Finalizing swap..." });
             const finalProjectUri = vscode.Uri.file(targetProjectPath);
             await writeLocalProjectSettings({
                 projectSwap: {
                     ...localSwap,
-                    migrationInProgress: false,
+                    swapInProgress: false,
                     pendingSwap: false,
                 },
             }, finalProjectUri);
@@ -135,7 +135,7 @@ export async function performProjectSwap(
             // Step 10: Cleanup temp directory
             await cleanupTempDirectory(tempDir);
 
-            progress.report({ increment: 15, message: "Migration complete!" });
+            progress.report({ increment: 15, message: "Swap complete!" });
             debugLog("Project swap completed successfully");
 
             return targetProjectPath;
@@ -157,7 +157,7 @@ export async function performProjectSwap(
         debugLog("Project swap failed:", error);
 
         // Update local state with error
-        localSwap.migrationInProgress = false;
+        localSwap.swapInProgress = false;
         localSwap.lastAttemptTimestamp = Date.now();
         localSwap.lastAttemptError = error instanceof Error ? error.message : String(error);
         await writeLocalProjectSettings({ projectSwap: localSwap }, projectUri);
@@ -432,13 +432,13 @@ async function updateSwapMetadata(
 
                 // Check if already in list (avoid duplicates)
                 const existingEntry = swapInfo.swappedUsers.find(
-                    u => u.userToUpdate === currentUser
+                    u => u.userToSwap === currentUser
                 );
 
                 if (!existingEntry) {
                     const now = Date.now();
                     swapInfo.swappedUsers.push({
-                        userToUpdate: currentUser,
+                        userToSwap: currentUser,
                         createdAt: now,
                         updatedAt: now,
                         executed: true,

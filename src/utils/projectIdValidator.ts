@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import git from "isomorphic-git";
 import fs from "fs";
-import { extractProjectIdFromFolderName, sanitizeProjectName } from "../projectManager/utils/projectUtils";
+import { extractProjectIdFromFolderName, extractAnyProjectIdFromFolderName, extendProjectId, sanitizeProjectName, STANDARD_PROJECT_ID_LENGTH } from "../projectManager/utils/projectUtils";
 import { MetadataManager } from "./metadataManager";
 
 const DEBUG = false;
@@ -35,20 +35,31 @@ interface ProjectIdInfo {
     metadataProjectId?: string;
     sourceOfTruth?: string; // Which one should be used
     needsUpdate: boolean;
+    needsIdExtension?: boolean; // Whether a shorter legacy ID needs to be extended
 }
 
 /**
  * Detect projectId from multiple sources without querying GitLab API
  * Priority: Git Remote > Folder Name > Metadata
+ * Also detects shorter legacy IDs that need extension
  */
 export async function detectProjectIdMismatch(
     workspaceFolder: vscode.Uri
 ): Promise<ProjectIdInfo> {
     const folderName = workspaceFolder.fsPath.split(/[\\/]/).pop() || "";
+    
+    // Check for standard-length ID first
     const folderProjectId = extractProjectIdFromFolderName(folderName);
+    
+    // Also check for any UUID-like suffix (including shorter legacy ones)
+    const anyFolderIdInfo = extractAnyProjectIdFromFolderName(folderName);
+    const effectiveFolderId = folderProjectId || anyFolderIdInfo?.id;
+    const needsIdExtension = anyFolderIdInfo?.needsExtension ?? false;
 
     debug("Folder name:", folderName);
-    debug("Folder projectId:", folderProjectId);
+    debug("Folder projectId (standard):", folderProjectId);
+    debug("Folder projectId (any):", anyFolderIdInfo?.id);
+    debug("Needs ID extension:", needsIdExtension);
 
     // Try to get Git remote URL (no API call needed - just reads local .git config)
     let gitRemoteProjectId: string | undefined;
@@ -79,11 +90,14 @@ export async function detectProjectIdMismatch(
         debug("Error reading metadata.json:", error);
     }
 
+    // Check if metadata projectId also needs extension
+    const metadataNeedsExtension = !!(metadataProjectId && metadataProjectId.length < STANDARD_PROJECT_ID_LENGTH);
+
     // Determine source of truth:
     // 1. If published (has git remote), use git remote UUID
-    // 2. Otherwise, use folder UUID
+    // 2. Otherwise, use folder UUID (including legacy shorter IDs)
     // 3. If neither exist, use metadata UUID
-    const sourceOfTruth = gitRemoteProjectId || folderProjectId || metadataProjectId;
+    const sourceOfTruth = gitRemoteProjectId || effectiveFolderId || metadataProjectId;
 
     // Read current projectName from metadata to check if it's empty
     let currentProjectName: string | undefined;
@@ -96,26 +110,29 @@ export async function detectProjectIdMismatch(
         debug("Error reading projectName from metadata:", error);
     }
 
-    // Check if metadata needs update (either projectId mismatch OR empty projectName)
+    // Check if metadata needs update (either projectId mismatch OR empty projectName OR ID extension needed)
     const hasProjectIdMismatch = !!(
         sourceOfTruth &&
         metadataProjectId &&
         sourceOfTruth !== metadataProjectId
     );
     const hasEmptyProjectName = !currentProjectName || currentProjectName.trim() === "";
-    const needsUpdate = hasProjectIdMismatch || hasEmptyProjectName;
+    const anyIdNeedsExtension = needsIdExtension || metadataNeedsExtension;
+    const needsUpdate = hasProjectIdMismatch || hasEmptyProjectName || anyIdNeedsExtension;
 
     debug("Source of truth:", sourceOfTruth);
     debug("Has projectId mismatch:", hasProjectIdMismatch);
     debug("Has empty projectName:", hasEmptyProjectName);
+    debug("Any ID needs extension:", anyIdNeedsExtension);
     debug("Needs update:", needsUpdate);
 
     return {
-        folderProjectId,
+        folderProjectId: effectiveFolderId,
         gitRemoteProjectId,
         metadataProjectId,
         sourceOfTruth,
         needsUpdate,
+        needsIdExtension: anyIdNeedsExtension,
     };
 }
 
@@ -204,6 +221,7 @@ export async function fixProjectIdMismatch(
 /**
  * Validate and fix projectId if needed
  * Call this when a project is opened
+ * Also handles extending shorter legacy IDs to standard length
  */
 export async function validateAndFixProjectId(
     workspaceFolder: vscode.Uri
@@ -213,7 +231,14 @@ export async function validateAndFixProjectId(
 
         if (info.needsUpdate) {
             // Use metadata projectId if sourceOfTruth is undefined but we need to fix empty projectName
-            const projectIdToUse = info.sourceOfTruth || info.metadataProjectId;
+            let projectIdToUse = info.sourceOfTruth || info.metadataProjectId;
+
+            // If the ID needs extension, extend it to standard length
+            if (projectIdToUse && info.needsIdExtension) {
+                const extendedId = extendProjectId(projectIdToUse);
+                debug(`Extending project ID from ${projectIdToUse} (${projectIdToUse.length} chars) to ${extendedId} (${extendedId.length} chars)`);
+                projectIdToUse = extendedId;
+            }
 
             if (projectIdToUse) {
                 debug("Project information needs update. Attempting to fix...");
@@ -221,7 +246,10 @@ export async function validateAndFixProjectId(
                 const result = await fixProjectIdMismatch(workspaceFolder, projectIdToUse);
 
                 if (result.success) {
-                    const source = info.gitRemoteProjectId ? "remote repository" : "folder name";
+                    let source = info.gitRemoteProjectId ? "remote repository" : "folder name";
+                    if (info.needsIdExtension) {
+                        source = "extended legacy ID";
+                    }
                     vscode.window.showInformationMessage(
                         `Updated project information in metadata.json to match ${source}`
                     );

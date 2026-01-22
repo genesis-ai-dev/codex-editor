@@ -9,16 +9,17 @@ This document tracks major changes, new features, and legacy code migrations for
 ## 🆕 Major New Features in 0.17.0
 
 ### Project Swap System
-A new feature allowing instance administrators to migrate entire teams from an old Git repository to a new one with clean history while preserving all working files.
+A feature allowing instance administrators to swap entire teams from an old Git repository to a new one with clean history while preserving all working files.
 
 **New Interfaces:**
 - `ProjectSwapInfo` - Metadata for project swap operations
-- `LocalProjectSwap` - Local tracking state for swap migrations
+- `LocalProjectSwap` - Local tracking state for swaps
 
 **New Commands:**
-- `codex-editor.initiateProjectSwap` - Initiate a project migration
+- `codex-editor.initiateSwapCopy` - Copy project to new repository (Step 1 of swap)
+- `codex-editor.initiateProjectSwap` - Execute swap for users (Step 2 of swap)
 - `codex-editor.viewProjectSwapStatus` - View swap status
-- `codex-editor.cancelProjectSwap` - Cancel an ongoing migration
+- `codex-editor.cancelProjectSwap` - Cancel an ongoing swap
 
 **New Files:**
 - `src/commands/projectSwapCommands.ts` - Project swap command handlers
@@ -34,11 +35,11 @@ Ensures all projects have valid UUIDs in their metadata.
 **New Commands:**
 - `codex-project-manager.validateProjectId` - Validate and fix project IDs
 
-### Update Permission System
-Permission checking for users who can manage remote updates (requires Maintainer or Owner access).
+### Project Admin Permission System
+Permission checking for users who can manage remote updates and project swaps (requires Maintainer or Owner access).
 
 **New Files:**
-- `src/utils/updatePermissionChecker.ts` - Permission checking utilities
+- `src/utils/projectAdminPermissionChecker.ts` - Permission checking utilities
 
 ### Connectivity Checker
 Network connectivity validation for remote operations.
@@ -63,7 +64,7 @@ New tracking capabilities for update operations and project swap state.
 - `updateState: UpdateState` - Track in-progress updates for restart-safe cleanup
 - `pendingUpdate: PendingUpdateState` - Track admin-triggered pending updates
 - `updateCompletedLocally` - Track locally completed updates not yet synced
-- `projectSwap: LocalProjectSwap` - Track project swap migration state
+- `projectSwap: LocalProjectSwap` - Track project swap state
 
 **New Helper Functions:**
 - `markPendingUpdateRequired()` - Mark that an update is pending
@@ -433,7 +434,7 @@ ls -la src/test/migration_healingToUpdating.test.ts
 Update version to `0.17.0` and ensure changelog mentions:
 
 **Major Features:**
-- ✨ Project Swap system for migrating teams to new repositories
+- ✨ Project Swap system for swapping teams to new repositories
 - ✨ Project ID validation and fixing utilities
 - ✨ Update permission checking (Maintainer/Owner required)
 - ✨ Network connectivity validation
@@ -490,7 +491,7 @@ Update version to `0.17.0` and ensure changelog mentions:
 **Before 0.17.0 Release:**
 1. ✅ Verify all users are on 0.16.x or higher
 2. ✅ Test new project creation with UUID suffix in folder name
-3. ✅ Test project swap initiation, migration, and cancellation
+3. ✅ Test project swap initiation, execution, and cancellation
 4. ✅ Test project ID validation on existing projects
 5. ✅ Test update permission checking for different access levels
 6. ✅ Test connectivity validation in offline scenarios
@@ -560,7 +561,7 @@ function isCancelled(entry: RemoteUpdatingEntry): boolean {
 - `src/providers/StartupFlow/performProjectSwap.ts`
 - `src/utils/projectSwapManager.ts`
 - `src/utils/projectIdValidator.ts`
-- `src/utils/updatePermissionChecker.ts`
+- `src/utils/projectAdminPermissionChecker.ts`
 - `src/utils/connectivityChecker.ts`
 
 ### Files Renamed (Terminology Migration)
@@ -579,7 +580,8 @@ function isCancelled(entry: RemoteUpdatingEntry): boolean {
 ### Commands Added
 - `codex-editor.initiateRemoteUpdating` (replaces `initiateRemoteHealing`)
 - `codex-editor.viewRemoteUpdatingList` (replaces `viewRemoteHealingList`)
-- `codex-editor.initiateProjectSwap`
+- `codex-editor.initiateSwapCopy` (Project Swap Step 1)
+- `codex-editor.initiateProjectSwap` (Project Swap Step 2)
 - `codex-editor.viewProjectSwapStatus`
 - `codex-editor.cancelProjectSwap`
 - `codex-project-manager.validateProjectId`

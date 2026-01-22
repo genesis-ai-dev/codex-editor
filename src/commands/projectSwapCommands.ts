@@ -100,7 +100,7 @@ export async function initiateProjectSwap(): Promise<void> {
                 ? "This project has already completed a swap."
                 : existing.swapStatus === "pending"
                     ? "A swap is already pending for this project."
-                    : existing.swapStatus === "migrating"
+                    : existing.swapStatus === "swapping"
                         ? "A swap is currently in progress."
                         : "This project already has swap configuration.";
 
@@ -273,7 +273,7 @@ export async function viewProjectSwapStatus(): Promise<void> {
         // Build status message
         const statusIcon = swap.swapStatus === "completed" ? "✅" :
             swap.swapStatus === "pending" ? "⏳" :
-                swap.swapStatus === "migrating" ? "🔄" :
+                swap.swapStatus === "swapping" ? "🔄" :
                     swap.swapStatus === "failed" ? "❌" : "⚠️";
 
         let statusMessage = `${statusIcon} Project Swap Status\n\n`;
@@ -282,10 +282,10 @@ export async function viewProjectSwapStatus(): Promise<void> {
 
         if (swap.isOldProject) {
             statusMessage += `This is the OLD project.\n`;
-            statusMessage += `Migrating to: ${swap.newProjectName}\n\n`;
+            statusMessage += `Swapping to: ${swap.newProjectName}\n\n`;
         } else {
             statusMessage += `This is the NEW project.\n`;
-        statusMessage += `Swapped from: ${swap.oldProjectUrl}\n\n`;
+            statusMessage += `Swapped from: ${swap.oldProjectUrl}\n\n`;
         }
 
         statusMessage += `Initiated by: ${swap.swapInitiatedBy}\n`;
@@ -305,7 +305,7 @@ export async function viewProjectSwapStatus(): Promise<void> {
 
         if (swap.swappedUsers && swap.swappedUsers.length > 0) {
             statusMessage += `\nSwapped Users (${swap.swappedUsers.length}):\n`;
-            statusMessage += swap.swappedUsers.map(u => `- ${u.userToUpdate} (${new Date(u.updatedAt).toLocaleDateString()})`).join('\n');
+            statusMessage += swap.swappedUsers.map(u => `- ${u.userToSwap} (${new Date(u.updatedAt).toLocaleDateString()})`).join('\n');
         }
 
         vscode.window.showInformationMessage(statusMessage, { modal: true });
@@ -411,7 +411,7 @@ export async function cancelProjectSwap(): Promise<void> {
     }
 }
 
-async function promptMigrationIfSwapRequired(projectPath: string): Promise<void> {
+async function promptSwapIfRequired(projectPath: string): Promise<void> {
     try {
         const result = await checkProjectSwapRequired(projectPath);
         if (!result.required || !result.swapInfo) return;
@@ -440,9 +440,9 @@ async function promptMigrationIfSwapRequired(projectPath: string): Promise<void>
 
 /**
  * Command to copy a project for swap (new UUID, clean git)
- * "Copy to New Project"
+ * "Copy to New Project" - Step 1 of Project Swap
  */
-export async function initiateMigration(): Promise<void> {
+export async function initiateSwapCopy(): Promise<void> {
     try {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
@@ -510,7 +510,7 @@ export async function initiateMigration(): Promise<void> {
         );
         if (confirm !== "Yes, Copy") return;
 
-        // Ensure we sync before migrating (mirrors remote updating flow)
+        // Ensure we sync before swapping (mirrors remote updating flow)
         try {
             await vscode.commands.executeCommand(
                 "codex-editor-extension.triggerSync",
@@ -681,8 +681,8 @@ export function registerProjectSwapCommands(context: vscode.ExtensionContext): v
 
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            "codex-editor.initiateMigration",
-            initiateMigration
+            "codex-editor.initiateSwapCopy",
+            initiateSwapCopy
         )
     );
 

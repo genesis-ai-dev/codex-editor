@@ -60,22 +60,22 @@ export async function checkProjectSwapRequired(
             }
         }
 
-        // Check if this is the old project that needs migration
+        // Check if this is the old project that needs swap
         if (swapInfo.isOldProject && swapInfo.swapStatus === "pending") {
-            debug("Project swap required - old project needs migration");
+            debug("Project swap required - old project needs swap");
             return {
                 required: true,
-                reason: "Project has been migrated to a new repository",
+                reason: "Project has been swapped to a new repository",
                 swapInfo,
             };
         }
 
-        // If swap is migrating or failed, still require user to deal with it
-        if (swapInfo.isOldProject && (swapInfo.swapStatus === "migrating" || swapInfo.swapStatus === "failed")) {
+        // If swap is in progress or failed, still require user to deal with it
+        if (swapInfo.isOldProject && (swapInfo.swapStatus === "swapping" || swapInfo.swapStatus === "failed")) {
             debug("Project swap in progress or failed");
             return {
                 required: true,
-                reason: swapInfo.swapStatus === "migrating" ? "Migration in progress" : "Migration failed - needs retry",
+                reason: swapInfo.swapStatus === "swapping" ? "Swap in progress" : "Swap failed - needs retry",
                 swapInfo,
             };
         }
@@ -84,7 +84,7 @@ export async function checkProjectSwapRequired(
             debug("Project swap completed remotely, but current user has not swapped");
             return {
                 required: true,
-                reason: "Project has been migrated, and the current user has not swapped yet",
+                reason: "Project has been swapped, and the current user has not swapped yet",
                 swapInfo,
             };
         }
@@ -103,7 +103,7 @@ async function hasUserCompletedSwap(
 ): Promise<boolean> {
     const entries = await getSwapUserEntries(swapInfo);
     return entries.some(
-        (entry) => entry.userToUpdate === currentUsername && entry.executed
+        (entry) => entry.userToSwap === currentUsername && entry.executed
     );
 }
 
@@ -198,7 +198,7 @@ export async function updateGitOriginUrl(projectPath: string, newUrl: string): P
     try {
         // Remove old origin
         await git.deleteRemote({ fs, dir: projectPath, remote: "origin" });
-        
+
         // Add new origin
         await git.addRemote({
             fs,
@@ -226,7 +226,7 @@ export function extractProjectNameFromUrl(gitUrl: string): string {
         if (match) {
             return match[1];
         }
-        
+
         // Fallback: just take the last part
         const parts = gitUrl.split("/");
         const lastPart = parts[parts.length - 1];

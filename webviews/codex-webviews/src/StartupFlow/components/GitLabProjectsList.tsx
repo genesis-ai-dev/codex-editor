@@ -296,7 +296,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     const pendingSwaps = React.useMemo(
         () => sortProjectsForDisplay((projectsWithProgress || []).filter((p) => 
             p.projectSwap?.isOldProject && 
-            ["pending", "migrating", "failed"].includes(p.projectSwap.swapStatus)
+            ["pending", "swapping", "failed"].includes(p.projectSwap.swapStatus)
         )),
         [projectsWithProgress, sortProjectsForDisplay]
     );
@@ -304,7 +304,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     const normalProjects = React.useMemo(
         () => (projectsWithProgress || []).filter((p) => 
             !p.pendingUpdate?.required && 
-            !(p.projectSwap?.isOldProject && ["pending", "migrating", "failed"].includes(p.projectSwap.swapStatus))
+            !(p.projectSwap?.isOldProject && ["pending", "swapping", "failed"].includes(p.projectSwap.swapStatus))
         ),
         [projectsWithProgress]
     );
@@ -466,7 +466,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         // Check all projects (including pending ones) to build the hidden list
         projectsWithProgress.forEach(p => {
             if (p.projectSwap && p.projectSwap.isOldProject && 
-                ["pending", "migrating", "failed"].includes(p.projectSwap.swapStatus)) {
+                ["pending", "swapping", "failed"].includes(p.projectSwap.swapStatus)) {
                 addUrlVariants(hiddenNewProjectUrls, p.projectSwap.newProjectUrl);
             }
             if (p.gitOriginUrl && p.syncStatus !== "cloudOnlyNotSynced") {

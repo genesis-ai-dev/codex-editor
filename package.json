@@ -166,7 +166,7 @@
                 "category": "Codex Editor"
             },
             {
-                "command": "codex-editor.initiateMigration",
+                "command": "codex-editor.initiateSwapCopy",
                 "title": "Project Swap - Copy to New Project (Step 1)",
                 "category": "Codex Editor"
             },

@@ -1342,27 +1342,76 @@ async function processProjectDirectory(
 
                 // If it has NO git origin (local-only), check for rename
                 if (!gitOrigin) {
-                    const folderId = extractProjectIdFromFolderName(currentName);
+                    const standardFolderId = extractProjectIdFromFolderName(currentName);
+                    const anyFolderIdInfo = extractAnyProjectIdFromFolderName(currentName);
 
-                    // If folder doesn't have the ID, rename it
-                    if (folderId !== projectMetadata.projectId) {
-                        let newName = sanitizeProjectName(projectMetadata.projectName || currentName);
-                        const idInName = extractProjectIdFromFolderName(newName);
-
-                        // If the base name already contains the ID, we don't need to append it
-                        if (idInName !== projectMetadata.projectId) {
-                            newName = `${newName}-${projectMetadata.projectId}`;
+                    // Determine if we need to update/rename
+                    // Priority: avoid duplicate IDs. If folder already has a UUID suffix, use it (extended if needed).
+                    if (anyFolderIdInfo) {
+                        // Folder already has a UUID-like suffix
+                        const folderId = anyFolderIdInfo.id;
+                        
+                        if (anyFolderIdInfo.needsExtension) {
+                            // Extend the shorter ID to standard length
+                            const extendedId = extendProjectId(folderId);
+                            const newName = currentName.replace(`-${folderId}`, `-${extendedId}`);
+                            
+                            if (newName !== currentName) {
+                                const newPath = path.join(folder, newName);
+                                try {
+                                    await vscode.workspace.fs.stat(vscode.Uri.file(newPath));
+                                    debug(`Cannot rename ${currentName} to ${newName} because target exists`);
+                                } catch {
+                                    // Update metadata to use the extended ID
+                                    projectMetadata.projectId = extendedId;
+                                    await vscode.workspace.fs.writeFile(
+                                        metadataUri,
+                                        Buffer.from(JSON.stringify(projectMetadata, null, 4))
+                                    );
+                                    await vscode.workspace.fs.rename(vscode.Uri.file(projectPath), vscode.Uri.file(newPath));
+                                    debug(`Extended project ID: ${currentName} -> ${newName}`);
+                                    currentName = newName;
+                                    projectPath = newPath;
+                                }
+                            }
+                        } else if (folderId !== projectMetadata.projectId) {
+                            // Folder has a standard-length ID that differs from metadata
+                            // Update metadata to match folder (folder is source of truth for local projects)
+                            projectMetadata.projectId = folderId;
+                            await vscode.workspace.fs.writeFile(
+                                metadataUri,
+                                Buffer.from(JSON.stringify(projectMetadata, null, 4))
+                            );
+                            debug(`Updated metadata projectId to match folder: ${folderId}`);
                         }
+                    } else if (!standardFolderId) {
+                        // Folder has NO UUID suffix - need to add one
+                        const metadataId = projectMetadata.projectId;
+                        let idToUse = metadataId;
+                        
+                        // If metadata has a shorter ID, extend it
+                        if (metadataId && metadataId.length < STANDARD_PROJECT_ID_LENGTH) {
+                            idToUse = extendProjectId(metadataId);
+                            projectMetadata.projectId = idToUse;
+                        } else if (!metadataId) {
+                            // No ID anywhere - generate new one
+                            idToUse = generateProjectId();
+                            projectMetadata.projectId = idToUse;
+                        }
+                        
+                        const baseName = sanitizeProjectName(projectMetadata.projectName || currentName);
+                        const newName = `${baseName}-${idToUse}`;
 
                         if (newName !== currentName) {
                             const newPath = path.join(folder, newName);
-                            // Check if target exists
                             try {
                                 await vscode.workspace.fs.stat(vscode.Uri.file(newPath));
-                                // Target exists, cannot rename automatically safely
                                 debug(`Cannot rename ${currentName} to ${newName} because target exists`);
                             } catch {
-                                // Target doesn't exist, proceed with rename
+                                await vscode.workspace.fs.writeFile(
+                                    metadataUri,
+                                    Buffer.from(JSON.stringify(projectMetadata, null, 4))
+                                );
                                 await vscode.workspace.fs.rename(vscode.Uri.file(projectPath), vscode.Uri.file(newPath));
                                 debug(`Renamed local project folder from ${currentName} to ${newName}`);
                                 currentName = newName;
@@ -1740,6 +1789,12 @@ export function sanitizeProjectName(name: string): string {
     );
 }
 
+/** Standard length for project IDs (13 + 13 random base36 chars) */
+export const STANDARD_PROJECT_ID_LENGTH = 26;
+
+/** Minimum length to recognize as a legacy project ID */
+const MIN_LEGACY_PROJECT_ID_LENGTH = 15;
+
 /**
  * Extracts projectId from folder name if it follows the format "projectName-projectId"
  * @param folderName - The folder name to extract projectId from
@@ -1756,6 +1811,49 @@ export function extractProjectIdFromFolderName(folderName: string): string | und
         }
     }
     return undefined;
+}
+
+/**
+ * Extracts ANY UUID-like suffix from folder name, including shorter legacy IDs.
+ * This is more permissive than extractProjectIdFromFolderName for detecting older formats.
+ * @param folderName - The folder name to extract projectId from
+ * @returns Object with the extracted ID and whether it needs extension, or undefined if no ID found
+ */
+export function extractAnyProjectIdFromFolderName(folderName: string): { id: string; needsExtension: boolean; } | undefined {
+    const lastHyphenIndex = folderName.lastIndexOf('-');
+    if (lastHyphenIndex !== -1) {
+        const potentialProjectId = folderName.substring(lastHyphenIndex + 1);
+        // Check if it looks like a UUID (alphanumeric, at least MIN_LEGACY_PROJECT_ID_LENGTH chars)
+        if (potentialProjectId.length >= MIN_LEGACY_PROJECT_ID_LENGTH && /^[a-z0-9]+$/i.test(potentialProjectId)) {
+            return {
+                id: potentialProjectId,
+                needsExtension: potentialProjectId.length < STANDARD_PROJECT_ID_LENGTH,
+            };
+        }
+    }
+    return undefined;
+}
+
+/**
+ * Extends a shorter project ID to the standard length by appending random characters.
+ * This preserves the existing ID while bringing it up to the current standard.
+ * @param existingId - The existing (possibly shorter) project ID
+ * @returns The extended project ID of standard length
+ */
+export function extendProjectId(existingId: string): string {
+    if (existingId.length >= STANDARD_PROJECT_ID_LENGTH) {
+        return existingId;
+    }
+
+    // Generate random chars to extend the ID
+    const charsNeeded = STANDARD_PROJECT_ID_LENGTH - existingId.length;
+    let extension = "";
+    while (extension.length < charsNeeded) {
+        extension += Math.random().toString(36).substring(2);
+    }
+    extension = extension.substring(0, charsNeeded);
+
+    return existingId + extension;
 }
 
 /**

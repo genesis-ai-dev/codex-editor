@@ -19,7 +19,7 @@ import {
     createWorkspaceWithProjectName,
     checkProjectNameExists,
 } from "../../utils/projectCreationUtils/projectCreationUtils";
-import { generateProjectId, sanitizeProjectName, extractProjectIdFromFolderName } from "../../projectManager/utils/projectUtils";
+import { generateProjectId, sanitizeProjectName, extractProjectIdFromFolderName, extractAnyProjectIdFromFolderName, extendProjectId, STANDARD_PROJECT_ID_LENGTH } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { MetadataManager } from "../../utils/metadataManager";
 import { createMachine, assign, createActor } from "xstate";
@@ -1404,10 +1404,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             swapInfo?: ProjectSwapInfo;
                             userAlreadySwapped?: boolean;
                         } = remoteProjectRequirements.swapRequired
-                            ? (localSwapCheck.userAlreadySwapped
-                                ? localSwapCheck
-                                : { required: true, swapInfo: remoteProjectRequirements.swapInfo })
-                            : localSwapCheck;
+                                ? (localSwapCheck.userAlreadySwapped
+                                    ? localSwapCheck
+                                    : { required: true, swapInfo: remoteProjectRequirements.swapInfo })
+                                : localSwapCheck;
 
                         if (swapCheck.userAlreadySwapped && swapCheck.swapInfo) {
                             const swapInfo = swapCheck.swapInfo;
@@ -1444,7 +1444,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     );
                                     const hasAlreadySwapped = entries.some(
                                         (entry) =>
-                                            entry.userToUpdate === remoteProjectRequirements?.currentUsername &&
+                                            entry.userToSwap === remoteProjectRequirements?.currentUsername &&
                                             entry.executed
                                     );
                                     if (hasAlreadySwapped) {
@@ -1495,11 +1495,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 await vscode.window.withProgress(
                                     {
                                         location: vscode.ProgressLocation.Notification,
-                                        title: `Migrating to ${newProjectName}`,
+                                        title: `Swapping to ${newProjectName}`,
                                         cancellable: false,
                                     },
                                     async (progress) => {
-                                        progress.report({ message: "Starting migration..." });
+                                        progress.report({ message: "Starting swap..." });
 
                                         const projectName = projectPath.split(/[\\/]/).pop() || "project";
 
@@ -1515,13 +1515,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                         );
 
                                         debugLog("Project swap completed successfully");
-                                        progress.report({ message: "Migration complete!" });
+                                        progress.report({ message: "Swap complete!" });
                                     }
                                 );
 
                                 // Show success message
                                 vscode.window.showInformationMessage(
-                                    `✅ Project migrated to ${newProjectName}\n\nOpening new project...`
+                                    `✅ Project swapped to ${newProjectName}\n\nOpening new project...`
                                 );
                                 if (swappedProjectPath) {
                                     await vscode.commands.executeCommand(
@@ -1540,7 +1540,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             // Tell the user and abort opening
                             const msg = swapErr instanceof Error ? swapErr.message : String(swapErr);
                             vscode.window.showWarningMessage(
-                                "Project migration failed. Please try again or contact support.\n\nDetails: " + msg,
+                                "Project swap failed. Please try again or contact support.\n\nDetails: " + msg,
                                 { modal: true }
                             );
                             return; // Abort opening flow
@@ -3000,36 +3000,60 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         await vscode.workspace.fs.delete(gitPath, { recursive: true, useTrash: false });
 
                         progress.report({ message: "Updating project identity..." });
-                        // 4. Update metadata with new UUID
-                        const oldId = metadata.projectId;
-                        const newId = generateProjectId();
-                        metadata.projectId = newId;
+                        // 4. Update metadata with new UUID (or extend existing one)
+                        const oldMetadataId = metadata.projectId;
 
                         // 5. Rename folder logic
                         const parentDir = path.dirname(projectPath);
                         const currentFolderName = path.basename(projectPath);
 
-                        // If folder name contains the old ID, replace it. Otherwise append new ID.
-                        let newFolderName = currentFolderName;
-                        if (oldId && currentFolderName.includes(oldId)) {
-                            newFolderName = currentFolderName.replace(oldId, newId);
+                        // Check if folder already has a UUID-like suffix (even shorter legacy ones)
+                        const existingFolderIdInfo = extractAnyProjectIdFromFolderName(currentFolderName);
 
-                            // Ensure projectName is not empty even if we just replaced the ID in folder name
+                        let newId: string;
+                        let newFolderName = currentFolderName;
+
+                        if (existingFolderIdInfo) {
+                            // Folder already has a UUID suffix - extend it if needed instead of adding a new one
+                            if (existingFolderIdInfo.needsExtension) {
+                                // Extend the existing shorter ID to standard length
+                                newId = extendProjectId(existingFolderIdInfo.id);
+                                newFolderName = currentFolderName.replace(existingFolderIdInfo.id, newId);
+                                console.log(`Extended project ID from ${existingFolderIdInfo.id} (${existingFolderIdInfo.id.length} chars) to ${newId} (${newId.length} chars)`);
+                            } else {
+                                // ID is already standard length - just use it
+                                newId = existingFolderIdInfo.id;
+                                // Folder name doesn't need to change for the ID
+                            }
+
+                            // Extract the base name for projectName if needed
                             if (!metadata.projectName || metadata.projectName.trim() === "") {
-                                // Extract the name part without the ID
-                                const baseName = currentFolderName.replace(oldId, "").replace(/-+$/, "").replace(/^-+/, "");
+                                const baseName = currentFolderName.replace(`-${existingFolderIdInfo.id}`, "").replace(/-+$/, "").replace(/^-+/, "");
+                                metadata.projectName = sanitizeProjectName(baseName);
+                            }
+                        } else if (oldMetadataId && currentFolderName.includes(oldMetadataId)) {
+                            // Folder contains the metadata's ID (but extractAnyProjectIdFromFolderName didn't find it,
+                            // which means it's in the middle of the name or has unusual format)
+                            newId = oldMetadataId.length < STANDARD_PROJECT_ID_LENGTH
+                                ? extendProjectId(oldMetadataId)
+                                : generateProjectId();
+                            newFolderName = currentFolderName.replace(oldMetadataId, newId);
+
+                            if (!metadata.projectName || metadata.projectName.trim() === "") {
+                                const baseName = currentFolderName.replace(oldMetadataId, "").replace(/-+$/, "").replace(/^-+/, "");
                                 metadata.projectName = sanitizeProjectName(baseName);
                             }
                         } else {
-                            // If UUID wasn't in folder name, use the current folder name as the base
-                            // This ensures that if the user renamed the folder (e.g. fork), we keep that name
+                            // No existing UUID in folder name - generate a new one
+                            newId = generateProjectId();
                             const cleanName = sanitizeProjectName(currentFolderName);
                             newFolderName = `${cleanName}-${newId}`;
 
                             // Also update the project name in metadata to match the folder name
-                            // This prevents "reverting" to an old name stored in metadata
                             metadata.projectName = cleanName;
                         }
+
+                        metadata.projectId = newId;
 
                         // Final safety check: if projectName is still empty, use the new folder name (minus ID)
                         if (!metadata.projectName || metadata.projectName.trim() === "") {
@@ -3171,7 +3195,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             );
                             const hasAlreadySwapped = currentUsername
                                 ? entries.some(
-                                    (entry) => entry.userToUpdate === currentUsername && entry.executed
+                                    (entry) => entry.userToSwap === currentUsername && entry.executed
                                 )
                                 : false;
                             if (hasAlreadySwapped) {
