@@ -1266,14 +1266,21 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     // Refresh the source webview panel if it's open
                     const sourcePanel = provider.getWebviewPanels().get(sourceUri.toString());
                     if (sourcePanel) {
-                        // Preserve milestone index for source document as well
+                        // Preserve the source document's current milestone index (don't change to the edited milestone)
                         const sourceDocUri = sourceDocument.uri.toString();
                         const sourceCurrentPosition = provider.currentMilestoneSubsectionMap.get(sourceDocUri);
+                        // Use the current milestone index from the source if it exists, otherwise keep it undefined
+                        // This ensures the source stays on whatever milestone it was viewing, not the one that was just edited
+                        const sourceMilestoneIndex = sourceCurrentPosition?.milestoneIndex;
                         const sourceSubsectionIndex = sourceCurrentPosition?.subsectionIndex ?? provider.getCachedSubsection(sourceDocUri);
-                        provider.currentMilestoneSubsectionMap.set(sourceDocUri, {
-                            milestoneIndex: typedEvent.content.milestoneIndex,
-                            subsectionIndex: sourceSubsectionIndex,
-                        });
+
+                        // Only update the map if we have a milestone index to preserve
+                        if (sourceMilestoneIndex !== undefined) {
+                            provider.currentMilestoneSubsectionMap.set(sourceDocUri, {
+                                milestoneIndex: sourceMilestoneIndex,
+                                subsectionIndex: sourceSubsectionIndex,
+                            });
+                        }
                         provider.refreshWebview(sourcePanel, sourceDocument);
                     }
                 } catch (sourceSaveError) {
