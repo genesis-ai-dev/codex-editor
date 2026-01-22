@@ -64,7 +64,8 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
 
     const handleSave = () => {
         if (!systemMessage.trim()) {
-            setError("System message cannot be empty");
+            // If empty, skip to continue without saving
+            onContinue();
             return;
         }
         setIsSaving(true);
@@ -213,16 +214,21 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                 <VSCodeButton
                     appearance="primary"
                     onClick={handleSave}
-                    disabled={isGenerating || isSaving || !systemMessage.trim()}
+                    disabled={isGenerating || isSaving}
                 >
                     {isSaving ? (
                         <>
                             <i className="codicon codicon-loading codicon-modifier-spin"></i>
                             Saving...
                         </>
-                    ) : (
+                    ) : systemMessage.trim() ? (
                         <>
                             Save and Start Translating
+                            <i className="codicon codicon-arrow-right" style={{ marginLeft: "4px" }}></i>
+                        </>
+                    ) : (
+                        <>
+                            Start Translating
                             <i className="codicon codicon-arrow-right" style={{ marginLeft: "4px" }}></i>
                         </>
                     )}

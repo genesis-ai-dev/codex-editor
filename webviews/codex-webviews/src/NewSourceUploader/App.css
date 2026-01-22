@@ -132,3 +132,18 @@
     margin-bottom: 5px;
     font-size: 0.9em;
 }
+
+/* Spinning animation for loading indicators */
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.codicon-modifier-spin {
+    animation: spin 1.5s linear infinite;
+    display: inline-block;
+}
