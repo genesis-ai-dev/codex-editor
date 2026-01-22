@@ -97,9 +97,15 @@ suite("notebookSafeSaveUtils", () => {
         const writeStub = sinon.stub().resolves();
         const renameStub = sinon.stub().rejects(new Error("Rename failed"));
         const deleteStub = sinon.stub().resolves();
+        const statStub = sinon.stub().resolves({
+            type: vscode.FileType.File,
+            ctime: 0,
+            mtime: 0,
+            size: 1,
+        });
         const fs: NotebookFs = {
             readFile: sinon.stub().rejects(new Error("unused")),
-            stat: sinon.stub().rejects(new Error("unused")),
+            stat: statStub,
             writeFile: writeStub,
             rename: renameStub,
             delete: deleteStub,
