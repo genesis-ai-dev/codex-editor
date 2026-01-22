@@ -1098,6 +1098,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         document.updateCellTimestamps(typedEvent.content.cellId, typedEvent.content.timestamps);
     },
 
+    updateCellAudioTimestamps: ({ event, document }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellAudioTimestamps"; }>;
+        console.log("updateCellAudioTimestamps message received", { event });
+        document.updateCellAudioTimestamps(typedEvent.content.cellId, typedEvent.content.timestamps);
+    },
+
     updateCellLabel: ({ event, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellLabel"; }>;
         console.log("updateCellLabel message received", { event });
@@ -2311,6 +2317,51 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 audioData: null
             }
         });
+    },
+
+    requestCellAudioTimestamps: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "requestCellAudioTimestamps"; }>;
+        const cellId = typedEvent.content.cellId;
+
+        try {
+            const cell = document.getCellContent(cellId);
+            if (!cell) {
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "providerSendsCellAudioTimestamps",
+                    content: {
+                        cellId,
+                        audioTimestamps: undefined,
+                    },
+                });
+                return;
+            }
+
+            // Get audio timestamps from the cell
+            const audioTimestamps = cell.audioTimestamps ??
+                (cell.data?.audioStartTime !== undefined || cell.data?.audioEndTime !== undefined
+                    ? {
+                        startTime: cell.data.audioStartTime,
+                        endTime: cell.data.audioEndTime,
+                    }
+                    : undefined);
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsCellAudioTimestamps",
+                content: {
+                    cellId,
+                    audioTimestamps,
+                },
+            });
+        } catch (error) {
+            console.error("Error fetching cell audio timestamps:", error);
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsCellAudioTimestamps",
+                content: {
+                    cellId,
+                    audioTimestamps: undefined,
+                },
+            });
+        }
     },
 
     saveAudioAttachment: async ({ event, document, webviewPanel, provider }) => {

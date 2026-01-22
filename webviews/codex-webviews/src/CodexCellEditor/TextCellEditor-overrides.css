@@ -8,3 +8,16 @@
 [data-disabled][data-slot="slider"] [data-slot="slider-thumb"] {
   display: none;
 }
+
+/* Orange styling for audio timestamp sliders */
+.audio-timestamp-slider [data-slot="slider-range"] {
+  background-color: #ff9500 !important;
+}
+
+.audio-timestamp-slider [data-slot="slider-thumb"] {
+  border-color: #ff9500 !important;
+}
+
+.audio-timestamp-slider [data-slot="slider-thumb"]:hover {
+  border-color: #ff8500 !important;
+}

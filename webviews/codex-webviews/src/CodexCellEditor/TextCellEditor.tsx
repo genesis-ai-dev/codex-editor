@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useContext, useCallback } from "react";
+import { useRef, useEffect, useState, useContext, useCallback, useMemo } from "react";
 import {
     EditorCellContent,
     EditorPostMessages,
@@ -84,6 +84,8 @@ import {
 import { cn } from "../lib/utils";
 import CommentsBadge from "./CommentsBadge";
 import { Checkbox } from "../components/ui/checkbox";
+import MicrophoneIcon from "../components/ui/icons/MicrophoneIcon";
+import { Languages } from "lucide-react";
 
 // Define interface for saved backtranslation
 interface SavedBacktranslation {
@@ -344,6 +346,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // Audio-related state
     const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
+    const [audioDuration, setAudioDuration] = useState<number | null>(null);
     // While awaiting provider response, avoid showing "No audio attached" to prevent flicker
     const [audioFetchPending, setAudioFetchPending] = useState<boolean>(true);
     const [isRecording, setIsRecording] = useState(false);
@@ -365,6 +368,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const overlappingAudioUrlsRef = useRef<Map<string, string>>(new Map());
     const overlappingAudioDelaysRef = useRef<Map<string, number>>(new Map()); // Delay in seconds before starting overlapping audio
     const [muteVideoAudioDuringPlayback, setMuteVideoAudioDuringPlayback] = useState(true);
+    const previousAudioTimestampValuesRef = useRef<[number, number] | null>(null);
+    const [prevAudioTimestamps, setPrevAudioTimestamps] = useState<Timestamps | null>(null);
+    const [nextAudioTimestamps, setNextAudioTimestamps] = useState<Timestamps | null>(null);
     const [confirmingDiscard, setConfirmingDiscard] = useState(false);
     const [showRecorder, setShowRecorder] = useState(() => {
         try {
@@ -472,6 +478,135 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
     }, [audioBlob]);
 
+    // Calculate audio duration from audioBlob
+    useEffect(() => {
+        let cancelled = false;
+        const calculateDuration = async () => {
+            try {
+                if (!audioBlob) {
+                    setAudioDuration(null);
+                    return;
+                }
+
+                const arrayBuffer = await audioBlob.arrayBuffer();
+                if (cancelled) return;
+
+                // Use a low-priority timeout to avoid blocking the UI thread
+                setTimeout(async () => {
+                    try {
+                        if (cancelled) return;
+                        const audioContext = new (window.AudioContext ||
+                            (window as any).webkitAudioContext)();
+                        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                        if (cancelled) return;
+                        if (isFinite(audioBuffer.duration) && audioBuffer.duration > 0) {
+                            setAudioDuration(audioBuffer.duration);
+                        } else {
+                            setAudioDuration(null);
+                        }
+                        try {
+                            audioContext.close();
+                        } catch {
+                            void 0;
+                        }
+                    } catch {
+                        // Ignore decode errors
+                        if (!cancelled) {
+                            setAudioDuration(null);
+                        }
+                    }
+                }, 100);
+            } catch {
+                // Ignore errors
+                if (!cancelled) {
+                    setAudioDuration(null);
+                }
+            }
+        };
+
+        calculateDuration();
+        return () => {
+            cancelled = true;
+        };
+    }, [audioBlob]);
+
+    // Helper function to request audio timestamps for a cell
+    const requestCellAudioTimestamps = useCallback((cellId: string): Promise<Timestamps | null> => {
+        return new Promise((resolve) => {
+            let resolved = false;
+            const timeout = setTimeout(() => {
+                if (!resolved) {
+                    resolved = true;
+                    window.removeEventListener("message", handler);
+                    resolve(null);
+                }
+            }, 5000);
+
+            const handler = (event: MessageEvent) => {
+                const message = event.data;
+                
+                if (
+                    message?.type === "providerSendsCellAudioTimestamps" &&
+                    message.content?.cellId === cellId
+                ) {
+                    if (!resolved) {
+                        resolved = true;
+                        clearTimeout(timeout);
+                        window.removeEventListener("message", handler);
+                        resolve(message.content.audioTimestamps || null);
+                    }
+                }
+            };
+
+            window.addEventListener("message", handler);
+            window.vscodeApi.postMessage({
+                command: "requestCellAudioTimestamps",
+                content: { cellId },
+            } as EditorPostMessages);
+        });
+    }, []);
+
+    // Fetch previous/next cell audio timestamps
+    useEffect(() => {
+        let cancelled = false;
+
+        const fetchAudioTimestamps = async () => {
+            const promises: Promise<void>[] = [];
+
+            if (prevCellId) {
+                promises.push(
+                    requestCellAudioTimestamps(prevCellId).then((timestamps) => {
+                        if (!cancelled) {
+                            setPrevAudioTimestamps(timestamps);
+                        }
+                    })
+                );
+            } else {
+                setPrevAudioTimestamps(null);
+            }
+
+            if (nextCellId) {
+                promises.push(
+                    requestCellAudioTimestamps(nextCellId).then((timestamps) => {
+                        if (!cancelled) {
+                            setNextAudioTimestamps(timestamps);
+                        }
+                    })
+                );
+            } else {
+                setNextAudioTimestamps(null);
+            }
+
+            await Promise.all(promises);
+        };
+
+        fetchAudioTimestamps();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [prevCellId, nextCellId, requestCellAudioTimestamps]);
+
     useEffect(() => {
         if (showFlashingBorder && cellEditorRef.current) {
             debug("Scrolling to content in showFlashingBorder", {
@@ -491,9 +626,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     const [editableLabel, setEditableLabel] = useState(cellLabel || "");
     const [similarCells, setSimilarCells] = useState<SimilarCell[]>([]);
-    const [showSuggestions, setShowSuggestions] = useState(false);
-    const [cursorPosition, setCursorPosition] = useState(0);
-    const [activeSearchPosition, setActiveSearchPosition] = useState<number | null>(null);
     const [isEditorControlsExpanded, setIsEditorControlsExpanded] = useState(false);
     const [isPinned, setIsPinned] = useState(false);
     const [showAdvancedControls, setShowAdvancedControls] = useState(false);
@@ -569,6 +701,20 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 const { cellTimestamps, ...rest } = contentBeingUpdated;
                 setContentBeingUpdated(rest as EditorCellContent);
             }
+            const audioTs = contentBeingUpdated.cellAudioTimestamps;
+            if (audioTs && (typeof audioTs.startTime === "number" || typeof audioTs.endTime === "number")) {
+                const messageContent: EditorPostMessages = {
+                    command: "updateCellAudioTimestamps",
+                    content: {
+                        cellId: cellMarkers[0],
+                        timestamps: audioTs,
+                    },
+                };
+                window.vscodeApi.postMessage(messageContent);
+                // Optimistically clear staged audio timestamps - will be re-cleared by effect if needed
+                const { cellAudioTimestamps, ...restAfterAudio } = contentBeingUpdated;
+                setContentBeingUpdated(restAfterAudio as EditorCellContent);
+            }
         }, 0);
     };
 
@@ -578,6 +724,29 @@ const CellEditor: React.FC<CellEditorProps> = ({
         typeof nextStartTime === "number" ? nextStartTime : Number.POSITIVE_INFINITY;
     const effectiveTimestamps: Timestamps | undefined =
         contentBeingUpdated.cellTimestamps ?? cellTimestamps;
+    const effectiveAudioTimestamps: Timestamps | undefined = useMemo(() => {
+        return (
+            contentBeingUpdated.cellAudioTimestamps ??
+            cell.audioTimestamps ??
+            (cell.data?.audioStartTime !== undefined || cell.data?.audioEndTime !== undefined
+                ? {
+                      startTime: cell.data.audioStartTime,
+                      endTime: cell.data.audioEndTime,
+                  }
+                : undefined)
+        );
+    }, [contentBeingUpdated.cellAudioTimestamps, cell.audioTimestamps, cell.data]);
+
+    // Reset previous audio timestamp values ref when effectiveAudioTimestamps changes
+    useEffect(() => {
+        if (effectiveAudioTimestamps) {
+            const start = effectiveAudioTimestamps.startTime ?? 0;
+            const end = effectiveAudioTimestamps.endTime ?? 0;
+            previousAudioTimestampValuesRef.current = [start, end];
+        } else {
+            previousAudioTimestampValuesRef.current = null;
+        }
+    }, [effectiveAudioTimestamps]);
 
     // Extended bounds for overlapping ranges
     const extendedMinBound =
@@ -1559,6 +1728,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cellTimestamps, contentBeingUpdated.cellTimestamps]);
+
+    // Clear staged audio timestamps when persisted values update to match (after successful save)
+    useEffect(() => {
+        const staged = contentBeingUpdated.cellAudioTimestamps;
+        const persisted = cell.audioTimestamps;
+
+        // Only clear if we have staged audio timestamps and they match the persisted values
+        if (staged && persisted) {
+            const startMatch = (staged.startTime ?? undefined) === (persisted.startTime ?? undefined);
+            const endMatch = (staged.endTime ?? undefined) === (persisted.endTime ?? undefined);
+
+            if (startMatch && endMatch) {
+                // Audio timestamps match - clear staged changes
+                const { cellAudioTimestamps, ...rest } = contentBeingUpdated;
+                setContentBeingUpdated(rest as EditorCellContent);
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [cell.audioTimestamps, contentBeingUpdated.cellAudioTimestamps]);
 
     // Add effect to fetch source text
     useEffect(() => {
@@ -2650,6 +2838,108 @@ const CellEditor: React.FC<CellEditorProps> = ({
         };
     }, [mediaRecorder]);
 
+    const currentAudioTimestampSlider = () => {
+        if (!audioBlob ||!audioDuration) {
+            return null;
+        }
+        
+        const currentStart = effectiveAudioTimestamps?.startTime ?? effectiveTimestamps?.startTime ?? 0;
+        const currentEnd = effectiveAudioTimestamps?.endTime ?? (currentStart && (currentStart + audioDuration)) ?? audioDuration;
+
+        // Calculate bounds: min = 0 or prevStartTime, max = audioDuration or nextEndTime
+        const audioMinBound =
+            typeof prevStartTime === "number" ? Math.max(0, prevStartTime) : 0;
+        const audioMaxBound =
+            typeof nextEndTime === "number"
+                ? nextEndTime
+                : audioDuration;
+
+        // Initialize previous values ref if needed
+        if (previousAudioTimestampValuesRef.current === null) {
+            previousAudioTimestampValuesRef.current = [currentStart, currentEnd];
+        }
+
+        return (
+            <>
+                <Slider
+                    min={audioMinBound}
+                    max={audioMaxBound}
+                    value={[currentStart, currentEnd]}
+                    step={0.001}
+                    className="audio-timestamp-slider"
+                    onValueChange={(vals: number[]) => {
+                        const [newStart, newEnd] = vals;
+                        const prev = previousAudioTimestampValuesRef.current;
+                        if (!prev) {
+                            previousAudioTimestampValuesRef.current = [newStart, newEnd];
+                            return;
+                        }
+
+                        const [prevStart, prevEnd] = prev;
+                        const prevDuration = prevEnd - prevStart;
+
+                        // Calculate which handle moved and by how much
+                        const startDelta = newStart - prevStart;
+                        const endDelta = newEnd - prevEnd;
+
+                        // Determine which handle was dragged (the one that moved more)
+                        let offset: number;
+                        if (Math.abs(startDelta) > Math.abs(endDelta)) {
+                            // Start handle was dragged
+                            offset = startDelta;
+                        } else {
+                            // End handle was dragged
+                            offset = endDelta;
+                        }
+
+                        // Apply the same offset to both handles (synchronized block movement)
+                        let newClampedStart = prevStart + offset;
+                        let newClampedEnd = prevEnd + offset;
+
+                        // Clamp to bounds
+                        newClampedStart = Math.max(audioMinBound, Math.min(newClampedStart, audioMaxBound - prevDuration));
+                        newClampedEnd = Math.min(audioMaxBound, Math.max(newClampedEnd, audioMinBound + prevDuration));
+
+                        // Ensure duration is maintained
+                        if (newClampedEnd - newClampedStart !== prevDuration) {
+                            // If clamping changed the duration, adjust to maintain it
+                            if (newClampedStart + prevDuration <= audioMaxBound) {
+                                newClampedEnd = newClampedStart + prevDuration;
+                            } else if (newClampedEnd - prevDuration >= audioMinBound) {
+                                newClampedStart = newClampedEnd - prevDuration;
+                            } else {
+                                // If we can't maintain duration, use the new values but ensure valid range
+                                newClampedStart = Math.max(audioMinBound, newClampedStart);
+                                newClampedEnd = Math.min(audioMaxBound, newClampedEnd);
+                                if (newClampedEnd <= newClampedStart) {
+                                    newClampedEnd = newClampedStart + 0.001;
+                                }
+                            }
+                        }
+
+                        previousAudioTimestampValuesRef.current = [newClampedStart, newClampedEnd];
+
+                        const updatedAudioTimestamps: Timestamps = {
+                            startTime: Number(newClampedStart.toFixed(3)),
+                            endTime: Number(newClampedEnd.toFixed(3)),
+                        };
+
+                        setContentBeingUpdated({
+                            ...contentBeingUpdated,
+                            cellAudioTimestamps: updatedAudioTimestamps,
+                            cellChanged: true,
+                        });
+                        setUnsavedChanges(true);
+                    }}
+                />
+                <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                    <span>Min: {formatTime(audioMinBound)}</span>
+                    <span>Max: {formatTime(audioMaxBound)}</span>
+                </div>
+            </>
+        );
+    };
+
     const currentTimestampSlider = () => {
         if (
             isSubtitlesType &&
@@ -3422,7 +3712,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                     {activeTab === "timestamps" && (
                         <TabsContent value="timestamps">
-                            <div className="content-section space-y-4">
+                            <div className="content-section space-y-4 p-6">
                                 <h3 className="text-lg font-medium">Timestamps</h3>
 
                                 {effectiveTimestamps &&
@@ -3468,10 +3758,59 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     </div>
                                                 )}
 
+                                            {/* Previous audio slider - read-only */}
+                                            {audioBlob &&
+                                                audioDuration &&
+                                                prevAudioTimestamps &&
+                                                typeof prevAudioTimestamps.startTime === "number" &&
+                                                typeof prevAudioTimestamps.endTime === "number" &&
+                                                prevAudioTimestamps.startTime < prevAudioTimestamps.endTime && (
+                                                    <div className="flex flex-col items-start space-y-1 w-full">
+                                                        <label className="text-sm font-medium text-muted-foreground">
+                                                            Previous audio range
+                                                        </label>
+                                                        <div
+                                                            className="flex items-center relative h-4"
+                                                            style={{
+                                                                width: `${
+                                                                    ((prevAudioTimestamps.endTime -
+                                                                        prevAudioTimestamps.startTime) /
+                                                                        (audioDuration)) *
+                                                                    100
+                                                                }%`,
+                                                            }}
+                                                        >
+                                                            <Slider
+                                                                disabled
+                                                                min={prevAudioTimestamps.startTime}
+                                                                max={prevAudioTimestamps.endTime}
+                                                                value={[
+                                                                    prevAudioTimestamps.startTime,
+                                                                    prevAudioTimestamps.endTime,
+                                                                ]}
+                                                                step={0.001}
+                                                                className="opacity-60 audio-timestamp-slider"
+                                                            />
+                                                            <div className="absolute left-[100%] top-0 flex min-w-max ml-2 justify-end text-xs text-muted-foreground">
+                                                                <span>
+                                                                    {formatTime(prevAudioTimestamps.endTime)}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
+
                                             {/* Current cell slider */}
                                             <div className="flex flex-col justify-center space-y-2 w-full">
                                                 {currentTimestampSlider()}
                                             </div>
+
+                                            {/* Current audio slider */}
+                                            {audioBlob && audioDuration && (
+                                                <div className="flex flex-col justify-center space-y-2 w-full">
+                                                    {currentAudioTimestampSlider()}
+                                                </div>
+                                            )}
 
                                             {/* Next cell slider - read-only */}
                                             {isSubtitlesType &&
@@ -3509,6 +3848,50 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 step={0.001}
                                                                 className="opacity-60"
                                                             />
+                                                            <Languages className="w-4 h-4 text-muted-foreground/80 ml-1" />
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                            {/* Next audio slider - read-only */}
+                                            {audioBlob &&
+                                                audioDuration &&
+                                                nextAudioTimestamps &&
+                                                typeof nextAudioTimestamps.startTime === "number" &&
+                                                typeof nextAudioTimestamps.endTime === "number" &&
+                                                nextAudioTimestamps.startTime < nextAudioTimestamps.endTime && (
+                                                    <div className="flex flex-col justify-end items-end space-y-1 w-full -mt-2">
+                                                        <div
+                                                            className="flex items-center relative h-4"
+                                                            style={{
+                                                                width: `${
+                                                                    ((nextAudioTimestamps.endTime -
+                                                                        nextAudioTimestamps.startTime) /
+                                                                        (audioDuration)) *
+                                                                    100
+                                                                }%`,
+                                                            }}
+                                                        >
+                                                            <div className="absolute right-[100%] top-0 flex min-w-max mr-2 text-xs text-muted-foreground">
+                                                                <span>
+                                                                    {formatTime(nextAudioTimestamps.startTime)}
+                                                                </span>
+                                                            </div>
+                                                            <Slider
+                                                                disabled
+                                                                min={Math.max(0, nextAudioTimestamps.startTime)}
+                                                                max={Math.max(
+                                                                    nextAudioTimestamps.endTime,
+                                                                    nextAudioTimestamps.startTime + 0.001
+                                                                )}
+                                                                value={[
+                                                                    nextAudioTimestamps.startTime,
+                                                                    nextAudioTimestamps.endTime,
+                                                                ]}
+                                                                step={0.001}
+                                                                className="opacity-60 audio-timestamp-slider"
+                                                            />
+                                                            <MicrophoneIcon className="w-4 h-4 text-muted-foreground/80 ml-1" />
                                                         </div>
                                                     </div>
                                                 )}

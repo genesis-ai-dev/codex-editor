@@ -2402,7 +2402,15 @@ const CodexCellEditor: React.FC = () => {
     const translationUnitsWithCurrentEditorContent = useMemo(() => {
         return translationUnitsForSection?.map((unit) => {
             if (unit.cellMarkers[0] === contentBeingUpdated.cellMarkers?.[0]) {
-                return { ...unit, cellContent: contentBeingUpdated.cellContent };
+                const updatedUnit: QuillCellContent = {
+                    ...unit,
+                    cellContent: contentBeingUpdated.cellContent,
+                };
+                // Merge audio timestamps if they exist in contentBeingUpdated
+                if (contentBeingUpdated.cellAudioTimestamps) {
+                    updatedUnit.audioTimestamps = contentBeingUpdated.cellAudioTimestamps;
+                }
+                return updatedUnit;
             }
             return unit;
         });

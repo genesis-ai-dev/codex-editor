@@ -388,7 +388,13 @@ export function useMultiCellAudioPlayback({
         for (const cell of translationUnitsForSection) {
             const cellId = cell.cellMarkers.join(" ");
             const audioState = audioAttachments?.[cellId];
-            const timestamps = cell.timestamps;
+            const timestamps = cell.audioTimestamps ??
+                (cell.data?.audioStartTime !== undefined || cell.data?.audioEndTime !== undefined
+                    ? {
+                        startTime: cell.data.audioStartTime,
+                        endTime: cell.data.audioEndTime,
+                    }
+                    : cell.timestamps);
 
             // Check if cell has audio available
             const hasAudio =
@@ -408,10 +414,35 @@ export function useMultiCellAudioPlayback({
             }
         }
 
-        // Create audio elements for all cells
-        const initializePromises = cellsWithAudio.map(({ cellId, startTime, endTime }) =>
-            createAudioElement(cellId, startTime, endTime)
-        );
+        // Create or update audio elements for all cells
+        const initializePromises = cellsWithAudio.map(async ({ cellId, startTime, endTime }) => {
+            // Check if audio element already exists
+            const existingData = audioElementsRef.current.get(cellId);
+            if (existingData) {
+                // Check if timestamps have changed
+                const timestampsChanged =
+                    existingData.startTime !== startTime || existingData.endTime !== endTime;
+
+                if (timestampsChanged) {
+                    // Stop and reset audio if it's currently playing
+                    if (!existingData.audioElement.paused || existingData.isPlaying) {
+                        try {
+                            existingData.audioElement.pause();
+                            existingData.audioElement.currentTime = 0;
+                            existingData.isPlaying = false;
+                        } catch (error) {
+                            console.error(`Error stopping audio for cell ${cellId}:`, error);
+                        }
+                    }
+                    // Update timestamps for existing element
+                    existingData.startTime = startTime;
+                    existingData.endTime = endTime;
+                }
+                return true;
+            }
+            // Create new audio element
+            return createAudioElement(cellId, startTime, endTime);
+        });
 
         Promise.all(initializePromises).catch((error) => {
             console.error("Error initializing audio elements:", error);
@@ -431,150 +462,158 @@ export function useMultiCellAudioPlayback({
         restoreVideoMuteState,
     ]);
 
-    // Handle video time updates - start audio at correct timestamps
-    useEffect(() => {
+    // Function to check and start/stop audio based on current video time
+    const checkAndStartAudio = useCallback(() => {
         if (!isVideoPlaying) {
             return;
         }
 
-        const checkAndStartAudio = () => {
-            const currentTime = currentVideoTime;
-            const tolerance = 0.1; // 100ms tolerance for starting audio
+        const currentTime = currentVideoTime;
+        const tolerance = 0.1; // 100ms tolerance for starting audio
 
-            // Update mute state based on current time (mute if audio should be playing)
-            updateVideoMuteState(currentTime);
+        // Update mute state based on current time (mute if audio should be playing)
+        updateVideoMuteState(currentTime);
 
-            // Check if AudioPlayButton or other audio is playing (not multi-cell audio)
-            const currentGlobalAudio = globalAudioController.getCurrent();
-            if (currentGlobalAudio) {
-                let isMultiCellAudio = false;
+        // Check if AudioPlayButton or other audio is playing (not multi-cell audio)
+        const currentGlobalAudio = globalAudioController.getCurrent();
+        if (currentGlobalAudio) {
+            let isMultiCellAudio = false;
+            audioElementsRef.current.forEach((data) => {
+                if (data.audioElement === currentGlobalAudio) {
+                    isMultiCellAudio = true;
+                }
+            });
+
+            // If a non-multi-cell audio is playing, stop all multi-cell audio
+            if (!isMultiCellAudio) {
                 audioElementsRef.current.forEach((data) => {
-                    if (data.audioElement === currentGlobalAudio) {
-                        isMultiCellAudio = true;
+                    if (data.audioElement !== currentGlobalAudio) {
+                        try {
+                            data.audioElement.pause();
+                            data.audioElement.currentTime = 0;
+                            data.isPlaying = false;
+                        } catch (error) {
+                            console.error(`Error stopping audio for cell ${data.cellId}:`, error);
+                        }
                     }
                 });
+                updateVideoMuteState(currentTime);
+                return; // Don't start new multi-cell audio if other audio is playing
+            }
+        }
 
-                // If a non-multi-cell audio is playing, stop all multi-cell audio
-                if (!isMultiCellAudio) {
-                    audioElementsRef.current.forEach((data) => {
-                        if (data.audioElement !== currentGlobalAudio) {
-                            try {
-                                data.audioElement.pause();
-                                data.audioElement.currentTime = 0;
-                                data.isPlaying = false;
-                            } catch (error) {
-                                console.error(`Error stopping audio for cell ${data.cellId}:`, error);
-                            }
+        audioElementsRef.current.forEach((data) => {
+            // Check if audio should start
+            // Check if we're past the start time (with small tolerance for timing precision)
+            // and haven't started playing yet
+            const isPastStartTime = currentTime >= data.startTime - tolerance;
+            const isBeforeEndTime = data.endTime === undefined || currentTime < data.endTime;
+            const shouldStart =
+                !data.isPlaying &&
+                data.audioElement.paused &&
+                isPastStartTime &&
+                isBeforeEndTime;
+
+            if (shouldStart) {
+                // Check if audio element has an error
+                if (data.audioElement.error) {
+                    console.error(
+                        `Audio element has error for cell ${data.cellId}:`,
+                        `code ${data.audioElement.error.code}`,
+                        data.audioElement.error.message
+                    );
+                    // Try to reload the audio
+                    try {
+                        data.audioElement.load();
+                    } catch (reloadError) {
+                        console.error(`Failed to reload audio for cell ${data.cellId}:`, reloadError);
+                    }
+                    return; // Skip this audio element
+                }
+
+                // Ensure audio is ready before playing
+                if (data.audioElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+                    // Start audio playback
+                    data.audioElement
+                        .play()
+                        .then(() => {
+                            data.isPlaying = true;
+                            updateVideoMuteState();
+                        })
+                        .catch((error) => {
+                            const audioError = data.audioElement.error;
+                            console.error(
+                                `Error starting audio for cell ${data.cellId}:`,
+                                error,
+                                `Audio readyState: ${data.audioElement.readyState}`,
+                                `Error code: ${audioError?.code}`,
+                                `Error message: ${audioError?.message}`
+                            );
+                            // Mark as not playing
+                            data.isPlaying = false;
+                            updateVideoMuteState();
+                        });
+                } else {
+                    // Wait for audio to be ready, then try again on next time update
+                    // Remove any existing listener first
+                    const onCanPlay = () => {
+                        data.audioElement.removeEventListener("canplay", onCanPlay);
+                        data.audioElement.removeEventListener("loadeddata", onCanPlay);
+                        // Check again if we should still start
+                        if (
+                            !data.isPlaying &&
+                            data.audioElement.paused &&
+                            currentVideoTime >= data.startTime - tolerance &&
+                            (data.endTime === undefined || currentVideoTime < data.endTime)
+                        ) {
+                            data.audioElement
+                                .play()
+                                .then(() => {
+                                    data.isPlaying = true;
+                                    updateVideoMuteState();
+                                })
+                                .catch((error) => {
+                                    const audioError = data.audioElement.error;
+                                    console.error(
+                                        `Error starting audio for cell ${data.cellId} after ready:`,
+                                        error,
+                                        `Error code: ${audioError?.code}`,
+                                        `Error message: ${audioError?.message}`
+                                    );
+                                });
                         }
-                    });
-                    updateVideoMuteState(currentTime);
-                    return; // Don't start new multi-cell audio if other audio is playing
+                    };
+                    data.audioElement.addEventListener("canplay", onCanPlay);
+                    data.audioElement.addEventListener("loadeddata", onCanPlay);
                 }
             }
 
-            audioElementsRef.current.forEach((data) => {
-                // Check if audio should start
-                // Check if we're past the start time (with small tolerance for timing precision)
-                // and haven't started playing yet
-                const isPastStartTime = currentTime >= data.startTime - tolerance;
-                const isBeforeEndTime = data.endTime === undefined || currentTime < data.endTime;
-                const shouldStart =
-                    !data.isPlaying &&
-                    data.audioElement.paused &&
-                    isPastStartTime &&
-                    isBeforeEndTime;
-
-                if (shouldStart) {
-                    // Check if audio element has an error
-                    if (data.audioElement.error) {
-                        console.error(
-                            `Audio element has error for cell ${data.cellId}:`,
-                            `code ${data.audioElement.error.code}`,
-                            data.audioElement.error.message
-                        );
-                        // Try to reload the audio
-                        try {
-                            data.audioElement.load();
-                        } catch (reloadError) {
-                            console.error(`Failed to reload audio for cell ${data.cellId}:`, reloadError);
-                        }
-                        return; // Skip this audio element
-                    }
-
-                    // Ensure audio is ready before playing
-                    if (data.audioElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-                        // Start audio playback
-                        data.audioElement
-                            .play()
-                            .then(() => {
-                                data.isPlaying = true;
-                                updateVideoMuteState();
-                            })
-                            .catch((error) => {
-                                const audioError = data.audioElement.error;
-                                console.error(
-                                    `Error starting audio for cell ${data.cellId}:`,
-                                    error,
-                                    `Audio readyState: ${data.audioElement.readyState}`,
-                                    `Error code: ${audioError?.code}`,
-                                    `Error message: ${audioError?.message}`
-                                );
-                                // Mark as not playing
-                                data.isPlaying = false;
-                                updateVideoMuteState();
-                            });
-                    } else {
-                        // Wait for audio to be ready, then try again on next time update
-                        // Remove any existing listener first
-                        const onCanPlay = () => {
-                            data.audioElement.removeEventListener("canplay", onCanPlay);
-                            data.audioElement.removeEventListener("loadeddata", onCanPlay);
-                            // Check again if we should still start
-                            if (
-                                !data.isPlaying &&
-                                data.audioElement.paused &&
-                                currentVideoTime >= data.startTime - tolerance &&
-                                (data.endTime === undefined || currentVideoTime < data.endTime)
-                            ) {
-                                data.audioElement
-                                    .play()
-                                    .then(() => {
-                                        data.isPlaying = true;
-                                        updateVideoMuteState();
-                                    })
-                                    .catch((error) => {
-                                        const audioError = data.audioElement.error;
-                                        console.error(
-                                            `Error starting audio for cell ${data.cellId} after ready:`,
-                                            error,
-                                            `Error code: ${audioError?.code}`,
-                                            `Error message: ${audioError?.message}`
-                                        );
-                                    });
-                            }
-                        };
-                        data.audioElement.addEventListener("canplay", onCanPlay);
-                        data.audioElement.addEventListener("loadeddata", onCanPlay);
-                    }
-                }
-
-                // Stop audio if past end time
-                if (
-                    data.isPlaying &&
-                    !data.audioElement.paused &&
-                    data.endTime !== undefined &&
-                    currentTime > data.endTime
-                ) {
-                    data.audioElement.pause();
-                    data.audioElement.currentTime = 0;
-                    data.isPlaying = false;
-                    updateVideoMuteState();
-                }
-            });
-        };
-
-        checkAndStartAudio();
+            // Stop audio if past end time
+            if (
+                data.isPlaying &&
+                !data.audioElement.paused &&
+                data.endTime !== undefined &&
+                currentTime > data.endTime
+            ) {
+                data.audioElement.pause();
+                data.audioElement.currentTime = 0;
+                data.isPlaying = false;
+                updateVideoMuteState();
+            }
+        });
     }, [currentVideoTime, isVideoPlaying, updateVideoMuteState]);
+
+    // Handle video time updates - start audio at correct timestamps
+    useEffect(() => {
+        checkAndStartAudio();
+    }, [checkAndStartAudio]);
+
+    // Also trigger playback check when translation units change (timestamps updated)
+    useEffect(() => {
+        if (isVideoPlaying) {
+            checkAndStartAudio();
+        }
+    }, [translationUnitsForSection, isVideoPlaying, checkAndStartAudio]);
 
     // Stop all audio when video pauses
     useEffect(() => {

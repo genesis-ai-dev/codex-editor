@@ -655,6 +655,7 @@ const CellList: React.FC<CellListProps> = ({
                     cellChanged: true,
                     cellLabel: cellToOpen.cellLabel,
                     timestamps: cellToOpen.timestamps,
+                    cellAudioTimestamps: cellToOpen.audioTimestamps,
                 } as EditorCellContent);
                 vscode.postMessage({
                     command: "setCurrentIdToGlobalState",
@@ -706,6 +707,7 @@ const CellList: React.FC<CellListProps> = ({
                 cellChanged: true,
                 cellLabel: cellToOpen.cellLabel,
                 timestamps: cellToOpen.timestamps,
+                cellAudioTimestamps: cellToOpen.audioTimestamps,
             } as EditorCellContent);
 
             vscode.postMessage({

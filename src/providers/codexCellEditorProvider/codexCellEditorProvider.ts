@@ -46,6 +46,7 @@ import {
     isMatchingFilePair as isMatchingFilePairUtil,
 } from "../../utils/fileTypeUtils";
 import { getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
+import { convertCellToQuillContent } from "./utils/cellUtils";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -2221,24 +2222,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     private processNotebookData(notebook: CodexNotebookAsJSONData, document?: CodexCellDocument) {
         debug("Processing notebook data", notebook);
-        const translationUnits: QuillCellContent[] = notebook.cells.map((cell) => ({
-            cellMarkers: [cell.metadata?.id],
-            cellContent: cell.value,
-            cellType: cell.metadata?.type,
-            editHistory: cell.metadata?.edits,
-            // Prefer nested data for timestamps, but fall back to legacy top-level fields if needed
-            timestamps: cell.metadata?.data,
-            cellLabel: cell.metadata?.cellLabel,
-            merged: cell.metadata?.data?.merged,
-            deleted: cell.metadata?.data?.deleted,
-            data: cell.metadata?.data,
-            attachments: cell.metadata?.attachments,
-            metadata: {
-                selectedAudioId: cell.metadata?.selectedAudioId,
-                selectionTimestamp: cell.metadata?.selectionTimestamp,
-                isLocked: cell.metadata?.isLocked,
-            },
-        }));
+        const translationUnits: QuillCellContent[] = notebook.cells.map((cell) =>
+            convertCellToQuillContent(cell)
+        );
         debug("Translation units:", translationUnits);
 
         // Use the passed document if available, otherwise fall back to currentDocument

@@ -721,12 +721,21 @@ export class CodexCellDocument implements vscode.CustomDocument {
         if (!cell) {
             return undefined;
         }
+        const audioTimestamps: Timestamps | undefined =
+            cell.metadata.data?.audioStartTime !== undefined || cell.metadata.data?.audioEndTime !== undefined
+                ? {
+                    startTime: cell.metadata.data.audioStartTime,
+                    endTime: cell.metadata.data.audioEndTime,
+                }
+                : undefined;
+
         return {
             cellMarkers: [cell.metadata.id],
             cellContent: cell.value,
             cellType: cell.metadata.type,
             editHistory: cell.metadata.edits || [],
             timestamps: cell.metadata.data,
+            audioTimestamps,
             cellLabel: cell.metadata.cellLabel,
             data: cell.metadata.data,
             attachments: cell.metadata.attachments || {},
@@ -851,6 +860,122 @@ export class CodexCellDocument implements vscode.CustomDocument {
         this._isDirty = true;
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, timestamps }],
+        });
+    }
+
+    public updateCellAudioTimestamps(cellId: string, timestamps: Timestamps) {
+        const indexOfCellToUpdate = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error("Could not find cell to update");
+        }
+
+        const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
+
+        // Block timestamp updates to locked cells
+        if (cellToUpdate.metadata?.isLocked) {
+            console.warn(`Attempted to update audio timestamps of locked cell ${cellId}. Operation blocked.`);
+            return;
+        }
+
+        // Capture previous values before updating so comparisons are correct
+        const previousAudioStartTime = cellToUpdate.metadata.data?.audioStartTime;
+        const previousAudioEndTime = cellToUpdate.metadata.data?.audioEndTime;
+
+        // Add edit to cell's edit history
+        if (!cellToUpdate.metadata.edits) {
+            cellToUpdate.metadata.edits = [];
+        }
+        const currentTimestamp = Date.now();
+
+        // Only add edit if audioStartTime is different from previous value
+        if (timestamps.startTime !== undefined && timestamps.startTime !== previousAudioStartTime) {
+            // Ensure initial import exists for audioStartTime
+            const hasInitialAudioStart = (cellToUpdate.metadata.edits || []).some((e) =>
+                e.type === EditType.INITIAL_IMPORT && EditMapUtils.equals(e.editMap, EditMapUtils.dataAudioStartTime())
+            );
+            if (!hasInitialAudioStart && previousAudioStartTime !== undefined) {
+                cellToUpdate.metadata.edits.push({
+                    editMap: EditMapUtils.dataAudioStartTime(),
+                    value: previousAudioStartTime,
+                    timestamp: currentTimestamp - 1000,
+                    type: EditType.INITIAL_IMPORT,
+                    author: this._author,
+                    validatedBy: [],
+                });
+            }
+            const audioStartTimeEditMap = EditMapUtils.dataAudioStartTime();
+            cellToUpdate.metadata.edits.push({
+                editMap: audioStartTimeEditMap,
+                value: timestamps.startTime,
+                timestamp: currentTimestamp,
+                type: EditType.USER_EDIT,
+                author: this._author,
+                validatedBy: [
+                    {
+                        username: this._author,
+                        creationTimestamp: currentTimestamp,
+                        updatedTimestamp: currentTimestamp,
+                        isDeleted: false,
+                    },
+                ],
+            });
+        }
+
+        // Only add edit if audioEndTime is different from previous value
+        if (timestamps.endTime !== undefined && timestamps.endTime !== previousAudioEndTime) {
+            // Ensure initial import exists for audioEndTime
+            const hasInitialAudioEnd = (cellToUpdate.metadata.edits || []).some((e) =>
+                e.type === EditType.INITIAL_IMPORT && EditMapUtils.equals(e.editMap, EditMapUtils.dataAudioEndTime())
+            );
+            if (!hasInitialAudioEnd && previousAudioEndTime !== undefined) {
+                cellToUpdate.metadata.edits.push({
+                    editMap: EditMapUtils.dataAudioEndTime(),
+                    value: previousAudioEndTime,
+                    timestamp: currentTimestamp - 1000,
+                    type: EditType.INITIAL_IMPORT,
+                    author: this._author,
+                    validatedBy: [],
+                });
+            }
+            const audioEndTimeEditMap = EditMapUtils.dataAudioEndTime();
+            cellToUpdate.metadata.edits.push({
+                editMap: audioEndTimeEditMap,
+                value: timestamps.endTime,
+                timestamp: currentTimestamp,
+                type: EditType.USER_EDIT,
+                author: this._author,
+                validatedBy: [
+                    {
+                        username: this._author,
+                        creationTimestamp: currentTimestamp,
+                        updatedTimestamp: currentTimestamp,
+                        isDeleted: false,
+                    },
+                ],
+            });
+        }
+
+        // Now apply the audio timestamp updates to the document data
+        cellToUpdate.metadata.data = {
+            ...cellToUpdate.metadata.data,
+            audioStartTime: timestamps.startTime,
+            audioEndTime: timestamps.endTime,
+        };
+
+        // Record the edit
+        this._edits.push({
+            type: "updateCellAudioTimestamps",
+            cellId,
+            timestamps,
+        });
+
+        // Set dirty flag and notify listeners about the change
+        this._isDirty = true;
+        this._onDidChangeForVsCodeAndWebview.fire({
+            edits: [{ cellId, audioTimestamps: timestamps }],
         });
     }
 
