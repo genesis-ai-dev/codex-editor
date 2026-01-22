@@ -753,6 +753,92 @@ function migrateEditHistoryInContent(content: string): string {
     }
 }
 
+function mergeTwoCellsUsingResolverLogic(
+    ourCell: CustomNotebookCellData,
+    theirCell: CustomNotebookCellData
+): CustomNotebookCellData {
+    const cellId = ourCell.metadata?.id || theirCell.metadata?.id;
+
+    // Use the same metadata conflict resolution as in the main resolver
+    const mergedCell = resolveMetadataConflictsUsingEditHistory(ourCell, theirCell);
+
+    // Combine all edits from both cells and deduplicate
+    const allEdits = [
+        ...(ourCell.metadata?.edits || []),
+        ...(theirCell.metadata?.edits || [])
+    ].sort((a, b) => a.timestamp - b.timestamp);
+
+    // Remove duplicates based on timestamp, editMap and value, while merging validatedBy entries
+    const editMap = new Map<string, any>();
+    allEdits.forEach((edit) => {
+        if (edit.editMap && Array.isArray(edit.editMap)) {
+            const editMapKey = edit.editMap.join('.');
+            const key = `${edit.timestamp}:${editMapKey}:${edit.value}`;
+            if (!editMap.has(key)) {
+                editMap.set(key, edit);
+            } else {
+                const existingEdit = editMap.get(key)!;
+                mergeValidatedByArrays(existingEdit, edit);
+            }
+        }
+    });
+
+    const uniqueEdits = Array.from(editMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+
+    if (!mergedCell.metadata) {
+        mergedCell.metadata = {
+            id: cellId,
+            type: CodexCellTypes.TEXT,
+            edits: [],
+        };
+    }
+    mergedCell.metadata.edits = uniqueEdits;
+
+    // Merge attachments intelligently
+    const mergedAttachments = mergeAttachments(
+        ourCell.metadata?.attachments,
+        theirCell.metadata?.attachments
+    );
+
+    // Resolve selection conflicts
+    const { selectedAudioId, selectionTimestamp } = resolveAudioSelection(
+        ourCell.metadata,
+        theirCell.metadata,
+        mergedAttachments
+    );
+
+    // Apply attachment and selection data to merged cell
+    mergedCell.metadata.attachments = mergedAttachments;
+    mergedCell.metadata.selectedAudioId = selectedAudioId;
+    mergedCell.metadata.selectionTimestamp = selectionTimestamp;
+
+    // Final safety check: ensure no string entries remain in validatedBy arrays
+    if (mergedCell.metadata?.edits) {
+        for (const edit of mergedCell.metadata.edits) {
+            if (edit.validatedBy) {
+                edit.validatedBy = edit.validatedBy.filter(isValidValidationEntry);
+            }
+        }
+    }
+
+    return mergedCell;
+}
+
+export function mergeDuplicateCellsUsingResolverLogic(
+    duplicateCells: CustomNotebookCellData[]
+): CustomNotebookCellData {
+    if (duplicateCells.length === 0) {
+        throw new Error("mergeDuplicateCellsUsingResolverLogic requires at least one cell");
+    }
+
+    let mergedCell = duplicateCells[0];
+    for (let i = 1; i < duplicateCells.length; i++) {
+        mergedCell = mergeTwoCellsUsingResolverLogic(mergedCell, duplicateCells[i]);
+    }
+
+    return mergedCell;
+}
+
 /**
  * Custom merge resolution for Codex files
  * Merges cells from two versions of a notebook, preserving edit history and metadata
@@ -878,66 +964,8 @@ export async function resolveCodexCustomMerge(
             // Note: even if both sides soft-delete a cell, we keep it in the merged output
             // so that deletion history and audit information are preserved.
 
-            // Use the new metadata conflict resolution function
-            const mergedCell = resolveMetadataConflictsUsingEditHistory(ourCell, theirCell);
-
-            // Combine all edits from both cells and deduplicate
-            const allEdits = [
-                ...(ourCell.metadata?.edits || []),
-                ...(theirCell.metadata?.edits || [])
-            ].sort((a, b) => a.timestamp - b.timestamp);
-
-            // Remove duplicates based on timestamp, editMap and value, while merging validatedBy entries
-            const editMap = new Map<string, any>();
-            allEdits.forEach((edit) => {
-                if (edit.editMap && Array.isArray(edit.editMap)) {
-                    const editMapKey = edit.editMap.join('.');
-                    const key = `${edit.timestamp}:${editMapKey}:${edit.value}`;
-                    if (!editMap.has(key)) {
-                        editMap.set(key, edit);
-                    } else {
-                        // Merge validatedBy arrays if both exist
-                        const existingEdit = editMap.get(key)!;
-                        mergeValidatedByArrays(existingEdit, edit);
-                    }
-                }
-            });
-
-            // Convert map back to array and sort
-            const uniqueEdits = Array.from(editMap.values()).sort((a, b) => a.timestamp - b.timestamp);
-
-            debugLog(`Filtered to ${uniqueEdits.length} unique edits for cell ${cellId}`);
-
-            // Update the merged cell with the deduplicated edits
-            if (!mergedCell.metadata) {
-                mergedCell.metadata = {
-                    id: cellId,
-                    type: CodexCellTypes.TEXT,
-                    edits: [],
-                };
-            }
-            mergedCell.metadata.edits = uniqueEdits;
-
-            // Do not stamp MERGE edits here; resolver should only merge histories
-
-            // Merge attachments intelligently
-            const mergedAttachments = mergeAttachments(
-                ourCell.metadata?.attachments,
-                theirCell.metadata?.attachments
-            );
-
-            // Resolve selection conflicts
-            const { selectedAudioId, selectionTimestamp } = resolveAudioSelection(
-                ourCell.metadata,
-                theirCell.metadata,
-                mergedAttachments
-            );
-
-            // Apply attachment and selection data to merged cell
-            mergedCell.metadata.attachments = mergedAttachments;
-            mergedCell.metadata.selectedAudioId = selectedAudioId;
-            mergedCell.metadata.selectionTimestamp = selectionTimestamp;
-
+            const mergedCell = mergeDuplicateCellsUsingResolverLogic([ourCell, theirCell]);
+            debugLog(`Filtered to ${mergedCell.metadata?.edits?.length ?? 0} unique edits for cell ${cellId}`);
             debugLog(`Pushing merged cell ${cellId} to results`);
             resultCells.push(mergedCell);
             theirCellsMap.delete(cellId);
@@ -994,7 +1022,7 @@ export async function resolveCodexCustomMerge(
             cells: resultCells,
             metadata: mergedMetadata,
         }
-    );  
+    );
 }
 
 /**
