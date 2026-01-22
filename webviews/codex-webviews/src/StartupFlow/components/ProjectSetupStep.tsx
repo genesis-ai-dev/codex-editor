@@ -36,7 +36,13 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     const [progressData, setProgressData] = useState<any>(null);
     const [isLoadingProgress, setIsLoadingProgress] = useState(false);
     const [isAnyApplying, setIsAnyApplying] = useState(false);
+    const [disableAllActions, setDisableAllActions] = useState(false);
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
+    const [swapCloneWarning, setSwapCloneWarning] = useState<{
+        message: string;
+        repoUrl?: string;
+        newProjectName?: string;
+    } | null>(null);
 
     useEffect(() => {
         const handleOnlineStatusChange = () => {
@@ -143,6 +149,19 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                 setIsAnyApplying(!!(message as any).zipping);
             } else if ((message as any).command === "project.cleaningInProgress") {
                 setIsAnyApplying(!!(message as any).cleaning);
+            } else if ((message as any).command === "project.swapCloneWarning") {
+                const warning = message as any;
+                if (warning?.isOldProject) {
+                    setSwapCloneWarning({
+                        message: warning.message || "This project has been deprecated. Please use the newer project.",
+                        repoUrl: warning.repoUrl,
+                        newProjectName: warning.newProjectName,
+                    });
+                    setDisableAllActions(true);
+                } else {
+                    setSwapCloneWarning(null);
+                    setDisableAllActions(false);
+                }
             } else if ((message as any).command === "project.setMediaStrategyResult") {
                 // Update the project's media strategy in the projects list when it changes
                 const result = message as any;
@@ -200,6 +219,56 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                     </span>
                 </div>
             )}
+            {swapCloneWarning && (
+                <div
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        marginBottom: "1rem",
+                        padding: "8px 12px",
+                        backgroundColor: "var(--vscode-inputValidation-warningBackground)",
+                        border: "1px solid var(--vscode-inputValidation-warningBorder)",
+                        borderRadius: "4px",
+                        width: "100%",
+                        boxSizing: "border-box",
+                    }}
+                >
+                    <i className="codicon codicon-warning"></i>
+                    <span style={{ flex: 1 }}>
+                        <div className="flex flex-col">
+                            <span>{swapCloneWarning.message}</span>
+                            {swapCloneWarning.newProjectName && (
+                                <span>Recommended project: {swapCloneWarning.newProjectName}</span>
+                            )}
+                        </div>
+                    </span>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                        <VSCodeButton
+                            appearance="secondary"
+                            onClick={() => {
+                                setSwapCloneWarning(null);
+                                setDisableAllActions(false);
+                            }}
+                        >
+                            Cancel
+                        </VSCodeButton>
+                        {swapCloneWarning.repoUrl && (
+                            <VSCodeButton
+                                appearance="primary"
+                                onClick={() =>
+                                    vscode.postMessage({
+                                        command: "project.cloneDeprecated",
+                                        repoUrl: swapCloneWarning.repoUrl,
+                                    } as MessagesToStartupFlowProvider)
+                                }
+                            >
+                                Clone Deprecated Project
+                            </VSCodeButton>
+                        )}
+                    </div>
+                </div>
+            )}
             {!isAuthenticated && (
                 <div>
                     <VSCodeButton
@@ -246,7 +315,8 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                         appearance="secondary"
                         onClick={fetchProjectList}
                         title="Refresh Projects List"
-                        className={`refresh-button ${isAnyApplying ? "opacity-50 pointer-events-none cursor-default" : ""}`}
+                        disabled={disableAllActions}
+                        className={`refresh-button ${isAnyApplying || disableAllActions ? "opacity-50 pointer-events-none cursor-default" : ""}`}
                     >
                         <i className="codicon codicon-refresh"></i>
                         Refresh
@@ -256,7 +326,8 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                         appearance="primary"
                         onClick={onCreateEmpty}
                         title="Create New Project from Scratch"
-                        className={`create-button ${isAnyApplying ? "opacity-50 pointer-events-none cursor-default" : ""}`}
+                        disabled={disableAllActions}
+                        className={`create-button ${isAnyApplying || disableAllActions ? "opacity-50 pointer-events-none cursor-default" : ""}`}
                     >
                         <i className="codicon codicon-plus"></i>
                         Create New Project
@@ -288,6 +359,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                 }}
                 vscode={vscode}
                 progressData={progressData}
+                disableAllActions={disableAllActions}
             />
         </div>
     );

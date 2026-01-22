@@ -3,11 +3,15 @@ import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 // @ts-expect-error - archiver types may not be available
-import * as archiver from "archiver";
-import { ProjectMetadata, LocalProjectSwap } from "../../../types";
+import archiver from "archiver";
+import { ProjectMetadata, LocalProjectSwap, ProjectSwapInfo } from "../../../types";
 import { MetadataManager } from "../../utils/metadataManager";
-import { updateGitOriginUrl, extractProjectNameFromUrl } from "../../utils/projectSwapManager";
+import { extractProjectNameFromUrl, getGitOriginUrl } from "../../utils/projectSwapManager";
+import { validateAndFixProjectMetadata } from "../../projectManager/utils/projectUtils";
 import { readLocalProjectSettings, writeLocalProjectSettings } from "../../utils/localProjectSettings";
+import { getCodexProjectsDirectory } from "../../utils/projectLocationUtils";
+import { buildConflictsFromDirectories } from "../../projectManager/utils/merge/directoryConflicts";
+import { resolveConflictFiles } from "../../projectManager/utils/merge/resolvers";
 
 const DEBUG = true;
 const debugLog = DEBUG ? (...args: any[]) => console.log("[ProjectSwap]", ...args) : () => { };
@@ -24,13 +28,15 @@ const debugLog = DEBUG ? (...args: any[]) => console.log("[ProjectSwap]", ...arg
  * @returns Promise resolving to new project path
  */
 export async function performProjectSwap(
-    progress: vscode.Progress<{ increment?: number; message?: string }>,
+    progress: vscode.Progress<{ increment?: number; message?: string; }>,
     projectName: string,
     oldProjectPath: string,
     newProjectUrl: string,
     swapUUID: string
 ): Promise<string> {
     debugLog("Starting project swap:", { projectName, oldProjectPath, newProjectUrl, swapUUID });
+    const targetFolderName = extractProjectNameFromUrl(newProjectUrl) || projectName;
+    const targetProjectPath = path.join(path.dirname(oldProjectPath), targetFolderName);
 
     // Track local swap state
     const projectUri = vscode.Uri.file(oldProjectPath);
@@ -56,40 +62,68 @@ export async function performProjectSwap(
 
         debugLog("Backup created at:", backupPath);
 
-        // Step 2: Create temporary workspace
+        // Step 2: Move old project to a temporary path
+        progress.report({ increment: 5, message: "Preparing temporary snapshot..." });
+        const parentDir = path.dirname(oldProjectPath);
+        const tmpPath = path.join(parentDir, `${projectName}_tmp_${Date.now()}`);
+        fs.renameSync(oldProjectPath, tmpPath);
+        debugLog("Old project moved to tmp:", tmpPath);
+
+        // Step 3: Create temporary workspace for cloning
         progress.report({ increment: 5, message: "Creating temporary workspace..." });
         const tempDir = await createTempWorkspace();
         debugLog("Temp workspace created:", tempDir);
 
         try {
-            // Step 3: Clone new project
+            // Step 4: Clone new project
             progress.report({ increment: 15, message: "Cloning new project repository..." });
             const newProjectPath = await cloneNewProject(newProjectUrl, tempDir, progress);
             debugLog("New project cloned to:", newProjectPath);
 
-            // Step 4: Verify structure compatibility
+            // Step 5: Verify structure compatibility
             progress.report({ increment: 5, message: "Verifying project structure..." });
-            await verifyStructureCompatibility(oldProjectPath, newProjectPath);
+            await verifyStructureCompatibility(tmpPath, newProjectPath);
 
-            // Step 5: Merge files from old to new
+            // Step 6: Merge tmp snapshot into the newly-cloned project using resolvers
             progress.report({ increment: 20, message: "Merging project files..." });
-            await mergeProjectFiles(oldProjectPath, newProjectPath, progress);
-
-            // Step 6: Handle uncommitted changes
-            progress.report({ increment: 10, message: "Preserving uncommitted changes..." });
-            await preserveUncommittedChanges(oldProjectPath, newProjectPath);
+            await mergeProjectFiles(tmpPath, newProjectPath, progress);
 
             // Step 7: Update metadata with swap completion
             progress.report({ increment: 5, message: "Updating project metadata..." });
-            await updateSwapMetadata(newProjectPath, swapUUID, false);
+            const oldOriginUrl = await getGitOriginUrl(tmpPath);
+            await updateSwapMetadata(newProjectPath, swapUUID, false, {
+                newProjectUrl,
+                newProjectName: targetFolderName,
+                oldProjectUrl: oldOriginUrl ?? undefined,
+                oldProjectName: projectName,
+            });
 
-            // Step 8: Swap directories (old → backup, new → canonical)
+            // Ensure metadata integrity (projectName, scope, etc.)
+            await validateAndFixProjectMetadata(vscode.Uri.file(newProjectPath));
+
+            // Ensure LFS source URL is carried over for healing on the new repo
+            try {
+                const oldSettings = await readLocalProjectSettings(vscode.Uri.file(tmpPath));
+                let lfsSourceRemoteUrl = oldSettings.lfsSourceRemoteUrl;
+                if (!lfsSourceRemoteUrl) {
+                    lfsSourceRemoteUrl = await getGitOriginUrl(tmpPath) ?? undefined;
+                }
+                if (lfsSourceRemoteUrl) {
+                    const newSettings = await readLocalProjectSettings(vscode.Uri.file(newProjectPath));
+                    newSettings.lfsSourceRemoteUrl = lfsSourceRemoteUrl;
+                    await writeLocalProjectSettings(newSettings, vscode.Uri.file(newProjectPath));
+                }
+            } catch {
+                // best-effort
+            }
+
+            // Step 8: Promote cloned project to canonical location (new name)
             progress.report({ increment: 15, message: "Swapping project directories..." });
-            await swapDirectories(oldProjectPath, newProjectPath);
+            await swapDirectories(tmpPath, newProjectPath, targetProjectPath);
 
             // Step 9: Update local settings
             progress.report({ increment: 5, message: "Finalizing migration..." });
-            const finalProjectUri = vscode.Uri.file(oldProjectPath); // Back to canonical name
+            const finalProjectUri = vscode.Uri.file(targetProjectPath);
             await writeLocalProjectSettings({
                 projectSwap: {
                     ...localSwap,
@@ -104,17 +138,24 @@ export async function performProjectSwap(
             progress.report({ increment: 15, message: "Migration complete!" });
             debugLog("Project swap completed successfully");
 
-            return oldProjectPath; // Returns canonical path (now contains new project)
+            return targetProjectPath;
 
         } catch (error) {
             debugLog("Error during swap, cleaning up temp directory:", error);
             await cleanupTempDirectory(tempDir);
+            try {
+                if (!fs.existsSync(oldProjectPath) && fs.existsSync(tmpPath)) {
+                    fs.renameSync(tmpPath, oldProjectPath);
+                }
+            } catch {
+                // ignore restore failure
+            }
             throw error;
         }
 
     } catch (error) {
         debugLog("Project swap failed:", error);
-        
+
         // Update local state with error
         localSwap.migrationInProgress = false;
         localSwap.lastAttemptTimestamp = Date.now();
@@ -145,14 +186,16 @@ export async function performProjectSwap(
  * Backup old project to .zip file
  */
 async function backupOldProject(projectPath: string, projectName: string): Promise<string> {
+    const codexProjectsRoot = await getCodexProjectsDirectory();
+    const backupDir = path.join(codexProjectsRoot.fsPath, "archived_projects");
+
     return new Promise<string>((resolve, reject) => {
         try {
             const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
             const backupFileName = `${projectName}-swap-backup-${timestamp}.zip`;
-            const backupPath = path.join(os.homedir(), ".codex-backups", backupFileName);
+            const backupPath = path.join(backupDir, backupFileName);
 
             // Ensure backup directory exists
-            const backupDir = path.dirname(backupPath);
             if (!fs.existsSync(backupDir)) {
                 fs.mkdirSync(backupDir, { recursive: true });
             }
@@ -196,7 +239,7 @@ async function createTempWorkspace(): Promise<string> {
 async function cloneNewProject(
     gitUrl: string,
     tempDir: string,
-    progress: vscode.Progress<{ increment?: number; message?: string }>
+    progress: vscode.Progress<{ increment?: number; message?: string; }>
 ): Promise<string> {
     // Use Frontier API to clone the repository
     const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
@@ -265,110 +308,91 @@ async function verifyStructureCompatibility(oldPath: string, newPath: string): P
 async function mergeProjectFiles(
     oldPath: string,
     newPath: string,
-    progress: vscode.Progress<{ increment?: number; message?: string }>
+    progress: vscode.Progress<{ increment?: number; message?: string; }>
 ): Promise<void> {
-    debugLog("Merging project files");
+    debugLog("Merging project files using resolvers");
 
-    // Copy .codex directory (Scripture data, audio state, etc.)
-    const oldCodexDir = path.join(oldPath, ".codex");
-    const newCodexDir = path.join(newPath, ".codex");
+    const newProjectUri = vscode.Uri.file(newPath);
+    const oldProjectUri = vscode.Uri.file(oldPath);
 
-    if (fs.existsSync(oldCodexDir)) {
-        progress.report({ message: "Copying .codex directory..." });
-        await copyDirectory(oldCodexDir, newCodexDir);
-        debugLog("Copied .codex directory");
+    const { textConflicts, binaryCopies } = await buildConflictsFromDirectories({
+        oursRoot: oldProjectUri,
+        theirsRoot: newProjectUri,
+        exclude: (relativePath) => {
+            return (
+                relativePath.endsWith(".sqlite") ||
+                relativePath.endsWith(".sqlite3") ||
+                relativePath.endsWith(".db")
+            );
+        },
+        isBinary: (relativePath) => isBinaryFile(relativePath),
+    });
+
+    debugLog("Swap merge inputs prepared:", {
+        textConflicts: textConflicts.length,
+        binaryCopies: binaryCopies.length,
+    });
+
+    if (textConflicts.length > 0) {
+        debugLog(`Merging ${textConflicts.length} text files with resolver pipeline...`);
+        await resolveConflictFiles(textConflicts, newProjectUri.fsPath, { refreshOursFromDisk: false });
     }
 
-    // Copy .source directory (source audio/video files)
-    const oldSourceDir = path.join(oldPath, ".source");
-    const newSourceDir = path.join(newPath, ".source");
-
-    if (fs.existsSync(oldSourceDir)) {
-        progress.report({ message: "Copying .source directory..." });
-        await copyDirectory(oldSourceDir, newSourceDir);
-        debugLog("Copied .source directory");
-    }
-
-    // Copy local project settings
-    const oldSettings = path.join(oldPath, ".project", "localProjectSettings.json");
-    const newSettingsDir = path.join(newPath, ".project");
-    const newSettings = path.join(newSettingsDir, "localProjectSettings.json");
-
-    if (fs.existsSync(oldSettings)) {
-        if (!fs.existsSync(newSettingsDir)) {
-            fs.mkdirSync(newSettingsDir, { recursive: true });
-        }
-        fs.copyFileSync(oldSettings, newSettings);
-        debugLog("Copied localProjectSettings.json");
-    }
-
-    // Copy .gitattributes (LFS configuration)
-    const oldGitAttributes = path.join(oldPath, ".gitattributes");
-    const newGitAttributes = path.join(newPath, ".gitattributes");
-
-    if (fs.existsSync(oldGitAttributes)) {
-        fs.copyFileSync(oldGitAttributes, newGitAttributes);
-        debugLog("Copied .gitattributes");
-    }
-
-    debugLog("File merging completed");
-}
-
-/**
- * Preserve uncommitted changes from old project
- */
-async function preserveUncommittedChanges(oldPath: string, newPath: string): Promise<void> {
-    debugLog("Preserving uncommitted changes");
-
-    const git = await import("isomorphic-git");
-    const fs = await import("fs");
-
-    try {
-        // Get status of old project
-        const statusMatrix = await git.statusMatrix({ fs, dir: oldPath });
-
-        const uncommittedFiles = statusMatrix.filter(([filepath, head, workdir, stage]) => {
-            // File has uncommitted changes if workdir or stage differs from head
-            return workdir !== head || stage !== head;
-        });
-
-        if (uncommittedFiles.length === 0) {
-            debugLog("No uncommitted changes to preserve");
-            return;
-        }
-
-        debugLog(`Found ${uncommittedFiles.length} uncommitted files`);
-
-        // Copy uncommitted files to new project
-        for (const [filepath] of uncommittedFiles) {
-            const oldFilePath = path.join(oldPath, filepath);
-            const newFilePath = path.join(newPath, filepath);
-
-            if (fs.existsSync(oldFilePath)) {
-                // Ensure directory exists
-                const newFileDir = path.dirname(newFilePath);
-                if (!fs.existsSync(newFileDir)) {
-                    fs.mkdirSync(newFileDir, { recursive: true });
-                }
-
-                fs.copyFileSync(oldFilePath, newFilePath);
-                debugLog(`Copied uncommitted file: ${filepath}`);
+    if (binaryCopies.length > 0) {
+        debugLog(`Copying ${binaryCopies.length} binary files from tmp...`);
+        const uniqueDirs = new Set<string>();
+        for (const file of binaryCopies) {
+            const dir = path.posix.dirname(file.filepath);
+            if (dir && dir !== ".") {
+                uniqueDirs.add(dir);
             }
         }
+        const sortedDirs = Array.from(uniqueDirs).sort(
+            (a, b) => a.split("/").length - b.split("/").length
+        );
+        for (const dir of sortedDirs) {
+            const dirUri = vscode.Uri.joinPath(newProjectUri, ...dir.split("/"));
+            await ensureDirectoryExists(dirUri);
+        }
 
-        debugLog("Uncommitted changes preserved");
-    } catch (error) {
-        debugLog("Error preserving uncommitted changes (non-fatal):", error);
-        // Don't throw - this is best-effort
+        for (const file of binaryCopies) {
+            const targetUri = vscode.Uri.joinPath(newProjectUri, ...file.filepath.split("/"));
+            await vscode.workspace.fs.writeFile(targetUri, file.content);
+        }
     }
 }
 
 /**
  * Update metadata in new project with swap completion info
  */
-async function updateSwapMetadata(projectPath: string, swapUUID: string, isOldProject: boolean): Promise<void> {
+async function updateSwapMetadata(
+    projectPath: string,
+    swapUUID: string,
+    isOldProject: boolean,
+    options: {
+        newProjectUrl?: string;
+        newProjectName?: string;
+        oldProjectUrl?: string;
+        oldProjectName?: string;
+        swapInitiatedBy?: string;
+        swapInitiatedAt?: number;
+        swapCompletedAt?: number;
+        swapReason?: string;
+        swappedUsers?: ProjectSwapInfo["swappedUsers"];
+    } = {},
+): Promise<void> {
     const projectUri = vscode.Uri.file(projectPath);
-    
+
+    // Get current user for status tracking
+    let currentUser: string | undefined;
+    try {
+        const authApi = (await import("../../extension")).getAuthApi();
+        const userInfo = await authApi?.getUserInfo();
+        currentUser = userInfo?.username;
+    } catch (e) {
+        debugLog("Could not get user info for swap status:", e);
+    }
+
     await MetadataManager.safeUpdateMetadata<ProjectMetadata>(
         projectUri,
         (meta) => {
@@ -376,11 +400,50 @@ async function updateSwapMetadata(projectPath: string, swapUUID: string, isOldPr
                 meta.meta = {} as any;
             }
 
-            if (meta.meta.projectSwap) {
-                // Update existing swap info
+            if (!meta.meta.projectSwap) {
+                meta.meta.projectSwap = {
+                    projectUUID: swapUUID,
+                    isOldProject,
+                    swapStatus: "completed",
+                } as ProjectSwapInfo;
+            } else {
                 meta.meta.projectSwap.swapStatus = "completed";
-                meta.meta.projectSwap.swapCompletedAt = Date.now();
                 meta.meta.projectSwap.isOldProject = isOldProject;
+            }
+
+            // Populate known fields from options (without clobbering if already set)
+            const swapInfo = meta.meta.projectSwap;
+            swapInfo.projectUUID = swapInfo.projectUUID || swapUUID;
+            swapInfo.newProjectUrl = swapInfo.newProjectUrl || options.newProjectUrl || swapInfo.newProjectUrl;
+            swapInfo.newProjectName = swapInfo.newProjectName || options.newProjectName || swapInfo.newProjectName;
+            swapInfo.oldProjectUrl = swapInfo.oldProjectUrl || options.oldProjectUrl || swapInfo.oldProjectUrl;
+            swapInfo.oldProjectName = swapInfo.oldProjectName || options.oldProjectName || swapInfo.oldProjectName;
+            swapInfo.swapInitiatedBy = swapInfo.swapInitiatedBy || options.swapInitiatedBy || swapInfo.swapInitiatedBy;
+            swapInfo.swapInitiatedAt = swapInfo.swapInitiatedAt || options.swapInitiatedAt || swapInfo.swapInitiatedAt;
+            swapInfo.swapReason = swapInfo.swapReason || options.swapReason || swapInfo.swapReason;
+            swapInfo.swapCompletedAt = options.swapCompletedAt ?? swapInfo.swapCompletedAt ?? Date.now();
+            swapInfo.swapStatus = "completed";
+
+            // Add to swappedUsers list (new project only)
+            if (currentUser && !isOldProject) {
+                if (!swapInfo.swappedUsers) {
+                    swapInfo.swappedUsers = [];
+                }
+
+                // Check if already in list (avoid duplicates)
+                const existingEntry = swapInfo.swappedUsers.find(
+                    u => u.userToUpdate === currentUser
+                );
+
+                if (!existingEntry) {
+                    const now = Date.now();
+                    swapInfo.swappedUsers.push({
+                        userToUpdate: currentUser,
+                        createdAt: now,
+                        updatedAt: now,
+                        executed: true,
+                    });
+                }
             }
 
             return meta;
@@ -391,23 +454,58 @@ async function updateSwapMetadata(projectPath: string, swapUUID: string, isOldPr
 /**
  * Swap directories: old → backup, new → canonical
  */
-async function swapDirectories(oldPath: string, newPath: string): Promise<void> {
+async function swapDirectories(oldTmpPath: string, newPath: string, targetPath: string): Promise<void> {
     debugLog("Swapping directories");
-
-    const parentDir = path.dirname(oldPath);
-    const projectName = path.basename(oldPath);
-    const backupName = `${projectName}.old-${Date.now()}`;
-    const backupPath = path.join(parentDir, backupName);
-
-    // Move old project to backup location
-    fs.renameSync(oldPath, backupPath);
-    debugLog(`Moved old project to: ${backupPath}`);
-
-    // Move new project to canonical location
-    fs.renameSync(newPath, oldPath);
-    debugLog(`Moved new project to: ${oldPath}`);
-
+    if (fs.existsSync(targetPath)) {
+        await archiveExistingTarget(targetPath);
+        fs.rmSync(targetPath, { recursive: true, force: true });
+    }
+    fs.renameSync(newPath, targetPath);
+    try {
+        if (fs.existsSync(oldTmpPath)) {
+            fs.rmSync(oldTmpPath, { recursive: true, force: true });
+        }
+    } catch {
+        // ignore cleanup failures
+    }
     debugLog("Directory swap completed");
+}
+
+/**
+ * Archive an existing target project into archived_projects before replacement
+ */
+async function archiveExistingTarget(targetPath: string): Promise<void> {
+    if (!fs.existsSync(targetPath)) {
+        return;
+    }
+
+    const codexProjectsRoot = await getCodexProjectsDirectory();
+    const archiveDir = path.join(codexProjectsRoot.fsPath, "archived_projects");
+
+    return new Promise<void>((resolve, reject) => {
+        try {
+            if (!fs.existsSync(archiveDir)) {
+                fs.mkdirSync(archiveDir, { recursive: true });
+            }
+
+            const baseName = path.basename(targetPath);
+            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+            const archiveName = `${baseName}-swap-existing-${timestamp}.zip`;
+            const archivePath = path.join(archiveDir, archiveName);
+
+            const output = fs.createWriteStream(archivePath);
+            const zip = archiver("zip", { zlib: { level: 9 } });
+
+            output.on("close", () => resolve());
+            zip.on("error", (err: any) => reject(err));
+
+            zip.pipe(output);
+            zip.directory(targetPath, false);
+            zip.finalize();
+        } catch (error) {
+            reject(error);
+        }
+    });
 }
 
 /**
@@ -424,23 +522,51 @@ async function cleanupTempDirectory(tempDir: string): Promise<void> {
     }
 }
 
+function isBinaryFile(filePath: string): boolean {
+    const binaryExtensions = [
+        ".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".wma", ".webm", ".opus", ".amr", ".3gp",
+        ".mp4", ".avi", ".mov", ".mkv", ".wmv", ".flv", ".m4v", ".mpg", ".mpeg",
+        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".ico", ".svg", ".webp",
+        ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+        ".zip", ".tar", ".gz", ".rar", ".7z", ".bz2",
+        ".exe", ".dll", ".so", ".dylib", ".bin", ".dat"
+    ];
+    const ext = path.extname(filePath).toLowerCase();
+    return binaryExtensions.includes(ext);
+}
+
+async function ensureDirectoryExists(dirUri: vscode.Uri): Promise<void> {
+    try {
+        await vscode.workspace.fs.createDirectory(dirUri);
+    } catch {
+        // ignore
+    }
+}
 /**
  * Recursively copy directory
  */
-async function copyDirectory(src: string, dest: string): Promise<void> {
+async function copyDirectory(
+    src: string,
+    dest: string,
+    options: { overwrite?: boolean; } = {}
+): Promise<void> {
     if (!fs.existsSync(dest)) {
         fs.mkdirSync(dest, { recursive: true });
     }
 
     const entries = fs.readdirSync(src, { withFileTypes: true });
+    const shouldOverwrite = options.overwrite !== false;
 
     for (const entry of entries) {
         const srcPath = path.join(src, entry.name);
         const destPath = path.join(dest, entry.name);
 
         if (entry.isDirectory()) {
-            await copyDirectory(srcPath, destPath);
+            await copyDirectory(srcPath, destPath, options);
         } else {
+            if (!shouldOverwrite && fs.existsSync(destPath)) {
+                continue;
+            }
             fs.copyFileSync(srcPath, destPath);
         }
     }

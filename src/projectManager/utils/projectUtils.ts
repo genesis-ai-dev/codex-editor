@@ -282,11 +282,11 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
     }
     const workspaceFolderName = vscode.workspace.workspaceFolders?.[0]?.name;
     let fallbackName = workspaceFolderName || "";
-    
+
     // Attempt to strip UUID if falling back to folder name
     // Generate fallback projectId if none provided to ensure we can try to strip potential ID
     const effectiveProjectId = details.projectId || extractProjectIdFromFolderName(fallbackName) || "";
-    
+
     if (fallbackName && effectiveProjectId) {
         if (fallbackName.includes(effectiveProjectId)) {
             fallbackName = fallbackName.replace(effectiveProjectId, "").replace(/-+$/, "").replace(/^-+/, "");
@@ -761,7 +761,7 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
         }
 
         const currentWorkspaceFolderName = workspaceFolder.name;
-        
+
         let projectName = metadata.projectName;
         if (!projectName) {
             // Fallback to workspace folder name, stripping UUID if present
@@ -1332,23 +1332,23 @@ async function processProjectDirectory(
             const metadataUri = vscode.Uri.file(path.join(projectPath, "metadata.json"));
             // Quick check if metadata exists
             await vscode.workspace.fs.stat(metadataUri);
-            
+
             const metadataBuffer = await vscode.workspace.fs.readFile(metadataUri);
             projectMetadata = JSON.parse(Buffer.from(metadataBuffer).toString("utf-8"));
 
             if (projectMetadata && projectMetadata.projectId) {
                 // Check if published (has git remote)
                 const gitOrigin = await getGitOriginUrl(projectPath);
-                
+
                 // If it has NO git origin (local-only), check for rename
                 if (!gitOrigin) {
                     const folderId = extractProjectIdFromFolderName(currentName);
-                    
+
                     // If folder doesn't have the ID, rename it
                     if (folderId !== projectMetadata.projectId) {
                         let newName = sanitizeProjectName(projectMetadata.projectName || currentName);
                         const idInName = extractProjectIdFromFolderName(newName);
-                        
+
                         // If the base name already contains the ID, we don't need to append it
                         if (idInName !== projectMetadata.projectId) {
                             newName = `${newName}-${projectMetadata.projectId}`;
@@ -1396,8 +1396,8 @@ async function processProjectDirectory(
         // Extract other results with fallbacks
         // Use currentName (the folder name) as the primary name result
         // This ensures the UI displays the actual folder name (with UUID) as requested
-        const nameResult = currentName; 
-        
+        const nameResult = currentName;
+
         const gitResult = gitOriginUrl.status === 'fulfilled' ? gitOriginUrl.value : undefined;
         const statsResult = stats.status === 'fulfilled' ? stats.value : null;
         const mediaStrategyResult = mediaStrategy.status === 'fulfilled' ? mediaStrategy.value : undefined;
@@ -1421,6 +1421,7 @@ async function processProjectDirectory(
             description: "...",
             mediaStrategy: mediaStrategyResult,
             pendingUpdate: settingsResult?.pendingUpdate,
+            projectSwap: projectMetadata?.meta?.projectSwap,
         };
     } catch (error) {
         debug(`Error processing project directory ${projectPath}:`, error);
@@ -1755,4 +1756,73 @@ export function extractProjectIdFromFolderName(folderName: string): string | und
         }
     }
     return undefined;
+}
+
+/**
+ * Validates and auto-fixes project metadata issues (missing scope, empty name, etc.)
+ */
+export async function validateAndFixProjectMetadata(projectUri: vscode.Uri): Promise<void> {
+    try {
+        const metadataPath = vscode.Uri.joinPath(projectUri, "metadata.json");
+        // Quick check if exists
+        try {
+            await vscode.workspace.fs.stat(metadataPath);
+        } catch {
+            return; // No metadata to fix
+        }
+
+        const metadataContent = await vscode.workspace.fs.readFile(metadataPath);
+        const metadata = JSON.parse(Buffer.from(metadataContent).toString("utf-8"));
+        let needsSave = false;
+
+        // Auto-fix missing scope
+        if (!metadata?.type?.flavorType?.currentScope) {
+            if (!metadata.type) metadata.type = {};
+            if (!metadata.type.flavorType) metadata.type.flavorType = {};
+            
+            metadata.type.flavorType.currentScope = generateProjectScope();
+            
+            if (!metadata.type.flavorType.flavor) {
+                metadata.type.flavorType.flavor = {
+                    name: "default",
+                    usfmVersion: "3.0",
+                    translationType: "unknown",
+                    audience: "general",
+                    projectType: "unknown",
+                };
+            }
+            if (!metadata.type.flavorType.name) metadata.type.flavorType.name = "default";
+            
+            needsSave = true;
+            console.log("Auto-fixed missing project scope in metadata.json");
+        }
+
+        // Auto-fix empty projectName
+        if (!metadata.projectName) {
+            const folderName = path.basename(projectUri.fsPath);
+            const projectId =
+                metadata.projectId ||
+                metadata.id ||
+                extractProjectIdFromFolderName(folderName);
+            let newName = folderName;
+
+            // Strip ID if present
+            if (projectId && newName.includes(projectId)) {
+                newName = newName.replace(projectId, "").replace(/-+$/, "").replace(/^-+/, "");
+            }
+
+            metadata.projectName = sanitizeProjectName(newName) || "Untitled Project";
+            needsSave = true;
+            console.log(`Auto-fixed empty projectName to "${metadata.projectName}"`);
+        }
+
+        if (needsSave) {
+            await vscode.workspace.fs.writeFile(
+                metadataPath,
+                Buffer.from(JSON.stringify(metadata, null, 4))
+            );
+        }
+    } catch (error) {
+        console.error("Error validating/fixing project metadata:", error);
+    }
 }

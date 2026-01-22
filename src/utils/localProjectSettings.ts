@@ -40,6 +40,8 @@ export interface LocalProjectSettings {
     currentMediaFilesStrategy?: MediaFilesStrategy;
     lastMediaFileStrategyRun?: MediaFilesStrategy;
     changesApplied?: boolean; // legacy boolean (mirrored from applyState)
+    /** Optional source repo URL for LFS downloads during publish */
+    lfsSourceRemoteUrl?: string;
     /** Granular state machine for media apply lifecycle */
     mediaFileStrategyApplyState?: "idle" | "pending" | "applying" | "applied" | "failed";
     /** 
@@ -163,7 +165,7 @@ export async function writeLocalProjectSettings(
             // Directory might already exist, that's fine
         }
 
-        // Write settings file with new canonical keys only
+        // Build settings with canonical keys, but preserve any existing custom fields
         const toWrite: LocalProjectSettings = {
             currentMediaFilesStrategy: settings.currentMediaFilesStrategy ?? settings.mediaFilesStrategy,
             lastMediaFileStrategyRun: settings.lastMediaFileStrategyRun ?? settings.lastModeRun,
@@ -171,14 +173,23 @@ export async function writeLocalProjectSettings(
             mediaFileStrategySwitchStarted: settings.mediaFileStrategySwitchStarted,
             autoDownloadAudioOnOpen: settings.autoDownloadAudioOnOpen,
             detailedAIMetrics: settings.detailedAIMetrics,
+            lfsSourceRemoteUrl: settings.lfsSourceRemoteUrl,
             updateState: settings.updateState,
             pendingUpdate: settings.pendingUpdate,
             updateCompletedLocally: settings.updateCompletedLocally,
             projectSwap: settings.projectSwap,
         };
-        const content = JSON.stringify(toWrite, null, 2);
+        let existingRaw: Record<string, any> = {};
+        try {
+            const existingContent = await vscode.workspace.fs.readFile(settingsPath);
+            existingRaw = JSON.parse(Buffer.from(existingContent).toString("utf-8")) ?? {};
+        } catch {
+            existingRaw = {};
+        }
+        const merged = { ...existingRaw, ...toWrite };
+        const content = JSON.stringify(merged, null, 2);
         await vscode.workspace.fs.writeFile(settingsPath, Buffer.from(content, "utf-8"));
-        debug("Wrote local project settings:", toWrite);
+        debug("Wrote local project settings:", merged);
     } catch (error) {
         console.error("Failed to write local project settings:", error);
         throw error;

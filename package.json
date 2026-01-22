@@ -162,7 +162,12 @@
             },
             {
                 "command": "codex-editor.initiateProjectSwap",
-                "title": "Project Swap - Initiate Migration",
+                "title": "Project Swap - Initiate Swap (Step 2)",
+                "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor.initiateMigration",
+                "title": "Project Swap - Copy to New Project (Step 1)",
                 "category": "Codex Editor"
             },
             {
@@ -172,7 +177,7 @@
             },
             {
                 "command": "codex-editor.cancelProjectSwap",
-                "title": "Project Swap - Cancel Migration",
+                "title": "Project Swap - Cancel Swap",
                 "category": "Codex Editor"
             },
             {

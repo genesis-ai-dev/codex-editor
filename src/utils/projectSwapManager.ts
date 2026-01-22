@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { ProjectMetadata, ProjectSwapInfo } from "../../types";
+import { ProjectMetadata, ProjectSwapInfo, ProjectSwapUserEntry } from "../../types";
 import * as crypto from "crypto";
 import git from "isomorphic-git";
 import fs from "fs";
@@ -20,9 +20,20 @@ export async function checkProjectSwapRequired(
     required: boolean;
     reason: string;
     swapInfo?: ProjectSwapInfo;
+    userAlreadySwapped?: boolean;
 }> {
     try {
         debug("Checking project swap requirement for:", projectPath);
+
+        let effectiveUsername = currentUsername;
+        if (!effectiveUsername) {
+            try {
+                const { getCurrentUsername } = await import("./remoteUpdatingManager");
+                effectiveUsername = (await getCurrentUsername()) ?? undefined;
+            } catch {
+                // non-fatal: continue without username
+            }
+        }
 
         // Read metadata
         const metadataPath = vscode.Uri.file(`${projectPath}/metadata.json`);
@@ -35,6 +46,19 @@ export async function checkProjectSwapRequired(
         }
 
         const swapInfo = metadata.meta.projectSwap;
+
+        if (effectiveUsername) {
+            const hasCompleted = await hasUserCompletedSwap(swapInfo, effectiveUsername);
+            if (hasCompleted) {
+                debug("User already swapped; no swap required");
+                return {
+                    required: false,
+                    reason: "User already swapped",
+                    swapInfo,
+                    userAlreadySwapped: true,
+                };
+            }
+        }
 
         // Check if this is the old project that needs migration
         if (swapInfo.isOldProject && swapInfo.swapStatus === "pending") {
@@ -56,12 +80,53 @@ export async function checkProjectSwapRequired(
             };
         }
 
+        if (swapInfo.isOldProject && swapInfo.swapStatus === "completed") {
+            debug("Project swap completed remotely, but current user has not swapped");
+            return {
+                required: true,
+                reason: "Project has been migrated, and the current user has not swapped yet",
+                swapInfo,
+            };
+        }
+
         debug("Project swap not required");
         return { required: false, reason: "Swap already completed or not applicable", swapInfo };
     } catch (error) {
         debug("Error checking project swap requirement:", error);
         return { required: false, reason: `Error: ${error}` };
     }
+}
+
+async function hasUserCompletedSwap(
+    swapInfo: ProjectSwapInfo,
+    currentUsername: string
+): Promise<boolean> {
+    const entries = await getSwapUserEntries(swapInfo);
+    return entries.some(
+        (entry) => entry.userToUpdate === currentUsername && entry.executed
+    );
+}
+
+async function getSwapUserEntries(swapInfo: ProjectSwapInfo): Promise<ProjectSwapUserEntry[]> {
+    const { fetchRemoteMetadata, extractProjectIdFromUrl, normalizeSwapUserEntry } = await import("./remoteUpdatingManager");
+
+    if (swapInfo.newProjectUrl) {
+        const projectId = extractProjectIdFromUrl(swapInfo.newProjectUrl);
+        if (projectId) {
+            const remoteMetadata = await fetchRemoteMetadata(projectId, false);
+            const remoteSwap = remoteMetadata?.meta?.projectSwap;
+            const remoteEntries: ProjectSwapUserEntry[] = remoteSwap?.swappedUsers || [];
+            if (remoteEntries.length > 0) {
+                return remoteEntries.map((entry: ProjectSwapUserEntry) =>
+                    normalizeSwapUserEntry(entry)
+                );
+            }
+        }
+    }
+
+    return (swapInfo.swappedUsers || []).map((entry: ProjectSwapUserEntry) =>
+        normalizeSwapUserEntry(entry)
+    );
 }
 
 /**

@@ -125,15 +125,21 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                         "cursor-pointer hover:bg-muted/30 transition-colors",
                         depth === 0 ? "py-1.5 px-3" : "py-1 px-3"
                     )}
-                    onClick={() =>
+                    onClick={() => {
+                        if (isAnyOperationApplying) return;
                         setExpandedGroups((prev) => ({
                             ...prev,
                             [group.name]: !(prev[group.name] ?? true),
-                        }))
-                    }
+                        }));
+                    }}
                     aria-disabled={isAnyOperationApplying}
                 >
-                    <div className="flex items-center gap-2">
+                    <div
+                        className={cn(
+                            "flex items-center gap-2",
+                            isAnyOperationApplying && "opacity-50 pointer-events-none"
+                        )}
+                    >
                         <i
                             className={cn(
                                 "codicon transition-transform text-sm text-muted-foreground",

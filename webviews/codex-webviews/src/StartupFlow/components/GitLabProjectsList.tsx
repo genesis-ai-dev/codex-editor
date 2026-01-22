@@ -27,6 +27,7 @@ interface GitLabProjectsListProps {
     isLoading: boolean;
     vscode: any;
     progressData?: any;
+    disableAllActions?: boolean;
 }
 
 interface ProjectGroup {
@@ -62,6 +63,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     isLoading,
     vscode,
     progressData,
+    disableAllActions = false,
 }) => {
     const [isAnyApplying, setIsAnyApplying] = useState(false);
     useEffect(() => {
@@ -99,6 +101,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
 
     const network = useNetworkState();
     const isOnline = network?.online;
+    const isLocked = isAnyApplying || disableAllActions;
     
     const sortProjectsForDisplay = React.useCallback((list: ProjectWithSyncStatus[]) => {
         return [...(list || [])].sort((a, b) => {
@@ -290,8 +293,19 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         [projectsWithProgress, sortProjectsForDisplay]
     );
 
-    const nonPendingProjects = React.useMemo(
-        () => (projectsWithProgress || []).filter((p) => !p.pendingUpdate?.required),
+    const pendingSwaps = React.useMemo(
+        () => sortProjectsForDisplay((projectsWithProgress || []).filter((p) => 
+            p.projectSwap?.isOldProject && 
+            ["pending", "migrating", "failed"].includes(p.projectSwap.swapStatus)
+        )),
+        [projectsWithProgress, sortProjectsForDisplay]
+    );
+
+    const normalProjects = React.useMemo(
+        () => (projectsWithProgress || []).filter((p) => 
+            !p.pendingUpdate?.required && 
+            !(p.projectSwap?.isOldProject && ["pending", "migrating", "failed"].includes(p.projectSwap.swapStatus))
+        ),
         [projectsWithProgress]
     );
 
@@ -388,14 +402,116 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     );
 
     const { hierarchy, ungrouped: ungroupedProjects } = React.useMemo(
-        () => buildGroupedProjects(nonPendingProjects || []),
-        [nonPendingProjects, buildGroupedProjects]
+        () => buildGroupedProjects(normalProjects || []),
+        [normalProjects, buildGroupedProjects]
     );
+
+    const normalizeUrl = React.useCallback((url?: string) => {
+        if (!url) return "";
+        try {
+            let clean = url.trim();
+            // Strip credentials
+            if (clean.startsWith("http")) {
+                const u = new URL(clean);
+                u.username = "";
+                u.password = "";
+                let path = u.pathname;
+                if (path.endsWith(".git")) path = path.slice(0, -4);
+                if (path.endsWith("/")) path = path.slice(0, -1);
+                return `${u.host}${path}`.toLowerCase();
+            }
+            // SSH style git@host:path
+            if (clean.includes("@") && clean.includes(":")) {
+                const parts = clean.split("@");
+                let domainAndPath = parts[1];
+                domainAndPath = domainAndPath.replace(":", "/");
+                if (domainAndPath.endsWith(".git")) domainAndPath = domainAndPath.slice(0, -4);
+                if (domainAndPath.endsWith("/")) domainAndPath = domainAndPath.slice(0, -1);
+                return domainAndPath.toLowerCase();
+            }
+            clean = clean.toLowerCase();
+            if (clean.endsWith(".git")) clean = clean.slice(0, -4);
+            if (clean.endsWith("/")) clean = clean.slice(0, -1);
+            return clean;
+        } catch {
+            return url.trim().toLowerCase();
+        }
+    }, []);
+
+    const addUrlVariants = (set: Set<string>, url?: string) => {
+        if (!url) return;
+        const normalized = normalizeUrl(url);
+        if (normalized) set.add(normalized);
+        set.add(url.trim().toLowerCase());
+    };
+
+    const urlMatchesAny = (url: string, candidates: Set<string>) => {
+        const norm = normalizeUrl(url);
+        for (const candidate of candidates) {
+            if (!candidate) continue;
+            if (norm.includes(candidate) || candidate.includes(norm)) return true;
+            if (url.toLowerCase().includes(candidate) || candidate.includes(url.toLowerCase())) return true;
+        }
+        return false;
+    };
 
     const filterProjects = (projects: ProjectWithSyncStatus[]) => {
         if (!projects) return [];
 
+        // Identify new projects that should be hidden because the old one is present locally
+        const hiddenNewProjectUrls = new Set<string>();
+        const localProjectUrls = new Set<string>();
+        const hiddenOldProjectUrls = new Set<string>();
+        
+        // Check all projects (including pending ones) to build the hidden list
+        projectsWithProgress.forEach(p => {
+            if (p.projectSwap && p.projectSwap.isOldProject && 
+                ["pending", "migrating", "failed"].includes(p.projectSwap.swapStatus)) {
+                addUrlVariants(hiddenNewProjectUrls, p.projectSwap.newProjectUrl);
+            }
+            if (p.gitOriginUrl && p.syncStatus !== "cloudOnlyNotSynced") {
+                addUrlVariants(localProjectUrls, p.gitOriginUrl);
+            }
+
+            // If we already have the new project locally, hide its old counterpart even if the
+            // old entry comes only from the remote list (cloud-only)
+            if (
+                p.syncStatus !== "cloudOnlyNotSynced" &&
+                p.projectSwap &&
+                !p.projectSwap.isOldProject &&
+                p.projectSwap.swapStatus === "completed" &&
+                p.projectSwap.oldProjectUrl
+            ) {
+                addUrlVariants(hiddenOldProjectUrls, p.projectSwap.oldProjectUrl);
+            }
+        });
+
         const filtered = projects.filter((project) => {
+            // Hide the "new" project for a pending swap when the old one is still local
+            if (project.gitOriginUrl) {
+                if (urlMatchesAny(project.gitOriginUrl, hiddenNewProjectUrls)) {
+                    return false;
+                }
+            }
+
+            // Hide cloud-only old project entries when their replacement is already local
+            if (project.gitOriginUrl) {
+                if (urlMatchesAny(project.gitOriginUrl, hiddenOldProjectUrls)) {
+                    return false;
+                }
+            }
+
+            // Hide the old project once the new one is locally available after swap completion
+            if (
+                project.projectSwap?.isOldProject &&
+                project.projectSwap.swapStatus === "completed" &&
+                project.projectSwap.newProjectUrl
+            ) {
+                if (urlMatchesAny(project.projectSwap.newProjectUrl, localProjectUrls)) {
+                    return false;
+                }
+            }
+
             // Safe type comparison for filters
             const currentFilter = filter as string;
 
@@ -449,6 +565,16 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         [sortProjectsForDisplay]
     );
 
+    // Always pin all pending swaps, ignore search/filter
+    const filteredPendingSwaps = React.useMemo(
+        () => sortProjectsForDisplay(pendingSwaps || []),
+        [pendingSwaps, sortProjectsForDisplay]
+    );
+    const filteredPendingSwapsGrouped = React.useMemo(() => {
+        const { hierarchy, ungrouped } = buildGroupedProjects(filteredPendingSwaps || []);
+        return { hierarchy, ungrouped };
+    }, [filteredPendingSwaps, buildGroupedProjects]);
+
     // No list-level memoization; we pass shallow copies at usage sites where needed
 
     // Always pin all pending projects, even if they wouldn't match the current filter/search
@@ -471,7 +597,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 setFilter={setFilter}
                 projects={projects}
                 vscode={vscode}
-                disabled={isAnyApplying}
+                disabled={isLocked}
             />
 
             {isLoading ? (
@@ -482,6 +608,75 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 </div>
             ) : (
                 <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-2">
+                    {/* Pending Swaps pinned to top */}
+                    {filteredPendingSwaps.length > 0 && (
+                        <Card className="overflow-hidden border-l-4 border-l-purple-500">
+                            <CardHeader className="py-2 px-3 bg-purple-50/70 border-b border-purple-100">
+                                <div className="flex items-center gap-2">
+                                    <i className="codicon codicon-arrow-swap text-sm text-purple-700" />
+                                    <h3 className="font-medium text-sm text-purple-800">Project Swap Required</h3>
+                                    <Badge
+                                        variant="outline"
+                                        className="ml-auto text-xs px-1.5 py-0.5 bg-purple-100 text-purple-800 border-purple-300"
+                                    >
+                                        {filteredPendingSwaps.length}
+                                    </Badge>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="p-0">
+                                <div className="border-t border-purple-100">
+                                    {Object.entries(filteredPendingSwapsGrouped.hierarchy || {}).map(([groupName, group]) =>
+                                        group ? (
+                                            <GroupSection
+                                                key={`pending-swap-${groupName}`}
+                                                group={{ ...group, projects: [...group.projects] }}
+                                                depth={0}
+                                                filter={filter}
+                                                searchQuery={searchQuery}
+                                                expandedGroups={expandedGroups}
+                                                setExpandedGroups={setExpandedGroups}
+                                                expandedProjects={expandedProjects}
+                                                setExpandedProjects={setExpandedProjects}
+                                                newlyAddedProjects={newlyAddedProjects}
+                                                statusChangedProjects={statusChangedProjects}
+                                                onCloneProject={onCloneProject}
+                                                onOpenProject={onOpenProject}
+                                                onDeleteProject={onDeleteProject}
+                                                vscode={vscode}
+                                                parseProjectUrl={parseProjectUrl}
+                                                getStatusIcon={getStatusIcon}
+                                                filterProjects={filterProjectsPinned}
+                                                isProgressDataLoaded={!!progressData}
+                                                isAnyOperationApplying={isLocked}
+                                                isOnline={!!isOnline}
+                                            />
+                                        ) : null
+                                    )}
+                                    {filteredPendingSwapsGrouped.ungrouped.length > 0 &&
+                                        filteredPendingSwapsGrouped.ungrouped.map((project) => (
+                                            <ProjectCard
+                                                key={`pending-swap-ungrouped-${project.name}-${project.gitOriginUrl || "no-url"}`}
+                                                project={project}
+                                                onCloneProject={onCloneProject}
+                                                onOpenProject={onOpenProject}
+                                                onDeleteProject={onDeleteProject}
+                                                vscode={vscode}
+                                                expandedProjects={expandedProjects}
+                                                setExpandedProjects={setExpandedProjects}
+                                                newlyAddedProjects={newlyAddedProjects}
+                                                statusChangedProjects={statusChangedProjects}
+                                                parseProjectUrl={parseProjectUrl}
+                                                getStatusIcon={getStatusIcon}
+                                                isProgressDataLoaded={!!progressData}
+                                                isAnyOperationApplying={isLocked}
+                                                isOnline={!!isOnline}
+                                            />
+                                        ))}
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
+
                     {/* Pending updates pinned to top */}
                     {filteredPendingProjects.length > 0 && (
                         <Card className="overflow-hidden border-l-4 border-l-amber-500">
@@ -519,9 +714,9 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                                 vscode={vscode}
                                                 parseProjectUrl={parseProjectUrl}
                                                 getStatusIcon={getStatusIcon}
-                                            filterProjects={filterProjectsPinned}
+                                                filterProjects={filterProjectsPinned}
                                                 isProgressDataLoaded={!!progressData}
-                                                isAnyOperationApplying={isAnyApplying}
+                                                isAnyOperationApplying={isLocked}
                                                 isOnline={!!isOnline}
                                             />
                                         ) : null
@@ -542,7 +737,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                                 parseProjectUrl={parseProjectUrl}
                                                 getStatusIcon={getStatusIcon}
                                                 isProgressDataLoaded={!!progressData}
-                                                isAnyOperationApplying={isAnyApplying}
+                                                isAnyOperationApplying={isLocked}
                                                 isOnline={!!isOnline}
                                             />
                                         ))}
@@ -574,7 +769,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                 getStatusIcon={getStatusIcon}
                                 filterProjects={filterProjects}
                                 isProgressDataLoaded={!!progressData}
-                                isAnyOperationApplying={isAnyApplying}
+                                                isAnyOperationApplying={isLocked}
                                 isOnline={!!isOnline}
                             />
                         ) : null
@@ -616,7 +811,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                             parseProjectUrl={parseProjectUrl}
                                             getStatusIcon={getStatusIcon}
                                             isProgressDataLoaded={!!progressData}
-                                            isAnyOperationApplying={isAnyApplying}
+                                                isAnyOperationApplying={isLocked}
                                             isOnline={!!isOnline}
                                         />
                                     ))}

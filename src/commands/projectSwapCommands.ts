@@ -1,20 +1,30 @@
 import * as vscode from "vscode";
 import * as path from "path";
+import * as fs from "fs";
+import git from "isomorphic-git";
 import { ProjectMetadata, ProjectSwapInfo } from "../../types";
 import { MetadataManager } from "../utils/metadataManager";
 import {
     validateGitUrl,
-    generateProjectUUID,
     getGitOriginUrl,
     extractProjectNameFromUrl,
+    checkProjectSwapRequired,
 } from "../utils/projectSwapManager";
 import { checkProjectAdminPermissions } from "../utils/projectAdminPermissionChecker";
+import {
+    sanitizeProjectName,
+    generateProjectId,
+    generateProjectScope,
+    validateAndFixProjectMetadata,
+    ensureGitConfigsAreUpToDate,
+    ensureGitDisabledInSettings
+} from "../projectManager/utils/projectUtils";
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[ProjectSwapCommands]", ...args) : () => { };
 
 /**
- * Command to initiate a project swap (migrate to new Git repository)
+ * Command to initiate a project swap (swap to new Git repository)
  * Instance administrators only
  */
 export async function initiateProjectSwap(): Promise<void> {
@@ -48,7 +58,7 @@ export async function initiateProjectSwap(): Promise<void> {
             const errorMsg = permission.error || "Insufficient permissions";
             // Don't show reason if it's just the expected permission error (redundant with main message)
             const reasonPart = errorMsg === "Insufficient permissions" ? "" : `\n\nReason: ${errorMsg}`;
-            
+
             await vscode.window.showWarningMessage(
                 `⛔ Permission Denied\n\nOnly Project Maintainers or Owners can initiate project swaps.${reasonPart}`,
                 { modal: true }
@@ -66,6 +76,17 @@ export async function initiateProjectSwap(): Promise<void> {
             );
             return;
         }
+        // Sanitize current URL for display (strip credentials, keep host/path)
+        const displayCurrentGitUrl = (() => {
+            try {
+                const urlObj = new URL(currentGitUrl);
+                urlObj.username = "";
+                urlObj.password = "";
+                return urlObj.toString().replace(/\/$/, "");
+            } catch {
+                return currentGitUrl;
+            }
+        })();
 
         // Check if swap already initiated
         const projectUri = vscode.Uri.file(workspacePath);
@@ -86,11 +107,10 @@ export async function initiateProjectSwap(): Promise<void> {
             const action = await vscode.window.showWarningMessage(
                 `${statusMsg}\n\nDo you want to reconfigure the swap?`,
                 { modal: true },
-                "Yes, Reconfigure",
-                "No, Cancel"
+                "Reconfigure"
             );
 
-            if (action !== "Yes, Reconfigure") {
+            if (action !== "Reconfigure") {
                 return;
             }
         }
@@ -151,14 +171,13 @@ export async function initiateProjectSwap(): Promise<void> {
         // Show confirmation dialog
         const confirmed = await vscode.window.showWarningMessage(
             `⚠️  Initiate Project Swap?\n\n` +
-            `This will require ALL users to migrate to:\n${newProjectName}\n\n` +
-            `Current: ${currentGitUrl}\n` +
-            `New: ${newProjectUrl}\n\n` +
-            `Users will be prompted to migrate when they next sync or open the project.\n\n` +
+            `This will require ALL users to swap to:\n${newProjectName}\n\n` +
+            `Current:\n${displayCurrentGitUrl}\n\n` +
+            `New:\n${newProjectUrl}\n\n` +
+            `Users will be prompted to swap when they next sync or open the project.\n\n` +
             `This cannot be easily undone. Continue?`,
             { modal: true },
-            "Yes, Initiate Swap",
-            "No, Cancel"
+            "Yes, Initiate Swap"
         );
 
         if (confirmed !== "Yes, Initiate Swap") {
@@ -166,7 +185,7 @@ export async function initiateProjectSwap(): Promise<void> {
         }
 
         // Generate UUID (or reuse if reconfiguring)
-        const projectUUID = metadata?.meta?.projectSwap?.projectUUID || generateProjectUUID();
+        const projectUUID = metadata?.meta?.projectSwap?.projectUUID || generateProjectId();
 
         // Create swap info
         const swapInfo: ProjectSwapInfo = {
@@ -204,13 +223,14 @@ export async function initiateProjectSwap(): Promise<void> {
         const commitMessage = `Initiated project swap to ${newProjectName}`;
         await vscode.commands.executeCommand(
             "codex-editor-extension.triggerSync",
-            commitMessage
+            commitMessage,
+            { bypassUpdatingCheck: true } // allow sync even though swap requirement is now set
         );
 
         // Show success message
         vscode.window.showInformationMessage(
             `✅ Project Swap Initiated\n\n` +
-            `All users will be prompted to migrate to "${newProjectName}" when they next open or sync this project.`
+            `All users will be prompted to swap to "${newProjectName}" when they next open or sync this project.`
         );
 
     } catch (error) {
@@ -265,7 +285,7 @@ export async function viewProjectSwapStatus(): Promise<void> {
             statusMessage += `Migrating to: ${swap.newProjectName}\n\n`;
         } else {
             statusMessage += `This is the NEW project.\n`;
-            statusMessage += `Migrated from: ${swap.oldProjectUrl}\n\n`;
+        statusMessage += `Swapped from: ${swap.oldProjectUrl}\n\n`;
         }
 
         statusMessage += `Initiated by: ${swap.swapInitiatedBy}\n`;
@@ -281,6 +301,11 @@ export async function viewProjectSwapStatus(): Promise<void> {
 
         if (swap.swapError) {
             statusMessage += `\nError: ${swap.swapError}\n`;
+        }
+
+        if (swap.swappedUsers && swap.swappedUsers.length > 0) {
+            statusMessage += `\nSwapped Users (${swap.swappedUsers.length}):\n`;
+            statusMessage += swap.swappedUsers.map(u => `- ${u.userToUpdate} (${new Date(u.updatedAt).toLocaleDateString()})`).join('\n');
         }
 
         vscode.window.showInformationMessage(statusMessage, { modal: true });
@@ -343,7 +368,7 @@ export async function cancelProjectSwap(): Promise<void> {
 
         // Confirm cancellation
         const confirmed = await vscode.window.showWarningMessage(
-            `Cancel Project Swap?\n\nThis will cancel the swap to "${swap.newProjectName}". Users will no longer be prompted to migrate.\n\nContinue?`,
+            `Cancel Project Swap?\n\nThis will cancel the swap to "${swap.newProjectName}". Users will no longer be prompted to swap.\n\nContinue?`,
             { modal: true },
             "Yes, Cancel Swap",
             "No"
@@ -386,6 +411,249 @@ export async function cancelProjectSwap(): Promise<void> {
     }
 }
 
+async function promptMigrationIfSwapRequired(projectPath: string): Promise<void> {
+    try {
+        const result = await checkProjectSwapRequired(projectPath);
+        if (!result.required || !result.swapInfo) return;
+
+        const swapInfo = result.swapInfo;
+        const newProjectName = swapInfo.newProjectName;
+
+        const selection = await vscode.window.showWarningMessage(
+            `📦 Project Swap Required\n\n` +
+            `This project has been swapped to a new repository:\n${newProjectName}\n\n` +
+            `Reason: ${swapInfo.swapReason || "Repository swap"}\n` +
+            `Initiated by: ${swapInfo.swapInitiatedBy}\n\n` +
+            `Syncing has been disabled until you swap.\n\n` +
+            `Your local changes will be preserved and backed up.`,
+            { modal: true },
+            "Swap Now"
+        );
+
+        if (selection === "Swap Now") {
+            await vscode.commands.executeCommand("workbench.action.closeFolder");
+        }
+    } catch (error) {
+        console.error("Error prompting swap after swap initiation:", error);
+    }
+}
+
+/**
+ * Command to copy a project for swap (new UUID, clean git)
+ * "Copy to New Project"
+ */
+export async function initiateMigration(): Promise<void> {
+    try {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage("No workspace folder open. Please open a project first.");
+            return;
+        }
+
+        // Check if user has permission (Project Maintainer or Owner)
+        const permission = await checkProjectAdminPermissions();
+        if (!permission.hasPermission) {
+            const errorMsg = permission.error || "Insufficient permissions";
+            const reasonPart = errorMsg === "Insufficient permissions" ? "" : `\n\nReason: ${errorMsg}`;
+            await vscode.window.showWarningMessage(
+                `⛔ Permission Denied\n\nOnly Project Maintainers or Owners can copy projects to a new swap target.${reasonPart}`,
+                { modal: true }
+            );
+            return;
+        }
+
+        const currentPath = workspaceFolder.uri.fsPath;
+        const currentName = workspaceFolder.name;
+
+        // Get metadata to get clean project name
+        let cleanName = currentName;
+        try {
+            const metadataPath = vscode.Uri.file(path.join(currentPath, "metadata.json"));
+            const metadataContent = await vscode.workspace.fs.readFile(metadataPath);
+            const metadata = JSON.parse(Buffer.from(metadataContent).toString("utf-8")) as ProjectMetadata;
+            if (metadata.projectName) cleanName = metadata.projectName;
+        } catch (e) {
+            // Ignore
+        }
+
+        // Prompt for new name
+        const newName = await vscode.window.showInputBox({
+            prompt: "Enter name for the new swapped project",
+            value: cleanName,
+            validateInput: (value) => value ? null : "Name is required"
+        });
+
+        if (!newName) return;
+
+        const sourceRemoteUrl = await getGitOriginUrl(currentPath);
+
+        // Generate new UUID
+        const newUUID = generateProjectId();
+
+        // Construct new folder name
+        const sanitizedName = sanitizeProjectName(newName);
+        const newFolderName = `${sanitizedName}-${newUUID}`;
+        const parentDir = path.dirname(currentPath);
+        const newProjectPath = path.join(parentDir, newFolderName);
+
+        // Check if exists
+        if (fs.existsSync(newProjectPath)) {
+            vscode.window.showErrorMessage(`Target directory already exists: ${newProjectPath}`);
+            return;
+        }
+
+        // Confirm
+        const confirm = await vscode.window.showWarningMessage(
+            `Copy project to "${newName}"?\n\nThis will create a fresh local copy with a new ID and NO git history.\n\nNew location: ${newProjectPath}`,
+            { modal: true },
+            "Yes, Copy"
+        );
+        if (confirm !== "Yes, Copy") return;
+
+        // Ensure we sync before migrating (mirrors remote updating flow)
+        try {
+            await vscode.commands.executeCommand(
+                "codex-editor-extension.triggerSync",
+                "Prepare swap (sync before copy)"
+            );
+        } catch (err) {
+            console.error("Pre-swap sync failed:", err);
+            vscode.window.showErrorMessage(
+                "Copy aborted because sync could not complete. Please resolve sync issues and try again."
+            );
+            return;
+        }
+
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: "Copying project for swap...",
+            cancellable: false
+        }, async (progress) => {
+            // Copy folder
+            progress.report({ message: "Copying files..." });
+
+            // Exclude .git and indexes.sqlite during copy
+            fs.cpSync(currentPath, newProjectPath, {
+                recursive: true,
+                filter: (src) => {
+                    const basename = path.basename(src);
+                    return basename !== ".git" && basename !== "indexes.sqlite";
+                }
+            });
+
+            // Update metadata
+            progress.report({ message: "Updating project identity..." });
+            const newMetadataPath = path.join(newProjectPath, "metadata.json");
+
+            if (fs.existsSync(newMetadataPath)) {
+                const metaContent = fs.readFileSync(newMetadataPath, 'utf-8');
+                const meta = JSON.parse(metaContent);
+                meta.projectName = newName;
+                meta.projectId = newUUID;
+
+                // Ensure meta structure
+                if (!meta.type) meta.type = {};
+                if (!meta.type.flavorType) meta.type.flavorType = {};
+                if (!meta.type.flavorType.currentScope) {
+                    meta.type.flavorType.currentScope = generateProjectScope();
+                }
+
+                // Defaults for flavor
+                if (!meta.type.flavorType.name) meta.type.flavorType.name = "default";
+                if (!meta.type.flavorType.flavor) {
+                    meta.type.flavorType.flavor = {
+                        name: "default",
+                        usfmVersion: "3.0",
+                        translationType: "unknown",
+                        audience: "general",
+                        projectType: "unknown",
+                    };
+                }
+
+                if (meta.meta) {
+                    meta.meta.dateCreated = new Date().toISOString();
+                    // Clear projectSwap info if present
+                    if (meta.meta.projectSwap) {
+                        delete meta.meta.projectSwap;
+                    }
+                }
+
+                fs.writeFileSync(newMetadataPath, JSON.stringify(meta, null, 4));
+            }
+
+            await validateAndFixProjectMetadata(vscode.Uri.file(newProjectPath));
+
+            // Clear local settings sync state
+            const localSettingsPath = path.join(newProjectPath, ".project", "localProjectSettings.json");
+            if (fs.existsSync(localSettingsPath)) {
+                try {
+                    const settingsContent = fs.readFileSync(localSettingsPath, 'utf-8');
+                    const settings = JSON.parse(settingsContent);
+                    if (settings.projectSwap) delete settings.projectSwap;
+                    if (settings.updateState) delete settings.updateState;
+                    if (settings.pendingUpdate) delete settings.pendingUpdate;
+                    if (sourceRemoteUrl) settings.lfsSourceRemoteUrl = sourceRemoteUrl;
+                    fs.writeFileSync(localSettingsPath, JSON.stringify(settings, null, 4));
+                } catch (e) {
+                    // ignore
+                }
+            }
+
+            // Initialize Git
+            progress.report({ message: "Initializing git repository..." });
+            try {
+                await git.init({
+                    fs,
+                    dir: newProjectPath,
+                    defaultBranch: "main",
+                });
+
+                await ensureGitConfigsAreUpToDate();
+                await ensureGitDisabledInSettings();
+
+                await git.add({
+                    fs,
+                    dir: newProjectPath,
+                    filepath: "metadata.json",
+                });
+
+                if (fs.existsSync(path.join(newProjectPath, ".gitignore"))) {
+                    await git.add({ fs, dir: newProjectPath, filepath: ".gitignore" });
+                }
+                if (fs.existsSync(path.join(newProjectPath, ".gitattributes"))) {
+                    await git.add({ fs, dir: newProjectPath, filepath: ".gitattributes" });
+                }
+
+                const { getAuthApi } = await import("../extension");
+                const authApi = getAuthApi();
+                let userInfo;
+                if (authApi?.getAuthStatus()?.isAuthenticated) {
+                    userInfo = await authApi.getUserInfo();
+                }
+
+                await git.commit({
+                    fs,
+                    dir: newProjectPath,
+                    message: `Initial commit (swapped from ${currentName})`,
+                    author: {
+                        name: userInfo?.username || "Codex User",
+                        email: userInfo?.email || "user@example.com"
+                    }
+                });
+            } catch (error) {
+                console.error("Git initialization failed during swap copy:", error);
+                vscode.window.showErrorMessage(`Git initialization failed: ${error}`);
+            }
+
+            progress.report({ message: "Opening new project..." });
+            await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(newProjectPath));
+        });
+
+    } catch (error) {
+        vscode.window.showErrorMessage(`Swap copy failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
 /**
  * Register all project swap commands
  */
@@ -408,6 +676,13 @@ export function registerProjectSwapCommands(context: vscode.ExtensionContext): v
         vscode.commands.registerCommand(
             "codex-editor.cancelProjectSwap",
             cancelProjectSwap
+        )
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor.initiateMigration",
+            initiateMigration
         )
     );
 

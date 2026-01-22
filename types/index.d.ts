@@ -257,6 +257,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "auth.requestPasswordReset"; }
     // | { command: "auth.requestPasswordReset"; resetEmail: string; }
     | { command: "project.clone"; repoUrl: string; mediaStrategy?: MediaFilesStrategy; }
+    | { command: "project.cloneDeprecated"; repoUrl: string; mediaStrategy?: MediaFilesStrategy; }
     | { command: "project.new"; }
     | { command: "workspace.status"; }
     | { command: "workspace.open"; }
@@ -289,7 +290,8 @@ export type MessagesToStartupFlowProvider =
     | { command: "project.renameFolder"; projectPath: string; newName: string; }
     | { command: "project.setMediaStrategy"; projectPath: string; mediaStrategy: MediaFilesStrategy; }
     | { command: "project.cleanupMediaFiles"; projectPath: string; }
-    | { command: "project.fixAndOpen"; projectPath: string; };
+    | { command: "project.fixAndOpen"; projectPath: string; }
+    | { command: "project.performSwap"; projectPath: string; };
 
 export type GitLabProject = {
     id: number;
@@ -319,6 +321,7 @@ export type ProjectWithSyncStatus = LocalProject & {
     syncStatus: ProjectSyncStatus;
     mediaStrategy?: MediaFilesStrategy; // Media files download strategy for this project
     completionPercentage?: number;
+    projectSwap?: ProjectSwapInfo;
 };
 
 export type MessagesFromStartupFlowProvider =
@@ -381,7 +384,14 @@ export type MessagesFromStartupFlowProvider =
     | { command: "project.openingInProgress"; projectPath: string; opening: boolean; }
     | { command: "project.renamingInProgress"; projectPath: string; renaming: boolean; }
     | { command: "project.zippingInProgress"; projectPath: string; zipType: "full" | "mini"; zipping: boolean; }
-    | { command: "project.cleaningInProgress"; projectPath: string; cleaning: boolean; };
+    | { command: "project.cleaningInProgress"; projectPath: string; cleaning: boolean; }
+    | {
+        command: "project.swapCloneWarning";
+        repoUrl: string;
+        isOldProject: boolean;
+        newProjectName?: string;
+        message: string;
+    };
 
 type DictionaryPostMessages =
     | {
@@ -1152,6 +1162,8 @@ interface ProjectOverview extends Project {
 
 /* This is the project metadata that is saved in the metadata.json file */
 type ProjectMetadata = {
+    projectName?: string;
+    projectId?: string;
     format: string;
     edits?: ProjectEditHistory[];
     meta: {
@@ -1323,8 +1335,20 @@ export interface RemoteUpdatingEntry {
     addedBy: string;
     createdAt: number;
     updatedAt: number;
-    deleted: boolean;
-    deletedBy: string;
+    cancelled: boolean;
+    cancelledBy: string;
+    executed: boolean;
+    clearEntry?: boolean;
+    /** @deprecated Use cancelled instead */
+    deleted?: boolean;
+    /** @deprecated Use cancelledBy instead */
+    deletedBy?: string;
+}
+
+export interface ProjectSwapUserEntry {
+    userToUpdate: string;
+    createdAt: number;
+    updatedAt: number;
     executed: boolean;
 }
 
@@ -1353,6 +1377,9 @@ export interface ProjectSwapInfo {
     /** Name of the new project (extracted from newProjectUrl) */
     newProjectName: string;
 
+    /** Optional name of the old project (for warnings/display) */
+    oldProjectName?: string;
+
     /** Git URL for the old (source) repository - reference back when viewing from new project */
     oldProjectUrl?: string;
 
@@ -1379,6 +1406,9 @@ export interface ProjectSwapInfo {
 
     /** @deprecated Use newProjectName instead */
     projectName?: string;
+
+    /** List of users who have successfully swapped/migrated to the new repository */
+    swappedUsers?: ProjectSwapUserEntry[];
 }
 
 /**
@@ -1602,6 +1632,7 @@ interface LocalProject {
     };
     hasFolderNameMismatch?: boolean;
     correctFolderName?: string;
+    projectSwap?: ProjectSwapInfo;
 }
 
 export interface BiblePreview extends BasePreview {

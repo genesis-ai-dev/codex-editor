@@ -3,6 +3,7 @@ import { getAuthApi } from "../extension";
 import { MetadataManager } from "./metadataManager";
 import * as git from "isomorphic-git";
 import * as fs from "fs";
+import { ProjectSwapInfo, ProjectSwapUserEntry } from "../../types";
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[RemoteUpdating]", ...args) : () => { };
@@ -86,6 +87,31 @@ export function normalizeUpdateEntry(entry: any): RemoteUpdatingEntry {
     return normalized as RemoteUpdatingEntry;
 }
 
+export function normalizeSwapUserEntry(entry: any): ProjectSwapUserEntry {
+    const normalized: any = { ...entry };
+    const cancelled = Boolean(normalized.cancelled ?? normalized.deleted ?? false);
+    const createdAt =
+        typeof normalized.createdAt === "number"
+            ? normalized.createdAt
+            : typeof normalized.updatedAt === "number"
+                ? normalized.updatedAt
+                : Date.now();
+    const updatedAt =
+        typeof normalized.updatedAt === "number"
+            ? normalized.updatedAt
+            : typeof normalized.createdAt === "number"
+                ? normalized.createdAt
+                : Date.now();
+    const executed = Boolean(normalized.executed) && !cancelled;
+    const userToUpdate = normalized.userToUpdate || normalized.userToHeal || "";
+
+    return {
+        userToUpdate,
+        createdAt,
+        updatedAt,
+        executed,
+    };
+}
 /**
  * Helper to check if entry is cancelled
  */
@@ -103,6 +129,7 @@ export function getCancelledBy(entry: RemoteUpdatingEntry): string {
 interface ProjectMetadata {
     meta?: {
         initiateRemoteUpdatingFor?: RemoteUpdatingEntry[];
+        projectSwap?: ProjectSwapInfo;
         [key: string]: unknown;
     };
     [key: string]: unknown;
@@ -113,6 +140,15 @@ interface RemoteUpdatingCheckResult {
     reason?: string;
     currentUsername?: string;
     currentUserEmail?: string;
+}
+
+interface RemoteProjectRequirementsResult {
+    updateRequired: boolean;
+    updateReason?: string;
+    swapRequired: boolean;
+    swapReason?: string;
+    swapInfo?: ProjectSwapInfo;
+    currentUsername?: string;
 }
 
 // Cache for remote metadata checks to avoid repeated API calls
@@ -285,7 +321,7 @@ export async function checkRemoteUpdatingRequired(
         debug("Checking remote updating requirement for:", projectPath);
 
         // Get current username
-        const currentUsername = await getCurrentUsername();
+        const currentUsername = (await getCurrentUsername()) ?? undefined;
         if (!currentUsername) {
             debug("Cannot determine current username, skipping remote updating check");
             return { required: false, reason: "No current username" };
@@ -369,6 +405,182 @@ export async function checkRemoteUpdatingRequired(
         debug("Error checking remote updating requirement:", error);
         return { required: false, reason: `Error: ${error}` };
     }
+}
+
+/**
+ * Check remote requirements (update + swap) with a single metadata fetch.
+ */
+export async function checkRemoteProjectRequirements(
+    projectPath: string,
+    gitOriginUrl?: string,
+    bypassCache: boolean = false
+): Promise<RemoteProjectRequirementsResult> {
+    try {
+        debug("Checking remote project requirements for:", projectPath);
+
+        const currentUsername = (await getCurrentUsername()) ?? undefined;
+
+        // Check if update was completed locally but not yet synced to remote
+        try {
+            const { readLocalProjectSettings } = await import("./localProjectSettings");
+            const localSettings = await readLocalProjectSettings(vscode.Uri.file(projectPath));
+            if (currentUsername && localSettings.updateCompletedLocally?.username === currentUsername) {
+                debug("Update already completed locally, waiting for sync. Skipping update check.");
+                return {
+                    updateRequired: false,
+                    updateReason: "Update completed locally, waiting for sync",
+                    swapRequired: false,
+                    currentUsername,
+                };
+            }
+        } catch (localCheckErr) {
+            debug("Error checking local update completion (non-fatal):", localCheckErr);
+        }
+
+        // Get git origin URL if not provided
+        if (!gitOriginUrl) {
+            const fetchedUrl = await getGitOriginUrl(projectPath);
+            gitOriginUrl = fetchedUrl || undefined;
+        }
+
+        if (!gitOriginUrl) {
+            debug("No git origin URL found, skipping remote checks");
+            return {
+                updateRequired: false,
+                updateReason: "No git origin URL",
+                swapRequired: false,
+                swapReason: "No git origin URL",
+                currentUsername,
+            };
+        }
+
+        // Extract project ID from URL
+        const projectId = extractProjectIdFromUrl(gitOriginUrl);
+        if (!projectId) {
+            debug("Could not extract project ID from URL, skipping remote checks");
+            return {
+                updateRequired: false,
+                updateReason: "Could not extract project ID",
+                swapRequired: false,
+                swapReason: "Could not extract project ID",
+                currentUsername,
+            };
+        }
+
+        // Fetch remote metadata once
+        const remoteMetadata = await fetchRemoteMetadata(projectId, !bypassCache);
+        if (!remoteMetadata) {
+            debug("Could not fetch remote metadata, skipping remote checks");
+            return {
+                updateRequired: false,
+                updateReason: "Could not fetch remote metadata",
+                swapRequired: false,
+                swapReason: "Could not fetch remote metadata",
+                currentUsername,
+            };
+        }
+
+        // Update check
+        let updateRequired = false;
+        let updateReason = "User not in updating list";
+
+        if (currentUsername) {
+            const rawList = remoteMetadata.meta?.initiateRemoteUpdatingFor || [];
+            const updatingList = rawList.map(entry => normalizeUpdateEntry(entry));
+            updateRequired = updatingList.some((entry) =>
+                entry.userToUpdate === currentUsername && !entry.executed && !isCancelled(entry)
+            );
+            if (updateRequired) {
+                updateReason = "User in remote updating list";
+            }
+        } else {
+            updateReason = "No current username";
+        }
+
+        // Swap check
+        const swapInfo = remoteMetadata.meta?.projectSwap as RemoteProjectRequirementsResult["swapInfo"] | undefined;
+        let { required: swapRequired, reason: swapReason } = evaluateSwapRequirement(swapInfo, currentUsername);
+
+        if (swapRequired && swapInfo?.newProjectUrl && currentUsername) {
+            const alreadySwapped = await hasUserSwappedInNewProject(swapInfo, currentUsername);
+            if (alreadySwapped) {
+                swapRequired = false;
+                swapReason = "User already swapped to new project";
+            }
+        }
+
+        return {
+            updateRequired,
+            updateReason,
+            swapRequired,
+            swapReason,
+            swapInfo,
+            currentUsername,
+        };
+    } catch (error) {
+        debug("Error checking remote project requirements:", error);
+        return {
+            updateRequired: false,
+            updateReason: `Error: ${error}`,
+            swapRequired: false,
+            swapReason: `Error: ${error}`,
+        };
+    }
+}
+
+function evaluateSwapRequirement(
+    swapInfo: RemoteProjectRequirementsResult["swapInfo"],
+    currentUsername?: string | null
+): { required: boolean; reason: string } {
+    if (!swapInfo) {
+        return { required: false, reason: "No swap configured" };
+    }
+
+    if (!swapInfo.isOldProject) {
+        return { required: false, reason: "Not an old project" };
+    }
+
+    if (swapInfo.swapStatus === "pending") {
+        return { required: true, reason: "Project has been migrated to a new repository" };
+    }
+
+    if (swapInfo.swapStatus === "migrating" || swapInfo.swapStatus === "failed") {
+        return {
+            required: true,
+            reason: swapInfo.swapStatus === "migrating" ? "Migration in progress" : "Migration failed - needs retry",
+        };
+    }
+
+    if (swapInfo.swapStatus === "completed" && currentUsername) {
+        const entries = (swapInfo.swappedUsers || []).map(entry => normalizeSwapUserEntry(entry));
+        const hasCompleted = entries.some(
+            (entry) => entry.userToUpdate === currentUsername && entry.executed
+        );
+        if (!hasCompleted) {
+            return { required: true, reason: "Project migrated; user not swapped yet" };
+        }
+    }
+
+    return { required: false, reason: "Swap already completed or not applicable" };
+}
+
+async function hasUserSwappedInNewProject(
+    swapInfo: ProjectSwapInfo,
+    currentUsername: string
+): Promise<boolean> {
+    const projectId = extractProjectIdFromUrl(swapInfo.newProjectUrl);
+    if (!projectId) {
+        return false;
+    }
+
+    const remoteMetadata = await fetchRemoteMetadata(projectId, false);
+    const newSwapInfo = remoteMetadata?.meta?.projectSwap;
+    const entries = (newSwapInfo?.swappedUsers || []).map((entry: ProjectSwapUserEntry) =>
+        normalizeSwapUserEntry(entry)
+    );
+    return entries.some(
+        (entry) => entry.userToUpdate === currentUsername && entry.executed
+    );
 }
 
 /**

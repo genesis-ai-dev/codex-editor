@@ -312,6 +312,10 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         const isLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned"].includes(project.syncStatus);
         const isRemote = project.syncStatus === "cloudOnlyNotSynced";
         const hasPendingUpdate = project.pendingUpdate?.required;
+        const isSwapPending =
+            !!project.projectSwap &&
+            project.projectSwap.isOldProject &&
+            project.projectSwap.swapStatus === "pending";
 
         if (isLocal) {
             return (
@@ -321,7 +325,12 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                            if (project.syncStatus === "orphaned") {
+                            if (isSwapPending) {
+                                vscode.postMessage({
+                                    command: "project.performSwap",
+                                    projectPath: project.path,
+                                });
+                            } else if (project.syncStatus === "orphaned") {
                                 vscode.postMessage({
                                     command: "project.fixAndOpen",
                                     projectPath: project.path,
@@ -351,6 +360,11 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                             <>
                                 <i className="codicon codicon-sync mr-1" />
                                 Update
+                            </>
+                        ) : isSwapPending ? (
+                            <>
+                                <i className="codicon codicon-arrow-swap mr-1" />
+                                Swap Project
                             </>
                         ) : project.syncStatus === "orphaned" ? (
                             <>
@@ -413,6 +427,13 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         const isUpdateRequired = project.pendingUpdate?.required;
 
         const isApplyingForThisProject = isChangingStrategy;
+        const swapNewName =
+            project.projectSwap &&
+            project.projectSwap.isOldProject &&
+            project.projectSwap.swapStatus === "pending"
+                ? project.projectSwap.newProjectName || project.projectSwap.newProjectUrl
+                : undefined;
+
         return (
             <div
                 key={`${project.name}-${project.gitOriginUrl || "no-url"}`}
@@ -420,7 +441,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                     "flex items-center justify-between py-2 px-3 transition-colors duration-200 border-b last:border-b-0",
                     !isApplyingForThisProject && "hover:bg-muted/30",
                     isNewlyAdded && "bg-blue-50/50",
-                    isStatusChanged && "bg-green-50/50"
+                            isStatusChanged && "bg-green-50/50",
+                            disableControls && "opacity-50 pointer-events-none"
                 )}
             >
                 <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -436,9 +458,16 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         />
                     </div>
                     <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <span className="font-normal truncate transition-colors duration-200 text-sm">
-                            {project.name || cleanName}
-                        </span>
+                        <div className="flex flex-col min-w-0">
+                            <span className="font-normal truncate transition-colors duration-200 text-sm">
+                                {project.name || cleanName}
+                            </span>
+                            {swapNewName && (
+                                <span className="text-xs text-muted-foreground truncate">
+                                    New project: {swapNewName}
+                                </span>
+                            )}
+                        </div>
                         {isUnpublished && (
                             <Badge variant="outline" className="text-xs px-1 py-0">
                                 Unsynced

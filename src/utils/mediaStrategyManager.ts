@@ -12,7 +12,9 @@ import {
     findAllPointerFiles,
     replaceFileWithPointer,
     isPointerFile,
+    parsePointerContent,
 } from "./lfsHelpers";
+import { setCachedLfsBytes } from "./mediaCache";
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[MediaStrategyManager]", ...args) : () => { };
@@ -51,11 +53,30 @@ export async function replaceSpecificFilesWithPointers(projectPath: string, uplo
                 relPath = filepath.split(".project\\attachments\\pointers\\")[1];
             }
 
-            if (relPath) {
-                const success = await replaceFileWithPointer(projectPath, relPath);
-                if (success) {
-                    replacedCount++;
+            if (!relPath) continue;
+
+            try {
+                const pointerPath = path.join(projectPath, ".project", "attachments", "pointers", relPath);
+                const filesPath = path.join(projectPath, ".project", "attachments", "files", relPath);
+
+                // If files/ has real bytes, cache them in-memory before replacement
+                const filesIsPointer = await isPointerFile(filesPath).catch(() => false);
+                if (!filesIsPointer) {
+                    const pointerContent = await vscode.workspace.fs.readFile(vscode.Uri.file(pointerPath));
+                    const pointerText = Buffer.from(pointerContent).toString("utf8");
+                    const pointerInfo = parsePointerContent(pointerText);
+                    if (pointerInfo?.oid) {
+                        const fileBytes = await vscode.workspace.fs.readFile(vscode.Uri.file(filesPath));
+                        setCachedLfsBytes(pointerInfo.oid, fileBytes);
+                    }
                 }
+            } catch {
+                // Best-effort cache; continue to pointer replacement
+            }
+
+            const success = await replaceFileWithPointer(projectPath, relPath);
+            if (success) {
+                replacedCount++;
             }
         }
 
@@ -679,9 +700,18 @@ export async function postSyncCleanup(projectUri: vscode.Uri, uploadedFiles?: st
             return;
         }
 
-        // Skip if no files were uploaded - nothing to clean up
+        // If no files were reported as uploaded, fall back to a pointer scan
         if (!uploadedFiles || uploadedFiles.length === 0) {
-            debug("No files uploaded during sync, skipping post-sync cleanup");
+            debug("No files uploaded during sync, scanning pointers for cleanup");
+            const pointersDir = path.join(projectUri.fsPath, ".project", "attachments", "pointers");
+            const pointerRelPaths = await findAllPointerFiles(pointersDir);
+            if (pointerRelPaths.length === 0) {
+                return;
+            }
+            const pointerPaths = pointerRelPaths.map((relPath) =>
+                path.join(".project", "attachments", "pointers", relPath)
+            );
+            await replaceSpecificFilesWithPointers(projectUri.fsPath, pointerPaths);
             return;
         }
 

@@ -1009,6 +1009,17 @@ async function executeCommandsAfter(
             const { ensureGitDisabledInSettings } = await import("./projectManager/utils/projectUtils");
             await ensureGitDisabledInSettings();
             debug("✅ [PRE-SYNC] Disabled VS Code Git before sync operations");
+
+            // Auto-fix metadata structure (scope, name) on startup
+            try {
+                const { validateAndFixProjectMetadata } = await import("./projectManager/utils/projectUtils");
+                if (vscode.workspace.workspaceFolders?.[0]) {
+                    await validateAndFixProjectMetadata(vscode.workspace.workspaceFolders[0].uri);
+                    debug("✅ [PRE-SYNC] Validated and fixed project metadata structure");
+                }
+            } catch (e) {
+                console.error("Error validating metadata on startup:", e);
+            }
         }
         if (!hasCodexProject) {
             debug("⏭️ [POST-WORKSPACE] No Codex project open, skipping post-workspace sync");

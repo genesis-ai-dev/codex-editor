@@ -128,7 +128,7 @@ export class SyncManager {
         this.updateFromConfiguration();
         // Subscribe to Frontier sync events
         this.subscribeFrontierSyncEvents();
-        
+
         // Start monitoring for updating requirements
         this.startUpdatingMonitor();
     }
@@ -138,7 +138,7 @@ export class SyncManager {
         if (this.updatingCheckInterval) {
             clearInterval(this.updatingCheckInterval);
         }
-        
+
         // Check periodically (every hour) if updating is required
         // This handles cases where the user is constantly working (resetting sync timer)
         // or leaving the editor open without syncing
@@ -157,7 +157,7 @@ export class SyncManager {
             // Check if updating is required
             // We force bypass cache to ensure we get the latest state from server
             const result = await checkRemoteUpdatingRequired(projectPath, undefined, true);
-            
+
             if (result.required) {
                 debug("Updating required for user, blocking sync and notifying");
 
@@ -167,20 +167,20 @@ export class SyncManager {
                 } catch (e) {
                     console.warn("Failed to persist pending update flag:", e);
                 }
-                
+
                 // Show modal dialog that cannot be missed (even if notifications are disabled)
                 const selection = await vscode.window.showWarningMessage(
                     "Project Update Required\n\nA project administrator has initiated an update. Syncing has been disabled until you update.\n\nThe project must be closed to complete the update.",
                     { modal: true },  // Modal dialog - appears in center, cannot be missed
                     "Update Project"
                 );
-                
+
                 // Close and update if user chooses to, otherwise abort and return to project
                 if (selection === "Update Project") {
                     await vscode.commands.executeCommand("workbench.action.closeFolder");
                 }
                 // If user clicks Cancel (default button) or Escape, selection will be undefined - stay in project
-                
+
                 return true;
             }
         } catch (error) {
@@ -194,7 +194,7 @@ export class SyncManager {
         try {
             const { checkProjectSwapRequired } = await import("../utils/projectSwapManager");
             const result = await checkProjectSwapRequired(projectPath);
-            
+
             if (result.required && result.swapInfo) {
                 debug("Project swap required for user, blocking sync and notifying");
 
@@ -210,15 +210,14 @@ export class SyncManager {
                     `Syncing has been disabled until you migrate.\n\n` +
                     `Your local changes will be preserved and backed up.`,
                     { modal: true },
-                    "Migrate Now",
-                    "Not Now"
+                    "Migrate Now"
                 );
-                
+
                 if (selection === "Migrate Now") {
                     // Close folder - StartupFlowProvider will handle the migration on next open
                     await vscode.commands.executeCommand("workbench.action.closeFolder");
                 }
-                
+
                 return true;
             }
         } catch (error) {
@@ -509,9 +508,10 @@ export class SyncManager {
             return;
         }
 
+        const projectPath = hasWorkspace ? vscode.workspace.workspaceFolders![0].uri.fsPath : undefined;
+
         // Check for updating requirement before proceeding (unless explicitly bypassed)
-        if (hasWorkspace && !bypassUpdatingCheck) {
-            const projectPath = vscode.workspace.workspaceFolders![0].uri.fsPath;
+        if (projectPath && !bypassUpdatingCheck) {
             const isUpdatingRequired = await this.checkUpdating(projectPath);
             if (isUpdatingRequired) {
                 debug("Sync blocked due to updating requirement");
@@ -519,9 +519,8 @@ export class SyncManager {
             }
         }
 
-        // Check for project swap requirement before proceeding
-        if (hasWorkspace && !bypassUpdatingCheck) {
-            const projectPath = vscode.workspace.workspaceFolders![0].uri.fsPath;
+        // Check for project swap requirement before proceeding (only when not bypassing)
+        if (projectPath && !bypassUpdatingCheck) {
             const isSwapRequired = await this.checkProjectSwap(projectPath);
             if (isSwapRequired) {
                 debug("Sync blocked due to project swap requirement");
@@ -1357,7 +1356,7 @@ export function registerSyncCommands(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "codex-editor-extension.triggerSync",
-            async (message?: string, options?: { bypassUpdatingCheck?: boolean }) => {
+            async (message?: string, options?: { bypassUpdatingCheck?: boolean; }) => {
                 await syncManager.executeSync(
                     message || "Manual sync triggered",
                     true,

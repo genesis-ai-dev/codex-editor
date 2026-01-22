@@ -5,6 +5,9 @@ import {
     ProjectWithSyncStatus,
     LocalProject,
     ProjectManagerMessageFromWebview,
+    ProjectMetadata,
+    ProjectSwapInfo,
+    MediaFilesStrategy,
 } from "../../../types";
 import * as vscode from "vscode";
 import { PreflightCheck, PreflightState } from "./preflight";
@@ -20,6 +23,7 @@ import { generateProjectId, sanitizeProjectName, extractProjectIdFromFolderName 
 import { getAuthApi } from "../../extension";
 import { MetadataManager } from "../../utils/metadataManager";
 import { createMachine, assign, createActor } from "xstate";
+import { performProjectSwap } from "./performProjectSwap";
 import { getCodexProjectsDirectory } from "../../utils/projectLocationUtils";
 import JSZip from "jszip";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
@@ -1192,19 +1196,61 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     debugLog("Failed to normalize backup path for open", e);
                 }
 
+                // If this project has been deprecated (old side of a swap), prompt twice before proceeding
+                try {
+                    const metaResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(vscode.Uri.file(projectPath));
+                    const swapInfo = metaResult.success
+                        ? (metaResult.metadata?.meta?.projectSwap as ProjectSwapInfo | undefined)
+                        : undefined;
+
+                    if (swapInfo?.isOldProject) {
+                        const displayName = path.basename(projectPath);
+                        const recommended = swapInfo.newProjectName || swapInfo.newProjectUrl;
+
+                        const firstPrompt = await vscode.window.showWarningMessage(
+                            [
+                                "This project has been deprecated.",
+                                "",
+                                recommended ? `Recommended project: ${recommended}` : undefined,
+                                "",
+                                `Do you still want to open "${displayName}"?`,
+                            ]
+                                .filter((part) => part !== undefined)
+                                .join("\n"),
+                            { modal: true },
+                            "Open Deprecated Project"
+                        );
+                        if (firstPrompt !== "Open Deprecated Project") {
+                            return;
+                        }
+                    }
+                } catch (deprecatedCheckError) {
+                    debugLog("Deprecated project open confirmation failed", deprecatedCheckError);
+                }
+
                 try {
                     // Check if remote update is required before opening or if a local update is in-progress
                     let remoteUpdateWasPerformed = false;
                     let shouldHeal = false;
                     let updatingReason = "Remote requirement";
+                    let remoteProjectRequirements:
+                        | {
+                            updateRequired: boolean;
+                            updateReason?: string;
+                            swapRequired: boolean;
+                            swapReason?: string;
+                            swapInfo?: ProjectSwapInfo;
+                            currentUsername?: string | null;
+                        }
+                        | undefined;
                     try {
                         debugLog("Checking remote update requirement for project:", projectPath);
-                        const { checkRemoteUpdatingRequired } = await import("../../utils/remoteUpdatingManager");
+                        const { checkRemoteProjectRequirements } = await import("../../utils/remoteUpdatingManager");
                         // Pass true for bypassCache to ensure we verify connectivity before deciding to heal
-                        const updatingCheck = await checkRemoteUpdatingRequired(projectPath, undefined, true);
+                        remoteProjectRequirements = await checkRemoteProjectRequirements(projectPath, undefined, true);
 
-                        if (updatingCheck.required) {
-                            debugLog("Remote update required for user:", updatingCheck.currentUsername);
+                        if (remoteProjectRequirements.updateRequired) {
+                            debugLog("Remote update required for user:", remoteProjectRequirements.currentUsername);
                             try {
                                 await markPendingUpdateRequired(vscode.Uri.file(projectPath), "Remote requirement");
                             } catch (e) {
@@ -1274,7 +1320,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                         projectPath,
                                         origin.url,
                                         false, // Don't show success message yet
-                                        updatingCheck.currentUsername // Pass username for local flag
+                                        remoteProjectRequirements?.currentUsername || undefined // Pass username for local flag
                                     );
 
                                     // Update flags are now set INSIDE performProjectUpdate (before window reload)
@@ -1309,7 +1355,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 // non-fatal
                             }
                         } else {
-                            debugLog("No remote updating required:", updatingCheck.reason);
+                            debugLog("No remote updating required:", remoteProjectRequirements?.updateReason);
                         }
                     } catch (updatingCheckErr) {
                         // If updating was attempted and failed/cancelled, DO NOT open the project.
@@ -1340,50 +1386,151 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                     // Check if project swap is required before opening
                     let swapWasPerformed = false;
+                    let swappedProjectPath: string | undefined;
                     try {
                         debugLog("Checking project swap requirement for project:", projectPath);
+                        if (!remoteProjectRequirements) {
+                            const { checkRemoteProjectRequirements } = await import("../../utils/remoteUpdatingManager");
+                            remoteProjectRequirements = await checkRemoteProjectRequirements(projectPath, undefined, true);
+                        }
+
                         const { checkProjectSwapRequired } = await import("../../utils/projectSwapManager");
-                        const swapCheck = await checkProjectSwapRequired(projectPath);
+                        const localSwapCheck = await checkProjectSwapRequired(
+                            projectPath,
+                            remoteProjectRequirements?.currentUsername || undefined
+                        );
+                        const swapCheck: {
+                            required: boolean;
+                            swapInfo?: ProjectSwapInfo;
+                            userAlreadySwapped?: boolean;
+                        } = remoteProjectRequirements.swapRequired
+                            ? (localSwapCheck.userAlreadySwapped
+                                ? localSwapCheck
+                                : { required: true, swapInfo: remoteProjectRequirements.swapInfo })
+                            : localSwapCheck;
+
+                        if (swapCheck.userAlreadySwapped && swapCheck.swapInfo) {
+                            const swapInfo = swapCheck.swapInfo;
+                            const swapTargetLabel =
+                                swapInfo.newProjectName || swapInfo.newProjectUrl || "the new project";
+                            const alreadySwappedChoice = await vscode.window.showWarningMessage(
+                                `You have already swapped to ${swapTargetLabel}.\n\n` +
+                                "You can open this deprecated project, delete the local copy, or cancel.",
+                                { modal: true },
+                                "Open Project",
+                                "Delete Local Project"
+                            );
+
+                            if (alreadySwappedChoice === "Delete Local Project") {
+                                const projectName = projectPath.split(/[\\/]/).pop() || "project";
+                                await this.performProjectDeletion(projectPath, projectName);
+                                return;
+                            }
+
+                            if (alreadySwappedChoice !== "Open Project") {
+                                return;
+                            }
+                        }
+
+                        if (swapCheck.required && swapCheck.swapInfo && remoteProjectRequirements?.currentUsername) {
+                            try {
+                                const { extractProjectIdFromUrl, fetchRemoteMetadata, normalizeSwapUserEntry } = await import("../../utils/remoteUpdatingManager");
+                                const projectId = extractProjectIdFromUrl(swapCheck.swapInfo.newProjectUrl);
+                                if (projectId) {
+                                    const remoteMetadata = await fetchRemoteMetadata(projectId, false);
+                                    const remoteSwap = remoteMetadata?.meta?.projectSwap;
+                                    const entries = (remoteSwap?.swappedUsers || []).map((entry) =>
+                                        normalizeSwapUserEntry(entry)
+                                    );
+                                    const hasAlreadySwapped = entries.some(
+                                        (entry) =>
+                                            entry.userToUpdate === remoteProjectRequirements?.currentUsername &&
+                                            entry.executed
+                                    );
+                                    if (hasAlreadySwapped) {
+                                        const swapTargetLabel =
+                                            swapCheck.swapInfo.newProjectName ||
+                                            swapCheck.swapInfo.newProjectUrl ||
+                                            "the new project";
+                                        const alreadySwappedChoice = await vscode.window.showWarningMessage(
+                                            `You have already swapped to ${swapTargetLabel}.\n\n` +
+                                            "You can open this deprecated project, delete the local copy, or cancel.",
+                                            { modal: true },
+                                            "Open Project",
+                                            "Delete Local Project"
+                                        );
+
+                                        if (alreadySwappedChoice === "Delete Local Project") {
+                                            const projectName = projectPath.split(/[\\/]/).pop() || "project";
+                                            await this.performProjectDeletion(projectPath, projectName);
+                                            return;
+                                        }
+
+                                        if (alreadySwappedChoice !== "Open Project") {
+                                            return;
+                                        }
+                                    }
+                                }
+                            } catch (alreadySwappedCheckErr) {
+                                debugLog("Failed to verify swap completion from new project metadata:", alreadySwappedCheckErr);
+                            }
+                        }
 
                         if (swapCheck.required && swapCheck.swapInfo) {
                             debugLog("Project swap required for project");
-                            swapWasPerformed = true;
 
                             const swapInfo = swapCheck.swapInfo;
                             const newProjectName = swapInfo.newProjectName;
 
-                            // Show notification and perform swap
-                            await vscode.window.withProgress(
-                                {
-                                    location: vscode.ProgressLocation.Notification,
-                                    title: `Migrating to ${newProjectName}`,
-                                    cancellable: false,
-                                },
-                                async (progress) => {
-                                    progress.report({ message: "Starting migration..." });
+                            const swapDecision = await this.promptForProjectSwapAction(swapInfo);
+                            if (swapDecision === "cancel") {
+                                return;
+                            }
+                            if (swapDecision === "openDeprecated") {
+                                // Continue opening without swapping
+                            } else {
+                                swapWasPerformed = true;
 
-                                    const projectName = projectPath.split(/[\\/]/).pop() || "project";
+                                // Show notification and perform swap
+                                await vscode.window.withProgress(
+                                    {
+                                        location: vscode.ProgressLocation.Notification,
+                                        title: `Migrating to ${newProjectName}`,
+                                        cancellable: false,
+                                    },
+                                    async (progress) => {
+                                        progress.report({ message: "Starting migration..." });
 
-                                    // Import and perform swap
-                                    const { performProjectSwap } = await import("./performProjectSwap");
+                                        const projectName = projectPath.split(/[\\/]/).pop() || "project";
 
-                                    await performProjectSwap(
-                                        progress,
-                                        projectName,
-                                        projectPath,
-                                        swapInfo.newProjectUrl,
-                                        swapInfo.projectUUID
+                                        // Import and perform swap
+                                        const { performProjectSwap } = await import("./performProjectSwap");
+
+                                        swappedProjectPath = await performProjectSwap(
+                                            progress,
+                                            projectName,
+                                            projectPath,
+                                            swapInfo.newProjectUrl,
+                                            swapInfo.projectUUID
+                                        );
+
+                                        debugLog("Project swap completed successfully");
+                                        progress.report({ message: "Migration complete!" });
+                                    }
+                                );
+
+                                // Show success message
+                                vscode.window.showInformationMessage(
+                                    `✅ Project migrated to ${newProjectName}\n\nOpening new project...`
+                                );
+                                if (swappedProjectPath) {
+                                    await vscode.commands.executeCommand(
+                                        "vscode.openFolder",
+                                        vscode.Uri.file(swappedProjectPath)
                                     );
-
-                                    debugLog("Project swap completed successfully");
-                                    progress.report({ message: "Migration complete!" });
+                                    return; // Stop the old open flow
                                 }
-                            );
-
-                            // Show success message
-                            vscode.window.showInformationMessage(
-                                `✅ Project migrated to ${newProjectName}\n\nOpening new project...`
-                            );
+                            }
                         }
                     } catch (swapErr) {
                         debugLog("Project swap check/execution failed:", swapErr);
@@ -1792,6 +1939,49 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         }
     }
 
+    private async promptForProjectSwapAction(
+        swapInfo: ProjectSwapInfo
+    ): Promise<"swap" | "openDeprecated" | "cancel"> {
+        const confirm = await vscode.window.showWarningMessage(
+            `Swap project to "${swapInfo.newProjectName}"?\n\n` +
+            `This will:\n` +
+            `1. Backup your current project to archives\n` +
+            `2. Clone the new repository\n` +
+            `3. Merge your local work (.codex, .source, etc.)\n\n` +
+            `This process may take a few minutes.`,
+            { modal: true },
+            "Swap Project",
+            "Open Without Swapping"
+        );
+
+        if (confirm === "Swap Project") {
+            return "swap";
+        }
+
+        if (confirm === "Open Without Swapping") {
+            const deprecatedChoice = await vscode.window.showWarningMessage(
+                [
+                    "This project has been deprecated.",
+                    swapInfo.newProjectName
+                        ? `Recommended project: ${swapInfo.newProjectName}`
+                        : swapInfo.newProjectUrl
+                            ? `Recommended project: ${swapInfo.newProjectUrl}`
+                            : undefined,
+                    "",
+                    "Opening without swapping will keep you on the deprecated project.",
+                    "Do you still want to open it?",
+                ]
+                    .filter(Boolean)
+                    .join("\n"),
+                { modal: true },
+                "Open Deprecated Project"
+            );
+            return deprecatedChoice === "Open Deprecated Project" ? "openDeprecated" : "cancel";
+        }
+
+        return "cancel";
+    }
+
     private async handleMessage(
         message:
             | MessagesToStartupFlowProvider
@@ -2197,109 +2387,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
                 break;
             }
+            case "project.cloneDeprecated": {
+                await this.cloneProjectWithChecks(message.repoUrl, message.mediaStrategy, true);
+                break;
+            }
             case "project.clone": {
-                debugLog("Cloning repository", message.repoUrl);
-
-                // Extract project name from URL for progress tracking
-                const urlParts = message.repoUrl.split("/");
-                let projectName = urlParts[urlParts.length - 1];
-                if (projectName.endsWith(".git")) {
-                    projectName = projectName.slice(0, -4);
-                }
-
-                try {
-                    // Get the .codex-projects directory
-                    const codexProjectsDir = await getCodexProjectsDirectory();
-
-                    // Create a unique folder name if needed
-                    let projectDir = vscode.Uri.joinPath(codexProjectsDir, projectName);
-
-                    // Check if directory already exists
-                    try {
-                        await vscode.workspace.fs.stat(projectDir);
-                        // If we get here, the directory exists
-                        const timestamp = this.generateTimestamp();
-                        const newProjectName = `${projectName}-${timestamp}`;
-                        projectDir = vscode.Uri.joinPath(codexProjectsDir, newProjectName);
-                    } catch {
-                        // Directory doesn't exist, which is what we want
-                    }
-
-                    // Inform webview that cloning is starting
-                    try {
-                        this.safeSendMessage({
-                            command: "project.cloningInProgress",
-                            projectPath: projectDir.fsPath,
-                            gitOriginUrl: message.repoUrl,
-                            cloning: true,
-                        } as any);
-                    } catch (e) {
-                        // non-fatal
-                    }
-
-                    try {
-                        // Create project and .project directories before cloning
-                        // This ensures localProjectSettings.json can be written early
-                        try {
-                            const fs = await import("fs");
-                            const projectPath = projectDir.fsPath;
-                            const projectDotPath = path.join(projectPath, ".project");
-
-                            if (!fs.existsSync(projectPath)) {
-                                fs.mkdirSync(projectPath, { recursive: true });
-                            }
-                            if (!fs.existsSync(projectDotPath)) {
-                                fs.mkdirSync(projectDotPath, { recursive: true });
-                            }
-
-                            // Write localProjectSettings.json BEFORE cloning starts
-                            // This ensures it's one of the first files written (right after directories are created)
-                            if (message.mediaStrategy) {
-                                const { ensureLocalProjectSettingsExists } = await import("../../utils/localProjectSettings");
-                                await ensureLocalProjectSettingsExists(projectDir, {
-                                    currentMediaFilesStrategy: message.mediaStrategy,
-                                    lastMediaFileStrategyRun: message.mediaStrategy,
-                                    mediaFileStrategyApplyState: "applied",
-                                    autoDownloadAudioOnOpen: false,
-                                });
-                                debugLog(`Wrote localProjectSettings.json with strategy: ${message.mediaStrategy} BEFORE cloning`);
-                            }
-                        } catch (settingsErr) {
-                            debugLog("Failed to write localProjectSettings.json before clone:", settingsErr);
-                            // Non-fatal: continue with clone
-                        }
-
-                        // Clone to the .codex-projects directory and await completion
-                        await this.frontierApi?.cloneRepository(
-                            message.repoUrl,
-                            projectDir.fsPath,
-                            undefined,
-                            message.mediaStrategy
-                        );
-
-                    } finally {
-                        // Inform webview that cloning is complete
-                        try {
-                            this.safeSendMessage({
-                                command: "project.cloningInProgress",
-                                projectPath: projectDir.fsPath,
-                                gitOriginUrl: message.repoUrl,
-                                cloning: false,
-                            } as any);
-                        } catch (e) {
-                            // non-fatal
-                        }
-                    }
-                } catch (error) {
-                    console.error("Error preparing to clone repository:", error);
-                    this.frontierApi?.cloneRepository(
-                        message.repoUrl,
-                        undefined,
-                        undefined,
-                        message.mediaStrategy
-                    );
-                }
-
+                await this.cloneProjectWithChecks(message.repoUrl, message.mediaStrategy, false);
                 break;
             }
             case "project.delete": {
@@ -2885,20 +2978,20 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     const metadataContent = await vscode.workspace.fs.readFile(metadataPath);
                     const metadata = JSON.parse(metadataContent.toString());
                     const projectName = sanitizeProjectName(metadata.projectName || path.basename(projectPath));
-                    
+
                     const backupZipPath = vscode.Uri.joinPath(archivedProjectsDir, `${projectName}-git-backup-${Date.now()}.zip`);
-                    
+
                     await vscode.window.withProgress({
                         location: vscode.ProgressLocation.Notification,
                         title: "Fixing project...",
                         cancellable: false
                     }, async (progress) => {
                         progress.report({ message: "Backing up git history to archive..." });
-                        
+
                         // Use JSZip to zip the .git folder
                         const zip = new JSZip();
                         await this.addFilesToZip(gitPath, zip); // Zip the .git folder specifically
-                        
+
                         const content = await zip.generateAsync({ type: "nodebuffer" });
                         await vscode.workspace.fs.writeFile(backupZipPath, content);
 
@@ -2915,12 +3008,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // 5. Rename folder logic
                         const parentDir = path.dirname(projectPath);
                         const currentFolderName = path.basename(projectPath);
-                        
+
                         // If folder name contains the old ID, replace it. Otherwise append new ID.
                         let newFolderName = currentFolderName;
                         if (oldId && currentFolderName.includes(oldId)) {
                             newFolderName = currentFolderName.replace(oldId, newId);
-                            
+
                             // Ensure projectName is not empty even if we just replaced the ID in folder name
                             if (!metadata.projectName || metadata.projectName.trim() === "") {
                                 // Extract the name part without the ID
@@ -2932,7 +3025,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             // This ensures that if the user renamed the folder (e.g. fork), we keep that name
                             const cleanName = sanitizeProjectName(currentFolderName);
                             newFolderName = `${cleanName}-${newId}`;
-                            
+
                             // Also update the project name in metadata to match the folder name
                             // This prevents "reverting" to an old name stored in metadata
                             metadata.projectName = cleanName;
@@ -2940,28 +3033,201 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                         // Final safety check: if projectName is still empty, use the new folder name (minus ID)
                         if (!metadata.projectName || metadata.projectName.trim() === "") {
-                             metadata.projectName = newFolderName.replace(newId, "").replace(/-+$/, "").replace(/^-+/, "");
+                            metadata.projectName = newFolderName.replace(newId, "").replace(/-+$/, "").replace(/^-+/, "");
                         }
 
                         // Write updated metadata
                         await vscode.workspace.fs.writeFile(metadataPath, Buffer.from(JSON.stringify(metadata, null, 4)));
 
                         const newProjectPath = path.join(parentDir, newFolderName);
-                        
+
                         // Only rename if different
                         if (newProjectPath !== projectPath) {
                             await vscode.workspace.fs.rename(projectUri, vscode.Uri.file(newProjectPath));
                         }
 
-                        // 6. Open the project
-                        progress.report({ message: "Opening project..." });
+                        // 6. Pre-open fixes (metadata integrity, LFS structure, rebuild indexes)
                         const newProjectUri = vscode.Uri.file(newProjectPath);
+
+                        // Ensure metadata integrity before opening
+                        try {
+                            const { validateAndFixProjectMetadata } = await import("../../projectManager/utils/projectUtils");
+                            await validateAndFixProjectMetadata(newProjectUri);
+                        } catch (e) {
+                            console.error("Failed to validate metadata before open:", e);
+                        }
+
+                        // Ensure attachments structure exists (files + pointers)
+                        try {
+                            await this.ensureDirectoryExists(
+                                vscode.Uri.joinPath(newProjectUri, ".project", "attachments", "files")
+                            );
+                            await this.ensureDirectoryExists(
+                                vscode.Uri.joinPath(newProjectUri, ".project", "attachments", "pointers")
+                            );
+                        } catch (e) {
+                            console.error("Failed to ensure attachments structure:", e);
+                        }
+
+                        // Remove indexes.sqlite so it can be rebuilt
+                        try {
+                            const indexDbPath = vscode.Uri.joinPath(newProjectUri, ".project", "indexes.sqlite");
+                            await vscode.workspace.fs.delete(indexDbPath, { recursive: false, useTrash: false });
+                        } catch {
+                            // Missing index file is fine
+                        }
+
+                        // 7. Initialize git repository (fresh .git)
+                        progress.report({ message: "Initializing git repository..." });
+                        try {
+                            const git = await import("isomorphic-git");
+                            const fs = await import("fs");
+                            const { ensureGitConfigsAreUpToDate, ensureGitDisabledInSettings } = await import("../../projectManager/utils/projectUtils");
+
+                            await git.init({
+                                fs,
+                                dir: newProjectPath,
+                                defaultBranch: "main",
+                            });
+
+                            await ensureGitConfigsAreUpToDate();
+                            await ensureGitDisabledInSettings();
+
+                            await git.add({ fs, dir: newProjectPath, filepath: "metadata.json" });
+
+                            const gitignorePath = path.join(newProjectPath, ".gitignore");
+                            if (fs.existsSync(gitignorePath)) {
+                                await git.add({ fs, dir: newProjectPath, filepath: ".gitignore" });
+                            }
+
+                            const gitattributesPath = path.join(newProjectPath, ".gitattributes");
+                            if (fs.existsSync(gitattributesPath)) {
+                                await git.add({ fs, dir: newProjectPath, filepath: ".gitattributes" });
+                            }
+
+                            let authorName = "Codex User";
+                            let authorEmail = "user@example.com";
+                            try {
+                                const authApi = getAuthApi();
+                                const userInfo = await authApi?.getUserInfo();
+                                if (userInfo?.username) authorName = userInfo.username;
+                                if (userInfo?.email) authorEmail = userInfo.email;
+                            } catch {
+                                // Best effort
+                            }
+
+                            await git.commit({
+                                fs,
+                                dir: newProjectPath,
+                                message: "Initial commit",
+                                author: {
+                                    name: authorName,
+                                    email: authorEmail,
+                                },
+                            });
+                        } catch (e) {
+                            console.error("Failed to initialize git during fix & open:", e);
+                        }
+
+                        // 8. Open the project
+                        progress.report({ message: "Opening project..." });
                         await vscode.commands.executeCommand("vscode.openFolder", newProjectUri);
                     });
 
                 } catch (error) {
                     console.error("Error fixing project:", error);
                     vscode.window.showErrorMessage(`Failed to fix project: ${error instanceof Error ? error.message : String(error)}`);
+                }
+                break;
+            }
+            case "project.performSwap": {
+                const { projectPath } = message;
+                if (!projectPath) {
+                    vscode.window.showErrorMessage("No project path provided for swap.");
+                    return;
+                }
+
+                try {
+                    const projectUri = vscode.Uri.file(projectPath);
+                    const metadataResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(projectUri);
+
+                    if (!metadataResult.success || !metadataResult.metadata?.meta?.projectSwap) {
+                        vscode.window.showErrorMessage("Cannot perform swap: Project swap metadata missing.");
+                        return;
+                    }
+
+                    const swapInfo = metadataResult.metadata.meta.projectSwap;
+                    const projectName = metadataResult.metadata.projectName || path.basename(projectPath);
+
+                    try {
+                        const { extractProjectIdFromUrl, fetchRemoteMetadata, getCurrentUsername, normalizeSwapUserEntry } = await import("../../utils/remoteUpdatingManager");
+                        const projectId = extractProjectIdFromUrl(swapInfo.newProjectUrl);
+                        if (projectId) {
+                            const currentUsername = await getCurrentUsername();
+                            const remoteMetadata = await fetchRemoteMetadata(projectId, false);
+                            const remoteSwap = remoteMetadata?.meta?.projectSwap;
+                            const entries = (remoteSwap?.swappedUsers || []).map((entry) =>
+                                normalizeSwapUserEntry(entry)
+                            );
+                            const hasAlreadySwapped = currentUsername
+                                ? entries.some(
+                                    (entry) => entry.userToUpdate === currentUsername && entry.executed
+                                )
+                                : false;
+                            if (hasAlreadySwapped) {
+                                const swapTargetLabel =
+                                    swapInfo.newProjectName || swapInfo.newProjectUrl || "the new project";
+                                const alreadySwappedChoice = await vscode.window.showWarningMessage(
+                                    `You have already swapped to ${swapTargetLabel}.\n\n` +
+                                    "You can open this deprecated project, delete the local copy, or cancel.",
+                                    { modal: true },
+                                    "Open Project",
+                                    "Delete Local Project"
+                                );
+
+                                if (alreadySwappedChoice === "Delete Local Project") {
+                                    await this.performProjectDeletion(projectPath, projectName);
+                                    return;
+                                }
+
+                                if (alreadySwappedChoice !== "Open Project") {
+                                    return;
+                                }
+                            }
+                        }
+                    } catch {
+                        // non-fatal
+                    }
+
+                    const swapDecision = await this.promptForProjectSwapAction(swapInfo);
+                    if (swapDecision === "openDeprecated") {
+                        await vscode.commands.executeCommand("vscode.openFolder", projectUri);
+                        return;
+                    }
+                    if (swapDecision !== "swap") {
+                        return;
+                    }
+
+                    await vscode.window.withProgress({
+                        location: vscode.ProgressLocation.Notification,
+                        title: `Swapping project to "${swapInfo.newProjectName}"...`,
+                        cancellable: false
+                    }, async (progress) => {
+                        const newPath = await performProjectSwap(
+                            progress,
+                            projectName,
+                            projectPath,
+                            swapInfo.newProjectUrl,
+                            swapInfo.projectUUID
+                        );
+
+                        progress.report({ message: "Opening swapped project..." });
+                        await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(newPath));
+                    });
+
+                } catch (error) {
+                    console.error("Error performing project swap:", error);
+                    vscode.window.showErrorMessage(`Failed to swap project: ${error instanceof Error ? error.message : String(error)}`);
                 }
                 break;
             }
@@ -4286,7 +4552,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 if (!url) return "";
                 try {
                     let clean = url.trim();
-                    
+
                     // Handle standard URL format (http/https)
                     if (clean.startsWith('http')) {
                         const urlObj = new URL(clean);
@@ -4296,7 +4562,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         if (path.endsWith('/')) path = path.slice(0, -1);
                         return `${urlObj.host}${path}`.toLowerCase();
                     }
-                    
+
                     // Handle SSH/SCP format (git@domain:path)
                     if (clean.includes('@') && clean.includes(':')) {
                         const parts = clean.split('@');
@@ -4429,6 +4695,159 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         } catch (error) {
             console.warn("Error fetching progress data:", error);
             return undefined;
+        }
+    }
+
+    private async cloneProjectWithChecks(
+        repoUrl: string,
+        mediaStrategy?: MediaFilesStrategy,
+        skipDeprecatedPrompt: boolean = false
+    ): Promise<void> {
+        debugLog("Cloning repository", repoUrl);
+
+        // Extract project name from URL for progress tracking
+        const urlParts = repoUrl.split("/");
+        let projectName = urlParts[urlParts.length - 1];
+        if (projectName.endsWith(".git")) {
+            projectName = projectName.slice(0, -4);
+        }
+
+        let projectDir: vscode.Uri | undefined;
+
+        try {
+            // Check remote metadata to warn if this is the old/deprecated project
+            try {
+                const { extractProjectIdFromUrl, fetchRemoteMetadata } = await import("../../utils/remoteUpdatingManager");
+                const projectId = extractProjectIdFromUrl(repoUrl);
+                if (projectId) {
+                    const remoteMetadata = await fetchRemoteMetadata(projectId, false);
+                    const swapInfo = remoteMetadata?.meta?.projectSwap as ProjectSwapInfo | undefined;
+                    if (swapInfo?.isOldProject) {
+                        const deprecatedMessage = "This project has been deprecated.";
+
+                        this.safeSendMessage({
+                            command: "project.swapCloneWarning",
+                            repoUrl,
+                            isOldProject: true,
+                            newProjectName: swapInfo.newProjectName,
+                            message: deprecatedMessage,
+                        } as any);
+
+                        // If user has not explicitly confirmed (via banner button), stop here.
+                        if (!skipDeprecatedPrompt) {
+                            debugLog("Deprecated project clone blocked until user confirms via banner button");
+                            return;
+                        }
+                    } else {
+                        this.safeSendMessage({
+                            command: "project.swapCloneWarning",
+                            repoUrl,
+                            isOldProject: false,
+                            message: "",
+                        } as any);
+                    }
+                }
+            } catch (warningErr) {
+                debugLog("Failed to check remote metadata for swap warning:", warningErr);
+            }
+
+            // Get the .codex-projects directory
+            const codexProjectsDir = await getCodexProjectsDirectory();
+
+            // Create a unique folder name if needed
+            projectDir = vscode.Uri.joinPath(codexProjectsDir, projectName);
+
+            // Check if directory already exists
+            try {
+                await vscode.workspace.fs.stat(projectDir);
+                // If we get here, the directory exists
+                const timestamp = this.generateTimestamp();
+                const newProjectName = `${projectName}-${timestamp}`;
+                projectDir = vscode.Uri.joinPath(codexProjectsDir, newProjectName);
+            } catch {
+                // Directory doesn't exist, which is what we want
+            }
+
+            // Inform webview that cloning is starting
+            try {
+                this.safeSendMessage({
+                    command: "project.cloningInProgress",
+                    projectPath: projectDir.fsPath,
+                    gitOriginUrl: repoUrl,
+                    cloning: true,
+                } as any);
+            } catch (e) {
+                // non-fatal
+            }
+
+            try {
+                // Create project and .project directories before cloning
+                // This ensures localProjectSettings.json can be written early
+                try {
+                    const fs = await import("fs");
+                    const projectPath = projectDir.fsPath;
+                    const projectDotPath = path.join(projectPath, ".project");
+
+                    if (!fs.existsSync(projectPath)) {
+                        fs.mkdirSync(projectPath, { recursive: true });
+                    }
+                    if (!fs.existsSync(projectDotPath)) {
+                        fs.mkdirSync(projectDotPath, { recursive: true });
+                    }
+
+                    // Write localProjectSettings.json BEFORE cloning starts
+                    // This ensures it's one of the first files written (right after directories are created)
+                    if (mediaStrategy) {
+                        const { ensureLocalProjectSettingsExists } = await import("../../utils/localProjectSettings");
+                        await ensureLocalProjectSettingsExists(projectDir, {
+                            currentMediaFilesStrategy: mediaStrategy,
+                            lastMediaFileStrategyRun: mediaStrategy,
+                            mediaFileStrategyApplyState: "applied",
+                            autoDownloadAudioOnOpen: false,
+                        });
+                        debugLog(`Wrote localProjectSettings.json with strategy: ${mediaStrategy} BEFORE cloning`);
+                    }
+                } catch (settingsErr) {
+                    debugLog("Failed to write localProjectSettings.json before clone:", settingsErr);
+                    // Non-fatal: continue with clone
+                }
+
+                // Clone to the .codex-projects directory and await completion
+                await this.frontierApi?.cloneRepository(
+                    repoUrl,
+                    projectDir.fsPath,
+                    undefined,
+                    mediaStrategy
+                );
+
+            } finally {
+                // Inform webview that cloning is complete
+                try {
+                    this.safeSendMessage({
+                        command: "project.cloningInProgress",
+                        projectPath: projectDir.fsPath,
+                        gitOriginUrl: repoUrl,
+                        cloning: false,
+                    } as any);
+                } catch (e) {
+                    // non-fatal
+                }
+            }
+        } catch (error) {
+            console.error("Error preparing to clone repository:", error);
+            this.frontierApi?.cloneRepository(
+                repoUrl,
+                projectDir?.fsPath,
+                undefined,
+                mediaStrategy
+            );
+        }
+
+        // Refresh list after clone attempt
+        try {
+            await this.sendList(this.webviewPanel!);
+        } catch (refreshErr) {
+            debugLog("Failed to refresh project list after clone:", refreshErr);
         }
     }
 
