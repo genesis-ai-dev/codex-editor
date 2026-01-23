@@ -122,6 +122,8 @@ export class SyncManager {
     // Track active progress notification
     private activeProgressNotification: Promise<void> | undefined;
     private updatingCheckInterval: NodeJS.Timeout | null = null;
+    // Track if user has been notified about swap (keyed by swapInitiatedAt to allow new swap notifications)
+    private swapNotificationShownFor: number | null = null;
 
     private constructor() {
         // Initialize with configuration values
@@ -202,26 +204,36 @@ export class SyncManager {
             const result = await checkProjectSwapRequired(projectPath, undefined, true);
 
             if (result.required && result.activeEntry) {
-                debug("Project swap required for user, blocking sync and notifying");
+                debug("Project swap required for user, blocking sync");
 
                 const activeEntry = result.activeEntry;
-                const newProjectName = activeEntry.newProjectName;
+                const swapTimestamp = activeEntry.swapInitiatedAt;
 
-                // Show modal dialog that cannot be missed
-                const selection = await vscode.window.showWarningMessage(
-                    `📦 Project Swap Required\n\n` +
-                    `This project has been swapped to a new repository:\n${newProjectName}\n\n` +
-                    `Reason: ${activeEntry.swapReason || "Repository swap"}\n` +
-                    `Initiated by: ${activeEntry.swapInitiatedBy}\n\n` +
-                    `Syncing has been disabled until you swap.\n\n` +
-                    `Your local changes will be preserved and backed up.`,
-                    { modal: true },
-                    "Swap Now"
-                );
+                // Only show the dialog once per swap entry (prevents infinite popups)
+                // If user dismisses, we still block sync but don't show again until a new swap
+                if (this.swapNotificationShownFor !== swapTimestamp) {
+                    this.swapNotificationShownFor = swapTimestamp;
 
-                if (selection === "Swap Now") {
-                    // Close folder - StartupFlowProvider will handle the swap on next open
-                    await vscode.commands.executeCommand("workbench.action.closeFolder");
+                    const newProjectName = activeEntry.newProjectName;
+
+                    // Show modal dialog that cannot be missed
+                    const selection = await vscode.window.showWarningMessage(
+                        `📦 Project Swap Required\n\n` +
+                        `This project has been swapped to a new repository:\n${newProjectName}\n\n` +
+                        `Reason: ${activeEntry.swapReason || "Repository swap"}\n` +
+                        `Initiated by: ${activeEntry.swapInitiatedBy}\n\n` +
+                        `Syncing has been disabled until you swap.\n\n` +
+                        `Your local changes will be preserved and backed up.`,
+                        { modal: true },
+                        "Swap Now"
+                    );
+
+                    if (selection === "Swap Now") {
+                        // Close folder - StartupFlowProvider will handle the swap on next open
+                        await vscode.commands.executeCommand("workbench.action.closeFolder");
+                    }
+                } else {
+                    debug("Swap notification already shown for this swap entry, silently blocking sync");
                 }
 
                 return true;
