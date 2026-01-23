@@ -544,7 +544,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
             const handler = (event: MessageEvent) => {
                 const message = event.data;
-                
+
                 if (
                     message?.type === "providerSendsCellAudioTimestamps" &&
                     message.content?.cellId === cellId
@@ -702,7 +702,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 setContentBeingUpdated(rest as EditorCellContent);
             }
             const audioTs = contentBeingUpdated.cellAudioTimestamps;
-            if (audioTs && (typeof audioTs.startTime === "number" || typeof audioTs.endTime === "number")) {
+            if (
+                audioTs &&
+                (typeof audioTs.startTime === "number" || typeof audioTs.endTime === "number")
+            ) {
                 const messageContent: EditorPostMessages = {
                     command: "updateCellAudioTimestamps",
                     content: {
@@ -1736,7 +1739,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
         // Only clear if we have staged audio timestamps and they match the persisted values
         if (staged && persisted) {
-            const startMatch = (staged.startTime ?? undefined) === (persisted.startTime ?? undefined);
+            const startMatch =
+                (staged.startTime ?? undefined) === (persisted.startTime ?? undefined);
             const endMatch = (staged.endTime ?? undefined) === (persisted.endTime ?? undefined);
 
             if (startMatch && endMatch) {
@@ -2839,20 +2843,20 @@ const CellEditor: React.FC<CellEditorProps> = ({
     }, [mediaRecorder]);
 
     const currentAudioTimestampSlider = () => {
-        if (!audioBlob ||!audioDuration) {
+        if (!audioBlob || !audioDuration) {
             return null;
         }
-        
-        const currentStart = effectiveAudioTimestamps?.startTime ?? effectiveTimestamps?.startTime ?? 0;
-        const currentEnd = effectiveAudioTimestamps?.endTime ?? (currentStart && (currentStart + audioDuration)) ?? audioDuration;
+
+        const currentStart =
+            effectiveAudioTimestamps?.startTime ?? effectiveTimestamps?.startTime ?? 0;
+        const currentEnd =
+            effectiveAudioTimestamps?.endTime ??
+            (currentStart && currentStart + audioDuration) ??
+            audioDuration;
 
         // Calculate bounds: min = 0 or prevStartTime, max = audioDuration or nextEndTime
-        const audioMinBound =
-            typeof prevStartTime === "number" ? Math.max(0, prevStartTime) : 0;
-        const audioMaxBound =
-            typeof nextEndTime === "number"
-                ? nextEndTime
-                : audioDuration;
+        const audioMinBound = typeof prevStartTime === "number" ? Math.max(0, prevStartTime) : 0;
+        const audioMaxBound = typeof nextEndTime === "number" ? nextEndTime : audioDuration;
 
         // Initialize previous values ref if needed
         if (previousAudioTimestampValuesRef.current === null) {
@@ -2897,8 +2901,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         let newClampedEnd = prevEnd + offset;
 
                         // Clamp to bounds
-                        newClampedStart = Math.max(audioMinBound, Math.min(newClampedStart, audioMaxBound - prevDuration));
-                        newClampedEnd = Math.min(audioMaxBound, Math.max(newClampedEnd, audioMinBound + prevDuration));
+                        newClampedStart = Math.max(
+                            audioMinBound,
+                            Math.min(newClampedStart, audioMaxBound - prevDuration)
+                        );
+                        newClampedEnd = Math.min(
+                            audioMaxBound,
+                            Math.max(newClampedEnd, audioMinBound + prevDuration)
+                        );
 
                         // Ensure duration is maintained
                         if (newClampedEnd - newClampedStart !== prevDuration) {
@@ -2932,7 +2942,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         setUnsavedChanges(true);
                     }}
                 />
-                <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                <div className="flex justify-between text-xs text-muted-foreground mt-4">
                     <span>Min: {formatTime(audioMinBound)}</span>
                     <span>Max: {formatTime(audioMaxBound)}</span>
                 </div>
@@ -2988,10 +2998,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             setUnsavedChanges(true);
                         }}
                     />
-                    <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                        <span>Min: {formatTime(extendedMinBound)}</span>
-                        <span>Max: {formatTime(extendedMaxBound)}</span>
-                    </div>
                 </>
             );
         } else if (
@@ -3039,7 +3045,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             setUnsavedChanges(true);
                         }}
                     />
-                    <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                    <div className="flex justify-between text-xs text-muted-foreground mt-2">
                         <span>Min: {formatTime(Math.max(0, previousEndBound))}</span>
                         <span>Max: {formatTime(computedMaxBound)}</span>
                     </div>
@@ -3048,6 +3054,50 @@ const CellEditor: React.FC<CellEditorProps> = ({
         } else {
             return null;
         }
+    };
+
+    const effectiveDuration = (nextEndTime ?? 0) - (prevStartTime ?? 0);
+
+    const previousTimestampWidth = () => {
+        const prevAudioDuration = (prevEndTime ?? 0) - (prevStartTime ?? 0);
+
+        if (prevAudioDuration > effectiveDuration) {
+            return 100;
+        }
+
+        return (prevAudioDuration / (extendedMaxBound - extendedMinBound)) * 100;
+    };
+
+    const previousAudioTimestampWidth = () => {
+        const prevAudioDuration =
+            (prevAudioTimestamps?.endTime ?? 0) - (prevAudioTimestamps?.startTime ?? 0);
+
+        if (prevAudioDuration > effectiveDuration) {
+            return 100;
+        }
+
+        return (prevAudioDuration / effectiveDuration) * 100;
+    };
+
+    const nextTimestampWidth = () => {
+        const nextAudioDuration = (nextEndTime ?? 0) - (nextStartTime ?? 0);
+
+        if (nextAudioDuration > effectiveDuration) {
+            return 100;
+        }
+
+        return (nextAudioDuration / (extendedMaxBound - extendedMinBound)) * 100;
+    };
+
+    const nextAudioTimestampWidth = () => {
+        const nextAudioDuration =
+            (nextAudioTimestamps?.endTime ?? 0) - (nextAudioTimestamps?.startTime ?? 0);
+
+        if (nextAudioDuration > effectiveDuration) {
+            return 100;
+        }
+
+        return (nextAudioDuration / effectiveDuration) * 100;
     };
 
     return (
@@ -3712,33 +3762,47 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                     {activeTab === "timestamps" && (
                         <TabsContent value="timestamps">
-                            <div className="content-section space-y-4 p-6">
-                                <h3 className="text-lg font-medium">Timestamps</h3>
+                            <div
+                                className={cn(
+                                    "content-section",
+                                    isSubtitlesType ? "px-7 py-4 space-y-4" : "p-4"
+                                )}
+                            >
+                                <div className="flex justify-between">
+                                    <h3 className="text-lg font-medium">Timestamps</h3>
+                                    {isSubtitlesType && (
+                                        <div className="flex flex-col items-end gap-2">
+                                            <div className="flex items-center gap-1">
+                                                <Languages className="w-4 h-4 text-muted-foreground/80" />
+                                                <span className="w-16 h-[4px] rounded-full bg-primary"></span>
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                                <MicrophoneIcon className="w-4 h-4 text-muted-foreground/80" />
+                                                <span className="w-16 h-[4px] rounded-full bg-[#ff9500]"></span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
 
                                 {effectiveTimestamps &&
                                 (effectiveTimestamps.startTime !== undefined ||
                                     effectiveTimestamps.endTime !== undefined) ? (
                                     <div className="space-y-4">
                                         {/* Scrubber with clamped handles */}
-                                        <div className="space-y-4 mt-1">
+                                        <div className="space-y-2 mt-1">
                                             {/* Previous cell slider - read-only */}
                                             {isSubtitlesType &&
                                                 typeof prevStartTime === "number" &&
                                                 typeof prevEndTime === "number" &&
                                                 prevStartTime < prevEndTime && (
-                                                    <div className="flex flex-col items-start space-y-1 w-full">
+                                                    <div className="flex flex-col space-y-1 w-full">
                                                         <label className="text-sm font-medium text-muted-foreground">
                                                             Previous cell range
                                                         </label>
                                                         <div
-                                                            className="flex items-center relative h-4"
+                                                            className="flex flex-col space-y-1 relative"
                                                             style={{
-                                                                width: `${
-                                                                    ((prevEndTime - prevStartTime) /
-                                                                        (extendedMaxBound -
-                                                                            extendedMinBound)) *
-                                                                    100
-                                                                }%`,
+                                                                width: `${previousTimestampWidth()}%`,
                                                             }}
                                                         >
                                                             <Slider
@@ -3749,9 +3813,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 step={0.001}
                                                                 className="opacity-60"
                                                             />
-                                                            <div className="absolute left-[100%] top-0 flex min-w-max ml-2 justify-end text-xs text-muted-foreground">
+                                                            <div className="flex min-w-max text-xs text-muted-foreground">
                                                                 <span>
-                                                                    {formatTime(prevEndTime)}
+                                                                    End: {formatTime(prevEndTime)}
                                                                 </span>
                                                             </div>
                                                         </div>
@@ -3764,20 +3828,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 prevAudioTimestamps &&
                                                 typeof prevAudioTimestamps.startTime === "number" &&
                                                 typeof prevAudioTimestamps.endTime === "number" &&
-                                                prevAudioTimestamps.startTime < prevAudioTimestamps.endTime && (
-                                                    <div className="flex flex-col items-start space-y-1 w-full">
-                                                        <label className="text-sm font-medium text-muted-foreground">
-                                                            Previous audio range
-                                                        </label>
+                                                prevAudioTimestamps.startTime <
+                                                    prevAudioTimestamps.endTime && (
+                                                    <div className="flex flex-col -mt-[0.25rem] w-full">
                                                         <div
-                                                            className="flex items-center relative h-4"
+                                                            className="flex flex-col space-y-1 relative"
                                                             style={{
-                                                                width: `${
-                                                                    ((prevAudioTimestamps.endTime -
-                                                                        prevAudioTimestamps.startTime) /
-                                                                        (audioDuration)) *
-                                                                    100
-                                                                }%`,
+                                                                width: `${previousAudioTimestampWidth()}%`,
                                                             }}
                                                         >
                                                             <Slider
@@ -3791,26 +3848,124 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 step={0.001}
                                                                 className="opacity-60 audio-timestamp-slider"
                                                             />
-                                                            <div className="absolute left-[100%] top-0 flex min-w-max ml-2 justify-end text-xs text-muted-foreground">
+                                                            <div className="flex min-w-max text-xs text-muted-foreground">
                                                                 <span>
-                                                                    {formatTime(prevAudioTimestamps.endTime)}
+                                                                    End:{" "}
+                                                                    {formatTime(
+                                                                        prevAudioTimestamps.endTime
+                                                                    )}
                                                                 </span>
                                                             </div>
                                                         </div>
                                                     </div>
                                                 )}
 
-                                            {/* Current cell slider */}
-                                            <div className="flex flex-col justify-center space-y-2 w-full">
-                                                {currentTimestampSlider()}
-                                            </div>
-
-                                            {/* Current audio slider */}
-                                            {audioBlob && audioDuration && (
-                                                <div className="flex flex-col justify-center space-y-2 w-full">
-                                                    {currentAudioTimestampSlider()}
+                                            <div
+                                                className={cn(
+                                                    "flex flex-col rounded-md",
+                                                    isSubtitlesType
+                                                        ? "-mx-[1rem] px-[1rem] border border-muted-foreground/30"
+                                                        : "mx-0 px-0"
+                                                )}
+                                            >
+                                                {isSubtitlesType && (
+                                                    <label className="text-sm font-medium text-muted-foreground mt-1">
+                                                        Current Cell Range
+                                                    </label>
+                                                )}
+                                                {/* Current cell slider */}
+                                                <div className="flex flex-col justify-center w-full mt-4">
+                                                    {currentTimestampSlider()}
                                                 </div>
-                                            )}
+
+                                                {/* Current audio slider */}
+                                                {audioBlob && audioDuration && isSubtitlesType && (
+                                                    <div className="flex flex-col justify-center space-y-1 mt-[1.5rem] mb-1 w-full">
+                                                        {currentAudioTimestampSlider()}
+                                                    </div>
+                                                )}
+                                                <div className="flex items-center my-2 rounded-lg">
+                                                    <div className="text-sm flex flex-col items-start gap-1 w-full">
+                                                        <div
+                                                            className={cn(
+                                                                "flex items-center gap-1 w-full",
+                                                                isSubtitlesType
+                                                                    ? "justify-between"
+                                                                    : "justify-end mt-4"
+                                                            )}
+                                                        >
+                                                            {isSubtitlesType ? (
+                                                                <div className="flex gap-1 items-center text-sm text-muted-foreground">
+                                                                    <Languages className="w-4 h-4 text-muted-foreground/80" />
+
+                                                                    {effectiveTimestamps.startTime !==
+                                                                        undefined &&
+                                                                    effectiveTimestamps.endTime !==
+                                                                        undefined &&
+                                                                    (effectiveTimestamps.endTime as number) >
+                                                                        (effectiveTimestamps.startTime as number)
+                                                                        ? `${formatTime(
+                                                                              effectiveTimestamps.startTime as number
+                                                                          )} → ${formatTime(
+                                                                              effectiveTimestamps.endTime as number
+                                                                          )}`
+                                                                        : ""}
+                                                                </div>
+                                                            ) : (
+                                                                <div className="text-sm text-muted-foreground">
+                                                                    Duration:
+                                                                </div>
+                                                            )}
+                                                            <div>
+                                                                {effectiveTimestamps.startTime !==
+                                                                    undefined &&
+                                                                effectiveTimestamps.endTime !==
+                                                                    undefined &&
+                                                                (effectiveTimestamps.endTime as number) >
+                                                                    (effectiveTimestamps.startTime as number)
+                                                                    ? `${(
+                                                                          (effectiveTimestamps.endTime as number) -
+                                                                          (effectiveTimestamps.startTime as number)
+                                                                      ).toFixed(3)}s`
+                                                                    : "Invalid duration"}
+                                                            </div>
+                                                        </div>
+                                                        {effectiveAudioTimestamps && (
+                                                            <div className="flex justify-between items-center gap-1 w-full">
+                                                                <div className="flex items-center gap-1">
+                                                                    <MicrophoneIcon className="w-4 h-4 text-muted-foreground/80" />
+
+                                                                    {effectiveAudioTimestamps.startTime !==
+                                                                        undefined &&
+                                                                    effectiveAudioTimestamps.endTime !==
+                                                                        undefined &&
+                                                                    (effectiveAudioTimestamps.endTime as number) >
+                                                                        (effectiveAudioTimestamps.startTime as number)
+                                                                        ? `${formatTime(
+                                                                              effectiveAudioTimestamps.startTime as number
+                                                                          )} → ${formatTime(
+                                                                              effectiveAudioTimestamps.endTime as number
+                                                                          )}`
+                                                                        : ""}
+                                                                </div>
+                                                                <div>
+                                                                    {effectiveAudioTimestamps.startTime !==
+                                                                        undefined &&
+                                                                    effectiveAudioTimestamps.endTime !==
+                                                                        undefined &&
+                                                                    (effectiveAudioTimestamps.endTime as number) >
+                                                                        (effectiveAudioTimestamps.startTime as number)
+                                                                        ? `${(
+                                                                              (effectiveAudioTimestamps.endTime as number) -
+                                                                              (effectiveAudioTimestamps.startTime as number)
+                                                                          ).toFixed(3)}s`
+                                                                        : "Invalid duration"}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
 
                                             {/* Next cell slider - read-only */}
                                             {isSubtitlesType &&
@@ -3822,21 +3977,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             Next cell range
                                                         </label>
                                                         <div
-                                                            className="flex items-center relative h-4"
+                                                            className="flex flex-col items-end space-y-1 relative"
                                                             style={{
-                                                                width: `${
-                                                                    ((nextEndTime - nextStartTime) /
-                                                                        (extendedMaxBound -
-                                                                            extendedMinBound)) *
-                                                                    100
-                                                                }%`,
+                                                                width: `${nextTimestampWidth()}%`,
                                                             }}
                                                         >
-                                                            <div className="absolute right-[100%] top-0 flex min-w-max mr-2 text-xs text-muted-foreground">
-                                                                <span>
-                                                                    {formatTime(nextStartTime)}
-                                                                </span>
-                                                            </div>
                                                             <Slider
                                                                 disabled
                                                                 min={Math.max(0, nextStartTime)}
@@ -3848,7 +3993,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 step={0.001}
                                                                 className="opacity-60"
                                                             />
-                                                            <Languages className="w-4 h-4 text-muted-foreground/80 ml-1" />
+                                                            <div className="flex min-w-max text-xs text-muted-foreground">
+                                                                <span>
+                                                                    Start:{" "}
+                                                                    {formatTime(nextStartTime)}
+                                                                </span>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 )}
@@ -3859,30 +4009,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 nextAudioTimestamps &&
                                                 typeof nextAudioTimestamps.startTime === "number" &&
                                                 typeof nextAudioTimestamps.endTime === "number" &&
-                                                nextAudioTimestamps.startTime < nextAudioTimestamps.endTime && (
-                                                    <div className="flex flex-col justify-end items-end space-y-1 w-full -mt-2">
+                                                nextAudioTimestamps.startTime <
+                                                    nextAudioTimestamps.endTime && (
+                                                    <div className="flex flex-col justify-end items-end -mt-[0.25rem] w-full">
                                                         <div
-                                                            className="flex items-center relative h-4"
+                                                            className="flex flex-col items-end space-y-1 relative"
                                                             style={{
-                                                                width: `${
-                                                                    ((nextAudioTimestamps.endTime -
-                                                                        nextAudioTimestamps.startTime) /
-                                                                        (audioDuration)) *
-                                                                    100
-                                                                }%`,
+                                                                width: `${nextAudioTimestampWidth()}%`,
                                                             }}
                                                         >
-                                                            <div className="absolute right-[100%] top-0 flex min-w-max mr-2 text-xs text-muted-foreground">
-                                                                <span>
-                                                                    {formatTime(nextAudioTimestamps.startTime)}
-                                                                </span>
-                                                            </div>
                                                             <Slider
                                                                 disabled
-                                                                min={Math.max(0, nextAudioTimestamps.startTime)}
+                                                                min={Math.max(
+                                                                    0,
+                                                                    nextAudioTimestamps.startTime
+                                                                )}
                                                                 max={Math.max(
                                                                     nextAudioTimestamps.endTime,
-                                                                    nextAudioTimestamps.startTime + 0.001
+                                                                    nextAudioTimestamps.startTime +
+                                                                        0.001
                                                                 )}
                                                                 value={[
                                                                     nextAudioTimestamps.startTime,
@@ -3891,37 +4036,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 step={0.001}
                                                                 className="opacity-60 audio-timestamp-slider"
                                                             />
-                                                            <MicrophoneIcon className="w-4 h-4 text-muted-foreground/80 ml-1" />
+                                                            <div className="flex min-w-max text-xs text-muted-foreground">
+                                                                <span>
+                                                                    {formatTime(
+                                                                        nextAudioTimestamps.startTime
+                                                                    )}
+                                                                </span>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 )}
-                                        </div>
-
-                                        <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                                            <div className="text-sm">
-                                                <span className="font-medium">Duration:</span>{" "}
-                                                {effectiveTimestamps.startTime !== undefined &&
-                                                effectiveTimestamps.endTime !== undefined &&
-                                                (effectiveTimestamps.endTime as number) >
-                                                    (effectiveTimestamps.startTime as number)
-                                                    ? `${(
-                                                          (effectiveTimestamps.endTime as number) -
-                                                          (effectiveTimestamps.startTime as number)
-                                                      ).toFixed(3)}s`
-                                                    : "Invalid duration"}
-                                            </div>
-                                            <div className="text-sm text-muted-foreground">
-                                                {effectiveTimestamps.startTime !== undefined &&
-                                                effectiveTimestamps.endTime !== undefined &&
-                                                (effectiveTimestamps.endTime as number) >
-                                                    (effectiveTimestamps.startTime as number)
-                                                    ? `(${formatTime(
-                                                          effectiveTimestamps.startTime as number
-                                                      )} → ${formatTime(
-                                                          effectiveTimestamps.endTime as number
-                                                      )})`
-                                                    : ""}
-                                            </div>
                                         </div>
 
                                         <div className="flex justify-between">
