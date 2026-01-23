@@ -1350,6 +1350,8 @@ export interface ProjectSwapUserEntry {
     createdAt: number;
     updatedAt: number;
     executed: boolean;
+    /** When this user completed their swap */
+    swapCompletedAt?: number;
 }
 
 /** @deprecated Use RemoteUpdatingEntry instead - kept for backward compatibility during migration */
@@ -1359,56 +1361,73 @@ export interface RemoteHealingEntry extends RemoteUpdatingEntry {
 }
 
 /**
+ * Individual swap entry - one per swap initiation
+ * Keyed by swapInitiatedAt timestamp (unique identifier)
+ */
+export interface ProjectSwapEntry {
+    /** Unique key - immutable once set, shared between OLD and NEW projects */
+    swapInitiatedAt: number;
+
+    /** Last modification timestamp */
+    swapModifiedAt: number;
+
+    /** Only active or cancelled - execution state lives in localProjectSettings.json */
+    swapStatus: "active" | "cancelled";
+
+    /** Target repository info (the NEW project URL) */
+    newProjectUrl: string;
+    newProjectName: string;
+
+    /** Who initiated and optional reason */
+    swapInitiatedBy: string;
+    swapReason?: string;
+
+    /** If cancelled, who cancelled it and when */
+    cancelledBy?: string;
+    cancelledAt?: number;
+
+    /** Users who completed this swap (moved to new project)
+     *  This array is merged across OLD and NEW projects during sync */
+    swappedUsers?: ProjectSwapUserEntry[];
+}
+
+/**
  * Project Swap - Swap entire team from old Git repository to new one with clean history
  * 
  * This allows instance administrators to move all users to a fresh repository while
  * preserving all working files (.codex, .source, uncommitted changes, etc.)
+ * 
+ * Structure supports history preservation: cancelling and re-initiating creates new entries
+ * in swapEntries array, preserving the history of all swap operations.
  */
 export interface ProjectSwapInfo {
-    /** Unique identifier shared across all versions of this logical project */
-    projectUUID: string;
+    /** Array of swap entries, keyed by swapInitiatedAt - supports history preservation */
+    swapEntries?: ProjectSwapEntry[];
 
-    /** True if this is the old (deprecated) project, false if this is the new (current) project */
+    /** TRUE = this is the OLD (source) project that triggers swaps
+     *  FALSE = this is the NEW (destination) project
+     *  Swap detection ONLY happens when isOldProject === true */
     isOldProject: boolean;
 
-    /** Git URL for the new (target) repository */
-    newProjectUrl: string;
-
-    /** Name of the new project (extracted from newProjectUrl) */
-    newProjectName: string;
-
-    /** Optional name of the old project (for warnings/display) */
+    /** For NEW project: URL of the old project it came from (reference) */
+    oldProjectUrl?: string;
     oldProjectName?: string;
 
-    /** Git URL for the old (source) repository - reference back when viewing from new project */
-    oldProjectUrl?: string;
+    /** Unique identifier shared across all versions of this logical project */
+    projectUUID?: string;
 
-    /** Username of instance admin who initiated the swap */
-    swapInitiatedBy: string;
+    // ============ CONVENIENCE FIELDS (computed from active entry) ============
+    // These are populated from the active swapEntry for easy access in webviews
+    // They are derived values, not stored in metadata.json
 
-    /** Unix timestamp when swap was initiated */
-    swapInitiatedAt: number;
+    /** URL of the new project (from active swap entry) - for display/filtering */
+    newProjectUrl?: string;
 
-    /** Optional reason for the swap (e.g., "Repository size reduction") */
-    swapReason?: string;
+    /** Name of the new project (from active swap entry) - for display */
+    newProjectName?: string;
 
-    /** Current status of the swap operation */
-    swapStatus: "pending" | "swapping" | "completed" | "failed" | "cancelled";
-
-    /** For chained swaps (Project A → B → C), tracks previous project URL */
-    previousProjectUrl?: string;
-
-    /** Unix timestamp when swap was completed */
-    swapCompletedAt?: number;
-
-    /** Error message if swap failed */
-    swapError?: string;
-
-    /** @deprecated Use newProjectName instead */
-    projectName?: string;
-
-    /** List of users who have successfully swapped to the new repository */
-    swappedUsers?: ProjectSwapUserEntry[];
+    /** Current swap status (from active swap entry) - "active" | "cancelled" */
+    swapStatus?: "active" | "cancelled";
 }
 
 /**

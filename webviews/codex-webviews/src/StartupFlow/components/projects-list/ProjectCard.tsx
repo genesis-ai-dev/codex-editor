@@ -315,7 +315,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         const isSwapPending =
             !!project.projectSwap &&
             project.projectSwap.isOldProject &&
-            project.projectSwap.swapStatus === "pending";
+            project.projectSwap?.swapStatus === "active";
 
         if (isLocal) {
             return (
@@ -430,7 +430,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         const swapNewName =
             project.projectSwap &&
             project.projectSwap.isOldProject &&
-            project.projectSwap.swapStatus === "pending"
+            project.projectSwap?.swapStatus === "active"
                 ? project.projectSwap.newProjectName || project.projectSwap.newProjectUrl
                 : undefined;
 

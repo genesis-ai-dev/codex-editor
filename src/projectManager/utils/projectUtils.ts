@@ -1267,13 +1267,18 @@ async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalPro
 
             const swapInfo = metadata.meta.projectSwap;
 
-            // Hide old projects that have completed swap
-            if (swapInfo.isOldProject && swapInfo.swapStatus === "completed") {
-                debug(`Hiding completed old project: ${project.name}`);
-                continue;
+            // Hide old projects that have no pending swap (all swaps cancelled or completed)
+            if (swapInfo.isOldProject) {
+                const { getActiveSwapEntry } = await import("../../utils/projectSwapManager");
+                const activeEntry = getActiveSwapEntry(swapInfo);
+                if (!activeEntry) {
+                    // No pending swap - old project can be hidden
+                    debug(`Hiding old project with no pending swap: ${project.name}`);
+                    continue;
+                }
             }
 
-            // Show old projects that are pending or failed (user needs to act)
+            // Show old projects that have a pending swap (user needs to act)
             // Show all new projects
             filtered.push(project);
 
@@ -1457,6 +1462,21 @@ async function processProjectDirectory(
             return null;
         }
 
+        // Populate convenience fields on projectSwap for webview access
+        let projectSwapWithConvenience = projectMetadata?.meta?.projectSwap;
+        if (projectSwapWithConvenience) {
+            const { getActiveSwapEntry, normalizeProjectSwapInfo } = await import("../../utils/projectSwapManager");
+            const normalized = normalizeProjectSwapInfo(projectSwapWithConvenience);
+            const activeEntry = getActiveSwapEntry(normalized);
+            projectSwapWithConvenience = {
+                ...normalized,
+                // Convenience fields from active entry for webview display
+                newProjectUrl: activeEntry?.newProjectUrl,
+                newProjectName: activeEntry?.newProjectName,
+                swapStatus: activeEntry?.swapStatus,
+            };
+        }
+
         return {
             name: nameResult,
             path: projectPath,
@@ -1470,7 +1490,7 @@ async function processProjectDirectory(
             description: "...",
             mediaStrategy: mediaStrategyResult,
             pendingUpdate: settingsResult?.pendingUpdate,
-            projectSwap: projectMetadata?.meta?.projectSwap,
+            projectSwap: projectSwapWithConvenience,
         };
     } catch (error) {
         debug(`Error processing project directory ${projectPath}:`, error);

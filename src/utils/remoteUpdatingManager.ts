@@ -3,7 +3,7 @@ import { getAuthApi } from "../extension";
 import { MetadataManager } from "./metadataManager";
 import * as git from "isomorphic-git";
 import * as fs from "fs";
-import { ProjectSwapInfo, ProjectSwapUserEntry } from "../../types";
+import { ProjectSwapInfo, ProjectSwapEntry, ProjectSwapUserEntry } from "../../types";
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[RemoteUpdating]", ...args) : () => { };
@@ -500,10 +500,11 @@ export async function checkRemoteProjectRequirements(
 
         // Swap check
         const swapInfo = remoteMetadata.meta?.projectSwap as RemoteProjectRequirementsResult["swapInfo"] | undefined;
-        let { required: swapRequired, reason: swapReason } = evaluateSwapRequirement(swapInfo, currentUsername);
+        let { required: swapRequired, reason: swapReason, activeEntry } = evaluateSwapRequirement(swapInfo, currentUsername);
 
-        if (swapRequired && swapInfo?.newProjectUrl && currentUsername) {
-            const alreadySwapped = await hasUserSwappedInNewProject(swapInfo, currentUsername);
+        // Check if user has already swapped to the new project
+        if (swapRequired && activeEntry?.newProjectUrl && currentUsername && swapInfo) {
+            const alreadySwapped = await hasUserSwappedInNewProject(swapInfo, currentUsername, activeEntry);
             if (alreadySwapped) {
                 swapRequired = false;
                 swapReason = "User already swapped to new project";
@@ -532,7 +533,7 @@ export async function checkRemoteProjectRequirements(
 function evaluateSwapRequirement(
     swapInfo: RemoteProjectRequirementsResult["swapInfo"],
     currentUsername?: string | null
-): { required: boolean; reason: string; } {
+): { required: boolean; reason: string; activeEntry?: ProjectSwapEntry; } {
     if (!swapInfo) {
         return { required: false, reason: "No swap configured" };
     }
@@ -541,47 +542,61 @@ function evaluateSwapRequirement(
         return { required: false, reason: "Not an old project" };
     }
 
-    if (swapInfo.swapStatus === "pending") {
-        return { required: true, reason: "Project has been swapped to a new repository" };
-    }
+    // Import normalize helpers dynamically to avoid circular deps
+    const { normalizeProjectSwapInfo, getActiveSwapEntry } = require("./projectSwapManager");
+    const normalizedSwap = normalizeProjectSwapInfo(swapInfo);
+    const activeEntry = getActiveSwapEntry(normalizedSwap);
 
-    if (swapInfo.swapStatus === "swapping" || swapInfo.swapStatus === "failed") {
+    // Check for active (pending) swap entry
+    if (activeEntry) {
         return {
             required: true,
-            reason: swapInfo.swapStatus === "swapping" ? "Swap in progress" : "Swap failed - needs retry",
+            reason: "Project has been swapped to a new repository",
+            activeEntry,
         };
     }
 
-    if (swapInfo.swapStatus === "completed" && currentUsername) {
-        const entries = (swapInfo.swappedUsers || []).map(entry => normalizeSwapUserEntry(entry));
-        const hasCompleted = entries.some(
-            (entry) => entry.userToSwap === currentUsername && entry.executed
-        );
-        if (!hasCompleted) {
-            return { required: true, reason: "Project swapped; user not swapped yet" };
-        }
-    }
-
-    return { required: false, reason: "Swap already completed or not applicable" };
+    // No active swap entry found
+    return { required: false, reason: "No pending swap or swap already completed" };
 }
 
 async function hasUserSwappedInNewProject(
     swapInfo: ProjectSwapInfo,
-    currentUsername: string
+    currentUsername: string,
+    activeEntry: ProjectSwapEntry
 ): Promise<boolean> {
-    const projectId = extractProjectIdFromUrl(swapInfo.newProjectUrl);
+    const newProjectUrl = activeEntry.newProjectUrl;
+    if (!newProjectUrl) {
+        return false;
+    }
+
+    const projectId = extractProjectIdFromUrl(newProjectUrl);
     if (!projectId) {
         return false;
     }
 
     const remoteMetadata = await fetchRemoteMetadata(projectId, false);
     const newSwapInfo = remoteMetadata?.meta?.projectSwap;
-    const entries = (newSwapInfo?.swappedUsers || []).map((entry: ProjectSwapUserEntry) =>
-        normalizeSwapUserEntry(entry)
-    );
-    return entries.some(
-        (entry) => entry.userToSwap === currentUsername && entry.executed
-    );
+    if (!newSwapInfo) {
+        return false;
+    }
+
+    // Import normalize helpers dynamically
+    const { normalizeProjectSwapInfo, findSwapEntryByTimestamp } = require("./projectSwapManager");
+    const normalizedNewSwap = normalizeProjectSwapInfo(newSwapInfo);
+
+    // Find the matching entry in the new project by swapInitiatedAt
+    const matchingEntry = findSwapEntryByTimestamp(normalizedNewSwap, activeEntry.swapInitiatedAt);
+    if (matchingEntry?.swappedUsers) {
+        const normalizedEntries = matchingEntry.swappedUsers.map((entry: ProjectSwapUserEntry) =>
+            normalizeSwapUserEntry(entry)
+        ) as ProjectSwapUserEntry[];
+        return normalizedEntries.some(
+            (entry: ProjectSwapUserEntry) => entry.userToSwap === currentUsername && entry.executed
+        );
+    }
+
+    return false;
 }
 
 /**

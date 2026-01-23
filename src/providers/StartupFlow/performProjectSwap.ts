@@ -4,9 +4,9 @@ import * as fs from "fs";
 import * as os from "os";
 // @ts-expect-error - archiver types may not be available
 import archiver from "archiver";
-import { ProjectMetadata, LocalProjectSwap, ProjectSwapInfo } from "../../../types";
+import { ProjectMetadata, LocalProjectSwap, ProjectSwapInfo, ProjectSwapEntry, ProjectSwapUserEntry } from "../../../types";
 import { MetadataManager } from "../../utils/metadataManager";
-import { extractProjectNameFromUrl, getGitOriginUrl } from "../../utils/projectSwapManager";
+import { extractProjectNameFromUrl, getGitOriginUrl, normalizeProjectSwapInfo, findSwapEntryByTimestamp } from "../../utils/projectSwapManager";
 import { validateAndFixProjectMetadata } from "../../projectManager/utils/projectUtils";
 import { readLocalProjectSettings, writeLocalProjectSettings } from "../../utils/localProjectSettings";
 import { getCodexProjectsDirectory } from "../../utils/projectLocationUtils";
@@ -25,6 +25,7 @@ const debugLog = DEBUG ? (...args: any[]) => console.log("[ProjectSwap]", ...arg
  * @param oldProjectPath - Path to the old project
  * @param newProjectUrl - Git URL of the new project
  * @param swapUUID - UUID tracking this swap
+ * @param swapInitiatedAt - Timestamp from OLD project's active entry (for matching entries in NEW project)
  * @returns Promise resolving to new project path
  */
 export async function performProjectSwap(
@@ -32,9 +33,10 @@ export async function performProjectSwap(
     projectName: string,
     oldProjectPath: string,
     newProjectUrl: string,
-    swapUUID: string
+    swapUUID: string,
+    swapInitiatedAt: number
 ): Promise<string> {
-    debugLog("Starting project swap:", { projectName, oldProjectPath, newProjectUrl, swapUUID });
+    debugLog("Starting project swap:", { projectName, oldProjectPath, newProjectUrl, swapUUID, swapInitiatedAt });
     const targetFolderName = extractProjectNameFromUrl(newProjectUrl) || projectName;
     const targetProjectPath = path.join(path.dirname(oldProjectPath), targetFolderName);
 
@@ -96,6 +98,7 @@ export async function performProjectSwap(
                 newProjectName: targetFolderName,
                 oldProjectUrl: oldOriginUrl ?? undefined,
                 oldProjectName: projectName,
+                swapInitiatedAt, // Pass the timestamp from OLD project for entry matching
             });
 
             // Ensure metadata integrity (projectName, scope, etc.)
@@ -161,22 +164,7 @@ export async function performProjectSwap(
         localSwap.lastAttemptTimestamp = Date.now();
         localSwap.lastAttemptError = error instanceof Error ? error.message : String(error);
         await writeLocalProjectSettings({ projectSwap: localSwap }, projectUri);
-
-        // Update metadata swap status to failed
-        try {
-            await MetadataManager.safeUpdateMetadata<ProjectMetadata>(
-                projectUri,
-                (meta) => {
-                    if (meta.meta?.projectSwap) {
-                        meta.meta.projectSwap.swapStatus = "failed";
-                        meta.meta.projectSwap.swapError = error instanceof Error ? error.message : String(error);
-                    }
-                    return meta;
-                }
-            );
-        } catch (metaError) {
-            debugLog("Failed to update metadata with error status:", metaError);
-        }
+        // Error state is tracked only in localProjectSettings.json, not in metadata
 
         throw error;
     }
@@ -364,6 +352,7 @@ async function mergeProjectFiles(
 
 /**
  * Update metadata in new project with swap completion info
+ * Uses the new array-based swapEntries structure
  */
 async function updateSwapMetadata(
     projectPath: string,
@@ -376,9 +365,7 @@ async function updateSwapMetadata(
         oldProjectName?: string;
         swapInitiatedBy?: string;
         swapInitiatedAt?: number;
-        swapCompletedAt?: number;
         swapReason?: string;
-        swappedUsers?: ProjectSwapInfo["swappedUsers"];
     } = {},
 ): Promise<void> {
     const projectUri = vscode.Uri.file(projectPath);
@@ -393,6 +380,8 @@ async function updateSwapMetadata(
         debugLog("Could not get user info for swap status:", e);
     }
 
+    const now = Date.now();
+
     await MetadataManager.safeUpdateMetadata<ProjectMetadata>(
         projectUri,
         (meta) => {
@@ -400,52 +389,78 @@ async function updateSwapMetadata(
                 meta.meta = {} as any;
             }
 
-            if (!meta.meta.projectSwap) {
-                meta.meta.projectSwap = {
-                    projectUUID: swapUUID,
+            // Normalize existing swap info or create new one
+            const existingSwap = meta.meta.projectSwap
+                ? normalizeProjectSwapInfo(meta.meta.projectSwap)
+                : {
+                    swapEntries: [],
                     isOldProject,
-                    swapStatus: "completed",
-                } as ProjectSwapInfo;
-            } else {
-                meta.meta.projectSwap.swapStatus = "completed";
-                meta.meta.projectSwap.isOldProject = isOldProject;
+                    projectUUID: swapUUID,
+                };
+
+            // Set core fields
+            const swapInfo: ProjectSwapInfo = {
+                ...existingSwap,
+                isOldProject,
+                projectUUID: existingSwap.projectUUID || swapUUID,
+                oldProjectUrl: existingSwap.oldProjectUrl || options.oldProjectUrl,
+                oldProjectName: existingSwap.oldProjectName || options.oldProjectName,
+            };
+
+            // Find or create the matching swap entry by swapInitiatedAt
+            let entries = swapInfo.swapEntries || [];
+            const swapInitiatedAt = options.swapInitiatedAt || now;
+            let targetEntry = entries.find(e => e.swapInitiatedAt === swapInitiatedAt);
+
+            if (!targetEntry) {
+                // Create new entry (this happens on NEW project after swap)
+                targetEntry = {
+                    swapInitiatedAt,
+                    swapModifiedAt: now,
+                    swapStatus: "active", // Status stays active - it's the metadata status, not execution status
+                    newProjectUrl: options.newProjectUrl || "",
+                    newProjectName: options.newProjectName || "",
+                    swapInitiatedBy: options.swapInitiatedBy || "unknown",
+                    swapReason: options.swapReason,
+                    swappedUsers: [],
+                };
+                entries = [...entries, targetEntry];
             }
 
-            // Populate known fields from options (without clobbering if already set)
-            const swapInfo = meta.meta.projectSwap;
-            swapInfo.projectUUID = swapInfo.projectUUID || swapUUID;
-            swapInfo.newProjectUrl = swapInfo.newProjectUrl || options.newProjectUrl || swapInfo.newProjectUrl;
-            swapInfo.newProjectName = swapInfo.newProjectName || options.newProjectName || swapInfo.newProjectName;
-            swapInfo.oldProjectUrl = swapInfo.oldProjectUrl || options.oldProjectUrl || swapInfo.oldProjectUrl;
-            swapInfo.oldProjectName = swapInfo.oldProjectName || options.oldProjectName || swapInfo.oldProjectName;
-            swapInfo.swapInitiatedBy = swapInfo.swapInitiatedBy || options.swapInitiatedBy || swapInfo.swapInitiatedBy;
-            swapInfo.swapInitiatedAt = swapInfo.swapInitiatedAt || options.swapInitiatedAt || swapInfo.swapInitiatedAt;
-            swapInfo.swapReason = swapInfo.swapReason || options.swapReason || swapInfo.swapReason;
-            swapInfo.swapCompletedAt = options.swapCompletedAt ?? swapInfo.swapCompletedAt ?? Date.now();
-            swapInfo.swapStatus = "completed";
-
-            // Add to swappedUsers list (new project only)
+            // Add current user to swappedUsers (for NEW project only)
             if (currentUser && !isOldProject) {
-                if (!swapInfo.swappedUsers) {
-                    swapInfo.swappedUsers = [];
+                if (!targetEntry.swappedUsers) {
+                    targetEntry.swappedUsers = [];
                 }
 
                 // Check if already in list (avoid duplicates)
-                const existingEntry = swapInfo.swappedUsers.find(
+                const existingUserEntry = targetEntry.swappedUsers.find(
                     u => u.userToSwap === currentUser
                 );
 
-                if (!existingEntry) {
-                    const now = Date.now();
-                    swapInfo.swappedUsers.push({
+                if (!existingUserEntry) {
+                    targetEntry.swappedUsers.push({
                         userToSwap: currentUser,
                         createdAt: now,
                         updatedAt: now,
                         executed: true,
+                        swapCompletedAt: now,
                     });
+                } else {
+                    // Update existing entry
+                    existingUserEntry.updatedAt = now;
+                    existingUserEntry.executed = true;
+                    existingUserEntry.swapCompletedAt = existingUserEntry.swapCompletedAt || now;
                 }
+
+                // Update entry's swapModifiedAt
+                targetEntry.swapModifiedAt = now;
             }
 
+            // Update entries array in swapInfo
+            swapInfo.swapEntries = entries;
+
+            meta.meta.projectSwap = swapInfo;
             return meta;
         }
     );

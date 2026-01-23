@@ -6,7 +6,9 @@ import { determineStrategy } from "./strategies";
 import { getAuthApi } from "../../../extension";
 import { checkProjectAdminPermissions } from "../../../utils/projectAdminPermissionChecker";
 import { isFeatureEnabled } from "../../../utils/remoteUpdatingManager";
-import { normalizeUpdateEntry, RemoteUpdatingEntry } from "../../../utils/remoteUpdatingManager";
+import { normalizeUpdateEntry, RemoteUpdatingEntry, normalizeSwapUserEntry } from "../../../utils/remoteUpdatingManager";
+import { normalizeProjectSwapInfo, findSwapEntryByTimestamp } from "../../../utils/projectSwapManager";
+import { ProjectSwapInfo, ProjectSwapEntry, ProjectSwapUserEntry } from "../../../../types";
 import { NotebookCommentThread, NotebookComment, CustomNotebookCellData, CustomNotebookMetadata } from "../../../../types";
 import { CommentsMigrator } from "../../../utils/commentsMigrationUtils";
 import { CodexCell } from "@/utils/codexNotebookUtils";
@@ -115,6 +117,193 @@ function mergeValidatedByLists(
 
     // Return stable order by username to minimize diffs
     return Array.from(byUser.values()).sort((a, b) => a.username.localeCompare(b.username));
+}
+
+/**
+ * Merges projectSwap from base, ours, and theirs with intelligent handling:
+ * - Rule 1: Preserve local isOldProject (never overwrite from remote)
+ * - Rule 2: Merge swapEntries by swapInitiatedAt
+ * - Rule 3: For matching entries, merge swappedUsers arrays
+ */
+async function mergeProjectSwap(
+    baseSwap: ProjectSwapInfo | undefined,
+    ourSwap: ProjectSwapInfo | undefined,
+    theirSwap: ProjectSwapInfo | undefined
+): Promise<ProjectSwapInfo | undefined> {
+    // If neither ours nor theirs has projectSwap, return undefined
+    if (!ourSwap && !theirSwap) {
+        return undefined;
+    }
+
+    // If only one side has it, use that (with normalization)
+    if (!ourSwap && theirSwap) {
+        return normalizeProjectSwapInfo(theirSwap);
+    }
+    if (ourSwap && !theirSwap) {
+        return normalizeProjectSwapInfo(ourSwap);
+    }
+
+    // Both have projectSwap - merge intelligently
+    const normalizedOurs = normalizeProjectSwapInfo(ourSwap!);
+    const normalizedTheirs = normalizeProjectSwapInfo(theirSwap!);
+    const normalizedBase = baseSwap ? normalizeProjectSwapInfo(baseSwap) : undefined;
+
+    // Rule 1: ALWAYS preserve local isOldProject
+    // This is the key safety rule - OLD projects stay OLD, NEW projects stay NEW
+    const localIsOldProject = normalizedOurs.isOldProject;
+
+    // Rule 2: Merge swapEntries by swapInitiatedAt
+    const ourEntries = normalizedOurs.swapEntries || [];
+    const theirEntries = normalizedTheirs.swapEntries || [];
+    const baseEntries = normalizedBase?.swapEntries || [];
+
+    // Collect all unique swapInitiatedAt timestamps
+    const allTimestamps = new Set<number>();
+    ourEntries.forEach(e => allTimestamps.add(e.swapInitiatedAt));
+    theirEntries.forEach(e => allTimestamps.add(e.swapInitiatedAt));
+
+    const mergedEntries: ProjectSwapEntry[] = [];
+
+    for (const timestamp of allTimestamps) {
+        const ourEntry = ourEntries.find(e => e.swapInitiatedAt === timestamp);
+        const theirEntry = theirEntries.find(e => e.swapInitiatedAt === timestamp);
+        const baseEntry = baseEntries.find(e => e.swapInitiatedAt === timestamp);
+
+        let mergedEntry: ProjectSwapEntry;
+
+        if (!ourEntry && theirEntry) {
+            // Only theirs has this entry
+            mergedEntry = { ...theirEntry };
+        } else if (ourEntry && !theirEntry) {
+            // Only ours has this entry
+            mergedEntry = { ...ourEntry };
+        } else if (ourEntry && theirEntry) {
+            // Both have this entry - merge them
+            // Start with the one that has later swapModifiedAt
+            if (ourEntry.swapModifiedAt >= theirEntry.swapModifiedAt) {
+                mergedEntry = { ...ourEntry };
+            } else {
+                mergedEntry = { ...theirEntry };
+            }
+
+            // For status, if ANY version has "cancelled", it's cancelled (can't un-cancel)
+            if (ourEntry.swapStatus === "cancelled" || theirEntry.swapStatus === "cancelled") {
+                mergedEntry.swapStatus = "cancelled";
+                // Take cancelledBy/cancelledAt from whichever has it
+                mergedEntry.cancelledBy = ourEntry.cancelledBy || theirEntry.cancelledBy;
+                mergedEntry.cancelledAt = ourEntry.cancelledAt || theirEntry.cancelledAt;
+            }
+
+            // Use latest swapModifiedAt
+            mergedEntry.swapModifiedAt = Math.max(
+                ourEntry.swapModifiedAt || 0,
+                theirEntry.swapModifiedAt || 0
+            );
+
+            // Rule 3: Merge swappedUsers arrays
+            mergedEntry.swappedUsers = mergeSwappedUsers(
+                baseEntry?.swappedUsers,
+                ourEntry.swappedUsers,
+                theirEntry.swappedUsers
+            );
+        } else {
+            // Neither has it (shouldn't happen but handle gracefully)
+            continue;
+        }
+
+        mergedEntries.push(mergedEntry);
+    }
+
+    // Sort entries by swapInitiatedAt descending (newest first)
+    mergedEntries.sort((a, b) => b.swapInitiatedAt - a.swapInitiatedAt);
+
+    return {
+        swapEntries: mergedEntries,
+        isOldProject: localIsOldProject, // Rule 1: Always preserve local
+        projectUUID: normalizedOurs.projectUUID || normalizedTheirs.projectUUID,
+        oldProjectUrl: normalizedOurs.oldProjectUrl || normalizedTheirs.oldProjectUrl,
+        oldProjectName: normalizedOurs.oldProjectName || normalizedTheirs.oldProjectName,
+    };
+}
+
+/**
+ * Merges swappedUsers arrays from base, ours, and theirs
+ * Similar to how initiateRemoteUpdatingFor entries are merged
+ */
+function mergeSwappedUsers(
+    baseUsers: ProjectSwapUserEntry[] | undefined,
+    ourUsers: ProjectSwapUserEntry[] | undefined,
+    theirUsers: ProjectSwapUserEntry[] | undefined
+): ProjectSwapUserEntry[] {
+    const baseList = baseUsers || [];
+    const ourList = ourUsers || [];
+    const theirList = theirUsers || [];
+
+    // Map by userToSwap
+    const userMap = new Map<string, { base?: ProjectSwapUserEntry; ours?: ProjectSwapUserEntry; theirs?: ProjectSwapUserEntry }>();
+
+    baseList.forEach(e => {
+        if (!userMap.has(e.userToSwap)) userMap.set(e.userToSwap, {});
+        userMap.get(e.userToSwap)!.base = e;
+    });
+    ourList.forEach(e => {
+        if (!userMap.has(e.userToSwap)) userMap.set(e.userToSwap, {});
+        userMap.get(e.userToSwap)!.ours = e;
+    });
+    theirList.forEach(e => {
+        if (!userMap.has(e.userToSwap)) userMap.set(e.userToSwap, {});
+        userMap.get(e.userToSwap)!.theirs = e;
+    });
+
+    const mergedList: ProjectSwapUserEntry[] = [];
+
+    for (const [username, { base, ours, theirs }] of userMap) {
+        let merged: ProjectSwapUserEntry;
+
+        if (!ours && !theirs) {
+            continue; // Shouldn't happen
+        } else if (!ours && theirs) {
+            merged = { ...theirs };
+        } else if (ours && !theirs) {
+            merged = { ...ours };
+        } else {
+            // Both exist - take the one with latest updatedAt
+            if ((ours!.updatedAt || 0) >= (theirs!.updatedAt || 0)) {
+                merged = { ...ours! };
+            } else {
+                merged = { ...theirs! };
+            }
+
+            // If ANY version has executed: true, keep it
+            if (ours!.executed || theirs!.executed || base?.executed) {
+                merged.executed = true;
+            }
+
+            // Use latest updatedAt
+            merged.updatedAt = Math.max(
+                ours!.updatedAt || 0,
+                theirs!.updatedAt || 0
+            );
+
+            // Preserve earliest createdAt
+            merged.createdAt = Math.min(
+                ours!.createdAt || Infinity,
+                theirs!.createdAt || Infinity,
+                base?.createdAt || Infinity
+            );
+            if (merged.createdAt === Infinity) {
+                merged.createdAt = Date.now();
+            }
+
+            // Take swapCompletedAt if either has it
+            merged.swapCompletedAt = ours!.swapCompletedAt || theirs!.swapCompletedAt || base?.swapCompletedAt;
+        }
+
+        mergedList.push(merged);
+    }
+
+    // Sort by createdAt for stable output
+    return mergedList.sort((a, b) => a.createdAt - b.createdAt);
 }
 
 /**
@@ -1877,6 +2066,16 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             }
         }
 
+        // 1.5. Resolve projectSwap (Complex Merge Logic)
+        // Rule 1: Preserve local isOldProject (never overwrite from remote)
+        // Rule 2: Merge swapEntries by swapInitiatedAt
+        // Rule 3: For matching entries, merge swappedUsers arrays
+        const mergedProjectSwap = await mergeProjectSwap(
+            base?.meta?.projectSwap,
+            ours?.meta?.projectSwap,
+            theirs?.meta?.projectSwap
+        );
+
         // 2. Generic 3-Way Merge for the rest of the file
         // This ensures we don't lose other metadata changes from remote
         const mergeObjects = (baseObj: any, ourObj: any, theirObj: any, path: string[] = []): any => {
@@ -1903,6 +2102,11 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             for (const key of keys) {
                 // Skip initiateRemoteUpdatingFor (and old initiateRemoteHealingFor) - already handled above
                 if (path.length === 1 && path[0] === 'meta' && (key === 'initiateRemoteUpdatingFor' || key === 'initiateRemoteHealingFor')) {
+                    continue; // Skip, already merged above
+                }
+
+                // Skip projectSwap - already handled by specialized merge above
+                if (path.length === 1 && path[0] === 'meta' && key === 'projectSwap') {
                     continue; // Skip, already merged above
                 }
 
@@ -1950,18 +2154,23 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
         const otherFieldsMerged = mergeObjects(base, ours, theirs);
 
         // Combine: use edit history result as base, then overlay other merged fields
-        // But preserve edits and initiateRemoteUpdatingFor from our specialized merges
+        // But preserve edits, initiateRemoteUpdatingFor, and projectSwap from our specialized merges
         const finalResult = {
             ...otherFieldsMerged,
             edits: resolvedMetadata.edits, // From edit history merge
             meta: {
                 ...otherFieldsMerged.meta,
                 initiateRemoteUpdatingFor: mergedUpdatingList, // From specialized merge (new field name)
+                projectSwap: mergedProjectSwap, // From specialized merge
             }
         };
         // Clean up old field name from final result
         if (finalResult.meta) {
             delete finalResult.meta.initiateRemoteHealingFor;
+            // Remove projectSwap if it's undefined/null
+            if (!finalResult.meta.projectSwap) {
+                delete finalResult.meta.projectSwap;
+            }
         }
 
         return JSON.stringify(finalResult, null, 4);

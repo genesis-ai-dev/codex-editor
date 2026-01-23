@@ -2,13 +2,17 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
 import git from "isomorphic-git";
-import { ProjectMetadata, ProjectSwapInfo } from "../../types";
+import { ProjectMetadata, ProjectSwapInfo, ProjectSwapEntry } from "../../types";
 import { MetadataManager } from "../utils/metadataManager";
 import {
     validateGitUrl,
     getGitOriginUrl,
     extractProjectNameFromUrl,
     checkProjectSwapRequired,
+    normalizeProjectSwapInfo,
+    getActiveSwapEntry,
+    hasPendingSwap,
+    getAllSwapEntries,
 } from "../utils/projectSwapManager";
 import { checkProjectAdminPermissions } from "../utils/projectAdminPermissionChecker";
 import {
@@ -22,6 +26,57 @@ import {
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[ProjectSwapCommands]", ...args) : () => { };
+
+/**
+ * Helper function to cancel a specific swap entry by its swapInitiatedAt timestamp
+ * Updates the entry's status to "cancelled" and records who cancelled it
+ */
+async function cancelSwapEntry(
+    projectUri: vscode.Uri,
+    swapInitiatedAt: number,
+    cancelledBy: string
+): Promise<boolean> {
+    const now = Date.now();
+    const updateResult = await MetadataManager.safeUpdateMetadata<ProjectMetadata>(
+        projectUri,
+        (meta) => {
+            if (!meta.meta?.projectSwap) {
+                return meta;
+            }
+
+            const normalized = normalizeProjectSwapInfo(meta.meta.projectSwap);
+            const entries = normalized.swapEntries || [];
+
+            // Find and update the specific entry
+            const entryIndex = entries.findIndex(e => e.swapInitiatedAt === swapInitiatedAt);
+            if (entryIndex >= 0) {
+                entries[entryIndex] = {
+                    ...entries[entryIndex],
+                    swapStatus: "cancelled",
+                    swapModifiedAt: now,
+                    cancelledBy,
+                    cancelledAt: now,
+                };
+            }
+
+            meta.meta.projectSwap = {
+                ...normalized,
+                swapEntries: entries,
+            };
+            return meta;
+        }
+    );
+
+    if (updateResult.success) {
+        // Commit and push the changes
+        await vscode.commands.executeCommand(
+            "codex-editor-extension.triggerSync",
+            "Cancelled project swap"
+        );
+    }
+
+    return updateResult.success;
+}
 
 /**
  * Command to initiate a project swap (swap to new Git repository)
@@ -94,24 +149,48 @@ export async function initiateProjectSwap(): Promise<void> {
         const metadataBuffer = await vscode.workspace.fs.readFile(metadataPath);
         const metadata = JSON.parse(Buffer.from(metadataBuffer).toString("utf-8")) as ProjectMetadata;
 
+        // Check for existing pending swap - must cancel before initiating new one
         if (metadata?.meta?.projectSwap) {
-            const existing = metadata.meta.projectSwap;
-            const statusMsg = existing.swapStatus === "completed"
-                ? "This project has already completed a swap."
-                : existing.swapStatus === "pending"
-                    ? "A swap is already pending for this project."
-                    : existing.swapStatus === "swapping"
-                        ? "A swap is currently in progress."
-                        : "This project already has swap configuration.";
+            const normalizedSwap = normalizeProjectSwapInfo(metadata.meta.projectSwap);
+            const activeEntry = getActiveSwapEntry(normalizedSwap);
 
-            const action = await vscode.window.showWarningMessage(
-                `${statusMsg}\n\nDo you want to reconfigure the swap?`,
-                { modal: true },
-                "Reconfigure"
-            );
+            if (activeEntry) {
+                // There's a pending swap - user must cancel it first
+                const action = await vscode.window.showWarningMessage(
+                    `A swap is already pending to "${activeEntry.newProjectName}".\n\n` +
+                    `You must cancel the existing swap before initiating a new one.\n\n` +
+                    `Would you like to cancel the pending swap?`,
+                    { modal: true },
+                    "Cancel Pending Swap",
+                    "Keep Existing"
+                );
 
-            if (action !== "Reconfigure") {
+                if (action === "Cancel Pending Swap") {
+                    // Cancel the pending swap first
+                    await cancelSwapEntry(projectUri, activeEntry.swapInitiatedAt, permission.currentUser || "unknown");
+                    vscode.window.showInformationMessage("Previous swap cancelled. You can now initiate a new swap.");
+                }
                 return;
+            }
+
+            // Check for completed/cancelled swaps (history exists but no pending)
+            const allEntries = getAllSwapEntries(normalizedSwap);
+            if (allEntries.length > 0) {
+                const lastEntry = allEntries[0]; // Most recent
+                const statusMsg = lastEntry.swapStatus === "cancelled"
+                    ? `Previous swap to "${lastEntry.newProjectName}" was cancelled.`
+                    : `Previous swap history exists.`;
+
+                const action = await vscode.window.showInformationMessage(
+                    `${statusMsg}\n\nWould you like to initiate a new swap?`,
+                    { modal: true },
+                    "Yes, Initiate New Swap",
+                    "Cancel"
+                );
+
+                if (action !== "Yes, Initiate New Swap") {
+                    return;
+                }
             }
         }
 
@@ -184,23 +263,23 @@ export async function initiateProjectSwap(): Promise<void> {
             return;
         }
 
-        // Generate UUID (or reuse if reconfiguring)
+        // Generate UUID (or reuse if exists)
         const projectUUID = metadata?.meta?.projectSwap?.projectUUID || generateProjectId();
+        const now = Date.now();
 
-        // Create swap info
-        const swapInfo: ProjectSwapInfo = {
-            projectUUID,
-            isOldProject: true,
+        // Create new swap entry
+        const newEntry: ProjectSwapEntry = {
+            swapInitiatedAt: now,
+            swapModifiedAt: now,
+            swapStatus: "active",
             newProjectUrl,
             newProjectName,
-            oldProjectUrl: currentGitUrl,
             swapInitiatedBy: currentUserInfo.username,
-            swapInitiatedAt: Date.now(),
             swapReason,
-            swapStatus: "pending",
+            swappedUsers: [],
         };
 
-        // Update metadata.json
+        // Update metadata.json - preserve history by adding to swapEntries array
         const updateResult = await MetadataManager.safeUpdateMetadata<ProjectMetadata>(
             projectUri,
             (meta) => {
@@ -208,7 +287,21 @@ export async function initiateProjectSwap(): Promise<void> {
                     meta.meta = {} as any;
                 }
 
-                meta.meta.projectSwap = swapInfo;
+                // Get existing swap info or create new one
+                const existingSwap = meta.meta.projectSwap
+                    ? normalizeProjectSwapInfo(meta.meta.projectSwap)
+                    : { swapEntries: [], isOldProject: true };
+
+                // Add new entry to the array (preserving history)
+                const updatedEntries = [...(existingSwap.swapEntries || []), newEntry];
+
+                meta.meta.projectSwap = {
+                    swapEntries: updatedEntries,
+                    isOldProject: true,
+                    projectUUID,
+                    oldProjectUrl: currentGitUrl,
+                    oldProjectName: extractProjectNameFromUrl(currentGitUrl),
+                };
                 return meta;
             }
         );
@@ -268,44 +361,54 @@ export async function viewProjectSwapStatus(): Promise<void> {
             return;
         }
 
-        const swap = metadata.meta.projectSwap;
+        // Normalize to new format
+        const swap = normalizeProjectSwapInfo(metadata.meta.projectSwap);
+        const allEntries = getAllSwapEntries(swap);
+        const activeEntry = getActiveSwapEntry(swap);
 
         // Build status message
-        const statusIcon = swap.swapStatus === "completed" ? "✅" :
-            swap.swapStatus === "pending" ? "⏳" :
-                swap.swapStatus === "swapping" ? "🔄" :
-                    swap.swapStatus === "failed" ? "❌" : "⚠️";
+        let statusMessage = `📋 Project Swap Status\n\n`;
+        statusMessage += `Project UUID: ${swap.projectUUID || "N/A"}\n`;
+        statusMessage += `Project Type: ${swap.isOldProject ? "OLD (source)" : "NEW (destination)"}\n\n`;
 
-        let statusMessage = `${statusIcon} Project Swap Status\n\n`;
-        statusMessage += `Status: ${swap.swapStatus.toUpperCase()}\n`;
-        statusMessage += `UUID: ${swap.projectUUID}\n\n`;
-
-        if (swap.isOldProject) {
-            statusMessage += `This is the OLD project.\n`;
-            statusMessage += `Swapping to: ${swap.newProjectName}\n\n`;
-        } else {
-            statusMessage += `This is the NEW project.\n`;
-            statusMessage += `Swapped from: ${swap.oldProjectUrl}\n\n`;
+        if (swap.isOldProject && swap.oldProjectUrl) {
+            statusMessage += `This project URL: ${swap.oldProjectUrl}\n`;
+        } else if (!swap.isOldProject && swap.oldProjectUrl) {
+            statusMessage += `Swapped from: ${swap.oldProjectUrl}\n`;
         }
 
-        statusMessage += `Initiated by: ${swap.swapInitiatedBy}\n`;
-        statusMessage += `Initiated at: ${new Date(swap.swapInitiatedAt).toLocaleString()}\n`;
+        statusMessage += `\n--- Swap History (${allEntries.length} entries) ---\n\n`;
 
-        if (swap.swapReason) {
-            statusMessage += `Reason: ${swap.swapReason}\n`;
+        for (let i = 0; i < allEntries.length; i++) {
+            const entry = allEntries[i];
+            const isActive = activeEntry && entry.swapInitiatedAt === activeEntry.swapInitiatedAt;
+            const statusIcon = entry.swapStatus === "active" ? "⏳" : "❌";
+
+            statusMessage += `${isActive ? "► " : "  "}${statusIcon} ${entry.newProjectName}\n`;
+            statusMessage += `    Status: ${entry.swapStatus.toUpperCase()}\n`;
+            statusMessage += `    Initiated: ${new Date(entry.swapInitiatedAt).toLocaleString()} by ${entry.swapInitiatedBy}\n`;
+
+            if (entry.swapReason) {
+                statusMessage += `    Reason: ${entry.swapReason}\n`;
+            }
+
+            if (entry.swapStatus === "cancelled" && entry.cancelledBy) {
+                statusMessage += `    Cancelled: ${new Date(entry.cancelledAt || 0).toLocaleString()} by ${entry.cancelledBy}\n`;
+            }
+
+            if (entry.swappedUsers && entry.swappedUsers.length > 0) {
+                statusMessage += `    Swapped Users (${entry.swappedUsers.length}):\n`;
+                entry.swappedUsers.forEach(u => {
+                    const completedAt = u.swapCompletedAt ? new Date(u.swapCompletedAt).toLocaleDateString() : new Date(u.updatedAt).toLocaleDateString();
+                    statusMessage += `      - ${u.userToSwap} (${completedAt})\n`;
+                });
+            }
+
+            statusMessage += `\n`;
         }
 
-        if (swap.swapCompletedAt) {
-            statusMessage += `Completed at: ${new Date(swap.swapCompletedAt).toLocaleString()}\n`;
-        }
-
-        if (swap.swapError) {
-            statusMessage += `\nError: ${swap.swapError}\n`;
-        }
-
-        if (swap.swappedUsers && swap.swappedUsers.length > 0) {
-            statusMessage += `\nSwapped Users (${swap.swappedUsers.length}):\n`;
-            statusMessage += swap.swappedUsers.map(u => `- ${u.userToSwap} (${new Date(u.updatedAt).toLocaleDateString()})`).join('\n');
+        if (allEntries.length === 0) {
+            statusMessage += `No swap entries found.\n`;
         }
 
         vscode.window.showInformationMessage(statusMessage, { modal: true });
@@ -357,18 +460,20 @@ export async function cancelProjectSwap(): Promise<void> {
             return;
         }
 
-        const swap = metadata.meta.projectSwap;
+        // Normalize to new format and find active swap entry
+        const normalizedSwap = normalizeProjectSwapInfo(metadata.meta.projectSwap);
+        const activeEntry = getActiveSwapEntry(normalizedSwap);
 
-        if (swap.swapStatus === "completed") {
-            vscode.window.showWarningMessage(
-                "Cannot cancel a completed swap."
+        if (!activeEntry) {
+            vscode.window.showInformationMessage(
+                "No pending swap to cancel. All previous swaps have been cancelled or completed."
             );
             return;
         }
 
         // Confirm cancellation
         const confirmed = await vscode.window.showWarningMessage(
-            `Cancel Project Swap?\n\nThis will cancel the swap to "${swap.newProjectName}". Users will no longer be prompted to swap.\n\nContinue?`,
+            `Cancel Project Swap?\n\nThis will cancel the swap to "${activeEntry.newProjectName}". Users will no longer be prompted to swap.\n\nContinue?`,
             { modal: true },
             "Yes, Cancel Swap",
             "No"
@@ -378,26 +483,16 @@ export async function cancelProjectSwap(): Promise<void> {
             return;
         }
 
-        // Update metadata to mark as cancelled
-        const updateResult = await MetadataManager.safeUpdateMetadata<ProjectMetadata>(
+        // Cancel the active swap entry
+        const success = await cancelSwapEntry(
             projectUri,
-            (meta) => {
-                if (meta.meta?.projectSwap) {
-                    meta.meta.projectSwap.swapStatus = "cancelled";
-                }
-                return meta;
-            }
+            activeEntry.swapInitiatedAt,
+            permission.currentUser || "unknown"
         );
 
-        if (!updateResult.success) {
-            throw new Error(updateResult.error || "Failed to update metadata.json");
+        if (!success) {
+            throw new Error("Failed to update metadata.json");
         }
-
-        // Commit and push the changes
-        await vscode.commands.executeCommand(
-            "codex-editor-extension.triggerSync",
-            "Cancelled project swap"
-        );
 
         vscode.window.showInformationMessage(
             "Project swap cancelled successfully."
@@ -414,16 +509,16 @@ export async function cancelProjectSwap(): Promise<void> {
 async function promptSwapIfRequired(projectPath: string): Promise<void> {
     try {
         const result = await checkProjectSwapRequired(projectPath);
-        if (!result.required || !result.swapInfo) return;
+        if (!result.required || !result.activeEntry) return;
 
-        const swapInfo = result.swapInfo;
-        const newProjectName = swapInfo.newProjectName;
+        const activeEntry = result.activeEntry;
+        const newProjectName = activeEntry.newProjectName;
 
         const selection = await vscode.window.showWarningMessage(
             `📦 Project Swap Required\n\n` +
             `This project has been swapped to a new repository:\n${newProjectName}\n\n` +
-            `Reason: ${swapInfo.swapReason || "Repository swap"}\n` +
-            `Initiated by: ${swapInfo.swapInitiatedBy}\n\n` +
+            `Reason: ${activeEntry.swapReason || "Repository swap"}\n` +
+            `Initiated by: ${activeEntry.swapInitiatedBy}\n\n` +
             `Syncing has been disabled until you swap.\n\n` +
             `Your local changes will be preserved and backed up.`,
             { modal: true },

@@ -7,6 +7,8 @@ import {
     ProjectManagerMessageFromWebview,
     ProjectMetadata,
     ProjectSwapInfo,
+    ProjectSwapEntry,
+    ProjectSwapUserEntry,
     MediaFilesStrategy,
 } from "../../../types";
 import * as vscode from "vscode";
@@ -1204,8 +1206,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         : undefined;
 
                     if (swapInfo?.isOldProject) {
+                        const { getActiveSwapEntry } = await import("../../utils/projectSwapManager");
+                        const activeEntry = getActiveSwapEntry(swapInfo);
                         const displayName = path.basename(projectPath);
-                        const recommended = swapInfo.newProjectName || swapInfo.newProjectUrl;
+                        const recommended = activeEntry?.newProjectName || activeEntry?.newProjectUrl;
 
                         const firstPrompt = await vscode.window.showWarningMessage(
                             [
@@ -1399,20 +1403,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             projectPath,
                             remoteProjectRequirements?.currentUsername || undefined
                         );
-                        const swapCheck: {
-                            required: boolean;
-                            swapInfo?: ProjectSwapInfo;
-                            userAlreadySwapped?: boolean;
-                        } = remoteProjectRequirements.swapRequired
+                        // Use Awaited to get the return type of checkProjectSwapRequired
+                        type SwapCheckResult = Awaited<ReturnType<typeof checkProjectSwapRequired>>;
+                        const swapCheck: SwapCheckResult = remoteProjectRequirements.swapRequired
                                 ? (localSwapCheck.userAlreadySwapped
                                     ? localSwapCheck
-                                    : { required: true, swapInfo: remoteProjectRequirements.swapInfo })
+                                    : { required: true, reason: "Remote swap required", swapInfo: remoteProjectRequirements.swapInfo, activeEntry: localSwapCheck.activeEntry })
                                 : localSwapCheck;
 
-                        if (swapCheck.userAlreadySwapped && swapCheck.swapInfo) {
-                            const swapInfo = swapCheck.swapInfo;
+                        if (swapCheck.userAlreadySwapped && swapCheck.activeEntry) {
+                            const activeEntry = swapCheck.activeEntry;
                             const swapTargetLabel =
-                                swapInfo.newProjectName || swapInfo.newProjectUrl || "the new project";
+                                activeEntry.newProjectName || activeEntry.newProjectUrl || "the new project";
                             const alreadySwappedChoice = await vscode.window.showWarningMessage(
                                 `You have already swapped to ${swapTargetLabel}.\n\n` +
                                 "You can open this deprecated project, delete the local copy, or cancel.",
@@ -1432,30 +1434,40 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             }
                         }
 
-                        if (swapCheck.required && swapCheck.swapInfo && remoteProjectRequirements?.currentUsername) {
+                        if (swapCheck.required && swapCheck.activeEntry && remoteProjectRequirements?.currentUsername) {
                             try {
                                 const { extractProjectIdFromUrl, fetchRemoteMetadata, normalizeSwapUserEntry } = await import("../../utils/remoteUpdatingManager");
-                                const projectId = extractProjectIdFromUrl(swapCheck.swapInfo.newProjectUrl);
+                                const { findSwapEntryByTimestamp, normalizeProjectSwapInfo } = await import("../../utils/projectSwapManager");
+                                const newProjectUrl = swapCheck.activeEntry.newProjectUrl;
+                                if (!newProjectUrl) {
+                                    debugLog("No newProjectUrl found in swap info");
+                                    throw new Error("No newProjectUrl");
+                                }
+                                const projectId = extractProjectIdFromUrl(newProjectUrl);
                                 if (projectId) {
                                     const remoteMetadata = await fetchRemoteMetadata(projectId, false);
                                     const remoteSwap = remoteMetadata?.meta?.projectSwap;
-                                    const entries = (remoteSwap?.swappedUsers || []).map((entry) =>
-                                        normalizeSwapUserEntry(entry)
-                                    );
-                                    const hasAlreadySwapped = entries.some(
-                                        (entry) =>
-                                            entry.userToSwap === remoteProjectRequirements?.currentUsername &&
-                                            entry.executed
-                                    );
-                                    if (hasAlreadySwapped) {
-                                        const swapTargetLabel =
-                                            swapCheck.swapInfo.newProjectName ||
-                                            swapCheck.swapInfo.newProjectUrl ||
-                                            "the new project";
-                                        const alreadySwappedChoice = await vscode.window.showWarningMessage(
-                                            `You have already swapped to ${swapTargetLabel}.\n\n` +
-                                            "You can open this deprecated project, delete the local copy, or cancel.",
-                                            { modal: true },
+                                    if (remoteSwap) {
+                                        // Find matching entry in remote by swapInitiatedAt timestamp
+                                        const normalizedRemoteSwap = normalizeProjectSwapInfo(remoteSwap);
+                                        const matchingEntry = findSwapEntryByTimestamp(normalizedRemoteSwap, swapCheck.activeEntry.swapInitiatedAt);
+                                        const entries = (matchingEntry?.swappedUsers || []).map((entry: ProjectSwapUserEntry) =>
+                                            normalizeSwapUserEntry(entry)
+                                        );
+                                        const hasAlreadySwapped = entries.some(
+                                            (entry: ProjectSwapUserEntry) =>
+                                                entry.userToSwap === remoteProjectRequirements?.currentUsername &&
+                                                entry.executed
+                                        );
+                                        if (hasAlreadySwapped) {
+                                            const swapTargetLabel =
+                                                swapCheck.activeEntry.newProjectName ||
+                                                swapCheck.activeEntry.newProjectUrl ||
+                                                "the new project";
+                                            const alreadySwappedChoice = await vscode.window.showWarningMessage(
+                                                `You have already swapped to ${swapTargetLabel}.\n\n` +
+                                                "You can open this deprecated project, delete the local copy, or cancel.",
+                                                { modal: true },
                                             "Open Project",
                                             "Delete Local Project"
                                         );
@@ -1469,6 +1481,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                         if (alreadySwappedChoice !== "Open Project") {
                                             return;
                                         }
+                                        }
                                     }
                                 }
                             } catch (alreadySwappedCheckErr) {
@@ -1476,59 +1489,67 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             }
                         }
 
-                        if (swapCheck.required && swapCheck.swapInfo) {
+                        if (swapCheck.required && swapCheck.activeEntry) {
                             debugLog("Project swap required for project");
 
-                            const swapInfo = swapCheck.swapInfo;
-                            const newProjectName = swapInfo.newProjectName;
+                            const activeEntry = swapCheck.activeEntry;
+                            const newProjectUrl = activeEntry.newProjectUrl;
+                            const newProjectName = activeEntry.newProjectName;
+                            const projectUUID = swapCheck.swapInfo?.projectUUID || "unknown";
 
-                            const swapDecision = await this.promptForProjectSwapAction(swapInfo);
-                            if (swapDecision === "cancel") {
-                                return;
-                            }
-                            if (swapDecision === "openDeprecated") {
-                                // Continue opening without swapping
+                            if (!newProjectUrl) {
+                                debugLog("No newProjectUrl found in swap info, skipping swap");
+                                // Cannot continue with swap, fall through to normal open
                             } else {
-                                swapWasPerformed = true;
+                                const swapDecision = await this.promptForProjectSwapAction(activeEntry);
+                                if (swapDecision === "cancel") {
+                                    return;
+                                }
+                                if (swapDecision === "openDeprecated") {
+                                    // Continue opening without swapping
+                                } else {
+                                    swapWasPerformed = true;
 
-                                // Show notification and perform swap
-                                await vscode.window.withProgress(
-                                    {
-                                        location: vscode.ProgressLocation.Notification,
-                                        title: `Swapping to ${newProjectName}`,
-                                        cancellable: false,
-                                    },
-                                    async (progress) => {
-                                        progress.report({ message: "Starting swap..." });
+                                    // Show notification and perform swap
+                                    await vscode.window.withProgress(
+                                        {
+                                            location: vscode.ProgressLocation.Notification,
+                                            title: `Swapping to ${newProjectName}`,
+                                            cancellable: false,
+                                        },
+                                        async (progress) => {
+                                            progress.report({ message: "Starting swap..." });
 
-                                        const projectName = projectPath.split(/[\\/]/).pop() || "project";
+                                            const projectName = projectPath.split(/[\\/]/).pop() || "project";
 
-                                        // Import and perform swap
-                                        const { performProjectSwap } = await import("./performProjectSwap");
+                                            // Import and perform swap
+                                            const { performProjectSwap } = await import("./performProjectSwap");
 
-                                        swappedProjectPath = await performProjectSwap(
-                                            progress,
-                                            projectName,
-                                            projectPath,
-                                            swapInfo.newProjectUrl,
-                                            swapInfo.projectUUID
-                                        );
+                                            swappedProjectPath = await performProjectSwap(
+                                                progress,
+                                                projectName,
+                                                projectPath,
+                                                newProjectUrl,
+                                                projectUUID,
+                                                activeEntry.swapInitiatedAt
+                                            );
 
-                                        debugLog("Project swap completed successfully");
-                                        progress.report({ message: "Swap complete!" });
-                                    }
-                                );
-
-                                // Show success message
-                                vscode.window.showInformationMessage(
-                                    `✅ Project swapped to ${newProjectName}\n\nOpening new project...`
-                                );
-                                if (swappedProjectPath) {
-                                    await vscode.commands.executeCommand(
-                                        "vscode.openFolder",
-                                        vscode.Uri.file(swappedProjectPath)
+                                            debugLog("Project swap completed successfully");
+                                            progress.report({ message: "Swap complete!" });
+                                        }
                                     );
-                                    return; // Stop the old open flow
+
+                                    // Show success message
+                                    vscode.window.showInformationMessage(
+                                        `✅ Project swapped to ${newProjectName}\n\nOpening new project...`
+                                    );
+                                    if (swappedProjectPath) {
+                                        await vscode.commands.executeCommand(
+                                            "vscode.openFolder",
+                                            vscode.Uri.file(swappedProjectPath)
+                                        );
+                                        return; // Stop the old open flow
+                                    }
                                 }
                             }
                         }
@@ -1539,8 +1560,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         if (swapWasPerformed) {
                             // Tell the user and abort opening
                             const msg = swapErr instanceof Error ? swapErr.message : String(swapErr);
-                            vscode.window.showWarningMessage(
-                                "Project swap failed. Please try again or contact support.\n\nDetails: " + msg,
+                            vscode.window.showErrorMessage(
+                                `Project swap failed.\n\nThe old project has been backed up to the "archived_projects" folder. ` +
+                                `Please contact your project administrator for assistance.\n\nError: ${msg}`,
                                 { modal: true }
                             );
                             return; // Abort opening flow
@@ -1940,10 +1962,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     }
 
     private async promptForProjectSwapAction(
-        swapInfo: ProjectSwapInfo
+        activeEntry: ProjectSwapEntry
     ): Promise<"swap" | "openDeprecated" | "cancel"> {
         const confirm = await vscode.window.showWarningMessage(
-            `Swap project to "${swapInfo.newProjectName}"?\n\n` +
+            `Swap project to "${activeEntry.newProjectName}"?\n\n` +
             `This will:\n` +
             `1. Backup your current project to archives\n` +
             `2. Clone the new repository\n` +
@@ -1962,10 +1984,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             const deprecatedChoice = await vscode.window.showWarningMessage(
                 [
                     "This project has been deprecated.",
-                    swapInfo.newProjectName
-                        ? `Recommended project: ${swapInfo.newProjectName}`
-                        : swapInfo.newProjectUrl
-                            ? `Recommended project: ${swapInfo.newProjectUrl}`
+                    activeEntry.newProjectName
+                        ? `Recommended project: ${activeEntry.newProjectName}`
+                        : activeEntry.newProjectUrl
+                            ? `Recommended project: ${activeEntry.newProjectUrl}`
                             : undefined,
                     "",
                     "Opening without swapping will keep you on the deprecated project.",
@@ -3183,39 +3205,56 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     const swapInfo = metadataResult.metadata.meta.projectSwap;
                     const projectName = metadataResult.metadata.projectName || path.basename(projectPath);
 
+                    // Normalize swap info to get active entry
+                    const { normalizeProjectSwapInfo, getActiveSwapEntry, findSwapEntryByTimestamp } = await import("../../utils/projectSwapManager");
+                    const normalizedSwap = normalizeProjectSwapInfo(swapInfo);
+                    const activeEntry = getActiveSwapEntry(normalizedSwap);
+
+                    if (!activeEntry?.newProjectUrl) {
+                        vscode.window.showErrorMessage("Cannot perform swap: No target project URL found.");
+                        return;
+                    }
+
+                    const newProjectUrl = activeEntry.newProjectUrl;
+
                     try {
                         const { extractProjectIdFromUrl, fetchRemoteMetadata, getCurrentUsername, normalizeSwapUserEntry } = await import("../../utils/remoteUpdatingManager");
-                        const projectId = extractProjectIdFromUrl(swapInfo.newProjectUrl);
+                        const projectId = extractProjectIdFromUrl(newProjectUrl);
                         if (projectId) {
                             const currentUsername = await getCurrentUsername();
                             const remoteMetadata = await fetchRemoteMetadata(projectId, false);
                             const remoteSwap = remoteMetadata?.meta?.projectSwap;
-                            const entries = (remoteSwap?.swappedUsers || []).map((entry) =>
-                                normalizeSwapUserEntry(entry)
-                            );
-                            const hasAlreadySwapped = currentUsername
-                                ? entries.some(
-                                    (entry) => entry.userToSwap === currentUsername && entry.executed
-                                )
-                                : false;
-                            if (hasAlreadySwapped) {
-                                const swapTargetLabel =
-                                    swapInfo.newProjectName || swapInfo.newProjectUrl || "the new project";
-                                const alreadySwappedChoice = await vscode.window.showWarningMessage(
-                                    `You have already swapped to ${swapTargetLabel}.\n\n` +
-                                    "You can open this deprecated project, delete the local copy, or cancel.",
-                                    { modal: true },
-                                    "Open Project",
-                                    "Delete Local Project"
+                            if (remoteSwap) {
+                                // Find matching entry by swapInitiatedAt timestamp
+                                const normalizedRemoteSwap = normalizeProjectSwapInfo(remoteSwap);
+                                const matchingEntry = findSwapEntryByTimestamp(normalizedRemoteSwap, activeEntry.swapInitiatedAt);
+                                const entries = (matchingEntry?.swappedUsers || []).map((entry: ProjectSwapUserEntry) =>
+                                    normalizeSwapUserEntry(entry)
                                 );
+                                const hasAlreadySwapped = currentUsername
+                                    ? entries.some(
+                                        (entry: ProjectSwapUserEntry) => entry.userToSwap === currentUsername && entry.executed
+                                    )
+                                    : false;
+                                if (hasAlreadySwapped) {
+                                    const swapTargetLabel =
+                                        activeEntry.newProjectName || activeEntry.newProjectUrl || "the new project";
+                                    const alreadySwappedChoice = await vscode.window.showWarningMessage(
+                                        `You have already swapped to ${swapTargetLabel}.\n\n` +
+                                        "You can open this deprecated project, delete the local copy, or cancel.",
+                                        { modal: true },
+                                        "Open Project",
+                                        "Delete Local Project"
+                                    );
 
-                                if (alreadySwappedChoice === "Delete Local Project") {
-                                    await this.performProjectDeletion(projectPath, projectName);
-                                    return;
-                                }
+                                    if (alreadySwappedChoice === "Delete Local Project") {
+                                        await this.performProjectDeletion(projectPath, projectName);
+                                        return;
+                                    }
 
-                                if (alreadySwappedChoice !== "Open Project") {
-                                    return;
+                                    if (alreadySwappedChoice !== "Open Project") {
+                                        return;
+                                    }
                                 }
                             }
                         }
@@ -3223,7 +3262,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // non-fatal
                     }
 
-                    const swapDecision = await this.promptForProjectSwapAction(swapInfo);
+                    const swapDecision = await this.promptForProjectSwapAction(activeEntry);
                     if (swapDecision === "openDeprecated") {
                         await vscode.commands.executeCommand("vscode.openFolder", projectUri);
                         return;
@@ -3232,17 +3271,21 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         return;
                     }
 
+                    const newProjectName = activeEntry.newProjectName || "new project";
+                    const projectUUID = normalizedSwap.projectUUID || "unknown";
+
                     await vscode.window.withProgress({
                         location: vscode.ProgressLocation.Notification,
-                        title: `Swapping project to "${swapInfo.newProjectName}"...`,
+                        title: `Swapping project to "${newProjectName}"...`,
                         cancellable: false
                     }, async (progress) => {
                         const newPath = await performProjectSwap(
                             progress,
                             projectName,
                             projectPath,
-                            swapInfo.newProjectUrl,
-                            swapInfo.projectUUID
+                            newProjectUrl,
+                            projectUUID,
+                            activeEntry.swapInitiatedAt
                         );
 
                         progress.report({ message: "Opening swapped project..." });
@@ -3251,7 +3294,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                 } catch (error) {
                     console.error("Error performing project swap:", error);
-                    vscode.window.showErrorMessage(`Failed to swap project: ${error instanceof Error ? error.message : String(error)}`);
+                    vscode.window.showErrorMessage(
+                        `Project swap failed.\n\nThe old project has been backed up to the "archived_projects" folder. ` +
+                        `Please contact your project administrator for assistance.\n\nError: ${error instanceof Error ? error.message : String(error)}`
+                    );
                 }
                 break;
             }
@@ -4742,18 +4788,20 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             // Check remote metadata to warn if this is the old/deprecated project
             try {
                 const { extractProjectIdFromUrl, fetchRemoteMetadata } = await import("../../utils/remoteUpdatingManager");
+                const { getActiveSwapEntry } = await import("../../utils/projectSwapManager");
                 const projectId = extractProjectIdFromUrl(repoUrl);
                 if (projectId) {
                     const remoteMetadata = await fetchRemoteMetadata(projectId, false);
                     const swapInfo = remoteMetadata?.meta?.projectSwap as ProjectSwapInfo | undefined;
                     if (swapInfo?.isOldProject) {
+                        const activeEntry = getActiveSwapEntry(swapInfo);
                         const deprecatedMessage = "This project has been deprecated.";
 
                         this.safeSendMessage({
                             command: "project.swapCloneWarning",
                             repoUrl,
                             isOldProject: true,
-                            newProjectName: swapInfo.newProjectName,
+                            newProjectName: activeEntry?.newProjectName,
                             message: deprecatedMessage,
                         } as any);
 

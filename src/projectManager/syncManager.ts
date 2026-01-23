@@ -195,26 +195,26 @@ export class SyncManager {
             const { checkProjectSwapRequired } = await import("../utils/projectSwapManager");
             const result = await checkProjectSwapRequired(projectPath);
 
-            if (result.required && result.swapInfo) {
+            if (result.required && result.activeEntry) {
                 debug("Project swap required for user, blocking sync and notifying");
 
-                const swapInfo = result.swapInfo;
-                const newProjectName = swapInfo.newProjectName;
+                const activeEntry = result.activeEntry;
+                const newProjectName = activeEntry.newProjectName;
 
                 // Show modal dialog that cannot be missed
                 const selection = await vscode.window.showWarningMessage(
-                    `📦 Project Migration Required\n\n` +
-                    `This project has been migrated to a new repository:\n${newProjectName}\n\n` +
-                    `Reason: ${swapInfo.swapReason || "Repository migration"}\n` +
-                    `Initiated by: ${swapInfo.swapInitiatedBy}\n\n` +
-                    `Syncing has been disabled until you migrate.\n\n` +
+                    `📦 Project Swap Required\n\n` +
+                    `This project has been swapped to a new repository:\n${newProjectName}\n\n` +
+                    `Reason: ${activeEntry.swapReason || "Repository swap"}\n` +
+                    `Initiated by: ${activeEntry.swapInitiatedBy}\n\n` +
+                    `Syncing has been disabled until you swap.\n\n` +
                     `Your local changes will be preserved and backed up.`,
                     { modal: true },
-                    "Migrate Now"
+                    "Swap Now"
                 );
 
-                if (selection === "Migrate Now") {
-                    // Close folder - StartupFlowProvider will handle the migration on next open
+                if (selection === "Swap Now") {
+                    // Close folder - StartupFlowProvider will handle the swap on next open
                     await vscode.commands.executeCommand("workbench.action.closeFolder");
                 }
 
