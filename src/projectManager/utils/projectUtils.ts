@@ -1266,20 +1266,28 @@ async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalPro
             }
 
             const swapInfo = metadata.meta.projectSwap;
+            const { getActiveSwapEntry } = await import("../../utils/projectSwapManager");
+            const activeEntry = getActiveSwapEntry(swapInfo);
 
             // Hide old projects that have no pending swap (all swaps cancelled or completed)
-            if (swapInfo.isOldProject) {
-                const { getActiveSwapEntry } = await import("../../utils/projectSwapManager");
-                const activeEntry = getActiveSwapEntry(swapInfo);
-                if (!activeEntry) {
-                    // No pending swap - old project can be hidden
+            // isOldProject is now in each entry, not at the top level
+            if (activeEntry?.isOldProject) {
+                // This is the old project - check if there's still an active swap
+                // (If there is, we continue to show the project so user can act on it)
+                filtered.push(project);
+                continue;
+            } else if (!activeEntry) {
+                // No active swap entry - check if this was an old project by looking at all entries
+                const allEntries = swapInfo.swapEntries || [];
+                const wasOldProject = allEntries.some(e => e.isOldProject);
+                if (wasOldProject) {
+                    // Old project with no pending swap - can be hidden
                     debug(`Hiding old project with no pending swap: ${project.name}`);
                     continue;
                 }
             }
 
-            // Show old projects that have a pending swap (user needs to act)
-            // Show all new projects
+            // Show new projects and old projects with pending swaps
             filtered.push(project);
 
         } catch (error) {
@@ -1436,6 +1444,9 @@ async function processProjectDirectory(
             projectSwapWithConvenience = {
                 ...normalized,
                 // Convenience fields from active entry for webview display
+                isOldProject: activeEntry?.isOldProject,
+                oldProjectUrl: activeEntry?.oldProjectUrl,
+                oldProjectName: activeEntry?.oldProjectName,
                 newProjectUrl: activeEntry?.newProjectUrl,
                 newProjectName: activeEntry?.newProjectName,
                 swapStatus: activeEntry?.swapStatus,

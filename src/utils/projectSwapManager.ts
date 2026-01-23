@@ -16,7 +16,6 @@ const debug = DEBUG ? (...args: any[]) => console.log("[ProjectSwap]", ...args) 
  */
 export function normalizeProjectSwapInfo(swapInfo: ProjectSwapInfo): ProjectSwapInfo {
     return {
-        ...swapInfo,
         swapEntries: swapInfo.swapEntries || [],
     };
 }
@@ -144,14 +143,8 @@ export async function checkProjectSwapRequired(
             return { required: false, reason: "No swap configured" };
         }
 
-        // Normalize to new array format (handles legacy single-object format)
+        // Normalize to new array format
         const swapInfo = normalizeProjectSwapInfo(effectiveSwapInfo);
-
-        // Only OLD projects (isOldProject: true) can trigger swap requirements
-        if (!swapInfo.isOldProject) {
-            debug("This is the NEW project (destination) - no swap required");
-            return { required: false, reason: "This is the destination project", swapInfo };
-        }
 
         // Find the active swap entry
         const activeEntry = getActiveSwapEntry(swapInfo);
@@ -159,6 +152,12 @@ export async function checkProjectSwapRequired(
         if (!activeEntry) {
             debug("No active swap entry found");
             return { required: false, reason: "No active swap", swapInfo };
+        }
+
+        // Only OLD projects (isOldProject: true in the entry) can trigger swap requirements
+        if (!activeEntry.isOldProject) {
+            debug("This is the NEW project (destination) - no swap required");
+            return { required: false, reason: "This is the destination project", swapInfo };
         }
 
         // Check if user has already completed this swap

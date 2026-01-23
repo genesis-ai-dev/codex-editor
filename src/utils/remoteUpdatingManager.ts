@@ -541,10 +541,6 @@ async function evaluateSwapRequirement(
         return { required: false, reason: "No swap configured" };
     }
 
-    if (!swapInfo.isOldProject) {
-        return { required: false, reason: "Not an old project" };
-    }
-
     // Import normalize helpers dynamically to avoid circular deps
     const { normalizeProjectSwapInfo, getActiveSwapEntry } = await import("./projectSwapManager");
     const normalizedSwap = normalizeProjectSwapInfo(swapInfo);
@@ -552,6 +548,10 @@ async function evaluateSwapRequirement(
 
     // Check for active (pending) swap entry
     if (activeEntry) {
+        // isOldProject is now in each entry - only OLD projects trigger swaps
+        if (!activeEntry.isOldProject) {
+            return { required: false, reason: "Not an old project" };
+        }
         return {
             required: true,
             reason: "Project has been swapped to a new repository",

@@ -121,9 +121,11 @@ function mergeValidatedByLists(
 
 /**
  * Merges projectSwap from base, ours, and theirs with intelligent handling:
- * - Rule 1: Preserve local isOldProject (never overwrite from remote)
+ * - Rule 1: Preserve local isOldProject in each entry (never overwrite from remote)
  * - Rule 2: Merge swapEntries by swapInitiatedAt
  * - Rule 3: For matching entries, merge swappedUsers arrays
+ * 
+ * All swap info is now contained in each entry (swapUUID, isOldProject, oldProjectUrl, etc.)
  */
 async function mergeProjectSwap(
     baseSwap: ProjectSwapInfo | undefined,
@@ -148,10 +150,6 @@ async function mergeProjectSwap(
     const normalizedTheirs = normalizeProjectSwapInfo(theirSwap!);
     const normalizedBase = baseSwap ? normalizeProjectSwapInfo(baseSwap) : undefined;
 
-    // Rule 1: ALWAYS preserve local isOldProject
-    // This is the key safety rule - OLD projects stay OLD, NEW projects stay NEW
-    const localIsOldProject = normalizedOurs.isOldProject;
-
     // Rule 2: Merge swapEntries by swapInitiatedAt
     const ourEntries = normalizedOurs.swapEntries || [];
     const theirEntries = normalizedTheirs.swapEntries || [];
@@ -172,8 +170,10 @@ async function mergeProjectSwap(
         let mergedEntry: ProjectSwapEntry;
 
         if (!ourEntry && theirEntry) {
-            // Only theirs has this entry
-            mergedEntry = { ...theirEntry };
+            // Only theirs has this entry - but preserve local's view of isOldProject
+            // Find local's isOldProject from any existing entry (all should be consistent)
+            const localIsOldProject = ourEntries.length > 0 ? ourEntries[0].isOldProject : theirEntry.isOldProject;
+            mergedEntry = { ...theirEntry, isOldProject: localIsOldProject };
         } else if (ourEntry && !theirEntry) {
             // Only ours has this entry
             mergedEntry = { ...ourEntry };
@@ -184,6 +184,8 @@ async function mergeProjectSwap(
                 mergedEntry = { ...ourEntry };
             } else {
                 mergedEntry = { ...theirEntry };
+                // Rule 1: ALWAYS preserve local isOldProject in each entry
+                mergedEntry.isOldProject = ourEntry.isOldProject;
             }
 
             // For status, if ANY version has "cancelled", it's cancelled (can't un-cancel)
@@ -219,10 +221,6 @@ async function mergeProjectSwap(
 
     return {
         swapEntries: mergedEntries,
-        isOldProject: localIsOldProject, // Rule 1: Always preserve local
-        projectUUID: normalizedOurs.projectUUID || normalizedTheirs.projectUUID,
-        oldProjectUrl: normalizedOurs.oldProjectUrl || normalizedTheirs.oldProjectUrl,
-        oldProjectName: normalizedOurs.oldProjectName || normalizedTheirs.oldProjectName,
     };
 }
 
@@ -2067,7 +2065,7 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
         }
 
         // 1.5. Resolve projectSwap (Complex Merge Logic)
-        // Rule 1: Preserve local isOldProject (never overwrite from remote)
+        // Rule 1: Preserve local isOldProject in each entry (never overwrite from remote)
         // Rule 2: Merge swapEntries by swapInitiatedAt
         // Rule 3: For matching entries, merge swappedUsers arrays
         const mergedProjectSwap = await mergeProjectSwap(

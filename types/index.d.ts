@@ -1362,9 +1362,12 @@ export interface RemoteHealingEntry extends RemoteUpdatingEntry {
 
 /**
  * Individual swap entry - one per swap initiation
- * Keyed by swapInitiatedAt timestamp (unique identifier)
+ * All swap information is self-contained in each entry
  */
 export interface ProjectSwapEntry {
+    /** Unique identifier for this swap operation */
+    swapUUID: string;
+
     /** Unique key - immutable once set, shared between OLD and NEW projects */
     swapInitiatedAt: number;
 
@@ -1374,6 +1377,15 @@ export interface ProjectSwapEntry {
     /** Only active or cancelled - execution state lives in localProjectSettings.json */
     swapStatus: "active" | "cancelled";
 
+    /** TRUE = this entry is in the OLD (source) project
+     *  FALSE = this entry is in the NEW (destination) project
+     *  Swap detection ONLY happens when isOldProject === true */
+    isOldProject: boolean;
+
+    /** Source repository info (the OLD project) */
+    oldProjectUrl: string;
+    oldProjectName: string;
+
     /** Target repository info (the NEW project URL) */
     newProjectUrl: string;
     newProjectName: string;
@@ -1382,13 +1394,13 @@ export interface ProjectSwapEntry {
     swapInitiatedBy: string;
     swapReason?: string;
 
-    /** If cancelled, who cancelled it and when */
-    cancelledBy?: string;
-    cancelledAt?: number;
-
     /** Users who completed this swap (moved to new project)
      *  This array is merged across OLD and NEW projects during sync */
     swappedUsers?: ProjectSwapUserEntry[];
+
+    /** If cancelled, who cancelled it and when */
+    cancelledBy?: string;
+    cancelledAt?: number;
 }
 
 /**
@@ -1399,26 +1411,25 @@ export interface ProjectSwapEntry {
  * 
  * Structure supports history preservation: cancelling and re-initiating creates new entries
  * in swapEntries array, preserving the history of all swap operations.
+ * 
+ * All swap information is contained within the entries - no top-level fields needed.
  */
 export interface ProjectSwapInfo {
-    /** Array of swap entries, keyed by swapInitiatedAt - supports history preservation */
+    /** Array of swap entries - supports history preservation */
     swapEntries?: ProjectSwapEntry[];
-
-    /** TRUE = this is the OLD (source) project that triggers swaps
-     *  FALSE = this is the NEW (destination) project
-     *  Swap detection ONLY happens when isOldProject === true */
-    isOldProject: boolean;
-
-    /** For NEW project: URL of the old project it came from (reference) */
-    oldProjectUrl?: string;
-    oldProjectName?: string;
-
-    /** Unique identifier shared across all versions of this logical project */
-    projectUUID?: string;
 
     // ============ CONVENIENCE FIELDS (computed from active entry) ============
     // These are populated from the active swapEntry for easy access in webviews
     // They are derived values, not stored in metadata.json
+
+    /** Whether this project is the OLD (source) project - derived from active entry */
+    isOldProject?: boolean;
+
+    /** URL of the old project (from active swap entry) - for display/filtering */
+    oldProjectUrl?: string;
+
+    /** Name of the old project (from active swap entry) - for display */
+    oldProjectName?: string;
 
     /** URL of the new project (from active swap entry) - for display/filtering */
     newProjectUrl?: string;
@@ -1438,7 +1449,7 @@ export interface LocalProjectSwap {
     /** Whether a swap is pending for this user */
     pendingSwap: boolean;
 
-    /** Matches projectUUID from metadata.json */
+    /** Matches swapUUID from the active ProjectSwapEntry */
     swapUUID: string;
 
     /** Path to backup .zip file */

@@ -263,15 +263,20 @@ export async function initiateProjectSwap(): Promise<void> {
             return;
         }
 
-        // Generate UUID (or reuse if exists)
-        const projectUUID = metadata?.meta?.projectSwap?.projectUUID || generateProjectId();
+        // Generate UUID for this swap operation
+        const swapUUID = generateProjectId();
         const now = Date.now();
+        const oldProjectName = extractProjectNameFromUrl(currentGitUrl);
 
-        // Create new swap entry
+        // Create new swap entry with all info self-contained
         const newEntry: ProjectSwapEntry = {
+            swapUUID,
             swapInitiatedAt: now,
             swapModifiedAt: now,
             swapStatus: "active",
+            isOldProject: true,
+            oldProjectUrl: currentGitUrl,
+            oldProjectName,
             newProjectUrl,
             newProjectName,
             swapInitiatedBy: currentUserInfo.username,
@@ -290,17 +295,13 @@ export async function initiateProjectSwap(): Promise<void> {
                 // Get existing swap info or create new one
                 const existingSwap = meta.meta.projectSwap
                     ? normalizeProjectSwapInfo(meta.meta.projectSwap)
-                    : { swapEntries: [], isOldProject: true };
+                    : { swapEntries: [] };
 
                 // Add new entry to the array (preserving history)
                 const updatedEntries = [...(existingSwap.swapEntries || []), newEntry];
 
                 meta.meta.projectSwap = {
                     swapEntries: updatedEntries,
-                    isOldProject: true,
-                    projectUUID,
-                    oldProjectUrl: currentGitUrl,
-                    oldProjectName: extractProjectNameFromUrl(currentGitUrl),
                 };
                 return meta;
             }
@@ -368,24 +369,18 @@ export async function viewProjectSwapStatus(): Promise<void> {
 
         // Build status message
         let statusMessage = `📋 Project Swap Status\n\n`;
-        statusMessage += `Project UUID: ${swap.projectUUID || "N/A"}\n`;
-        statusMessage += `Project Type: ${swap.isOldProject ? "OLD (source)" : "NEW (destination)"}\n\n`;
-
-        if (swap.isOldProject && swap.oldProjectUrl) {
-            statusMessage += `This project URL: ${swap.oldProjectUrl}\n`;
-        } else if (!swap.isOldProject && swap.oldProjectUrl) {
-            statusMessage += `Swapped from: ${swap.oldProjectUrl}\n`;
-        }
-
-        statusMessage += `\n--- Swap History (${allEntries.length} entries) ---\n\n`;
+        statusMessage += `--- Swap History (${allEntries.length} entries) ---\n\n`;
 
         for (let i = 0; i < allEntries.length; i++) {
             const entry = allEntries[i];
             const isActive = activeEntry && entry.swapInitiatedAt === activeEntry.swapInitiatedAt;
             const statusIcon = entry.swapStatus === "active" ? "⏳" : "❌";
 
-            statusMessage += `${isActive ? "► " : "  "}${statusIcon} ${entry.newProjectName}\n`;
+            statusMessage += `${isActive ? "► " : "  "}${statusIcon} Swap UUID: ${entry.swapUUID}\n`;
+            statusMessage += `    Project Type: ${entry.isOldProject ? "OLD (source)" : "NEW (destination)"}\n`;
             statusMessage += `    Status: ${entry.swapStatus.toUpperCase()}\n`;
+            statusMessage += `    Old Project: ${entry.oldProjectName}\n`;
+            statusMessage += `    New Project: ${entry.newProjectName}\n`;
             statusMessage += `    Initiated: ${new Date(entry.swapInitiatedAt).toLocaleString()} by ${entry.swapInitiatedBy}\n`;
 
             if (entry.swapReason) {

@@ -1205,9 +1205,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         ? (metaResult.metadata?.meta?.projectSwap as ProjectSwapInfo | undefined)
                         : undefined;
 
-                    if (swapInfo?.isOldProject) {
-                        const { getActiveSwapEntry } = await import("../../utils/projectSwapManager");
-                        const activeEntry = getActiveSwapEntry(swapInfo);
+                    const { getActiveSwapEntry } = await import("../../utils/projectSwapManager");
+                    const activeEntry = swapInfo ? getActiveSwapEntry(swapInfo) : undefined;
+
+                    // isOldProject is now in each entry, not at the top level
+                    if (activeEntry?.isOldProject) {
                         const displayName = path.basename(projectPath);
                         const recommended = activeEntry?.newProjectName || activeEntry?.newProjectUrl;
 
@@ -1495,7 +1497,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             const activeEntry = swapCheck.activeEntry;
                             const newProjectUrl = activeEntry.newProjectUrl;
                             const newProjectName = activeEntry.newProjectName;
-                            const projectUUID = swapCheck.swapInfo?.projectUUID || "unknown";
+                            const swapUUID = activeEntry.swapUUID || "unknown";
 
                             if (!newProjectUrl) {
                                 debugLog("No newProjectUrl found in swap info, skipping swap");
@@ -1530,7 +1532,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                                 projectName,
                                                 projectPath,
                                                 newProjectUrl,
-                                                projectUUID,
+                                                swapUUID,
                                                 activeEntry.swapInitiatedAt
                                             );
 
@@ -3260,7 +3262,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     }
 
                     const newProjectName = activeEntry.newProjectName || "new project";
-                    const projectUUID = normalizedSwap.projectUUID || "unknown";
+                    const swapUUID = activeEntry.swapUUID || "unknown";
 
                     await vscode.window.withProgress({
                         location: vscode.ProgressLocation.Notification,
@@ -3272,7 +3274,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             projectName,
                             projectPath,
                             newProjectUrl,
-                            projectUUID,
+                            swapUUID,
                             activeEntry.swapInitiatedAt
                         );
 
@@ -4781,8 +4783,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 if (projectId) {
                     const remoteMetadata = await fetchRemoteMetadata(projectId, false);
                     const swapInfo = remoteMetadata?.meta?.projectSwap as ProjectSwapInfo | undefined;
-                    if (swapInfo?.isOldProject) {
-                        const activeEntry = getActiveSwapEntry(swapInfo);
+                    const activeEntry = swapInfo ? getActiveSwapEntry(swapInfo) : undefined;
+                    
+                    // isOldProject is now in each entry, not at the top level
+                    if (activeEntry?.isOldProject) {
                         const deprecatedMessage = "This project has been deprecated.";
 
                         this.safeSendMessage({

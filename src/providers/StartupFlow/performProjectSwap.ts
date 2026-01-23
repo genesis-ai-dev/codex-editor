@@ -352,7 +352,7 @@ async function mergeProjectFiles(
 
 /**
  * Update metadata in new project with swap completion info
- * Uses the new array-based swapEntries structure
+ * Uses the new array-based swapEntries structure where all info is in each entry
  */
 async function updateSwapMetadata(
     projectPath: string,
@@ -392,32 +392,24 @@ async function updateSwapMetadata(
             // Normalize existing swap info or create new one
             const existingSwap = meta.meta.projectSwap
                 ? normalizeProjectSwapInfo(meta.meta.projectSwap)
-                : {
-                    swapEntries: [],
-                    isOldProject,
-                    projectUUID: swapUUID,
-                };
-
-            // Set core fields
-            const swapInfo: ProjectSwapInfo = {
-                ...existingSwap,
-                isOldProject,
-                projectUUID: existingSwap.projectUUID || swapUUID,
-                oldProjectUrl: existingSwap.oldProjectUrl || options.oldProjectUrl,
-                oldProjectName: existingSwap.oldProjectName || options.oldProjectName,
-            };
+                : { swapEntries: [] };
 
             // Find or create the matching swap entry by swapInitiatedAt
-            let entries = swapInfo.swapEntries || [];
+            let entries = existingSwap.swapEntries || [];
             const swapInitiatedAt = options.swapInitiatedAt || now;
             let targetEntry = entries.find(e => e.swapInitiatedAt === swapInitiatedAt);
 
             if (!targetEntry) {
                 // Create new entry (this happens on NEW project after swap)
+                // All info is self-contained in the entry
                 targetEntry = {
+                    swapUUID,
                     swapInitiatedAt,
                     swapModifiedAt: now,
-                    swapStatus: "active", // Status stays active - it's the metadata status, not execution status
+                    swapStatus: "active",
+                    isOldProject,
+                    oldProjectUrl: options.oldProjectUrl || "",
+                    oldProjectName: options.oldProjectName || "",
                     newProjectUrl: options.newProjectUrl || "",
                     newProjectName: options.newProjectName || "",
                     swapInitiatedBy: options.swapInitiatedBy || "unknown",
@@ -425,6 +417,9 @@ async function updateSwapMetadata(
                     swappedUsers: [],
                 };
                 entries = [...entries, targetEntry];
+            } else {
+                // Entry exists - ensure isOldProject is set correctly for this project's copy
+                targetEntry.isOldProject = isOldProject;
             }
 
             // Add current user to swappedUsers (for NEW project only)
@@ -457,10 +452,8 @@ async function updateSwapMetadata(
                 targetEntry.swapModifiedAt = now;
             }
 
-            // Update entries array in swapInfo
-            swapInfo.swapEntries = entries;
-
-            meta.meta.projectSwap = swapInfo;
+            // Update entries array
+            meta.meta.projectSwap = { swapEntries: entries };
             return meta;
         }
     );
