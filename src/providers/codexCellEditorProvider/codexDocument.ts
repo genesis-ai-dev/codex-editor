@@ -277,7 +277,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         retainValidations = false,
         skipAutoValidation = false
     ) {
-        console.log("trace 124 updateCellContent", cellId, newContent, editType, shouldUpdateValue);
+        debug("trace 124 updateCellContent", cellId, newContent, editType, shouldUpdateValue);
 
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
             (cell) => cell.metadata?.id === cellId
@@ -297,15 +297,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
             return;
         }
 
-        // For user edits, only add the edit if content has actually changed
-        if (editType === EditType.USER_EDIT && cellToUpdate.value === newContent) {
-            return; // Skip adding edit if normalized content hasn't changed
-        }
 
         // Special case: for non-persisting LLM previews, do not update the cell value
         // but DO record an LLM_GENERATION edit in metadata so history/auditing is preserved
         if (editType === EditType.LLM_GENERATION && !shouldUpdateValue) {
-            console.log("trace 124 LLM_GENERATION and !shouldUpdateValue", cellId, newContent, editType, shouldUpdateValue);
+            debug("trace 124 LLM_GENERATION and !shouldUpdateValue", cellId, newContent, editType, shouldUpdateValue);
             // Ensure edit history array exists
             if (!cellToUpdate.metadata.edits) {
                 cellToUpdate.metadata.edits = [];
@@ -313,7 +309,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
             const currentTimestamp = Date.now();
 
-            const previewEdit: any = {
+            const previewEdit = {
                 editMap: EditMapUtils.value(),
                 value: newContent,
                 timestamp: currentTimestamp,
@@ -324,7 +320,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             };
             cellToUpdate.metadata.edits.push(previewEdit);
 
-            console.log("trace 124 cellToUpdate", { cellToUpdate });
+            debug("trace 124 cellToUpdate", { cellToUpdate });
 
             // Mark dirty so edits are persisted on the next explicit save, but do not notify or save automatically.
             // This avoids side effects (e.g., merge logic using edit history) from updating the stored value.
@@ -604,7 +600,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 content           // Raw content with HTML tags
             );
 
-            console.log(`[CodexDocument] ✅ Cell ${cellId} immediately indexed and searchable at logical line ${logicalLinePosition}`);
+            debug(`[CodexDocument] ✅ Cell ${cellId} immediately indexed and searchable at logical line ${logicalLinePosition}`);
 
         } catch (error) {
             console.error(`[CodexDocument] Error indexing cell ${cellId}:`, error);
@@ -648,40 +644,40 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
     public async save(cancellation: vscode.CancellationToken): Promise<void> {
         const ourContent = formatJsonForNotebookFile(this._documentData);
-    
+
         // If a file exists but can't be read, we must not overwrite (this can permanently nuke data).
         const existing = await readExistingFileOrThrow(this.uri);
-    
+
         if (existing.kind === "missing") {
             // Initial write when file does not yet exist
             await atomicWriteUriText(this.uri, ourContent);
         } else {
             const { resolveCodexCustomMerge } = await import("../../projectManager/utils/merge/resolvers");
             const mergedContent = await resolveCodexCustomMerge(ourContent, existing.content);
-    
+
             // Safety: never write empty/invalid JSON to disk
             let candidate =
                 typeof mergedContent === "string" && mergedContent.trim().length > 0
                     ? mergedContent
                     : ourContent;
-    
+
             candidate = normalizeNotebookFileText(candidate);
-    
+
             try {
                 JSON.parse(candidate);
             } catch {
                 candidate = normalizeNotebookFileText(ourContent);
             }
-    
+
             await atomicWriteUriText(this.uri, candidate);
         }
-    
+
         // Record save timestamp to prevent file watcher from reverting our own save
         this._lastSaveTimestamp = Date.now();
-    
+
         // IMMEDIATE AI LEARNING - Update all cells with content to ensure validation changes are persisted
         await this.syncAllCellsToDatabase();
-    
+
         this._edits = []; // Clear edits after saving
         this._isDirty = false; // Reset dirty flag
     }
@@ -2013,7 +2009,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         });
 
         // Log validation change for debugging
-        console.log(`[CodexDocument] 🔍 Validation change for cell ${cellId}:`, {
+        debug(`[CodexDocument] 🔍 Validation change for cell ${cellId}:`, {
             validate,
             username,
             validationCount: latestEdit.validatedBy.filter(entry => this.isValidValidationEntry(entry) && !entry.isDeleted).length,
@@ -3047,7 +3043,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 }
             }
 
-            console.log(`[CodexDocument] ✅ AI knowledge updated: AI learned from ${syncedCells} cells, ${syncedValidations} cells with validation data`);
+            debug(`[CodexDocument] ✅ AI knowledge updated: AI learned from ${syncedCells} cells, ${syncedValidations} cells with validation data`);
 
         } catch (error) {
             console.error(`[CodexDocument] Error during AI learning:`, error);

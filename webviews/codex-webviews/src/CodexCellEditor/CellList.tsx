@@ -1062,7 +1062,7 @@ const CellList: React.FC<CellListProps> = ({
         "cellList-refreshComments",
         (event: MessageEvent) => {
             if (event.data.type === "refreshCommentCounts") {
-                console.log("Refreshing comment counts due to comments file change");
+                debug("Refreshing comment counts due to comments file change");
                 // Re-fetch comments count for all visible cells in one batch
                 const allCellIds = workingTranslationUnits.map((unit) => unit.cellMarkers[0]);
                 if (allCellIds.length > 0) {
@@ -1084,7 +1084,7 @@ const CellList: React.FC<CellListProps> = ({
     // Debug log to see the structure of translationUnits
     useEffect(() => {
         if (DEBUG_ENABLED && workingTranslationUnits.length > 0) {
-            console.log("Translation unit structure:", workingTranslationUnits[0]);
+            debug("Translation unit structure:", workingTranslationUnits[0]);
         }
     }, [workingTranslationUnits]);
 
