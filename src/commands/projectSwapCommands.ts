@@ -21,7 +21,8 @@ import {
     generateProjectScope,
     validateAndFixProjectMetadata,
     ensureGitConfigsAreUpToDate,
-    ensureGitDisabledInSettings
+    ensureGitDisabledInSettings,
+    extractProjectIdFromFolderName
 } from "../projectManager/utils/projectUtils";
 
 const DEBUG = false;
@@ -557,21 +558,27 @@ export async function initiateSwapCopy(): Promise<void> {
         const currentPath = workspaceFolder.uri.fsPath;
         const currentName = workspaceFolder.name;
 
-        // Get metadata to get clean project name
-        let cleanName = currentName;
+        // Get project name from metadata, falling back to folder name
+        let sourceName = currentName;
         try {
             const metadataPath = vscode.Uri.file(path.join(currentPath, "metadata.json"));
             const metadataContent = await vscode.workspace.fs.readFile(metadataPath);
             const metadata = JSON.parse(Buffer.from(metadataContent).toString("utf-8")) as ProjectMetadata;
-            if (metadata.projectName) cleanName = metadata.projectName;
+            if (metadata.projectName) sourceName = metadata.projectName;
         } catch (e) {
-            // Ignore
+            // Ignore - use folder name
         }
 
-        // Prompt for new name
+        // Get base name without UUID (for swap copy, we always want a fresh UUID)
+        const sourceUuid = extractProjectIdFromFolderName(sourceName);
+        const baseName = sourceUuid 
+            ? sourceName.substring(0, sourceName.length - sourceUuid.length - 1)
+            : sourceName;
+
+        // Prompt for new name (user can change the base name, UUID will be added)
         const newName = await vscode.window.showInputBox({
-            prompt: "Enter name for the new swapped project",
-            value: cleanName,
+            prompt: "Enter name for the new swapped project (UUID will be added automatically)",
+            value: baseName,
             validateInput: (value) => value ? null : "Name is required"
         });
 
@@ -579,12 +586,17 @@ export async function initiateSwapCopy(): Promise<void> {
 
         const sourceRemoteUrl = await getGitOriginUrl(currentPath);
 
-        // Generate new UUID
+        // Generate NEW UUID for the swapped project
         const newUUID = generateProjectId();
 
-        // Construct new folder name
-        const sanitizedName = sanitizeProjectName(newName);
-        const newFolderName = `${sanitizedName}-${newUUID}`;
+        // Sanitize user input and construct folder name
+        // If user entered a name with a UUID, we still use our new UUID (swap = fresh identity)
+        const sanitizedBaseName = sanitizeProjectName(newName);
+        const existingUuidInInput = extractProjectIdFromFolderName(sanitizedBaseName);
+        const finalBaseName = existingUuidInInput
+            ? sanitizedBaseName.substring(0, sanitizedBaseName.length - existingUuidInInput.length - 1)
+            : sanitizedBaseName;
+        const newFolderName = `${finalBaseName}-${newUUID}`;
         const parentDir = path.dirname(currentPath);
         const newProjectPath = path.join(parentDir, newFolderName);
 

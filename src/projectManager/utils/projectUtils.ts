@@ -602,8 +602,11 @@ export async function updateMetadataFile() {
             }
 
             // Update project properties
+            // Only update projectName if config has a non-empty value (don't overwrite with empty)
             const newProjectName = projectSettings.get("projectName", "");
-            project.projectName = newProjectName;
+            if (newProjectName) {
+                project.projectName = newProjectName;
+            }
             project.meta = project.meta || {}; // Ensure meta object exists
 
             // Explicitly update validation count
@@ -1355,13 +1358,51 @@ async function processProjectDirectory(
 
                 // If it has NO git origin (local-only), check folder name consistency
                 if (!gitOrigin) {
-                    // Check if folder name has any UUID-like suffix (15+ alphanumeric chars)
-                    const folderUuid = extractProjectIdFromFolderName(currentName);
-
-                    if (folderUuid) {
-                        // Folder already has a UUID suffix - use it as-is (don't extend)
-                        // Just sync metadata.projectId to match the folder's UUID
-                        if (folderUuid !== projectMetadata.projectId) {
+                    const metadataProjectId = projectMetadata.projectId;
+                    const uuidsInFolder = findAllUuidSegments(currentName);
+                    
+                    // CRITICAL: Check for multiple UUIDs first (e.g., "project-uuid1-uuid2")
+                    // If found, use metadata.projectId as source of truth and fix the folder name
+                    // NOTE: This only runs for LOCAL-ONLY projects (no git remote)
+                    if (uuidsInFolder.length > 1) {
+                        debug(`MULTIPLE UUIDs detected in folder name: ${uuidsInFolder.join(', ')}`);
+                        
+                        // Use metadata.projectId as the single source of truth
+                        // Fallback to FIRST UUID (the original) if metadata has none
+                        const correctId = metadataProjectId || uuidsInFolder[0] || generateProjectId();
+                        if (!metadataProjectId) {
+                            projectMetadata.projectId = correctId;
+                        }
+                        
+                        // Strip ALL UUIDs and append only the correct one
+                        const baseName = sanitizeProjectName(stripAllUuids(currentName));
+                        const newName = `${baseName}-${correctId}`;
+                        
+                        if (newName !== currentName) {
+                            const newPath = path.join(folder, newName);
+                            try {
+                                await vscode.workspace.fs.stat(vscode.Uri.file(newPath));
+                                debug(`Cannot fix duplicate UUIDs: target ${newName} already exists`);
+                            } catch {
+                                await vscode.workspace.fs.writeFile(
+                                    metadataUri,
+                                    Buffer.from(JSON.stringify(projectMetadata, null, 4))
+                                );
+                                await vscode.workspace.fs.rename(vscode.Uri.file(projectPath), vscode.Uri.file(newPath));
+                                debug(`Fixed duplicate UUIDs: renamed ${currentName} to ${newName}`);
+                                currentName = newName;
+                                projectPath = newPath;
+                            }
+                        }
+                    }
+                    // Normal case: single or no UUID
+                    else if (metadataProjectId && currentName.endsWith(`-${metadataProjectId}`)) {
+                        debug(`Folder name already ends with projectId: ${metadataProjectId}`);
+                        // Nothing to do - folder and metadata are in sync
+                    } else if (uuidsInFolder.length === 1) {
+                        // Folder has exactly one UUID but it doesn't match metadata - sync metadata to folder
+                        const folderUuid = uuidsInFolder[0];
+                        if (folderUuid !== metadataProjectId) {
                             projectMetadata.projectId = folderUuid;
                             await vscode.workspace.fs.writeFile(
                                 metadataUri,
@@ -1371,13 +1412,14 @@ async function processProjectDirectory(
                         }
                     } else {
                         // Folder has NO UUID suffix - need to add one
-                        // Use the metadata's projectId, or generate a new one if missing
-                        const idToUse = projectMetadata.projectId || generateProjectId();
-                        if (!projectMetadata.projectId) {
+                        // Use metadata's projectId if available, otherwise generate new
+                        const idToUse = metadataProjectId || generateProjectId();
+                        if (!metadataProjectId) {
                             projectMetadata.projectId = idToUse;
                         }
                         
-                        const baseName = sanitizeProjectName(projectMetadata.projectName || currentName);
+                        // Get base name from folder (it has no UUID since we checked above)
+                        const baseName = sanitizeProjectName(currentName);
                         const newName = `${baseName}-${idToUse}`;
 
                         if (newName !== currentName) {
@@ -1789,6 +1831,13 @@ export function sanitizeProjectName(name: string): string {
 const MIN_PROJECT_ID_LENGTH = 20;
 
 /**
+ * Checks if a string segment looks like a UUID (20+ alphanumeric chars)
+ */
+function isUuidLikeSegment(segment: string): boolean {
+    return segment.length >= MIN_PROJECT_ID_LENGTH && /^[a-z0-9]+$/i.test(segment);
+}
+
+/**
  * Extracts projectId from a name (folder name, git URL project name, etc.)
  * Expects format "projectName-projectId" where projectId is 20+ alphanumeric chars.
  * generateProjectId() produces ~20-22 char IDs (two base36 random strings).
@@ -1800,11 +1849,32 @@ export function extractProjectIdFromFolderName(name: string): string | undefined
     if (lastHyphenIndex !== -1) {
         const potentialProjectId = name.substring(lastHyphenIndex + 1);
         // Validate: alphanumeric, at least MIN_PROJECT_ID_LENGTH chars (20+)
-        if (potentialProjectId.length >= MIN_PROJECT_ID_LENGTH && /^[a-z0-9]+$/i.test(potentialProjectId)) {
+        if (isUuidLikeSegment(potentialProjectId)) {
             return potentialProjectId;
         }
     }
     return undefined;
+}
+
+/**
+ * Counts how many UUID-like segments (20+ alphanumeric chars) are in a name.
+ * Used to detect duplicate UUIDs like "project-uuid1-uuid2".
+ * @returns Array of UUID-like segments found
+ */
+export function findAllUuidSegments(name: string): string[] {
+    const segments = name.split('-');
+    return segments.filter(isUuidLikeSegment);
+}
+
+/**
+ * Strips ALL UUID-like segments from a name, returning just the base name.
+ * Use this when you need to reconstruct a name with a single correct UUID.
+ * @example stripAllUuids("my-project-uuid1-uuid2") => "my-project"
+ */
+export function stripAllUuids(name: string): string {
+    const segments = name.split('-');
+    const nonUuidSegments = segments.filter(segment => !isUuidLikeSegment(segment));
+    return nonUuidSegments.join('-') || name; // Fallback to original if all segments were UUIDs
 }
 
 /**

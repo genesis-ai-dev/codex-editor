@@ -53,10 +53,15 @@ export async function createNewWorkspaceAndProject(context?: vscode.ExtensionCon
     }
 
     const projectName = sanitizeProjectName(projectNameInput);
-
-    // Generate projectId for this legacy flow
-    const projectId = generateProjectId();
-    const fullProjectName = `${projectName}-${projectId}`;
+    
+    // Check if user input already has a valid UUID suffix - if so, use it instead of generating new
+    const existingUuid = extractProjectIdFromFolderName(projectName);
+    const projectId = existingUuid || generateProjectId();
+    
+    // Only append projectId if name doesn't already end with it
+    const fullProjectName = projectName.endsWith(`-${projectId}`) 
+        ? projectName 
+        : `${projectName}-${projectId}`;
 
     if (projectName !== projectNameInput) {
         const proceed = await vscode.window.showInformationMessage(
@@ -98,7 +103,16 @@ async function createProjectInNewFolder(folderNameOrProjectName: string, project
     // Determine folder name and project name
     // If actualProjectName is provided, folderNameOrProjectName is the folder name (already includes projectId)
     // Otherwise, folderNameOrProjectName is the project name and we append projectId
-    const folderName = actualProjectName ? folderNameOrProjectName : `${folderNameOrProjectName}-${projectId}`;
+    // SIMPLE CHECK: Only append if name doesn't already end with the projectId
+    let folderName: string;
+    if (actualProjectName) {
+        folderName = folderNameOrProjectName;
+    } else if (folderNameOrProjectName.endsWith(`-${projectId}`)) {
+        // Name already ends with projectId - don't append again
+        folderName = folderNameOrProjectName;
+    } else {
+        folderName = `${folderNameOrProjectName}-${projectId}`;
+    }
     const projectNameForMetadata = actualProjectName || folderNameOrProjectName;
 
     if (SHOULD_PROMPT_USER_FOR_PARENT_FOLDER) {
@@ -339,8 +353,10 @@ export async function createWorkspaceWithProjectName(projectName: string, projec
     if (!projectId || projectId.trim() === "") {
         throw new Error("projectId is required and cannot be empty for createWorkspaceWithProjectName");
     }
-    // Append projectId to sanitized project name for unique folder name
-    const folderName = `${projectName}-${projectId}`;
+    // Only append projectId if name doesn't already end with it
+    const folderName = projectName.endsWith(`-${projectId}`)
+        ? projectName
+        : `${projectName}-${projectId}`;
     // Pass the folderName, projectId, and the actual projectName separately
     await createProjectInNewFolder(folderName, projectId, projectName);
 }

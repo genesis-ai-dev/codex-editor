@@ -197,7 +197,9 @@ export class SyncManager {
     }
 
     // Check if project swap is required and notify/block if so
-    private async checkProjectSwap(projectPath: string): Promise<boolean> {
+    // isManualSync: when true, always show the dialog (user explicitly clicked sync)
+    // when false (hourly timer), only show once per swap entry to prevent infinite popups
+    private async checkProjectSwap(projectPath: string, isManualSync: boolean = false): Promise<boolean> {
         try {
             const { checkProjectSwapRequired } = await import("../utils/projectSwapManager");
             // Force bypass cache to ensure we get the latest state from server
@@ -209,9 +211,12 @@ export class SyncManager {
                 const activeEntry = result.activeEntry;
                 const swapTimestamp = activeEntry.swapInitiatedAt;
 
-                // Only show the dialog once per swap entry (prevents infinite popups)
-                // If user dismisses, we still block sync but don't show again until a new swap
-                if (this.swapNotificationShownFor !== swapTimestamp) {
+                // For manual sync: always show the dialog so user knows why sync is blocked
+                // For automatic sync (hourly timer): only show once per swap entry to prevent infinite popups
+                const shouldShowDialog = isManualSync || this.swapNotificationShownFor !== swapTimestamp;
+
+                if (shouldShowDialog) {
+                    // Track that we've shown for this swap entry (for automatic checks)
                     this.swapNotificationShownFor = swapTimestamp;
 
                     const newProjectName = activeEntry.newProjectName;
@@ -233,7 +238,7 @@ export class SyncManager {
                         await vscode.commands.executeCommand("workbench.action.closeFolder");
                     }
                 } else {
-                    debug("Swap notification already shown for this swap entry, silently blocking sync");
+                    debug("Swap notification already shown for this swap entry (automatic check), silently blocking sync");
                 }
 
                 return true;
@@ -539,7 +544,7 @@ export class SyncManager {
 
         // Check for project swap requirement before proceeding (only when not bypassing)
         if (projectPath && !bypassUpdatingCheck) {
-            const isSwapRequired = await this.checkProjectSwap(projectPath);
+            const isSwapRequired = await this.checkProjectSwap(projectPath, isManualSync);
             if (isSwapRequired) {
                 debug("Sync blocked due to project swap requirement");
                 return;

@@ -3038,15 +3038,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // 5. Rename folder logic
                         const parentDir = path.dirname(projectPath);
                         const currentFolderName = path.basename(projectPath);
-
-                        // Check if folder already has a UUID-like suffix (15+ alphanumeric chars)
+                        const metadataProjectId = metadata.projectId;
                         const existingFolderId = extractProjectIdFromFolderName(currentFolderName);
 
                         let newId: string;
                         let newFolderName = currentFolderName;
 
-                        if (existingFolderId) {
-                            // Folder already has a UUID suffix - use it as-is (don't extend)
+                        // SIMPLE CHECK: If folder already ends with metadata's projectId, we're in sync
+                        if (metadataProjectId && currentFolderName.endsWith(`-${metadataProjectId}`)) {
+                            // Folder and metadata already in sync - nothing to do
+                            newId = metadataProjectId;
+                        } else if (existingFolderId) {
+                            // Folder has a UUID suffix - use it and sync metadata to match
                             newId = existingFolderId;
                             // Folder name doesn't need to change
 
@@ -3056,8 +3059,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 metadata.projectName = sanitizeProjectName(baseName);
                             }
                         } else {
-                            // No existing UUID in folder name - generate a new one
-                            newId = generateProjectId();
+                            // No existing UUID in folder name - use metadata's projectId or generate new
+                            newId = metadataProjectId || generateProjectId();
                             const cleanName = sanitizeProjectName(currentFolderName);
                             newFolderName = `${cleanName}-${newId}`;
 
