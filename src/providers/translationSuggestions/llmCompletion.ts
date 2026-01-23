@@ -8,7 +8,6 @@ import { getAutoCompleteStatusBarItem } from "../../extension";
 import { tokenizeText } from "../../utils/nlpUtils";
 import { buildFewShotExamplesText, buildMessages, fetchFewShotExamples, getPrecedingTranslationPairs } from "./shared";
 import { abTestingRegistry } from "../../utils/abTestingRegistry";
-// A/B testing disabled for now
 
 // Helper function to build A/B test context object
 function buildABTestContext(

@@ -30,7 +30,10 @@ export async function callLLM(
         let authBearerToken: string | undefined;
         const hasCustomApiKey = config.apiKey && config.apiKey.trim().length > 0;
 
-        if (!hasCustomApiKey) {
+        // Check if endpoint is localhost (for local development)
+        const isLocalhost = config.endpoint.includes("localhost") || config.endpoint.includes("127.0.0.1");
+
+        if (!hasCustomApiKey && !isLocalhost) {
             // User doesn't have their own key, try Frontier auth
             try {
                 const frontierApi = getAuthApi();
@@ -54,7 +57,8 @@ export async function callLLM(
         }
 
         const openai = new OpenAI({
-            apiKey: config.apiKey,
+            // Use placeholder key for localhost (server doesn't validate it)
+            apiKey: isLocalhost ? (config.apiKey || "localhost-dev-key") : config.apiKey,
             baseURL: config.endpoint,
             defaultHeaders: authBearerToken
                 ? {
