@@ -1,10 +1,32 @@
 import * as vscode from "vscode";
+import { getAuthApi } from "../extension";
 
-const ANALYTICS_BASE = "https://zero.codexeditor.app";
+async function getAnalyticsBase(): Promise<string | null> {
+    try {
+        const frontierApi = getAuthApi();
+        if (frontierApi) {
+            // Use the same endpoint as LLM, just the base URL portion
+            const llmEndpoint = await frontierApi.getLlmEndpoint();
+            if (llmEndpoint) {
+                // Extract base URL (e.g., "https://api.frontierrnd.com/api/v1/llm" -> "https://api.frontierrnd.com")
+                const url = new URL(llmEndpoint);
+                return `${url.protocol}//${url.host}`;
+            }
+        }
+    } catch (error) {
+        console.debug("[ABTestingAnalytics] Could not get endpoint from auth API:", error);
+    }
+    return null;
+}
 
 async function postJson(path: string, payload: any): Promise<void> {
     try {
-        await fetch(`${ANALYTICS_BASE}${path}` as any, {
+        const baseUrl = await getAnalyticsBase();
+        if (!baseUrl) {
+            console.debug("[ABTestingAnalytics] No analytics endpoint available, skipping");
+            return;
+        }
+        await fetch(`${baseUrl}${path}` as any, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
@@ -41,6 +63,6 @@ export async function recordAbResult(args: {
     };
     if (args.userId ?? extras.userId) body.user_id = args.userId ?? extras.userId;
     if (args.projectId ?? extras.projectId) body.project_id = args.projectId ?? extras.projectId;
-    await postJson("/analytics/result", body);
+    await postJson("/api/v1/analytics/result", body);
 }
 

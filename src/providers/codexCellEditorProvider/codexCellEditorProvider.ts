@@ -727,7 +727,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Check authentication status
             let isAuthenticated = false;
             try {
-                if (authApi) {
+                // For localhost development, skip auth check
+                const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                const endpoint = (config.get("llmEndpoint") as string) || "";
+                const isLocalhost = endpoint.includes("localhost") || endpoint.includes("127.0.0.1");
+
+                if (isLocalhost) {
+                    isAuthenticated = true;
+                } else if (authApi) {
                     const authStatus = authApi.getAuthStatus();
                     isAuthenticated = authStatus?.isAuthenticated ?? false;
                 }
