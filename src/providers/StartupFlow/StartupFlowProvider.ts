@@ -2982,7 +2982,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     }
 
                     const confirm = await vscode.window.showWarningMessage(
-                        "This project appears to be missing its remote counterpart. Do you want to fix it as a new local project?\n\nThis will backup your git history and re-initialize the project.",
+                        "This project appears to be missing its remote counterpart. Do you want to fix it as a new local project?\n\nThis will create a full backup of your project (including git history) and re-initialize it.",
                         { modal: true },
                         "Fix & Open"
                     );
@@ -2996,25 +2996,35 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     const archivedProjectsDir = vscode.Uri.joinPath(codexProjectsRoot, "archived_projects");
                     await this.ensureDirectoryExists(archivedProjectsDir);
 
-                    // Read metadata early to get project name for backup file
+                    // Read metadata early
                     const metadataContent = await vscode.workspace.fs.readFile(metadataPath);
                     const metadata = JSON.parse(metadataContent.toString());
-                    const projectName = sanitizeProjectName(metadata.projectName || path.basename(projectPath));
+                    // Use actual folder name (includes UUID) for both zip filename and internal structure
+                    // This allows direct extraction back to the correct location
+                    const folderName = path.basename(projectPath);
 
-                    const backupZipPath = vscode.Uri.joinPath(archivedProjectsDir, `${projectName}-git-backup-${Date.now()}.zip`);
+                    const backupZipPath = vscode.Uri.joinPath(archivedProjectsDir, `${folderName}-full-backup-${Date.now()}.zip`);
 
                     await vscode.window.withProgress({
                         location: vscode.ProgressLocation.Notification,
                         title: "Fixing project...",
                         cancellable: false
                     }, async (progress) => {
-                        progress.report({ message: "Backing up git history to archive..." });
+                        progress.report({ message: "Backing up entire project to archive..." });
 
-                        // Use JSZip to zip the .git folder
+                        // Use JSZip to zip the entire project folder (including .git)
                         const zip = new JSZip();
-                        await this.addFilesToZip(gitPath, zip); // Zip the .git folder specifically
+                        // Create a root folder in the zip with the folder name to preserve structure
+                        const rootFolder = zip.folder(folderName);
+                        if (rootFolder) {
+                            await this.addFilesToZip(projectUri, rootFolder, { excludeGit: false });
+                        }
 
-                        const content = await zip.generateAsync({ type: "nodebuffer" });
+                        const content = await zip.generateAsync({
+                            type: "nodebuffer",
+                            compression: "DEFLATE",
+                            compressionOptions: { level: 9 }
+                        });
                         await vscode.workspace.fs.writeFile(backupZipPath, content);
 
                         progress.report({ message: "Removing old git configuration..." });

@@ -133,20 +133,25 @@ export class SyncManager {
         this.startUpdatingMonitor();
     }
 
-    // Start monitoring for updating requirements
+    // Start monitoring for updating and swap requirements
     private startUpdatingMonitor() {
         if (this.updatingCheckInterval) {
             clearInterval(this.updatingCheckInterval);
         }
 
-        // Check periodically (every hour) if updating is required
+        // Check periodically (every hour) if updating or swap is required
         // This handles cases where the user is constantly working (resetting sync timer)
         // or leaving the editor open without syncing
         this.updatingCheckInterval = setInterval(async () => {
             const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
             if (hasWorkspace) {
                 const projectPath = vscode.workspace.workspaceFolders![0].uri.fsPath;
-                await this.checkUpdating(projectPath);
+                // Check for both updating and swap requirements
+                const isUpdatingRequired = await this.checkUpdating(projectPath);
+                if (!isUpdatingRequired) {
+                    // Only check swap if updating isn't required (updating takes priority)
+                    await this.checkProjectSwap(projectPath);
+                }
             }
         }, 60 * 60 * 1000); // 1 hour
     }
@@ -193,7 +198,8 @@ export class SyncManager {
     private async checkProjectSwap(projectPath: string): Promise<boolean> {
         try {
             const { checkProjectSwapRequired } = await import("../utils/projectSwapManager");
-            const result = await checkProjectSwapRequired(projectPath);
+            // Force bypass cache to ensure we get the latest state from server
+            const result = await checkProjectSwapRequired(projectPath, undefined, true);
 
             if (result.required && result.activeEntry) {
                 debug("Project swap required for user, blocking sync and notifying");

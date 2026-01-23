@@ -500,7 +500,10 @@ export async function checkRemoteProjectRequirements(
 
         // Swap check
         const swapInfo = remoteMetadata.meta?.projectSwap as RemoteProjectRequirementsResult["swapInfo"] | undefined;
-        let { required: swapRequired, reason: swapReason, activeEntry } = evaluateSwapRequirement(swapInfo, currentUsername);
+        const swapResult = await evaluateSwapRequirement(swapInfo, currentUsername);
+        let swapRequired = swapResult.required;
+        let swapReason = swapResult.reason;
+        const activeEntry = swapResult.activeEntry;
 
         // Check if user has already swapped to the new project
         if (swapRequired && activeEntry?.newProjectUrl && currentUsername && swapInfo) {
@@ -530,10 +533,10 @@ export async function checkRemoteProjectRequirements(
     }
 }
 
-function evaluateSwapRequirement(
+async function evaluateSwapRequirement(
     swapInfo: RemoteProjectRequirementsResult["swapInfo"],
     currentUsername?: string | null
-): { required: boolean; reason: string; activeEntry?: ProjectSwapEntry; } {
+): Promise<{ required: boolean; reason: string; activeEntry?: ProjectSwapEntry; }> {
     if (!swapInfo) {
         return { required: false, reason: "No swap configured" };
     }
@@ -543,7 +546,7 @@ function evaluateSwapRequirement(
     }
 
     // Import normalize helpers dynamically to avoid circular deps
-    const { normalizeProjectSwapInfo, getActiveSwapEntry } = require("./projectSwapManager");
+    const { normalizeProjectSwapInfo, getActiveSwapEntry } = await import("./projectSwapManager");
     const normalizedSwap = normalizeProjectSwapInfo(swapInfo);
     const activeEntry = getActiveSwapEntry(normalizedSwap);
 
@@ -582,7 +585,7 @@ async function hasUserSwappedInNewProject(
     }
 
     // Import normalize helpers dynamically
-    const { normalizeProjectSwapInfo, findSwapEntryByTimestamp } = require("./projectSwapManager");
+    const { normalizeProjectSwapInfo, findSwapEntryByTimestamp } = await import("./projectSwapManager");
     const normalizedNewSwap = normalizeProjectSwapInfo(newSwapInfo);
 
     // Find the matching entry in the new project by swapInitiatedAt

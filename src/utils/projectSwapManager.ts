@@ -73,13 +73,16 @@ export function hasPendingSwap(swapInfo: ProjectSwapInfo): boolean {
 
 /**
  * Check if a project swap is required for the current project
+ * Fetches remote metadata to get the latest swap status (similar to checkRemoteUpdatingRequired)
  * @param projectPath - Path to the project directory
  * @param currentUsername - Username of the current user (optional)
+ * @param bypassCache - If true, bypass the remote metadata cache
  * @returns Object indicating if swap is required and details
  */
 export async function checkProjectSwapRequired(
     projectPath: string,
-    currentUsername?: string
+    currentUsername?: string,
+    bypassCache: boolean = false
 ): Promise<{
     required: boolean;
     reason: string;
@@ -100,18 +103,49 @@ export async function checkProjectSwapRequired(
             }
         }
 
-        // Read metadata
-        const metadataPath = vscode.Uri.file(`${projectPath}/metadata.json`);
-        const metadataBuffer = await vscode.workspace.fs.readFile(metadataPath);
-        const metadata = JSON.parse(Buffer.from(metadataBuffer).toString("utf-8")) as ProjectMetadata;
+        // First, try to read local metadata to get git origin URL
+        let metadata: ProjectMetadata | null = null;
+        let gitOriginUrl: string | null = null;
 
-        if (!metadata?.meta?.projectSwap) {
+        try {
+            const metadataPath = vscode.Uri.file(`${projectPath}/metadata.json`);
+            const metadataBuffer = await vscode.workspace.fs.readFile(metadataPath);
+            metadata = JSON.parse(Buffer.from(metadataBuffer).toString("utf-8")) as ProjectMetadata;
+        } catch {
+            debug("Could not read local metadata.json");
+        }
+
+        // Get git origin URL to fetch remote metadata
+        gitOriginUrl = await getGitOriginUrl(projectPath);
+
+        // Try to fetch remote metadata for the latest swap status
+        let remoteSwapInfo: ProjectSwapInfo | undefined;
+        if (gitOriginUrl) {
+            try {
+                const { fetchRemoteMetadata, extractProjectIdFromUrl } = await import("./remoteUpdatingManager");
+                const projectId = extractProjectIdFromUrl(gitOriginUrl);
+                if (projectId) {
+                    const remoteMetadata = await fetchRemoteMetadata(projectId, !bypassCache);
+                    if (remoteMetadata?.meta?.projectSwap) {
+                        remoteSwapInfo = remoteMetadata.meta.projectSwap as ProjectSwapInfo;
+                        debug("Fetched remote metadata for swap check");
+                    }
+                }
+            } catch (e) {
+                debug("Could not fetch remote metadata (non-fatal):", e);
+            }
+        }
+
+        // Use remote swap info if available, otherwise fall back to local
+        const effectiveSwapInfo = remoteSwapInfo || metadata?.meta?.projectSwap;
+
+        if (!effectiveSwapInfo) {
             debug("No project swap information found");
             return { required: false, reason: "No swap configured" };
         }
 
         // Normalize to new array format (handles legacy single-object format)
-        const swapInfo = normalizeProjectSwapInfo(metadata.meta.projectSwap);
+        const swapInfo = normalizeProjectSwapInfo(effectiveSwapInfo);
 
         // Only OLD projects (isOldProject: true) can trigger swap requirements
         if (!swapInfo.isOldProject) {
@@ -119,12 +153,12 @@ export async function checkProjectSwapRequired(
             return { required: false, reason: "This is the destination project", swapInfo };
         }
 
-        // Find the active (pending) swap entry
+        // Find the active swap entry
         const activeEntry = getActiveSwapEntry(swapInfo);
 
         if (!activeEntry) {
-            debug("No pending swap entry found");
-            return { required: false, reason: "No pending swap", swapInfo };
+            debug("No active swap entry found");
+            return { required: false, reason: "No active swap", swapInfo };
         }
 
         // Check if user has already completed this swap
@@ -142,8 +176,8 @@ export async function checkProjectSwapRequired(
             }
         }
 
-        // This is an OLD project with a pending swap - user needs to swap
-        debug("Project swap required - old project with pending swap entry");
+        // This is an OLD project with an active swap - user needs to swap
+        debug("Project swap required - old project with active swap entry");
         return {
             required: true,
             reason: "Project has been swapped to a new repository",
