@@ -24,7 +24,7 @@ const debugLog = DEBUG ? (...args: any[]) => console.log("[ProjectSwap]", ...arg
  * @param projectName - Name of the project
  * @param oldProjectPath - Path to the old project
  * @param newProjectUrl - Git URL of the new project
- * @param swapUUID - UUID tracking this swap
+ * @param swapUUID - Chain identifier linking all projects in swap lineage (original -> swapped -> re-swapped)
  * @param swapInitiatedAt - Timestamp from OLD project's active entry (for matching entries in NEW project)
  * @returns Promise resolving to new project path
  */

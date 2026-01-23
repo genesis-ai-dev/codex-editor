@@ -1365,7 +1365,13 @@ export interface RemoteHealingEntry extends RemoteUpdatingEntry {
  * All swap information is self-contained in each entry
  */
 export interface ProjectSwapEntry {
-    /** Unique identifier for this swap operation */
+    /**
+     * Unique identifier that links all projects in a swap chain.
+     * Generated once when a swap is first initiated, then propagated to all
+     * subsequent swapped projects. This creates a traceable chain:
+     * ProjectA (original) -> ProjectB -> ProjectC all share the same swapUUID.
+     * Enables tracking lineage regardless of how many times a project is swapped.
+     */
     swapUUID: string;
 
     /** Unique key - immutable once set, shared between OLD and NEW projects */
@@ -1449,7 +1455,7 @@ export interface LocalProjectSwap {
     /** Whether a swap is pending for this user */
     pendingSwap: boolean;
 
-    /** Matches swapUUID from the active ProjectSwapEntry */
+    /** Links to the swapUUID from the active ProjectSwapEntry - used to track the swap chain locally */
     swapUUID: string;
 
     /** Path to backup .zip file */
