@@ -147,3 +147,27 @@
     animation: spin 1.5s linear infinite;
     display: inline-block;
 }
+
+/* Center loading spinner in buttons - equidistant from top, bottom, and left */
+vscode-button {
+    position: relative;
+}
+
+vscode-button span {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+}
+
+/* Ensure spinner is centered vertically and has equal spacing from left edge */
+vscode-button .codicon-modifier-spin {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    margin-right: 8px;
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+}

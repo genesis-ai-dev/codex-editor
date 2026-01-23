@@ -23,6 +23,11 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
     const [isGenerating, setIsGenerating] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    
+    // Icon positioning constants
+    const ICON_LEFT_MARGIN = "3px";
+    const TEXT_LEFT_PADDING = "4px";
+    const ICON_SIZE = 16; // pixels
 
     // Update local state when initialMessage changes
     useEffect(() => {
@@ -116,7 +121,8 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                         </h2>
                         <p style={{ margin: "4px 0 0 0", fontSize: "14px", opacity: 0.8 }}>
                             These instructions guide the AI when translating your project. You can generate
-                            them automatically or write your own.
+                            them automatically or write your own. You may find it helpful to generate these
+                            instructions automatically, and then tweak them to your liking.
                         </p>
                     </div>
                 </div>
@@ -164,6 +170,9 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                             fontSize: "13px",
                         }}
                     />
+                    <p style={{ margin: "3px 0 0 0", fontSize: "12px", opacity: 0.7 }}>
+                        These instructions can be edited at any time in project settings.
+                    </p>
                 </div>
 
                 <div
@@ -177,17 +186,42 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                         appearance="secondary"
                         onClick={handleGenerate}
                         disabled={isGenerating || isSaving}
+                        style={{
+                            minWidth: "180px",
+                        }}
                     >
                         {isGenerating ? (
-                            <>
-                                <i className="codicon codicon-loading codicon-modifier-spin"></i>
-                                Generating...
-                            </>
+                            <span style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "8px",
+                            }}>
+                                <i className="codicon codicon-loading codicon-modifier-spin" style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    width: `${ICON_SIZE}px`,
+                                    height: `${ICON_SIZE}px`,
+                                    marginLeft: ICON_LEFT_MARGIN,
+                                }}></i>
+                                <span style={{ paddingLeft: TEXT_LEFT_PADDING }}>Generating...</span>
+                            </span>
                         ) : (
-                            <>
-                                <i className="codicon codicon-sparkle"></i>
-                                Generate Automatically
-                            </>
+                            <span style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "8px",
+                            }}>
+                                <i className="codicon codicon-sparkle" style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    width: `${ICON_SIZE}px`,
+                                    height: `${ICON_SIZE}px`,
+                                    marginLeft: ICON_LEFT_MARGIN,
+                                }}></i>
+                                <span style={{ paddingLeft: TEXT_LEFT_PADDING }}>Generate Automatically</span>
+                            </span>
                         )}
                     </VSCodeButton>
                 </div>
@@ -215,12 +249,26 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                     appearance="primary"
                     onClick={handleSave}
                     disabled={isGenerating || isSaving}
+                    style={{
+                        minWidth: "200px",
+                    }}
                 >
                     {isSaving ? (
-                        <>
-                            <i className="codicon codicon-loading codicon-modifier-spin"></i>
-                            Saving...
-                        </>
+                        <span style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                        }}>
+                            <i className="codicon codicon-loading codicon-modifier-spin" style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                width: `${ICON_SIZE}px`,
+                                height: `${ICON_SIZE}px`,
+                                marginLeft: ICON_LEFT_MARGIN,
+                            }}></i>
+                            <span style={{ paddingLeft: TEXT_LEFT_PADDING }}>Saving...</span>
+                        </span>
                     ) : systemMessage.trim() ? (
                         <>
                             Save and Start Translating
