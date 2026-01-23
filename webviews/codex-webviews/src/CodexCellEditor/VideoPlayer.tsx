@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import ReactPlayer from "react-player";
 import { useSubtitleData } from "./utils/vttUtils";
 import { QuillCellContent } from "../../../../types";
@@ -29,6 +29,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 }) => {
     const { subtitleUrl } = useSubtitleData(translationUnitsForSection);
     const [error, setError] = useState<string | null>(null);
+    const [playing, setPlaying] = useState(autoPlay);
 
     // Check if the URL is a YouTube URL
     const isYouTubeUrl = videoUrl?.includes("youtube.com") || videoUrl?.includes("youtu.be");
@@ -58,12 +59,25 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
 
     const handlePlay = () => {
+        setPlaying(true);
         onPlay?.();
     };
 
     const handlePause = () => {
+        setPlaying(false);
         onPause?.();
     };
+
+    const handleReady = () => {
+        // Player is ready, clear any previous errors
+        setError(null);
+        console.log("VideoPlayer: Player is ready");
+    };
+
+    // Update playing state when autoPlay prop changes
+    useEffect(() => {
+        setPlaying(autoPlay);
+    }, [autoPlay]);
 
     // Build config based on video type
     const playerConfig: Record<string, any> = {};
@@ -74,46 +88,46 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         };
     }
 
+    // Helper function to get the actual video element from ReactPlayer ref
+    const getVideoElement = useCallback((): HTMLVideoElement | null => {
+        if (!playerRef.current) return null;
+
+        // ReactPlayer v3 may return the video element directly, or we need to get it via getInternalPlayer
+        const internalPlayer = playerRef.current.getInternalPlayer?.();
+        if (internalPlayer instanceof HTMLVideoElement) {
+            return internalPlayer;
+        }
+
+        // If getInternalPlayer returns an object, try to find the video element
+        if (internalPlayer && typeof internalPlayer === "object") {
+            const foundVideo =
+                (internalPlayer as any).querySelector?.("video") ||
+                (internalPlayer as any).video ||
+                internalPlayer;
+            if (foundVideo instanceof HTMLVideoElement) {
+                return foundVideo;
+            }
+        }
+
+        // Check if playerRef.current itself is a video element
+        if (playerRef.current instanceof HTMLVideoElement) {
+            return playerRef.current;
+        }
+
+        // Try to find video element in the DOM near the ref
+        const wrapper = playerRef.current as any;
+        const foundVideo =
+            wrapper.querySelector?.("video") || wrapper.parentElement?.querySelector?.("video");
+        if (foundVideo instanceof HTMLVideoElement) {
+            return foundVideo;
+        }
+
+        return null;
+    }, [playerRef]);
+
     // Add subtitle tracks for local videos (React Player v3 uses standard HTML video elements)
     useEffect(() => {
         if (subtitleUrl && showSubtitles && !isYouTubeUrl) {
-            // Helper function to get the actual video element from ReactPlayer ref
-            const getVideoElement = (): HTMLVideoElement | null => {
-                if (!playerRef.current) return null;
-
-                // ReactPlayer v3 may return the video element directly, or we need to get it via getInternalPlayer
-                const internalPlayer = playerRef.current.getInternalPlayer?.();
-                if (internalPlayer instanceof HTMLVideoElement) {
-                    return internalPlayer;
-                }
-
-                // If getInternalPlayer returns an object, try to find the video element
-                if (internalPlayer && typeof internalPlayer === "object") {
-                    const foundVideo =
-                        (internalPlayer as any).querySelector?.("video") ||
-                        (internalPlayer as any).video ||
-                        internalPlayer;
-                    if (foundVideo instanceof HTMLVideoElement) {
-                        return foundVideo;
-                    }
-                }
-
-                // Last resort: check if playerRef.current itself is a video element
-                if (playerRef.current instanceof HTMLVideoElement) {
-                    return playerRef.current;
-                }
-
-                // Try to find video element in the DOM near the ref
-                const wrapper = playerRef.current as any;
-                const foundVideo =
-                    wrapper.querySelector?.("video") || wrapper.parentElement?.querySelector?.("video");
-                if (foundVideo instanceof HTMLVideoElement) {
-                    return foundVideo;
-                }
-
-                return null;
-            };
-
             // Use a small delay to ensure ReactPlayer has mounted and the ref is available
             const timeoutId = setTimeout(() => {
                 const videoElement = getVideoElement();
@@ -135,7 +149,50 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
             return () => clearTimeout(timeoutId);
         }
-    }, [subtitleUrl, showSubtitles, isYouTubeUrl, playerRef]);
+    }, [subtitleUrl, showSubtitles, isYouTubeUrl, getVideoElement]);
+
+    // Add direct timeupdate listener to video element for more frequent updates
+    // This ensures audio synchronization works even if onProgress doesn't fire frequently enough
+    useEffect(() => {
+        if (!onTimeUpdate) return;
+
+        let cleanup: (() => void) | null = null;
+
+        const setupListener = () => {
+            const videoElement = getVideoElement();
+            if (!videoElement) {
+                // Try again after a short delay if video element isn't ready
+                const timeoutId = setTimeout(() => {
+                    const delayedVideoElement = getVideoElement();
+                    if (delayedVideoElement) {
+                        const handleTimeUpdate = () => {
+                            onTimeUpdate(delayedVideoElement.currentTime);
+                        };
+                        delayedVideoElement.addEventListener("timeupdate", handleTimeUpdate);
+                        cleanup = () => {
+                            delayedVideoElement.removeEventListener("timeupdate", handleTimeUpdate);
+                        };
+                    }
+                }, 500);
+                return () => clearTimeout(timeoutId);
+            }
+
+            const handleTimeUpdate = () => {
+                onTimeUpdate(videoElement.currentTime);
+            };
+
+            videoElement.addEventListener("timeupdate", handleTimeUpdate);
+            cleanup = () => {
+                videoElement.removeEventListener("timeupdate", handleTimeUpdate);
+            };
+        };
+
+        const initialCleanup = setupListener();
+        return () => {
+            if (cleanup) cleanup();
+            if (initialCleanup) initialCleanup();
+        };
+    }, [onTimeUpdate, getVideoElement, videoUrl]);
 
     // Log video URL for debugging
     useEffect(() => {
@@ -163,17 +220,25 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 ) : (
                     <ReactPlayer
                         key={subtitleUrl}
-                        ref={playerRef as React.RefObject<any>}
-                        url={videoUrl}
+                        ref={playerRef}
+                        src={videoUrl}
+                        playing={playing}
                         controls={true}
                         width="100%"
                         height={playerHeight}
                         onError={handleError}
+                        onReady={handleReady}
                         config={playerConfig}
-                        onProgress={(state) => {
-                            // Handle time updates via onProgress for better compatibility
-                            onTimeUpdate?.(state.playedSeconds);
-                        }}
+                        onProgress={
+                            // ReactPlayer v3 onProgress receives { playedSeconds, played, loaded, loadedSeconds }
+                            // but TypeScript types incorrectly expect SyntheticEvent
+                            ((state: { playedSeconds: number }) => {
+                                // Handle time updates via onProgress for better compatibility
+                                onTimeUpdate?.(state.playedSeconds);
+                            }) as any
+                        }
+                        // Also listen to the video element's timeupdate event for more frequent updates
+                        onTimeUpdate={handleTimeUpdate}
                         onPlay={handlePlay}
                         onPause={handlePause}
                     />
